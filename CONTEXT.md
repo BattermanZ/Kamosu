@@ -49,3 +49,61 @@ _Avoid_: Migration, sync, ingest
 **Export**:
 Producing recipes in a form usable outside Kamosu. An Operation like any other.
 _Avoid_: Download, backup, share
+
+### What a recipe is made of
+
+**Recipe**:
+A dish as recorded in Kamosu. It requires only a title; a bare name and a link is a real recipe, not an unfinished one.
+_Avoid_: Dish, entry, card
+
+**Ingredient**:
+One row of a recipe's ingredient list. Its truth is its Ingredient Line; a Reading may sit over it.
+_Avoid_: Item, component
+
+**Ingredient Line**:
+The ingredient exactly as written or imported — `"2 poignées de farine, environ"`. Always preserved, always what is displayed, and the thing a person edits.
+_Avoid_: Original text, raw text, free text, display string
+
+**Reading**:
+An optional interpretation of an Ingredient Line into its parts — how much, in what unit, of what Food. It may be absent, partial or mistaken; anything built on it degrades politely rather than failing.
+_Avoid_: Parse, structured ingredient, decomposition, breakdown
+
+**Food**:
+An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded.
+_Avoid_: Item, product, ingredient (an Ingredient is a row in a recipe; a Food is the thing itself)
+
+**Step**:
+One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like, and links to the Ingredients it uses. A duration or a temperature is read out of that text, never typed beside it.
+_Avoid_: Instruction, direction, method, procedure
+
+**Section**:
+A named part of a recipe — "For the sauce", "Assemble" — holding some of its Ingredients or some of its Steps. Optional: most recipes have none and are a single flat list.
+_Avoid_: Group, block, heading, part, component
+
+**Yield**:
+What a recipe makes — an amount and what it is an amount of: "4 servings", "24 cookies", "1.5 litres". Optional. Scaling a recipe means changing this amount, which multiplies every Reading in step.
+_Avoid_: Servings, serves, portions, makes
+
+**Note**:
+Free text about the recipe as written — serving suggestions, substitutions, "this doubles well". True whether or not anyone has ever cooked it. A record of one particular cooking is not a Note.
+_Avoid_: Comment, remark, tip, annotation
+
+**Tag**:
+A word a recipe can be described by, kept once in a single shared list and pointed at by every recipe that uses it — so renaming or merging one reaches every recipe at once. Flat: tags have no hierarchy.
+_Avoid_: Keyword, category, label, folder
+
+**Source**:
+Where a recipe came from — free text attribution such as "Marmiton" or "Mum's ring binder, p.40", with an optional link. A hint that two recipes are related, never a way of identifying one.
+_Avoid_: URL, link, origin, attribution, provenance
+
+**Prep Time**:
+How long a recipe needs hands-on before cooking begins, in whole minutes. Optional.
+_Avoid_: Active time, preparation
+
+**Cook Time**:
+How long a recipe takes from the end of prep until it is ready, in whole minutes — including resting, proving, marinating and chilling. Cooking is not only what happens over heat. Optional.
+_Avoid_: Bake time, waiting time, rest time, total time
+
+**Main Photo**:
+The single image that stands for a recipe wherever it is listed. Optional. Distinct from a Step's photo, which shows one moment in the cooking.
+_Avoid_: Hero image, cover, thumbnail, picture
