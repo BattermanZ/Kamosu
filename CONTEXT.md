@@ -61,7 +61,7 @@ _Avoid_: Export, dump, snapshot
 ### What a recipe is made of
 
 **Recipe**:
-A dish as recorded in Kamosu. It requires only a title; a bare name and a link is a real recipe, not an unfinished one.
+A dish as recorded in Kamosu. It requires only a title; a bare name and a link is a real recipe, not an unfinished one. Every Recipe belongs to a Lineage and is held as a Branch of it, at some Version.
 _Avoid_: Dish, entry, card
 
 **Ingredient**:
@@ -115,3 +115,21 @@ _Avoid_: Bake time, waiting time, rest time, total time
 **Main Photo**:
 The single image that stands for a recipe wherever it is listed. Optional. Distinct from a Step's photo, which shows one moment in the cooking.
 _Avoid_: Hero image, cover, thumbnail, picture
+
+### Identity and history
+
+**Lineage**:
+A recipe's identity in the world. One id, minted once when the recipe is created, carried by every copy of it on every instance anywhere. It never changes and is never joined to another Lineage — two recipes that grew up separately are related, not the same recipe.
+_Avoid_: Recipe id, UUID, slug, canonical id, family
+
+**Version**:
+One saved state of a recipe, named by a fingerprint of its own content, recording the Version it came from and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten or deleted. Two holders of the identical state hold the same Version without having communicated.
+_Avoid_: Revision, snapshot, commit, edit, history entry
+
+**Branch**:
+One holder's line of Versions within a Lineage. What a person has on screen is a Branch at its latest Version. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile.
+_Avoid_: Copy, fork, variant, clone
+
+**Branch Point**:
+The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means.
+_Avoid_: Common ancestor, base, merge base, split

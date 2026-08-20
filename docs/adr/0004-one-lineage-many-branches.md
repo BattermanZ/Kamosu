@@ -1,0 +1,34 @@
+# One lineage, many branches: a recipe's identity outlives every copy of it
+
+A recipe's identity is a **Lineage** — a single random id, minted once when the recipe is created, never changed and never joined to another. Every copy of that recipe, on any Kamosu instance anywhere in the world, carries the same Lineage id. Editing a recipe someone shared with you does not make a new recipe; it makes a new **Version** on **your Branch** of their Lineage.
+
+A **Version** is one saved state of a recipe, named by a fingerprint of its own content. It records the Version it came from, and optionally a human name and a line of free text saying what changed and why. Versions are append-only: never rewritten, never deleted. A **Branch** is one holder's line of Versions within a Lineage; what a person sees on screen is a Branch sitting at its latest Version.
+
+Because a Version is named by its content, two people who hold the genuinely identical state hold the same Version id without ever having communicated. That is what makes the **branch point** — the last Version two Branches share — a computable fact rather than an assertion.
+
+## Why
+
+- **The wish was explicit and it is the whole point.** A recipe shared across the world stays *the same recipe*, and anyone holding a copy can read the state its original author first wrote. Neither is true if a shared copy is a new recipe with a "derived from" note, which is what every recipe app that does this at all does.
+- **Content fingerprints make provenance free.** No registry, no server to ask, no clocks to agree on. Divergence is detected by two ids failing to match, and the common ancestor is found by walking two parent chains until they meet.
+- **History is cheap in the only unit that matters.** A recipe is text. A hundred Versions of a long recipe is a couple of hundred kilobytes — smaller than one photograph of the dish. There is no size argument for discarding it.
+- **It removes a whole class of problem rather than solving it.** Because divergence is a permanent, visible, legitimate state, there is no reconciliation to get wrong (see *never merge*, below).
+
+## Considered options
+
+- **Fork with a new id and a parent pointer.** Each recipient's copy gets its own identity and remembers where it came from. Simpler in every respect, and rejected: the id no longer survives sharing, so "the recipe I wrote is the recipe you have" is false — the stated requirement.
+- **Lean on the Vault's git history.** Rejected in [ADR 0003](./0003-the-database-is-the-truth-the-vault-is-a-published-copy.md): the Vault is a derived copy that a user may never switch on, so its history is not the recipe's history.
+- **Explicit, occasional, named Versions only** — ordinary edits overwrite; milestones are marked by hand. Rejected: the moment worth keeping is reliably the one nobody thought to mark, and unmarked history is unrecoverable.
+- **One Lineage, many Branches, every save a Version** (chosen).
+
+## Consequences
+
+- **Every save is a Version, and the save box asks what changed.** There is no separate "make a version" act to remember. Saves by the same person within a few minutes collapse into one Version, so correcting a typo three times does not produce three entries. The optional *what changed* line is the only place the **why** of a divergence can ever come from — nothing can infer it later.
+- **A Version may be named, and most are not.** Naming is a second optional field on the same record — not a second concept. "Original", "Christmas 2025".
+- **Kamosu never merges. Ever.** When a diverged copy of a Lineage already held arrives, the instance holds **both Branches**, labelled, and reports the branch point and the difference between them. Carrying something across is a person reading two recipes and editing one, which produces an ordinary new Version with a note. This is a product decision, not a shortcut: code merges cleanly because two edits to different functions do not interact, whereas a recipe is one cooked outcome, and "less salt" combined with "more butter" yields a dish nobody made and nobody tasted. A cook does not want the union of two recipes.
+- **This closes the *Vault sync between instances* question**, previously the hardest open item on the map. Two instances sharing one git-backed vault do not reconcile; they diverge, visibly, and a person decides. Nothing needs to merge a JSON sidecar.
+- **A Lineage is never joined to another.** Two recipes that grew up separately have no shared Version, so a join would have to fabricate an ancestor — and a history that can lie about one recipe cannot be trusted about any. Recipes that merely resemble each other are *related*, which is an ordinary link between two recipes and belongs with the other kinds of link. Imported near-duplicates — the real Crouton library holds three such pairs — arrive as separate Lineages and stay that way.
+- **A shared recipe is a self-contained file.** It carries the recipe, the complete written history back to its first Version, the photographs *currently in use*, and the Lineage id. It survives email, a memory stick and ten years, and it does not depend on the sharer's server still running. A share link is a convenience for delivering that same bundle over the web, not a different mechanism. Photographs belonging only to superseded Versions are not carried: history is complete in words, not in pictures.
+- **Photographs are stored once and pointed at, never copied per Version.** Ten Versions sharing one photograph hold one photograph.
+- **An Attempt is pinned to the Version that was cooked.** A cooking record names the exact Version on screen at the time, so "too salty" stays true forever about the state it described, instead of quietly becoming a lie once the salt is reduced. Promoting an Attempt into the recipe is a deliberate second act producing an ordinary Version, pre-filled from the Attempt's note. Cooking never edits a recipe by itself. Attempts do not travel with a shared recipe.
+- **History is append-only, and everything written travels forever.** A note that made sense privately reads differently to a stranger, and there is no unsay. Whether a share may begin from a chosen Version rather than the first is left open, and so is whether a Version can ever be withdrawn.
+- **Authorship across instances is unresolved.** A Version records who made it, but "who" is an account on some other person's server, which this instance has no way to verify. Nothing here prevents a copy from claiming any authorship it likes; content fingerprints make tampering with *history* detectable, not identity.
