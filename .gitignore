@@ -3,3 +3,6 @@ AGENTS.local.md
 
 # OS noise
 .DS_Store
+
+# Real recipe exports — large, personal, not project source
+samples/
