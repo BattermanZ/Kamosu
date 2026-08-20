@@ -50,6 +50,14 @@ _Avoid_: Migration, sync, ingest
 Producing recipes in a form usable outside Kamosu. An Operation like any other.
 _Avoid_: Download, backup, share
 
+**Vault**:
+An optional folder of Markdown notes and images in which one person's recipes are published, kept up to date by Kamosu and optionally backed by Git. Kamosu writes a Vault and never reads it back; changes made to the files return only through Import. A Vault is a publication with an owner, a destination and a scope — not where recipes are stored.
+_Avoid_: Mirror, source of truth, repository, notes folder
+
+**Backup**:
+An Operation producing a single archive from which a Kamosu instance can be restored — a consistent copy of the database together with the photographs. A Vault is not a Backup.
+_Avoid_: Export, dump, snapshot
+
 ### What a recipe is made of
 
 **Recipe**:
