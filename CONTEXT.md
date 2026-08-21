@@ -26,10 +26,48 @@ _Avoid_: Adapter, interface, transport, front end, client
 The guarantee that both Doors offer the same Operations. It holds because the Doors are built from the Catalogue rather than written separately, so an Operation cannot exist at one Door alone.
 _Avoid_: Feature parity, equivalence
 
+### People and access
+
+**Person**:
+Someone with an account on this instance. Cooks in one or more Kitchens, keeps their own Attempts, mints their own Access Keys and reads Kamosu in their Reading Language. An agent is never a Person — it acts as one.
+_Avoid_: User, member, profile, actor, account
+
+**Kitchen**:
+The circle a recipe is held by, and the only circle that may edit it. Every Branch belongs to exactly one Kitchen; a Person cooks in one or more, and a Person on their own is a Kitchen of one — there is no solo case sitting beside a shared one. Anyone may create one. It has a Name given by its creator, which any member may change, and a Nickname each member may set for themselves alone and which nobody else ever sees. Any member may invite another Person or remove one; the last member cannot be removed.
+_Avoid_: Household, group, team, family, workspace, organisation, account
+
+**Home Kitchen**:
+The Kitchen a Person was created with. Where anything they write, import, receive or Copy is held unless they say otherwise — a question only ever put to someone who cooks in more than one.
+_Avoid_: Default kitchen, primary group, personal space
+
+**Visibility**:
+How far a recipe can be seen, set by the Kitchen holding it: its own Kitchen, Chosen (named People and Kitchens), Everyone here, or Anyone with the link. Seeing a recipe means reading it, cooking from it and recording an Attempt against it — never editing it. Changing a recipe you can see means taking a Copy.
+_Avoid_: Permission, access control, privacy level, sharing setting
+
+**Copy**:
+Taking a recipe you can see into your own Kitchen — a new Branch of the same Lineage, held by you from then on. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a share bundle from another server.
+_Avoid_: Duplicate, fork, clone, save, import
+
+**Share Link**:
+The unguessable address of a recipe whose Visibility is *Anyone with the link*. One per recipe, never expiring, freely passed on. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, and offers both the share bundle and a PDF. It never shows Attempts.
+_Avoid_: Public URL, guest access, token link, published recipe
+
+**Invite**:
+A one-use link that turns a stranger into a Person, or adds a Person to a Kitchen. Kamosu has no signup: every account begins with an Invite, and the first is the Operator's own, minted when the instance first runs.
+_Avoid_: Signup, registration, join code, magic link
+
+**Access Key**:
+A long secret a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. A Key can never mint another Key.
+_Avoid_: API key, token, secret, password, Credential
+
+**Operator**:
+A Person who also administers the instance: minting Invites, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, merging Foods, and deleting a Kitchen nobody is left in. Nothing beyond that list — no Operator can read another Person's recipes or Attempts. More than one is allowed and the last cannot be demoted. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+_Avoid_: Admin, root, superuser, owner, host
+
 ### Doing and permission
 
 **Credential**:
-What a request presents to prove who is acting. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
+What a request presents to prove who is acting — always as a Person. It comes from one of two places: a Person logging in, or an Access Key they minted. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
 _Avoid_: Token, session, auth, API key, login
 
 **Immediate Operation**:
@@ -51,7 +89,7 @@ Producing recipes in a form usable outside Kamosu. An Operation like any other.
 _Avoid_: Download, backup, share
 
 **Vault**:
-An optional folder of Markdown notes and images in which one person's recipes are published, kept up to date by Kamosu and optionally backed by Git. Kamosu writes a Vault and never reads it back; changes made to the files return only through Import. A Vault is a publication with an owner, a destination and a scope — not where recipes are stored.
+An optional folder of Markdown notes and images in which one Kitchen's recipes are published, kept up to date by Kamosu and optionally backed by Git. Kamosu writes a Vault and never reads it back; changes made to the files return only through Import. A Vault is a publication with a Kitchen that owns it, a destination and a scope — not where recipes are stored. One per Kitchen, set up by any of its members.
 _Avoid_: Mirror, source of truth, repository, notes folder
 
 **Backup**:
@@ -77,7 +115,7 @@ An optional interpretation of an Ingredient Line into its parts — how much, in
 _Avoid_: Parse, structured ingredient, decomposition, breakdown
 
 **Food**:
-An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded. It holds a name per Language — flour and farine are one Food — so a shopping list merges them and nutrition is matched once.
+An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded. It holds a name per Language — flour and farine are one Food — so a shopping list merges them and nutrition is matched once. There is one list of Foods for the whole instance, because matching a Food to nutrition data is the expensive part and is worth doing once: anyone may create one or add a name to it, but only the Operator may merge two into one.
 _Avoid_: Item, product, ingredient (an Ingredient is a row in a recipe; a Food is the thing itself)
 
 **Step**:
@@ -97,7 +135,7 @@ Free text about the recipe as written — serving suggestions, substitutions, "t
 _Avoid_: Comment, remark, tip, annotation
 
 **Tag**:
-A word a recipe can be described by, kept once in a single shared list and pointed at by every recipe that uses it — so renaming or merging one reaches every recipe at once, and named per Language rather than split by it. Flat: tags have no hierarchy.
+A word a recipe can be described by, kept once in a single list belonging to a Kitchen and pointed at by every recipe of that Kitchen which uses it — so renaming or merging one reaches all of them at once, and named per Language rather than split by it. A tag arriving with a recipe from elsewhere lands in the receiving Kitchen's list; what one Kitchen means by "quick" is its own business. Flat: tags have no hierarchy.
 _Avoid_: Keyword, category, label, folder
 
 **Source**:
