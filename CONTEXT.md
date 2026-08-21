@@ -77,7 +77,7 @@ An optional interpretation of an Ingredient Line into its parts — how much, in
 _Avoid_: Parse, structured ingredient, decomposition, breakdown
 
 **Food**:
-An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded.
+An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded. It holds a name per Language — flour and farine are one Food — so a shopping list merges them and nutrition is matched once.
 _Avoid_: Item, product, ingredient (an Ingredient is a row in a recipe; a Food is the thing itself)
 
 **Step**:
@@ -97,7 +97,7 @@ Free text about the recipe as written — serving suggestions, substitutions, "t
 _Avoid_: Comment, remark, tip, annotation
 
 **Tag**:
-A word a recipe can be described by, kept once in a single shared list and pointed at by every recipe that uses it — so renaming or merging one reaches every recipe at once. Flat: tags have no hierarchy.
+A word a recipe can be described by, kept once in a single shared list and pointed at by every recipe that uses it — so renaming or merging one reaches every recipe at once, and named per Language rather than split by it. Flat: tags have no hierarchy.
 _Avoid_: Keyword, category, label, folder
 
 **Source**:
@@ -127,12 +127,26 @@ One saved state of a recipe, named by a fingerprint of its own content, recordin
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
-One holder's line of Versions within a Lineage. What a person has on screen is a Branch at its latest Version. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile.
+One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. A Branch in a different Language from the one it grew out of is a Translation.
 _Avoid_: Copy, fork, variant, clone
 
 **Branch Point**:
 The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means.
 _Avoid_: Common ancestor, base, merge base, split
+
+### Language
+
+**Language**:
+The language a Branch is written in. Detected from the recipe's own text when it is saved — set when there is none, offered when it disagrees with one already there, never changed silently — and always correctable. It may be **Unknown**, which is a permanent and unremarkable state for a recipe that is honestly more than one language: it shows to every reader and can neither be a Translation nor have one. Changing it makes a Version.
+_Avoid_: Locale, i18n, language code
+
+**Translation**:
+A Branch of a Lineage in a different Language from the one it grew out of. Each of its Versions records which Version of the source it translates, so how far behind it has fallen is computed rather than marked. Kamosu never brings a Translation up to date by itself — it says how far behind it is and a person decides.
+_Avoid_: Localisation, alternate version, language variant
+
+**Reading Language**:
+The Language a person reads Kamosu in, held on their account. Chooses which Branch of a Lineage is shown, and which of a Food's or Tag's names is used. Never hides a recipe: where no Branch is in it, the recipe is shown in whichever Language exists, marked.
+_Avoid_: Locale, UI language, preference
 
 ### Cooking it
 
