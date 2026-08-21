@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2eee5" />
+    <link rel="icon" href="data:," />
+    <title>Kamosu cooking prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Avenir Next", Avenir, "Segoe UI", Helvetica, Arial, sans-serif;
+        --ink: #24251f;
+        --muted: #686a60;
+        --paper: #f2eee5;
+        --surface: #fbf9f4;
+        --line: #d8d2c6;
+        --accent: #b94d32;
+        --accent-dark: #863622;
+        --tap: 52px;
+        --safe-bottom: max(18px, env(safe-area-inset-bottom));
+      }
+
+      * { box-sizing: border-box; }
+
+      html { background: var(--paper); }
+
+      body {
+        min-width: 320px;
+        min-height: 100dvh;
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button { font: inherit; }
+
+      button, [role="button"] {
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+      }
+
+      button:focus-visible, summary:focus-visible {
+        outline: 3px solid color-mix(in srgb, var(--accent) 62%, white);
+        outline-offset: 3px;
+      }
+
+      .icon {
+        width: 22px;
+        height: 22px;
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.8;
+      }
+
+      .prototype-banner {
+        position: fixed;
+        top: max(10px, env(safe-area-inset-top));
+        left: 50%;
+        z-index: 8;
+        display: flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 5px 10px;
+        border: 1px solid rgba(255,255,255,.16);
+        border-radius: 999px;
+        background: rgba(35, 36, 32, .9);
+        color: #f9f6ef;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 8px 24px rgba(35,36,32,.12);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .09em;
+        text-transform: uppercase;
+        transform: translateX(-50%);
+        backdrop-filter: blur(14px);
+      }
+
+      .app { min-height: 100dvh; }
+
+      .screen {
+        min-height: 100dvh;
+        padding-bottom: 132px;
+        animation: enter .38s cubic-bezier(.16,1,.3,1) both;
+      }
+
+      @keyframes enter {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+      }
+
+      .prototype-switcher {
+        position: fixed;
+        left: 50%;
+        bottom: var(--safe-bottom);
+        z-index: 10;
+        display: grid;
+        grid-template-columns: 48px minmax(172px, auto) 48px;
+        align-items: center;
+        gap: 4px;
+        padding: 5px;
+        border: 1px solid rgba(255,255,255,.17);
+        border-radius: 18px;
+        background: rgba(35, 36, 32, .94);
+        color: #f9f6ef;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 18px 42px rgba(35,36,32,.22);
+        transform: translateX(-50%);
+        backdrop-filter: blur(16px);
+      }
+
+      .switch-button {
+        display: grid;
+        width: 48px;
+        height: 48px;
+        place-items: center;
+        border: 0;
+        border-radius: 13px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        transition: background .2s ease, transform .2s cubic-bezier(.16,1,.3,1);
+      }
+
+      .switch-button:hover { background: rgba(255,255,255,.1); }
+      .switch-button:active { transform: scale(.96); }
+
+      .switch-label { padding: 0 8px; text-align: center; }
+      .switch-label strong { display: block; font-size: 13px; line-height: 1.15; }
+      .switch-label span { display: block; margin-top: 2px; color: #c9c8c2; font-size: 10px; }
+
+      .state-readout {
+        position: fixed;
+        right: 12px;
+        bottom: calc(var(--safe-bottom) + 68px);
+        z-index: 7;
+      }
+
+      .state-readout summary {
+        width: fit-content;
+        margin-left: auto;
+        padding: 7px 10px;
+        border: 1px solid rgba(35,36,32,.12);
+        border-radius: 999px;
+        background: rgba(251,249,244,.92);
+        color: var(--muted);
+        box-shadow: 0 6px 18px rgba(35,36,32,.08);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 700;
+        list-style: none;
+        backdrop-filter: blur(12px);
+      }
+
+      .state-readout summary::-webkit-details-marker { display: none; }
+      .state-readout pre {
+        margin: 6px 0 0;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(35,36,32,.94);
+        color: #f9f6ef;
+        box-shadow: 0 10px 26px rgba(35,36,32,.18);
+        font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        padding: 5px 10px;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .primary-button, .secondary-button {
+        display: inline-flex;
+        min-height: var(--tap);
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        padding: 12px 18px;
+        border-radius: 14px;
+        cursor: pointer;
+        font-weight: 750;
+        transition: transform .22s cubic-bezier(.16,1,.3,1), background .22s ease;
+      }
+
+      .primary-button { border: 1px solid var(--accent); background: var(--accent); color: #fffaf4; }
+      .secondary-button { border: 1px solid var(--line); background: transparent; color: var(--ink); }
+      .primary-button:active, .secondary-button:active { transform: scale(.98); }
+
+      .check-button {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        flex: none;
+        place-items: center;
+        border: 1.5px solid var(--line);
+        border-radius: 50%;
+        background: transparent;
+        color: transparent;
+        cursor: pointer;
+      }
+
+      .ingredient.checked { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+      .ingredient.checked .check-button { border-color: var(--accent); background: var(--accent); color: white; }
+
+      /* A — Countertop */
+      .variant-a { --paper: #f2eee5; --surface: #fbf9f4; --line: #d8d2c6; --accent: #ad482f; }
+
+      .a-recipe {
+        display: grid;
+        min-height: 100dvh;
+        grid-template-columns: minmax(0, 1.08fr) minmax(420px, .92fr);
+      }
+
+      .a-photo {
+        position: sticky;
+        top: 0;
+        min-height: 100dvh;
+        overflow: hidden;
+        background:
+          linear-gradient(180deg, rgba(30,28,22,.05), rgba(30,28,22,.5)),
+          url("recipe-photo.jpg") center / cover;
+      }
+
+      .a-photo-copy { position: absolute; right: 44px; bottom: 42px; left: 44px; color: #fffaf3; }
+      .a-photo-copy span { font-size: 13px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+      .a-photo-copy p { max-width: 34ch; margin: 10px 0 0; font-size: 16px; line-height: 1.45; }
+
+      .a-copy { padding: 72px clamp(28px, 5vw, 82px) 120px; }
+      .a-eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+      .a-copy h1 { max-width: 11ch; margin: 18px 0 14px; font-size: clamp(44px, 5.3vw, 76px); font-weight: 680; letter-spacing: -.065em; line-height: .93; }
+      .a-lead { max-width: 43ch; margin: 0; color: var(--muted); font-size: 18px; line-height: 1.55; }
+      .a-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 40px; }
+      .a-meta { display: grid; grid-template-columns: repeat(3, 1fr); padding: 20px 0; border-block: 1px solid var(--line); }
+      .a-meta div { padding: 0 18px; border-right: 1px solid var(--line); }
+      .a-meta div:first-child { padding-left: 0; }
+      .a-meta div:last-child { border: 0; }
+      .a-meta small { display: block; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+      .a-meta strong { display: block; margin-top: 6px; font-size: 17px; }
+      .a-section { margin-top: 44px; }
+      .a-section h2 { margin: 0 0 18px; font-size: 14px; letter-spacing: .09em; text-transform: uppercase; }
+      .a-ingredients { display: grid; gap: 0; }
+      .a-ingredients .ingredient { display: flex; min-height: 54px; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); font-size: 16px; }
+      .a-steps { display: grid; gap: 22px; counter-reset: steps; }
+      .a-step-preview { display: grid; grid-template-columns: 34px 1fr; gap: 14px; color: var(--muted); line-height: 1.55; counter-increment: steps; }
+      .a-step-preview::before { content: counter(steps, decimal-leading-zero); color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+
+      .a-cook {
+        display: grid;
+        min-height: 100dvh;
+        grid-template-columns: minmax(230px, .34fr) minmax(0, 1fr);
+        background: #25261f;
+        color: #f8f5ed;
+      }
+
+      .a-cook aside { display: flex; min-height: 100dvh; flex-direction: column; justify-content: space-between; padding: 72px 34px 126px; border-right: 1px solid rgba(255,255,255,.12); }
+      .a-cook aside h2 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
+      .a-progress-label { color: #b9b8af; font-size: 12px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+      .a-progress-track { height: 3px; margin-top: 14px; overflow: hidden; background: rgba(255,255,255,.15); }
+      .a-progress-fill { height: 100%; background: #d86a4d; transition: transform .35s cubic-bezier(.16,1,.3,1); transform-origin: left; }
+      .awake-indicator { display: flex; align-items: center; gap: 8px; color: #b9b8af; font-size: 12px; }
+      .awake-dot { width: 8px; height: 8px; border-radius: 50%; background: #d86a4d; animation: breathe 2s ease-in-out infinite; }
+      @keyframes breathe { 50% { opacity: .45; transform: scale(.76); } }
+      .a-stage { display: flex; min-width: 0; flex-direction: column; justify-content: space-between; padding: 11vh clamp(28px, 7vw, 110px) 126px; }
+      .a-stage-number { color: #d86a4d; font-size: 13px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+      .a-stage h1 { max-width: 18ch; margin: 20px 0 0; font-size: clamp(36px, 5.2vw, 74px); font-weight: 570; letter-spacing: -.055em; line-height: 1.03; }
+      .a-stage-ingredients { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 34px; }
+      .a-stage-ingredients span { padding: 8px 11px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; color: #d4d2ca; font-size: 13px; }
+      .a-nav { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; }
+      .a-nav button { min-height: 58px; border-radius: 15px; }
+      .a-nav .previous { justify-self: start; border-color: rgba(255,255,255,.2); color: #f8f5ed; }
+      .a-nav .next { justify-self: end; border-color: #d86a4d; background: #d86a4d; }
+      .a-nav .exit { min-width: 58px; padding-inline: 14px; border-color: rgba(255,255,255,.2); color: #f8f5ed; }
+
+      /* B — Mise en place */
+      .variant-b { --paper: #e8ebe5; --surface: #f7f8f4; --line: #c6ccc3; --accent: #365e4d; }
+
+      .b-shell { max-width: 1440px; min-height: 100dvh; margin: auto; padding: 72px 28px 144px; }
+      .b-header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 30px; padding-bottom: 24px; border-bottom: 2px solid var(--ink); }
+      .b-kicker { margin: 0 0 10px; color: var(--accent); font: 750 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+      .b-header h1 { margin: 0; font-size: clamp(34px, 4.5vw, 64px); font-weight: 720; letter-spacing: -.055em; line-height: 1; }
+      .b-header-actions { display: flex; gap: 9px; }
+      .b-board { display: grid; grid-template-columns: minmax(280px, .74fr) minmax(0, 1.26fr); min-height: 680px; }
+      .b-pantry { padding: 30px 34px 40px 0; border-right: 1px solid var(--line); }
+      .b-method { padding: 30px 0 40px 40px; }
+      .b-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+      .b-title-row h2 { margin: 0; font-size: 14px; letter-spacing: .09em; text-transform: uppercase; }
+      .b-title-row span { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .b-meta-line { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 30px; }
+      .b-meta-line div { padding-top: 12px; border-top: 1px solid var(--line); }
+      .b-meta-line small { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+      .b-meta-line strong { display: block; margin-top: 4px; font: 700 14px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .b-pantry .ingredient { display: flex; min-height: 50px; align-items: center; gap: 12px; border-top: 1px solid var(--line); font-size: 15px; }
+      .b-pantry .ingredient:last-child { border-bottom: 1px solid var(--line); }
+      .b-method-list { display: grid; gap: 0; counter-reset: bsteps; }
+      .b-method-row { display: grid; grid-template-columns: 52px 1fr auto; min-height: 96px; align-items: start; gap: 16px; padding: 20px 0; border-top: 1px solid var(--line); counter-increment: bsteps; }
+      .b-method-row::before { content: counter(bsteps, decimal-leading-zero); color: var(--accent); font: 750 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .b-method-row p { max-width: 62ch; margin: 0; font-size: 17px; line-height: 1.5; }
+      .b-method-row span { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+      .b-cook-shell { min-height: 100dvh; padding: 70px 26px 144px; }
+      .b-cook-header { position: sticky; top: 0; z-index: 2; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 18px; max-width: 1120px; margin: auto; padding: 16px 0; border-bottom: 2px solid var(--ink); background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(14px); }
+      .b-cook-header h1 { margin: 0; overflow: hidden; font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
+      .b-cook-header .progress { color: var(--accent); font: 750 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .b-exit { display: grid; width: 48px; height: 48px; place-items: center; padding: 0; }
+      .b-cook-list { max-width: 1120px; margin: auto; }
+      .b-cook-step { display: grid; grid-template-columns: 78px minmax(0,1fr) minmax(190px,.42fr); gap: 30px; padding: 38px 0; border-bottom: 1px solid var(--line); opacity: .34; transition: opacity .25s ease, transform .3s cubic-bezier(.16,1,.3,1); }
+      .b-cook-step.current { opacity: 1; transform: translateX(8px); }
+      .b-cook-step.done { opacity: .55; }
+      .b-cook-step .number { color: var(--accent); font: 800 16px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .b-cook-step p { max-width: 42ch; margin: 0; font-size: clamp(23px, 3vw, 38px); font-weight: 620; letter-spacing: -.035em; line-height: 1.16; }
+      .b-cook-step aside { color: var(--muted); font-size: 14px; line-height: 1.5; }
+      .b-cook-step aside strong { display: block; margin-bottom: 8px; color: var(--ink); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+      .b-cook-controls { position: fixed; right: 22px; bottom: 104px; z-index: 4; display: flex; gap: 7px; padding: 5px; border: 1px solid var(--line); border-radius: 16px; background: rgba(247,248,244,.92); box-shadow: 0 12px 30px rgba(50,60,53,.12); backdrop-filter: blur(14px); }
+      .b-cook-controls button { width: 54px; height: 54px; padding: 0; }
+
+      /* C — Recipe cards */
+      .variant-c { --paper: #eff1f2; --surface: #ffffff; --line: #ced4d7; --accent: #3f5e70; }
+
+      .c-shell { min-height: 100dvh; padding: 72px clamp(18px, 5vw, 72px) 144px; background: linear-gradient(150deg, #eef0f1, #e4e8e9); }
+      .c-topbar { display: flex; max-width: 1180px; align-items: center; justify-content: space-between; margin: 0 auto 26px; }
+      .c-brand { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+      .c-brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; background: var(--ink); color: white; }
+      .c-language { color: var(--muted); }
+      .c-deck { display: grid; max-width: 1180px; grid-template-columns: minmax(0, 1.15fr) minmax(330px, .85fr); gap: 18px; margin: auto; }
+      .c-main-card, .c-side-card { border: 1px solid rgba(60,70,74,.13); border-radius: 32px; background: rgba(255,255,255,.88); box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 20px 50px rgba(45,54,58,.08); }
+      .c-main-card { display: flex; min-height: 630px; flex-direction: column; justify-content: space-between; overflow: hidden; }
+      .c-hero { min-height: 300px; background: linear-gradient(180deg, transparent 45%, rgba(27,31,32,.54)), url("recipe-photo.jpg") center / cover; }
+      .c-main-copy { padding: 30px; }
+      .c-main-copy .pill { color: var(--accent); }
+      .c-main-copy h1 { max-width: 12ch; margin: 18px 0 12px; font-size: clamp(39px, 5vw, 65px); font-weight: 680; letter-spacing: -.06em; line-height: .95; }
+      .c-main-copy p { max-width: 44ch; margin: 0; color: var(--muted); line-height: 1.55; }
+      .c-main-actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 24px; }
+      .c-side-stack { display: grid; gap: 18px; }
+      .c-side-card { padding: 26px; }
+      .c-side-card h2 { margin: 0 0 18px; font-size: 13px; letter-spacing: .09em; text-transform: uppercase; }
+      .c-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+      .c-stats div { padding: 10px 16px 18px 0; border-bottom: 1px solid var(--line); }
+      .c-stats small { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; }
+      .c-stats strong { display: block; margin-top: 5px; font-size: 18px; }
+      .c-ingredients { display: grid; gap: 0; }
+      .c-ingredients .ingredient { display: flex; min-height: 46px; align-items: center; gap: 10px; border-top: 1px solid var(--line); font-size: 14px; }
+
+      .c-cook { min-height: 100dvh; padding: 70px 18px 144px; background: #dfe5e6; }
+      .c-cook-top { display: flex; max-width: 980px; align-items: center; justify-content: space-between; margin: 0 auto 20px; }
+      .c-cook-top strong { font-size: 14px; }
+      .c-cook-top span { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .c-stage-deck { position: relative; max-width: 980px; min-height: 610px; margin: auto; }
+      .c-stage-deck::before, .c-stage-deck::after { content: ""; position: absolute; right: 22px; bottom: -12px; left: 22px; height: 90%; border: 1px solid rgba(60,70,74,.12); border-radius: 34px; background: #cfd8da; transform: rotate(-1.2deg); }
+      .c-stage-deck::after { right: 10px; bottom: -5px; left: 10px; background: #edf0f0; transform: rotate(.7deg); }
+      .c-stage-card { position: relative; z-index: 1; display: grid; min-height: 610px; grid-template-columns: minmax(0,1.22fr) minmax(260px,.78fr); overflow: hidden; border: 1px solid rgba(60,70,74,.14); border-radius: 34px; background: white; box-shadow: 0 24px 58px rgba(45,54,58,.13); }
+      .c-instruction { display: flex; flex-direction: column; justify-content: space-between; padding: clamp(30px, 6vw, 72px); }
+      .c-instruction .step-label { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+      .c-instruction h1 { max-width: 16ch; margin: 22px 0; font-size: clamp(36px, 5vw, 64px); font-weight: 620; letter-spacing: -.052em; line-height: 1.04; }
+      .c-card-nav { display: grid; grid-template-columns: 58px 1fr 58px; gap: 9px; }
+      .c-card-nav button { min-height: 58px; padding: 0; }
+      .c-card-nav .done-step { min-width: 0; padding-inline: 14px; }
+      .c-step-aside { display: flex; flex-direction: column; justify-content: space-between; padding: 36px; background: #edf1f1; }
+      .c-step-aside h2 { margin: 0 0 18px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+      .c-step-aside ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 15px; line-height: 1.45; }
+      .c-step-aside footer { padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+      @media (max-width: 820px) {
+        .screen { padding-bottom: 126px; }
+        .prototype-banner { top: 8px; }
+        .state-readout { right: 8px; }
+
+        .a-recipe { display: block; }
+        .a-photo { position: relative; min-height: 45dvh; }
+        .a-photo-copy { right: 22px; bottom: 24px; left: 22px; }
+        .a-photo-copy p { display: none; }
+        .a-copy { padding: 34px 20px 60px; }
+        .a-copy h1 { font-size: clamp(42px, 14vw, 62px); }
+        .a-meta div { padding-inline: 10px; }
+        .a-meta strong { font-size: 15px; }
+        .a-cook { display: block; }
+        .a-cook aside { min-height: 0; padding: 58px 20px 18px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.12); }
+        .a-cook aside h2 { font-size: 15px; }
+        .a-cook aside > div:first-child { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; }
+        .a-progress-wrap { grid-column: 1 / -1; }
+        .a-cook aside .awake-indicator { display: none; }
+        .a-stage { min-height: calc(100dvh - 115px); padding: 8vh 22px 128px; }
+        .a-stage h1 { font-size: clamp(36px, 11vw, 52px); }
+        .a-nav { grid-template-columns: 1fr 58px 1fr; }
+        .a-nav button { min-width: 0; padding-inline: 12px; }
+        .a-nav button span { display: none; }
+
+        .b-shell { padding: 62px 18px 132px; }
+        .b-header { display: block; }
+        .b-header-actions { display: grid; grid-template-columns: 1fr 58px; margin-top: 24px; }
+        .b-board { display: block; }
+        .b-pantry, .b-method { padding: 30px 0; border-right: 0; }
+        .b-method { border-top: 2px solid var(--ink); }
+        .b-method-row { grid-template-columns: 36px 1fr; }
+        .b-method-row span { display: none; }
+        .b-cook-shell { padding: 54px 18px 132px; }
+        .b-cook-header { grid-template-columns: 48px minmax(0,1fr) auto; }
+        .b-cook-step { grid-template-columns: 40px 1fr; gap: 12px; padding: 28px 0; }
+        .b-cook-step.current { transform: translateX(4px); }
+        .b-cook-step p { font-size: clamp(25px, 7vw, 34px); }
+        .b-cook-step aside { grid-column: 2; }
+        .b-cook-controls { right: 10px; bottom: 96px; }
+
+        .c-shell { padding: 60px 14px 132px; }
+        .c-deck { display: block; }
+        .c-main-card { min-height: 0; border-radius: 26px; }
+        .c-hero { min-height: 255px; }
+        .c-main-copy { padding: 24px; }
+        .c-main-actions { grid-template-columns: 1fr 56px; }
+        .c-side-stack { margin-top: 14px; }
+        .c-side-card { padding: 22px; border-radius: 24px; }
+        .c-cook { padding: 58px 12px 132px; }
+        .c-stage-deck { min-height: calc(100dvh - 172px); }
+        .c-stage-card { display: flex; min-height: calc(100dvh - 172px); flex-direction: column; border-radius: 28px; }
+        .c-instruction { min-height: 55dvh; padding: 30px 24px; }
+        .c-instruction h1 { font-size: clamp(34px, 10.4vw, 49px); }
+        .c-step-aside { flex: 1; padding: 24px; }
+        .c-step-aside footer { display: none; }
+      }
+
+      @media (max-width: 420px) {
+        .prototype-switcher { grid-template-columns: 46px minmax(150px, auto) 46px; }
+        .switch-label span { display: none; }
+        .a-actions .primary-button { flex: 1 1 100%; }
+        .a-actions .secondary-button { flex: 1; }
+        .b-header h1 { font-size: 40px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype-banner">Throwaway prototype</div>
+    <main id="app" class="app"></main>
+
+    <details class="state-readout">
+      <summary>Prototype state</summary>
+      <pre id="state-output"></pre>
+    </details>
+
+    <nav class="prototype-switcher" aria-label="Prototype directions">
+      <button class="switch-button" id="previous-variant" aria-label="Previous direction">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+      </button>
+      <div class="switch-label" aria-live="polite">
+        <strong id="variant-name"></strong>
+        <span>Arrow keys switch direction</span>
+      </div>
+      <button class="switch-button" id="next-variant" aria-label="Next direction">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+      </button>
+    </nav>
+
+    <script>
+      // Three variants of recipe view and live cooking mode, switchable via ?variant=.
+      const variants = {
+        A: { name: "A — Countertop", className: "variant-a" },
+        B: { name: "B — Mise en place", className: "variant-b" },
+        C: { name: "C — Recipe cards", className: "variant-c" }
+      };
+
+      const recipe = {
+        title: "Rosemary focaccia",
+        description: "A slow, olive-oil-rich focaccia with a crisp bottom and a soft, open crumb.",
+        yield: "1 tray",
+        prep: "25 min",
+        cook: "35 min",
+        language: "English",
+        ingredients: [
+          "500 g strong white flour",
+          "7 g instant yeast",
+          "10 g fine sea salt",
+          "420 ml lukewarm water",
+          "3 tbsp extra-virgin olive oil",
+          "2 rosemary sprigs, leaves picked",
+          "Flaky salt, to finish"
+        ],
+        steps: [
+          { text: "Mix the flour, yeast, fine salt and water until no dry flour remains.", ingredients: ["500 g flour", "7 g yeast", "10 g salt", "420 ml water"], note: "The dough should look rough and sticky." },
+          { text: "Rest for 15 minutes, then fold the dough over itself four times with wet hands.", ingredients: ["Bowl of dough"], note: "Turn the bowl a quarter turn between folds." },
+          { text: "Cover and leave until doubled and visibly bubbly, about 60–90 minutes.", ingredients: ["Covered dough"], note: "Temperature matters more than the clock." },
+          { text: "Oil the tray generously, ease in the dough and let it relax for 20 minutes.", ingredients: ["3 tbsp olive oil", "Risen dough"], note: "Do not force it to the corners yet." },
+          { text: "Dimple deeply with oiled fingers, scatter over rosemary and flaky salt.", ingredients: ["Rosemary", "Flaky salt"], note: "Press all the way down without tearing." },
+          { text: "Bake at 220°C until deeply golden, 25–30 minutes, then cool on a rack.", ingredients: ["Prepared focaccia"], note: "The underside should sound hollow when tapped." }
+        ]
+      };
+
+      const state = {
+        variant: normaliseVariant(new URLSearchParams(location.search).get("variant")),
+        mode: "recipe",
+        step: 0,
+        checkedIngredients: new Set(),
+        wakeLock: "off"
+      };
+
+      let wakeLock = null;
+
+      const icons = {
+        play: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z" /></svg>',
+        close: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>',
+        back: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>',
+        next: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>',
+        check: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>',
+        dots: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></svg>',
+        wake: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>'
+      };
+
+      function normaliseVariant(value) {
+        return Object.hasOwn(variants, value) ? value : "A";
+      }
+
+      function ingredientRows(className = "") {
+        return recipe.ingredients.map((ingredient, index) => `
+          <div class="ingredient ${state.checkedIngredients.has(index) ? "checked" : ""} ${className}">
+            <button class="check-button" data-ingredient="${index}" aria-label="${state.checkedIngredients.has(index) ? "Uncheck" : "Check"} ${ingredient}">${icons.check}</button>
+            <span>${ingredient}</span>
+          </div>
+        `).join("");
+      }
+
+      function stepPreviews(className) {
+        return recipe.steps.map((step, index) => `<div class="${className}"><p>${step.text}</p><span>${index + 1}</span></div>`).join("");
+      }
+
+      function renderARecipe() {
+        return `<section class="screen a-recipe">
+          <div class="a-photo" role="img" aria-label="Focaccia dough beside olive oil on a floured worktop">
+            <div class="a-photo-copy"><span>From Aurélien's kitchen</span><p>Saved from the handwritten version and adjusted after three cookings.</p></div>
+          </div>
+          <article class="a-copy">
+            <div class="a-eyebrow">Weeknight baking · English</div>
+            <h1>${recipe.title}</h1>
+            <p class="a-lead">${recipe.description}</p>
+            <div class="a-actions">
+              <button class="primary-button" data-action="start">${icons.play}<span>Start cooking</span></button>
+              <button class="secondary-button">Scale recipe</button>
+              <button class="secondary-button" aria-label="More options">${icons.dots}</button>
+            </div>
+            <div class="a-meta">
+              <div><small>Yield</small><strong>${recipe.yield}</strong></div>
+              <div><small>Prep</small><strong>${recipe.prep}</strong></div>
+              <div><small>Cook</small><strong>${recipe.cook}</strong></div>
+            </div>
+            <section class="a-section"><h2>Ingredients</h2><div class="a-ingredients">${ingredientRows()}</div></section>
+            <section class="a-section"><h2>Method</h2><div class="a-steps">${stepPreviews("a-step-preview")}</div></section>
+          </article>
+        </section>`;
+      }
+
+      function renderACook() {
+        const step = recipe.steps[state.step];
+        return `<section class="screen a-cook">
+          <aside>
+            <div><h2>${recipe.title}</h2><div class="a-progress-wrap"><div class="a-progress-label">Step ${state.step + 1} of ${recipe.steps.length}</div><div class="a-progress-track"><div class="a-progress-fill" style="transform:scaleX(${(state.step + 1) / recipe.steps.length})"></div></div></div></div>
+            <div class="awake-indicator"><span class="awake-dot"></span>Screen awake while cooking</div>
+          </aside>
+          <div class="a-stage">
+            <div>
+              <div class="a-stage-number">Now · ${String(state.step + 1).padStart(2, "0")}</div>
+              <h1>${step.text}</h1>
+              <div class="a-stage-ingredients">${step.ingredients.map(item => `<span>${item}</span>`).join("")}</div>
+            </div>
+            <nav class="a-nav" aria-label="Cooking steps">
+              <button class="secondary-button previous" data-action="previous" aria-label="Previous step" ${state.step === 0 ? "disabled" : ""}>${icons.back}<span>Previous</span></button>
+              <button class="secondary-button exit" data-action="exit" aria-label="Leave cooking mode">${icons.close}</button>
+              <button class="primary-button next" data-action="next" aria-label="${state.step === recipe.steps.length - 1 ? "Finish cooking" : "Next step"}"><span>${state.step === recipe.steps.length - 1 ? "Finish" : "Next"}</span>${state.step === recipe.steps.length - 1 ? icons.check : icons.next}</button>
+            </nav>
+          </div>
+        </section>`;
+      }
+
+      function renderBRecipe() {
+        return `<section class="screen b-shell">
+          <header class="b-header">
+            <div><p class="b-kicker">Recipe / Your home kitchen / English</p><h1>${recipe.title}</h1></div>
+            <div class="b-header-actions"><button class="primary-button" data-action="start">${icons.play}<span>Cook</span></button><button class="secondary-button" aria-label="More options">${icons.dots}</button></div>
+          </header>
+          <div class="b-board">
+            <aside class="b-pantry">
+              <div class="b-title-row"><h2>Mise en place</h2><span>${recipe.ingredients.length} lines</span></div>
+              <div class="b-meta-line"><div><small>Yield</small><strong>${recipe.yield}</strong></div><div><small>Prep</small><strong>${recipe.prep}</strong></div><div><small>Cook</small><strong>${recipe.cook}</strong></div></div>
+              ${ingredientRows()}
+            </aside>
+            <article class="b-method">
+              <div class="b-title-row"><h2>Method</h2><span>${recipe.steps.length} steps</span></div>
+              <div class="b-method-list">${recipe.steps.map((step,index) => `<div class="b-method-row"><p>${step.text}</p><span>${index === 0 ? "Now" : ""}</span></div>`).join("")}</div>
+            </article>
+          </div>
+        </section>`;
+      }
+
+      function renderBCook() {
+        return `<section class="screen b-cook-shell">
+          <header class="b-cook-header"><button class="secondary-button b-exit" data-action="exit" aria-label="Leave cooking mode">${icons.close}</button><h1>${recipe.title}</h1><span class="progress">${String(state.step + 1).padStart(2,"0")} / ${String(recipe.steps.length).padStart(2,"0")}</span></header>
+          <div class="b-cook-list">${recipe.steps.map((step,index) => `<article class="b-cook-step ${index === state.step ? "current" : ""} ${index < state.step ? "done" : ""}" ${index === state.step ? 'id="current-step"' : ""}><span class="number">${String(index + 1).padStart(2,"0")}</span><p>${step.text}</p><aside><strong>${index === state.step ? "At hand" : "Good to know"}</strong>${index === state.step ? step.ingredients.join(" · ") : step.note}</aside></article>`).join("")}</div>
+          <nav class="b-cook-controls" aria-label="Cooking steps"><button class="secondary-button" data-action="previous" aria-label="Previous step" ${state.step === 0 ? "disabled" : ""}>${icons.back}</button><button class="primary-button" data-action="next" aria-label="${state.step === recipe.steps.length - 1 ? "Finish cooking" : "Next step"}">${state.step === recipe.steps.length - 1 ? icons.check : icons.next}</button></nav>
+        </section>`;
+      }
+
+      function renderCRecipe() {
+        return `<section class="screen c-shell">
+          <header class="c-topbar"><div class="c-brand"><span class="c-brand-mark">K</span>Kamosu</div><span class="c-language">${recipe.language}</span></header>
+          <div class="c-deck">
+            <article class="c-main-card"><div class="c-hero" role="img" aria-label="Focaccia dough beside olive oil on a floured worktop"></div><div class="c-main-copy"><span class="pill">Tried 3 times</span><h1>${recipe.title}</h1><p>${recipe.description}</p><div class="c-main-actions"><button class="primary-button" data-action="start">${icons.play}<span>Start cooking</span></button><button class="secondary-button" aria-label="More options">${icons.dots}</button></div></div></article>
+            <div class="c-side-stack">
+              <aside class="c-side-card"><h2>At a glance</h2><div class="c-stats"><div><small>Yield</small><strong>${recipe.yield}</strong></div><div><small>Total</small><strong>2 h 10</strong></div><div><small>Prep</small><strong>${recipe.prep}</strong></div><div><small>Cook</small><strong>${recipe.cook}</strong></div></div></aside>
+              <aside class="c-side-card"><h2>Ingredients</h2><div class="c-ingredients">${ingredientRows()}</div></aside>
+            </div>
+          </div>
+        </section>`;
+      }
+
+      function renderCCook() {
+        const step = recipe.steps[state.step];
+        return `<section class="screen c-cook">
+          <header class="c-cook-top"><strong>${recipe.title}</strong><span>Card ${state.step + 1} / ${recipe.steps.length}</span></header>
+          <div class="c-stage-deck"><article class="c-stage-card">
+            <div class="c-instruction"><div><span class="step-label">Step ${String(state.step + 1).padStart(2,"0")}</span><h1>${step.text}</h1></div><nav class="c-card-nav" aria-label="Cooking steps"><button class="secondary-button" data-action="previous" aria-label="Previous step" ${state.step === 0 ? "disabled" : ""}>${icons.back}</button><button class="primary-button done-step" data-action="next">${state.step === recipe.steps.length - 1 ? "Finish cooking" : "Done with this step"}</button><button class="secondary-button" data-action="exit" aria-label="Leave cooking mode">${icons.close}</button></nav></div>
+            <aside class="c-step-aside"><div><h2>Beside you</h2><ul>${step.ingredients.map(item => `<li>${item}</li>`).join("")}</ul></div><footer>${icons.wake} Screen stays awake in cooking mode.<br><br>${step.note}</footer></aside>
+          </article></div>
+        </section>`;
+      }
+
+      const renderers = {
+        A: { recipe: renderARecipe, cook: renderACook },
+        B: { recipe: renderBRecipe, cook: renderBCook },
+        C: { recipe: renderCRecipe, cook: renderCCook }
+      };
+
+      function render() {
+        document.body.className = variants[state.variant].className;
+        document.getElementById("app").innerHTML = renderers[state.variant][state.mode]();
+        document.getElementById("variant-name").textContent = variants[state.variant].name;
+        document.getElementById("state-output").textContent = JSON.stringify({
+          variant: state.variant,
+          screen: state.mode,
+          currentStep: state.mode === "cook" ? `${state.step + 1} of ${recipe.steps.length}` : null,
+          checkedIngredients: [...state.checkedIngredients].map(index => recipe.ingredients[index]),
+          screenWakeLock: state.wakeLock
+        }, null, 2);
+        bindActions();
+        if (state.variant === "B" && state.mode === "cook") requestAnimationFrame(() => document.getElementById("current-step")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      }
+
+      function bindActions() {
+        document.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => act(button.dataset.action)));
+        document.querySelectorAll("[data-ingredient]").forEach(button => button.addEventListener("click", () => toggleIngredient(Number(button.dataset.ingredient))));
+      }
+
+      async function act(action) {
+        if (action === "start") {
+          state.mode = "cook";
+          state.step = 0;
+          await acquireWakeLock();
+        }
+        if (action === "exit") {
+          state.mode = "recipe";
+          await releaseWakeLock();
+        }
+        if (action === "previous" && state.step > 0) state.step -= 1;
+        if (action === "next") {
+          if (state.step < recipe.steps.length - 1) state.step += 1;
+          else {
+            state.mode = "recipe";
+            state.step = 0;
+            await releaseWakeLock();
+          }
+        }
+        render();
+        if (!(state.variant === "B" && state.mode === "cook")) window.scrollTo({ top: 0, behavior: "instant" });
+      }
+
+      function toggleIngredient(index) {
+        if (state.checkedIngredients.has(index)) state.checkedIngredients.delete(index);
+        else state.checkedIngredients.add(index);
+        render();
+      }
+
+      async function acquireWakeLock() {
+        if (!("wakeLock" in navigator)) {
+          state.wakeLock = "simulated (browser unsupported)";
+          return;
+        }
+        try {
+          wakeLock = await navigator.wakeLock.request("screen");
+          state.wakeLock = "active";
+          wakeLock.addEventListener("release", () => { state.wakeLock = "released"; render(); });
+        } catch {
+          state.wakeLock = "unavailable";
+        }
+      }
+
+      async function releaseWakeLock() {
+        if (wakeLock) await wakeLock.release();
+        wakeLock = null;
+        state.wakeLock = "off";
+      }
+
+      function setVariant(nextVariant) {
+        state.variant = nextVariant;
+        const url = new URL(location.href);
+        url.searchParams.set("variant", nextVariant);
+        history.replaceState({}, "", url);
+        render();
+        window.scrollTo({ top: 0, behavior: "instant" });
+      }
+
+      function cycleVariant(direction) {
+        const keys = Object.keys(variants);
+        const index = keys.indexOf(state.variant);
+        setVariant(keys[(index + direction + keys.length) % keys.length]);
+      }
+
+      document.getElementById("previous-variant").addEventListener("click", () => cycleVariant(-1));
+      document.getElementById("next-variant").addEventListener("click", () => cycleVariant(1));
+      document.addEventListener("keydown", event => {
+        const tag = document.activeElement?.tagName;
+        if (["INPUT", "TEXTAREA"].includes(tag) || document.activeElement?.isContentEditable) return;
+        if (event.key === "ArrowLeft") cycleVariant(-1);
+        if (event.key === "ArrowRight") cycleVariant(1);
+      });
+      document.addEventListener("visibilitychange", async () => {
+        if (document.visibilityState === "visible" && state.mode === "cook" && state.wakeLock !== "active") {
+          await acquireWakeLock();
+          render();
+        }
+      });
+
+      render();
+    </script>
+  </body>
+</html>
