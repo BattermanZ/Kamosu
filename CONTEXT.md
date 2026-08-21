@@ -133,3 +133,17 @@ _Avoid_: Copy, fork, variant, clone
 **Branch Point**:
 The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means.
 _Avoid_: Common ancestor, base, merge base, split
+
+### Cooking it
+
+**Attempt**:
+One person's record of one cooking — dated, pinned by fingerprint to the Version that was on screen at the time, and never travelling off the instance. Belongs to a Lineage rather than to a Branch, so cooking the dish is remembered however the recipe later diverges. It holds free text, an optional rating, photographs, and an optional As Cooked. Recording one never changes the recipe.
+_Avoid_: Cook, log entry, session, make, bake, journal entry
+
+**As Cooked**:
+The complete recipe state an Attempt actually cooked, held only when it differed from the Version it started from — the same shape as a Version, but never joined to a Branch and never shared. Differences are written as ordinary Ingredient Lines and Step text, not as a separate record of what changed.
+_Avoid_: Deviation, adjustment, diff, draft, variant, modification
+
+**Promotion**:
+The deliberate act of taking something provisional out of an Attempt and making it part of the recipe — an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. The point at which an Attempt's freedoms end and the recipe's rules begin: what is promoted is append-only, and promoting requires the right to edit the recipe.
+_Avoid_: Apply, merge, commit, save back, accept
