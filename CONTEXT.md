@@ -111,8 +111,12 @@ The ingredient exactly as written or imported — `"2 poignées de farine, envir
 _Avoid_: Original text, raw text, free text, display string
 
 **Reading**:
-An optional interpretation of an Ingredient Line into its parts — how much, in what unit, of what Food. It may be absent, partial or mistaken; anything built on it degrades politely rather than failing.
+An optional interpretation of an Ingredient Line into its parts — how much, in what unit, of what. That last part is either a **Food** or a **Recipe**; where it is a Recipe, the Ingredient is a Component. A Reading may be absent, partial or mistaken; anything built on it degrades politely rather than failing.
 _Avoid_: Parse, structured ingredient, decomposition, breakdown
+
+**Component**:
+The role an Ingredient plays when its Reading names a Recipe rather than a Food — the dough inside the pizza. Not a separate kind of thing and not a list of its own: a Component is an ordinary Ingredient, and if the Recipe it names is deleted, absent or never received, its line still reads as written. It names a Lineage, so it always shows whichever Branch of that recipe the reader holds. How much of it is wanted is worked out by comparing the Reading against that recipe's Yield, and is never stored. It unfolds inside the recipe using it, and travels with it as a passenger — readable through it, without a page, a link or a Visibility of its own.
+_Avoid_: Sub-recipe, nested recipe, linked recipe, component list, ingredient group
 
 **Food**:
 An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded. It holds a name per Language — flour and farine are one Food — so a shopping list merges them and nutrition is matched once. There is one list of Foods for the whole instance, because matching a Food to nutrition data is the expensive part and is worth doing once: anyone may create one or add a name to it, but only the Operator may merge two into one.
@@ -137,6 +141,10 @@ _Avoid_: Comment, remark, tip, annotation
 **Tag**:
 A word a recipe can be described by, kept once in a single list belonging to a Kitchen and pointed at by every recipe of that Kitchen which uses it — so renaming or merging one reaches all of them at once, and named per Language rather than split by it. A tag arriving with a recipe from elsewhere lands in the receiving Kitchen's list; what one Kitchen means by "quick" is its own business. Flat: tags have no hierarchy.
 _Avoid_: Keyword, category, label, folder
+
+**Related Recipe**:
+A plain "see also" link between two Lineages — my mum's ratatouille and Marmiton's, or the curry and the naan. It has no type and no direction, both recipes show it, and either may remove it. It is a note about one shelf rather than part of a recipe, so it never travels in a share bundle. Kamosu makes one only when a person says so; after an Import it may offer recipes sharing a Source as candidates to accept.
+_Avoid_: Relation, association, see also, cross-reference, link
 
 **Source**:
 Where a recipe came from — free text attribution such as "Marmiton" or "Mum's ring binder, p.40", with an optional link. A hint that two recipes are related, never a way of identifying one.
