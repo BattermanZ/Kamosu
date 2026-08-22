@@ -43,3 +43,19 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+## Forgejo mirror
+
+GitHub remains the only editable tracker. After a Wayfinder session, mirror its
+tickets to Forgejo with:
+
+```bash
+scripts/sync-wayfinder-to-forgejo.sh --dry-run
+scripts/sync-wayfinder-to-forgejo.sh --apply
+```
+
+The apply command needs `FORGEJO_TOKEN`, which **already exists** at
+`~/.config/forgejo/kamosu.env` — source that file rather than hunting for a
+token or minting a new one, and never print it. Setup and the deliberate
+one-way limitations are in [Wayfinder Forgejo mirror](wayfinder-forgejo-mirror.md).
+Never create or edit the Forgejo copy by hand.
