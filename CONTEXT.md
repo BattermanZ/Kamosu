@@ -173,7 +173,7 @@ A recipe's identity in the world. One id, minted once when the recipe is created
 _Avoid_: Recipe id, UUID, slug, canonical id, family
 
 **Version**:
-One saved state of a recipe, named by a fingerprint of its own content, recording the Version it came from and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten or deleted. Two holders of the identical state hold the same Version without having communicated.
+One saved state of a recipe, named by a fingerprint of its own content, recording the Version it came from and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten or deleted. Two holders of the identical state hold the same Version without having communicated. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment, not part of what makes it that Version, so two holders of the same Version may label it differently. Its content and its *what changed* line are frozen: those are an account of something that happened.
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
@@ -183,6 +183,14 @@ _Avoid_: Copy, fork, variant, clone
 **Branch Point**:
 The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means.
 _Avoid_: Common ancestor, base, merge base, split
+
+**Thread**:
+The whole of a Lineage on one screen: its Versions oldest to newest, forking at the Branch Point, with Attempts hanging off it. Where a person reads back, opens any Version, and cooks from one. Reading, never editing.
+_Avoid_: History, log, timeline, changelog, graph
+
+**Ghost**:
+A line one Branch has and the other has not, shown on the recipe that has not got it — struck through, in the position it occupies in the recipe that really has it, labelled with whose it is. A line the other person removed and a line the other person added are the same thing seen from opposite sides, so one Ghost serves both and every difference is visible from either Branch.
+_Avoid_: Diff, deletion, phantom, missing line
 
 ### Language
 
