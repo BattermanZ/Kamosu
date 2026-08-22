@@ -115,8 +115,12 @@ The ingredient exactly as written or imported — `"2 poignées de farine, envir
 _Avoid_: Original text, raw text, free text, display string
 
 **Reading**:
-An optional interpretation of an Ingredient Line into its parts — how much, in what unit, of what. That last part is either a **Food** or a **Recipe**; where it is a Recipe, the Ingredient is a Component. A Reading may be absent, partial or mistaken; anything built on it degrades politely rather than failing.
+An optional interpretation of an Ingredient Line into its parts — how much, in what **Unit**, of what. That last part is either a **Food** or a **Recipe**; where it is a Recipe, the Ingredient is a Component. A Reading may be absent, partial or mistaken; anything built on it degrades politely rather than failing.
 _Avoid_: Parse, structured ingredient, decomposition, breakdown
+
+**Unit**:
+What a quantity is counted in — grams, cups, spoons, *poignées*. Whatever the cook wrote is a Unit, and Kamosu keeps it as written. It knows a closed list of them well enough to do arithmetic on, each with its own spellings in every interface Language, so `g`, `gr`, `gramme` and `grams` are one Unit; anything outside that list is no less real and simply never converts. The set of Units is open; the set Kamosu can convert is closed.
+_Avoid_: UOM, measure, measurement, quantity type, dimension
 
 **Component**:
 The role an Ingredient plays when its Reading names a Recipe rather than a Food — the dough inside the pizza. Not a separate kind of thing and not a list of its own: a Component is an ordinary Ingredient, and if the Recipe it names is deleted, absent or never received, its line still reads as written. It names a Lineage, so it always shows whichever Branch of that recipe the reader holds. How much of it is wanted is worked out by comparing the Reading against that recipe's Yield, and is never stored. It unfolds inside the recipe using it, and travels with it as a passenger — readable through it, without a page, a link or a Visibility of its own.
@@ -126,8 +130,12 @@ _Avoid_: Sub-recipe, nested recipe, linked recipe, component list, ingredient gr
 An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded. It holds a name per Language — flour and farine are one Food — so a shopping list merges them and nutrition is matched once. There is one list of Foods for the whole instance, because matching a Food to nutrition data is the expensive part and is worth doing once: anyone may create one or add a name to it, but only the Operator may merge two into one.
 _Avoid_: Item, product, ingredient (an Ingredient is a row in a recipe; a Food is the thing itself)
 
+**Cup Weight**:
+What one cup of a Food weighs, about — the one figure that lets a volume become a weight, since a cup of flour is 125 g and a cup of butter is 227 g. Kamosu ships a figure for the staples and anyone may correct it; a Food that has none is not a gap to be filled, only a line that offers millilitres instead of grams. Every other volume measure of that Food follows from it by arithmetic. It is a fact about a cupful rather than about the food, which is why it is not a density: the same cream is 238 g poured and 120 g whipped. It belongs to this instance and never travels in a share bundle.
+_Avoid_: Density, specific gravity, conversion factor, weight, gram weight
+
 **Step**:
-One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like, and links to the Ingredients it uses. A duration or a temperature is read out of that text, never typed beside it.
+One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like, and links to the Ingredients it uses. A duration or a temperature is read out of that text, never typed beside it — a duration becoming a timer that can be started, a temperature in the other system becoming a conversion offered beside the sentence and never written into it.
 _Avoid_: Instruction, direction, method, procedure
 
 **Section**:
@@ -196,7 +204,7 @@ _Avoid_: History, log, timeline, changelog, graph
 A line one Branch has and the other has not, shown on the recipe that has not got it — struck through, in the position it occupies in the recipe that really has it, labelled with whose it is. A line the other person removed and a line the other person added are the same thing seen from opposite sides, so one Ghost serves both and every difference is visible from either Branch.
 _Avoid_: Diff, deletion, phantom, missing line
 
-### Language
+### Language and measures
 
 **Language**:
 The language a Branch is written in. Detected from the recipe's own text when it is saved — set when there is none, offered when it disagrees with one already there, never changed silently — and always correctable. It may be **Unknown**, which is a permanent and unremarkable state for a recipe that is honestly more than one language: it shows to every reader and can neither be a Translation nor have one. Changing it makes a Version.
@@ -209,6 +217,10 @@ _Avoid_: Localisation, alternate version, language variant
 **Reading Language**:
 The Language a person reads Kamosu in, held on their account. Chooses which Branch of a Lineage is shown, and which of a Food's or Tag's names is used. Never hides a recipe: where no Branch is in it, the recipe is shown in whichever Language exists, marked.
 _Avoid_: Locale, UI language, preference
+
+**Reading Measures**:
+How a person measures, held on their account beside their Reading Language — metric, US measures, or as written. Where an Ingredient Line is in the other system, or the recipe has been scaled, one line beneath it says how much that is for this reader, right now. It never replaces the written line, always says *about*, and is absent whenever it would only repeat what is already there. Setting it changes nothing that is stored and makes no Version.
+_Avoid_: Units preference, locale, metric toggle, unit system
 
 ### Cooking it
 
