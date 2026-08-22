@@ -6,3 +6,6 @@ AGENTS.local.md
 
 # Real recipe exports — large, personal, not project source
 samples/
+
+# Screenshots from browser automation
+.playwright-mcp/

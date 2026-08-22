@@ -1,0 +1,165 @@
+/* PROTOTYPE — Variant A, "Noren".
+   Indigo cloth (藍) over unbleached paper (生成り). Mincho for the recipe's own words,
+   a gentle Japanese gothic for everything the app says. */
+
+:root {
+  --ai: #1d2b4c;        /* indigo */
+  --ai-deep: #131c33;
+  --ai-soft: #3d5480;
+  --paper: #f4efe3;     /* kinari */
+  --paper-2: #ece5d5;
+  --sumi: #1a1a1c;      /* ink */
+  --sumi-2: #5c5a55;
+  --beni: #b8474b;      /* safflower */
+  --matcha: #7d8b5c;
+}
+
+body[data-variant="a"] {
+  background: var(--paper);
+  color: var(--sumi);
+  font-family: 'Zen Kaku Gothic New', system-ui, sans-serif;
+}
+body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
+
+.a { max-width: 560px; margin: 0 auto; padding-bottom: 120px; }
+.a button { font: inherit; cursor: pointer; }
+
+/* ---- library ---- */
+.a-top { display: flex; align-items: baseline; gap: 12px; padding: 26px 22px 8px; }
+.a-mark {
+  font-family: 'Zen Old Mincho', serif; font-size: 30px; line-height: 1;
+  color: var(--paper); background: var(--ai); width: 46px; height: 46px;
+  display: grid; place-items: center; border-radius: 3px; align-self: center;
+}
+.a-wordmark { font-family: 'Zen Old Mincho', serif; font-size: 27px; font-weight: 600; letter-spacing: .02em; }
+.a-kitchen { margin-left: auto; font-size: 12px; color: var(--sumi-2); letter-spacing: .06em; text-transform: uppercase; }
+
+.a-searchwrap { padding: 10px 22px 4px; }
+.a-search {
+  width: 100%; font: inherit; font-size: 16px; padding: 13px 16px;
+  background: #fffdf8; border: 1px solid #ded5c2; border-radius: 2px; color: var(--sumi);
+}
+.a-search::placeholder { color: #a49c8b; }
+.a-search:focus { outline: 2px solid var(--ai-soft); outline-offset: 1px; }
+
+.a-resume {
+  display: block; width: calc(100% - 44px); margin: 16px 22px 0; text-align: left;
+  background: var(--ai); color: var(--paper); border: 0; border-radius: 2px; padding: 14px 16px;
+}
+.a-resume-k { display: block; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: #a9bde0; }
+.a-resume-t { display: block; font-family: 'Zen Old Mincho', serif; font-size: 19px; margin-top: 3px; }
+.a-resume-go { display: block; font-size: 13px; margin-top: 6px; color: #cddaf0; }
+
+.a-list { padding: 18px 22px 0; display: grid; gap: 26px; }
+.a-card { cursor: pointer; }
+.a-card-img { aspect-ratio: 5 / 3; overflow: hidden; background: var(--paper-2); border-radius: 2px; }
+.a-card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.a-card-body { padding: 11px 2px 0; }
+.a-card-body h2 { font-family: 'Zen Old Mincho', serif; font-size: 22px; font-weight: 600; margin: 0; line-height: 1.25; }
+.a-card-meta { margin: 5px 0 0; font-size: 13px; color: var(--sumi-2); }
+.a-dot { padding: 0 5px; color: #b6ae9c; }
+.a-lang {
+  display: inline-block; margin-top: 8px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  border: 1px solid var(--ai-soft); color: var(--ai); padding: 3px 7px; border-radius: 2px;
+}
+.a-lang-alt { border-color: var(--beni); color: var(--beni); margin-left: 6px; }
+
+/* ---- recipe ---- */
+.a-hero { position: relative; aspect-ratio: 4 / 3; overflow: hidden; }
+.a-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.a-back {
+  position: absolute; top: 14px; left: 14px; width: 40px; height: 40px; border: 0; border-radius: 50%;
+  background: rgba(19,28,51,.72); color: #fff; font-size: 19px; backdrop-filter: blur(6px);
+}
+.a-sheet { background: var(--paper); margin-top: -34px; position: relative; border-radius: 4px 4px 0 0; padding: 26px 22px 8px; }
+.a-eyebrow { margin: 0; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--sumi-2); }
+.a-title { font-family: 'Zen Old Mincho', serif; font-size: 34px; font-weight: 700; line-height: 1.15; margin: 8px 0 0; }
+.a-sub { margin: 6px 0 0; color: var(--sumi-2); font-size: 15px; }
+
+.a-meta { display: flex; gap: 30px; margin: 22px 0 0; padding: 16px 0; border-top: 1px solid #ddd3bf; border-bottom: 1px solid #ddd3bf; }
+.a-meta div { display: flex; flex-direction: column; gap: 2px; }
+.a-meta b { font-family: 'Zen Old Mincho', serif; font-size: 24px; font-weight: 600; }
+.a-meta span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--sumi-2); }
+
+.a-scale { display: flex; align-items: center; gap: 12px; margin: 18px 0 0; font-size: 14px; color: var(--sumi-2); }
+.a-scale b { font-weight: 500; color: var(--sumi); min-width: 96px; text-align: center; }
+.a-scale button { width: 38px; height: 38px; border: 1px solid #cfc5b0; background: #fffdf8; border-radius: 2px; font-size: 18px; }
+
+.a-h { font-family: 'Zen Old Mincho', serif; font-size: 13px; font-weight: 600; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--ai); margin: 34px 0 12px; }
+
+.a-ings { list-style: none; margin: 0; padding: 0; }
+.a-ing { padding: 11px 0; border-bottom: 1px solid #e3dac7; }
+.a-ing-line { display: block; font-size: 17px; line-height: 1.45; }
+.a-ing-scaled { display: inline-block; margin-top: 5px; font-size: 12px; color: var(--beni);
+  border: 1px solid #e2b9ba; padding: 2px 6px; border-radius: 2px; }
+.a-ing-read { display: inline-block; margin-top: 5px; margin-left: 6px; font-size: 12px; color: #8e8676; }
+.a-comp { margin: 10px 0 2px; padding: 12px 14px; background: #eae2d0; border-left: 3px solid var(--matcha); }
+.a-comp-h { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--matcha); }
+.a-comp ul { margin: 8px 0 0; padding-left: 18px; font-size: 14px; color: var(--sumi-2); line-height: 1.7; }
+
+.a-note { margin: 22px 0 0; padding: 16px 18px; background: #eae2d0; font-size: 15px; line-height: 1.6; font-style: italic; }
+
+.a-steps { list-style: none; margin: 0; padding: 0; }
+.a-sec { font-family: 'Zen Old Mincho', serif; font-size: 20px; font-weight: 600; margin: 26px 0 6px; color: var(--ai); }
+.a-step { display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px solid #e3dac7; }
+.a-step-n { font-family: 'Zen Old Mincho', serif; font-size: 20px; color: var(--ai-soft); min-width: 24px; }
+.a-step p { margin: 0; font-size: 17px; line-height: 1.6; }
+
+.a-hist-top { margin: 0 0 10px; font-size: 15px; }
+.a-hist-row { display: flex; align-items: baseline; gap: 10px; margin: 0 0 6px; font-size: 15px; }
+.a-hist-row i { font-style: normal; color: var(--beni); letter-spacing: .08em; }
+.a-hist-row em { font-style: normal; margin-left: auto; font-size: 12px; color: var(--sumi-2); }
+.a-hist-note { margin: 12px 0 0; font-size: 14px; color: var(--sumi-2); line-height: 1.6; }
+
+.a-prov { margin: 30px 0 0; display: grid; gap: 5px; font-size: 12px; color: #8e8676; }
+
+.a-cta { position: fixed; left: 0; right: 0; bottom: 0; padding: 14px 22px 24px;
+  background: linear-gradient(to top, var(--paper) 62%, rgba(244,239,227,0)); }
+.a-cta button { display: block; width: 100%; max-width: 516px; margin: 0 auto; border: 0; border-radius: 2px;
+  background: var(--ai); color: var(--paper); padding: 18px; font-size: 17px; letter-spacing: .04em;
+  font-family: 'Zen Old Mincho', serif; }
+
+/* ---- cook: one step, full screen ---- */
+.a-cook { color: var(--paper); min-height: 100dvh; display: flex; flex-direction: column; padding-bottom: 0; }
+
+/* signature: the noren — one hanging panel per step, dyed as you pass it */
+.a-noren { display: flex; align-items: flex-start; gap: 3px; padding: 0 14px; height: 36px; }
+.a-noren i { flex: 1; height: 24px; background: #26365c; border-radius: 0 0 2px 2px; }
+.a-noren i.past { background: #8fa8d4; }
+.a-noren i.now { background: var(--paper); height: 36px; }
+
+.a-cook-top { display: flex; align-items: center; gap: 12px; padding: 18px 20px 0; }
+.a-quit { background: none; border: 1px solid #3b4c74; color: #b9c8e4; border-radius: 999px; padding: 7px 16px; font-size: 14px; }
+.a-cook-title { font-family: 'Zen Old Mincho', serif; font-size: 16px; color: #93a6c9; }
+.a-cook-count { margin-left: auto; font-family: 'Zen Old Mincho', serif; font-size: 26px; }
+.a-cook-count i { font-style: normal; font-size: 15px; color: #7489b0; }
+
+.a-cook-body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 20px 24px; }
+.a-cook-step { font-family: 'Zen Old Mincho', serif; font-size: clamp(28px, 6.4vw, 40px); line-height: 1.4; margin: 0; }
+.a-uses { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 32px; }
+.a-use { background: #26365c; color: #dbe4f5; border: 0; border-radius: 999px; padding: 12px 18px; font-size: 17px; }
+.a-use.is-done { background: transparent; color: #647aa3; text-decoration: line-through; box-shadow: inset 0 0 0 1px #3b4c74; }
+
+.a-cook-foot { display: flex; gap: 10px; padding: 0 16px; }
+.a-prevbtn { flex: 0 0 30%; background: none; border: 1px solid #3b4c74; color: #b9c8e4; border-radius: 3px; font-size: 18px; padding: 24px 0; }
+.a-prevbtn:disabled { opacity: .3; }
+.a-nextbtn { flex: 1; background: var(--paper); color: var(--ai-deep); border: 0; border-radius: 3px;
+  font-family: 'Zen Old Mincho', serif; font-size: 22px; padding: 24px 0; }
+.a-nextbtn.a-done { background: var(--beni); color: #fff; }
+.a-awake { text-align: center; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #5d719a;
+  padding: 14px 0 max(18px, env(safe-area-inset-bottom)); margin: 0; }
+
+/* ---- finish ---- */
+.a-fin { justify-content: center; }
+.a-fin-inner { padding: 30px 24px; }
+.a-fin .a-eyebrow, .a-fin .a-title { color: var(--paper); }
+.a-fin-sub { color: #93a6c9; font-size: 15px; line-height: 1.6; margin: 10px 0 0; }
+.a-rate { display: flex; gap: 6px; margin: 28px 0; }
+.a-rate button { flex: 1; background: none; border: 1px solid #3b4c74; color: #3b4c74; font-size: 30px; padding: 14px 0; border-radius: 3px; }
+.a-rate button.on { color: var(--beni); border-color: var(--beni); }
+.a-fin textarea { width: 100%; min-height: 110px; background: #1a2540; border: 1px solid #33456b; color: var(--paper);
+  font: inherit; font-size: 16px; padding: 14px; border-radius: 3px; resize: vertical; }
+.a-fin-save { width: 100%; margin-top: 18px; background: var(--paper); color: var(--ai-deep); border: 0;
+  font-family: 'Zen Old Mincho', serif; font-size: 20px; padding: 20px; border-radius: 3px; }
+.a-fin-bin { width: 100%; margin-top: 10px; background: none; border: 0; color: #7489b0; font-size: 14px; padding: 12px; }
