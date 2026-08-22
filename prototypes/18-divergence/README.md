@@ -32,10 +32,14 @@ only thing being judged here is the shape.
 | | Direction | Where a divergence lives |
 |---|---|---|
 | **A** | **The letter** | A **message, written in sentences.** No columns, no gutter, no diff. Kamosu says *"Marc has ¾ cup potato starch where you have 1 cup"* and each sentence carries one offer. |
-| **B** | **The switch** | **Nowhere — there is no difference screen.** Marc's Branch is a recipe, so you read it as a recipe, whole and cookable, with the handful of unshared lines marked. Tap one to see yours without leaving his page. |
-| **C** | **The thread** | **The history screen doing its job.** One line runs down the page and forks where you and Marc part. The comparison is a separate, deliberately *stacked* view — yours above, his below, never two columns. |
+| **B** | **The switch** — *chosen* | **Nowhere — there is no difference screen.** Marc's Branch is a recipe, so you read it as a recipe, whole and cookable, with the handful of unshared lines marked and the lines only one of you has shown as **ghosts**. Tap any of them to see the other side without leaving the page. |
+| **C** | **The thread** — *history chosen* | **The history screen doing its job.** One line runs down the page and forks where you and Marc part. The comparison is a separate, deliberately *stacked* view — yours above, his below, never two columns. |
 
-The useful reaction is usually *"C's thread with A's sentences"*.
+## What was chosen
+
+**B for reading a divergence, C's thread for history.** B now carries both: its
+"Earlier versions" button opens the thread. A and C are kept as they were, for
+comparison.
 
 ## What each one is claiming
 
@@ -44,9 +48,14 @@ The useful reaction is usually *"C's thread with A's sentences"*.
   Its risk is length: eight sentences is a wall, and a rewritten step collapses to
   *"Marc rewrote the step that starts…"*, which tells you nothing about how.
 - **B** claims the comparison is a **fiction** — there is no such object as "the
-  difference", only two recipes. Its cost is on screen and labelled: **a line Marc
-  removed cannot be marked on Marc's recipe, because it is not there.** He deleted
-  your ¼ cup brown sugar and his page has no way to say so.
+  difference", only two recipes. The first pass called deletions unshowable; that
+  was wrong, and the **ghost line** is the fix. A line only one of you has is put
+  on the page struck through, in the position it occupies in the recipe that
+  really has it, labelled with whose it is. Reading Marc's, your ¼ cup brown sugar
+  sits crossed out between the honey and the soy sauce. One mechanism serves both
+  directions — a removal seen from his side and an addition seen from yours are
+  the same object — so the page is **symmetric**: his gochugaru is a ghost on your
+  recipe for exactly the reason your brown sugar is a ghost on his.
 - **C** claims divergence is not an event to design at all — the thread was always
   there, and two people writing in it is just what it looks like. Its risk is that
   it puts *history* in front of a cook who only wanted to know what changed.
@@ -83,9 +92,12 @@ Decisions already made by the map are visible rather than described:
   a real Ingredient Line has an identity that survives editing and travels between
   instances is **a data-model question, not a design one**, and it is the first
   thing to settle.
-- **Where an added line goes.** A line Marc added has no counterpart of yours to
-  sit beside, so it lands at the bottom of the list, marked. That is visibly wrong
-  for `1 tsp gochugaru`, which belongs in the sauce.
+- **Where a ghost goes.** A ghost is anchored to the line before it in the recipe
+  that really has it, which works here — gochugaru lands under the gochujang — but
+  only because that neighbour exists on both sides. Two adjacent changes, or a
+  line added at the top of a section, are untested.
+  The same weakness shows in the *unsaved edit*: a line you carry across that you
+  had no counterpart for still lands at the bottom of your list.
 - **Two Branches, or five.** Everything here assumes exactly two. A third arriving
   from a second friend is not drawn.
 - **The shelf.** All three show one card per Lineage, differing only in the mark.

@@ -57,6 +57,9 @@ const actions = {
   branch: (el) => {
     state.branch = el.dataset.b;
     state.readId = null;
+    // In B there is no difference screen — switching Branch IS the navigation, so
+    // it always lands you on a recipe page.
+    if (state.screen === 'diverge' || state.screen === 'history') state.screen = 'recipe';
   },
   toggle: (el) => {
     const k = el.dataset.k;

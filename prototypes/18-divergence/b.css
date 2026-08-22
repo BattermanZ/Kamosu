@@ -39,3 +39,10 @@
 .b-tray-save { background: var(--paper); color: var(--ai-deep); border: 0; border-radius: 2px;
   padding: 12px 20px; font-family: 'Zen Old Mincho', serif; font-size: 16px; }
 .b-tray-drop { background: none; border: 0; color: #93a6c9; font-size: 14px; padding: 12px 6px; }
+
+/* the ghost: a line the other person hasn't got, shown where it really sits */
+.b-ghost { box-shadow: inset 3px 0 0 #c6b9a4; padding-left: 14px; cursor: pointer; opacity: .78; }
+.b-ghost.is-open { background: var(--paper-2); opacity: 1; }
+.b-ghost .ing-line, .b-ghost p { text-decoration: line-through; text-decoration-color: #b9a98f; }
+.b-ghost .step-n { color: #b6ae9c; }
+.b-mark-ghost { color: #8e8676; }

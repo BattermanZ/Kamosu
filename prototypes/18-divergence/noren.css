@@ -125,3 +125,52 @@ h2.h { font-family: 'Zen Old Mincho', serif; font-size: 12px; font-weight: 600; 
 .unsaved-k { display: block; margin-top: 5px; font-size: 10px; letter-spacing: .12em;
   text-transform: uppercase; color: var(--matcha); }
 .was { display: block; margin-top: 4px; }
+
+/* ---- the thread: C's history screen, shared once B adopted it ---- */
+.c-fork { color: var(--beni); }
+.c-lede { margin: 14px 22px 0; font-size: 16px; line-height: 1.65; color: var(--sumi-2); }
+
+.c-thread { margin: 22px 0 0; }
+
+/* one node on the line */
+.c-node { position: relative; display: block; width: 100%; text-align: left; background: none;
+  border: 0; padding: 14px 22px 16px 46px; }
+.c-node::before { content: ''; position: absolute; left: 30px; top: 0; bottom: -1px; width: 1px; background: var(--line); }
+.c-node:first-of-type::before { top: 14px; }
+.c-dot { position: absolute; left: 25px; top: 20px; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--paper); border: 2px solid var(--ai-soft); }
+.c-node.is-head .c-dot { background: var(--ai); border-color: var(--ai); }
+.c-node-when { display: block; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--sumi-2); }
+.c-node-who { display: block; font-family: 'Zen Old Mincho', serif; font-size: 17px; margin-top: 3px; }
+.c-node-what { display: block; font-size: 14px; color: var(--sumi-2); line-height: 1.55; margin-top: 4px; }
+.c-node-head { display: inline-block; margin-top: 8px; font-size: 10px; letter-spacing: .12em;
+  text-transform: uppercase; border: 1px solid var(--ai); color: var(--ai); padding: 3px 7px; }
+
+/* where the line splits */
+.c-forkmark { position: relative; margin: 0; padding: 16px 22px 16px 46px; background: var(--paper-2); }
+.c-forkmark::before { content: '⑂'; position: absolute; left: 22px; top: 15px; font-size: 19px; color: var(--matcha); }
+.c-forkmark-t { margin: 0; font-family: 'Zen Old Mincho', serif; font-size: 17px; color: var(--matcha); }
+.c-forkmark-s { margin: 5px 0 0; font-size: 13px; color: var(--sumi-2); line-height: 1.6; }
+
+/* two rails after it */
+.c-rails { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.c-rail { padding-bottom: 8px; }
+.c-rail-theirs { border-left: 1px solid var(--line); background: #f0e9db; }
+.c-rail-h { margin: 14px 0 2px 22px; }
+.c-rail-theirs .c-rail-h { margin-left: 16px; }
+.c-rails .c-node { padding: 12px 14px 14px 34px; }
+.c-rails .c-node::before { left: 20px; }
+.c-rails .c-dot { left: 15px; top: 18px; }
+.c-rails .c-node-who { font-size: 15px; }
+.c-rails .c-node-what { font-size: 13px; }
+.c-rail-theirs .c-dot { border-color: var(--beni); }
+.c-rail-theirs .c-node.is-head .c-dot { background: var(--beni); border-color: var(--beni); }
+.c-rail-theirs .c-node-head { border-color: var(--beni); color: var(--beni); }
+
+/* Attempts hanging off the thread */
+.c-att { display: flex; gap: 14px; padding: 13px 22px; border-bottom: 1px solid var(--line-2); }
+.c-att-when { flex: 0 0 74px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--sumi-2); padding-top: 4px; }
+.c-att-t { margin: 0; font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.c-att-n { margin: 4px 0 0; font-size: 14px; color: var(--sumi-2); line-height: 1.55; }
+.c-att-v { margin: 5px 0 0; font-size: 12px; color: #8e8676; }
+
