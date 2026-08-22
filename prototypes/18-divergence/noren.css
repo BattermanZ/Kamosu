@@ -1,0 +1,127 @@
+/* PROTOTYPE — shared Noren clothes, lifted from #13's winning direction.
+   Indigo cloth over unbleached paper. Every direction here wears the same thing
+   so the argument is about SHAPE, not colour. */
+
+:root {
+  --ai: #1d2b4c;        /* indigo */
+  --ai-deep: #131c33;
+  --ai-soft: #3d5480;
+  --paper: #f4efe3;     /* kinari */
+  --paper-2: #ece5d5;
+  --sumi: #1a1a1c;      /* ink */
+  --sumi-2: #5c5a55;
+  --line: #ddd3bf;
+  --line-2: #e3dac7;
+  --beni: #b8474b;      /* safflower — theirs, and anything removed */
+  --matcha: #7d8b5c;    /* added */
+  --mine: #1d2b4c;
+}
+
+body {
+  background: var(--paper);
+  color: var(--sumi);
+  font-family: 'Zen Kaku Gothic New', system-ui, sans-serif;
+}
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+
+.wrap { max-width: 560px; margin: 0 auto; padding-bottom: 120px; }
+
+/* ---- chrome ---- */
+.top { display: flex; align-items: center; gap: 12px; padding: 58px 22px 6px; }
+.mark {
+  font-family: 'Zen Old Mincho', serif; font-size: 26px; line-height: 1;
+  color: var(--paper); background: var(--ai); width: 40px; height: 40px;
+  display: grid; place-items: center; border-radius: 3px;
+}
+.wordmark { font-family: 'Zen Old Mincho', serif; font-size: 24px; font-weight: 600; }
+.kitchen { margin-left: auto; font-size: 11px; color: var(--sumi-2); letter-spacing: .06em; text-transform: uppercase; }
+
+.back { background: none; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--sumi-2); padding: 8px 16px; font-size: 14px; }
+.crumb { display: flex; align-items: center; gap: 12px; padding: 54px 22px 4px; }
+.crumb h1 { font-family: 'Zen Old Mincho', serif; font-size: 17px; font-weight: 600; margin: 0; }
+
+h2.h { font-family: 'Zen Old Mincho', serif; font-size: 12px; font-weight: 600; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--ai); margin: 32px 22px 10px; }
+.muted { color: var(--sumi-2); }
+.tiny { font-size: 12px; }
+
+/* ---- the shelf ---- */
+.list { padding: 16px 22px 0; display: grid; gap: 26px; }
+.card { cursor: pointer; }
+.card-img { position: relative; aspect-ratio: 5 / 3; overflow: hidden; background: var(--paper-2); border-radius: 2px; }
+.card-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card h2 { font-family: 'Zen Old Mincho', serif; font-size: 22px; font-weight: 600; margin: 11px 0 0; line-height: 1.25; }
+.card-meta { margin: 5px 0 0; font-size: 13px; color: var(--sumi-2); }
+.dot { padding: 0 5px; color: #b6ae9c; }
+
+/* ---- recipe page ---- */
+.hero { position: relative; aspect-ratio: 4 / 3; overflow: hidden; }
+.hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hero .back { position: absolute; top: 14px; left: 14px; width: 40px; height: 40px; padding: 0;
+  border: 0; border-radius: 50%; background: rgba(19,28,51,.72); color: #fff; font-size: 18px; }
+.sheet { background: var(--paper); margin-top: -34px; position: relative; border-radius: 4px 4px 0 0; padding: 24px 22px 8px; }
+.eyebrow { margin: 0; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--sumi-2); }
+.title { font-family: 'Zen Old Mincho', serif; font-size: 32px; font-weight: 700; line-height: 1.15; margin: 8px 0 0; }
+.meta { display: flex; gap: 30px; margin: 20px 0 0; padding: 15px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.meta div { display: flex; flex-direction: column; gap: 2px; }
+.meta b { font-family: 'Zen Old Mincho', serif; font-size: 22px; font-weight: 600; }
+.meta span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--sumi-2); }
+
+.ings { list-style: none; margin: 0; padding: 0; }
+.ing { padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+.ing-line { display: block; font-size: 17px; line-height: 1.45; }
+.ing-read { display: inline-block; margin-top: 4px; font-size: 12px; color: #8e8676; }
+.sec { font-family: 'Zen Old Mincho', serif; font-size: 19px; font-weight: 600; margin: 22px 0 2px; color: var(--ai); }
+
+.steps { list-style: none; margin: 0; padding: 0; }
+.step { display: flex; gap: 15px; padding: 13px 0; border-bottom: 1px solid var(--line-2); }
+.step-n { font-family: 'Zen Old Mincho', serif; font-size: 19px; color: var(--ai-soft); min-width: 22px; }
+.step p { margin: 0; font-size: 16px; line-height: 1.6; }
+
+.note { margin: 20px 22px 0; padding: 15px 17px; background: var(--paper-2); font-size: 15px; line-height: 1.6; font-style: italic; }
+
+/* ---- the primary button ---- */
+.cta { display: block; width: calc(100% - 44px); margin: 22px 22px 0; border: 0; border-radius: 2px;
+  background: var(--ai); color: var(--paper); padding: 17px; font-size: 17px;
+  font-family: 'Zen Old Mincho', serif; }
+.cta.ghost { background: none; border: 1px solid #cfc5b0; color: var(--ai); }
+.cta.warm { background: var(--beni); color: #fff; }
+
+/* ---- the divergence banner: shared by every direction, so the ENTRY POINT is
+       constant and only what happens next differs ---- */
+.flag { margin: 0 22px; padding: 15px 17px; background: var(--ai); color: var(--paper);
+  border-radius: 2px; text-align: left; border: 0; display: block; width: calc(100% - 44px); }
+.flag-k { display: block; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: #a9bde0; }
+.flag-t { display: block; font-family: 'Zen Old Mincho', serif; font-size: 18px; margin-top: 4px; line-height: 1.35; }
+.flag-go { display: block; font-size: 13px; margin-top: 6px; color: #cddaf0; }
+
+/* ---- shared marks for change ---- */
+.was { color: var(--sumi-2); text-decoration: line-through; text-decoration-color: #c9b4b5; }
+.is-added { color: var(--matcha); }
+.is-removed { color: var(--beni); }
+
+.pill { display: inline-block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  padding: 3px 7px; border: 1px solid currentColor; border-radius: 2px; }
+.pill.mine { color: var(--ai); }
+.pill.theirs { color: var(--beni); }
+
+/* ---- history rows, shared by all three ---- */
+.vrow { display: block; width: 100%; text-align: left; background: none; border: 0;
+  border-bottom: 1px solid var(--line-2); padding: 15px 22px; }
+.vrow-top { display: flex; align-items: baseline; gap: 10px; }
+.vrow-who { font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.vrow-when { margin-left: auto; font-size: 12px; color: var(--sumi-2); }
+.vrow-what { margin: 5px 0 0; font-size: 14px; color: var(--sumi-2); line-height: 1.55; }
+.vrow-name { font-size: 12px; color: var(--ai); letter-spacing: .04em; }
+.vrow.is-head { background: var(--paper-2); }
+.vrow.is-point { box-shadow: inset 3px 0 0 var(--matcha); }
+
+.foot { margin: 30px 22px 0; font-size: 12px; color: #8e8676; line-height: 1.75; }
+
+/* ---- an unsaved line carried across, shown in place on your own recipe ---- */
+.is-unsaved { box-shadow: inset 3px 0 0 var(--matcha); padding-left: 14px; background: #eef0e6; }
+.unsaved-k { display: block; margin-top: 5px; font-size: 10px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--matcha); }
+.was { display: block; margin-top: 4px; }

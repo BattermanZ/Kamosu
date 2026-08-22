@@ -1,0 +1,49 @@
+/* Direction A — "The letter". Prose, one offer per sentence. */
+
+.a-shelfline { color: var(--beni); }
+
+.a-preamble { padding: 14px 22px 0; }
+.a-preamble p { margin: 0; font-size: 16px; line-height: 1.65; color: var(--sumi-2); }
+.a-preamble b { color: var(--sumi); }
+
+.a-lines { border-top: 1px solid var(--line-2); }
+.a-line { border-bottom: 1px solid var(--line-2); }
+.a-line.is-took { background: #eef0e6; }
+
+.a-line-top { display: flex; align-items: flex-start; gap: 14px; width: 100%; background: none;
+  border: 0; text-align: left; padding: 15px 22px; }
+.a-line-say { font-size: 16px; line-height: 1.55; }
+.a-line-say b { color: var(--matcha); }
+.a-line-chev { margin-left: auto; font-size: 20px; color: var(--ai-soft); line-height: 1.3; }
+
+.a-line-body { padding: 0 22px 18px; }
+.a-side { margin: 0 0 10px; font-size: 15px; line-height: 1.55; padding-left: 62px; text-indent: -62px; }
+.a-side-k { display: inline-block; width: 54px; margin-right: 8px; font-size: 10px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--sumi-2); vertical-align: 1px; text-indent: 0; }
+.a-side-theirs { color: var(--ai); }
+.a-side-theirs .a-side-k { color: var(--beni); }
+
+.a-take { width: 100%; margin-top: 6px; background: var(--ai); color: var(--paper); border: 0;
+  border-radius: 2px; padding: 14px; font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.a-take.is-off { background: none; border: 1px solid #cfc5b0; color: var(--sumi-2); font-family: inherit; font-size: 14px; }
+
+.a-fork { margin: 0; padding: 14px 22px; background: var(--paper-2); font-size: 14px; color: var(--sumi-2); }
+.a-forklink { background: none; border: 0; color: var(--ai); font-size: 14px; padding: 0; text-decoration: underline; }
+
+.a-done { margin: 0 22px; padding: 15px 17px; background: #eef0e6; border-left: 3px solid var(--matcha);
+  font-size: 15px; line-height: 1.6; }
+
+/* the unsaved edit — deliberately a tray, not a dialog: you can keep reading */
+.a-tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; max-width: 560px; margin: 0 auto;
+  background: var(--ai); color: var(--paper); padding: 18px 22px max(20px, env(safe-area-inset-bottom));
+  border-radius: 6px 6px 0 0; box-shadow: 0 -12px 40px rgba(19,28,51,.28); }
+.a-tray-k { margin: 0; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: #a9bde0; }
+.a-tray-t { margin: 5px 0 0; font-family: 'Zen Old Mincho', serif; font-size: 17px; line-height: 1.4; }
+.a-tray-list { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: #cddaf0; line-height: 1.6; }
+.a-tray-label { display: block; margin: 14px 0 5px; font-size: 11px; letter-spacing: .16em;
+  text-transform: uppercase; color: #a9bde0; }
+.a-tray-note { width: 100%; background: #1a2540; border: 1px solid #33456b; color: var(--paper);
+  font-size: 15px; padding: 11px; border-radius: 2px; resize: none; }
+.a-tray-save { width: 100%; margin-top: 12px; background: var(--paper); color: var(--ai-deep); border: 0;
+  border-radius: 2px; padding: 16px; font-family: 'Zen Old Mincho', serif; font-size: 17px; }
+.a-tray-drop { width: 100%; margin-top: 6px; background: none; border: 0; color: #93a6c9; font-size: 14px; padding: 10px; }

@@ -1,0 +1,41 @@
+/* Direction B — "The switch". No diff screen; you stand inside one recipe or the other. */
+
+.b-two { display: inline-block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  border: 1px solid var(--ai); color: var(--ai); padding: 3px 7px; border-radius: 2px; margin-top: 8px; }
+.b-two-theirs { border-color: var(--beni); color: var(--beni); margin-left: 6px; }
+
+.b-switch, .b-histswitch { display: flex; gap: 0; margin: 16px 0 0; border: 1px solid var(--line);
+  border-radius: 2px; overflow: hidden; }
+.b-histswitch { margin: 16px 22px 0; }
+.b-sw { flex: 1; background: none; border: 0; padding: 13px 0; font-size: 15px; color: var(--sumi-2);
+  font-family: 'Zen Old Mincho', serif; }
+.b-sw.on { background: var(--ai); color: var(--paper); }
+
+.b-note { margin: 12px 0 0; font-size: 13px; color: var(--sumi-2); line-height: 1.6; }
+.b-note b { color: var(--sumi); }
+
+.b-count { float: right; font-family: 'Zen Kaku Gothic New', sans-serif; font-size: 11px;
+  letter-spacing: .02em; text-transform: none; color: var(--sumi-2); font-weight: 400; }
+
+/* the mark: a thin edge, not a colour wash — a recipe must still read as a recipe */
+.b-diff { position: relative; box-shadow: inset 3px 0 0 var(--beni); padding-left: 14px; cursor: pointer; }
+.b-diff.is-open { background: var(--paper-2); }
+.b-mark { display: inline-block; margin-top: 5px; font-size: 10px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--beni); }
+
+.b-peek { margin: 12px 0 4px; padding: 13px 15px; background: #e6ddca; border-radius: 2px; }
+.b-peek-k { margin: 0; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--sumi-2); }
+.b-peek-t { margin: 5px 0 0; font-size: 15px; line-height: 1.55; }
+.b-take { width: 100%; margin-top: 12px; background: var(--ai); color: var(--paper); border: 0;
+  border-radius: 2px; padding: 13px; font-family: 'Zen Old Mincho', serif; font-size: 15px; }
+.b-take.is-off { background: none; border: 1px solid #c3b79f; color: var(--sumi-2); font-family: inherit; font-size: 14px; }
+
+.b-tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; max-width: 560px; margin: 0 auto;
+  background: var(--ai); color: var(--paper); padding: 16px 22px max(18px, env(safe-area-inset-bottom));
+  display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center;
+  box-shadow: 0 -12px 40px rgba(19,28,51,.28); }
+.b-tray-t { grid-column: 1 / -1; margin: 0; font-size: 14px; line-height: 1.5; color: #cddaf0; }
+.b-tray-go { background: none; border: 1px solid #3b4c74; color: #cddaf0; border-radius: 2px; padding: 12px 14px; font-size: 14px; }
+.b-tray-save { background: var(--paper); color: var(--ai-deep); border: 0; border-radius: 2px;
+  padding: 12px 20px; font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.b-tray-drop { background: none; border: 0; color: #93a6c9; font-size: 14px; padding: 12px 6px; }
