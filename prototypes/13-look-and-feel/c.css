@@ -23,7 +23,7 @@ body[data-variant="c"] {
 .c button { font: inherit; cursor: pointer; }
 
 /* ---- library ---- */
-.c-top { display: flex; align-items: center; gap: 14px; padding: 26px 20px 6px; }
+.c-top { display: flex; align-items: center; gap: 14px; padding: 62px 20px 6px; }
 .c-hello { margin: 0; font-size: 13px; color: var(--dim); }
 .c-top h1 { margin: 4px 0 0; font-family: 'Fraunces', serif; font-size: 28px; font-weight: 600; line-height: 1.1; }
 .c-avatar { margin-left: auto; width: 40px; height: 40px; border-radius: 50%; background: var(--card);

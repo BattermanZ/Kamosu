@@ -8,7 +8,7 @@ import { KATSU, LIBRARY, ME, cookedSteps, scaleLine, readingLabel, stars } from 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 export function render(state) {
-  if (state.screen === 'library') return library(state);
+  if (state.screen === 'home' || state.screen === 'recipes') return library(state);
   if (state.screen === 'cook') return cook(state);
   return recipe(state);
 }
@@ -109,7 +109,7 @@ function recipe(state) {
   <div class="c c-recipe">
     <div class="c-hero">
       <img src="${r.photo}" alt="">
-      <button class="c-back" data-act="library">←</button>
+      <button class="c-back" data-act="recipes">←</button>
       <div class="c-hero-txt">
         <p class="c-hero-src">${esc(r.source)}</p>
         <h1>${esc(r.title)}</h1>

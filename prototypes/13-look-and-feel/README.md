@@ -17,9 +17,11 @@ Then open `http://<LAN-IP>:9999/` on a phone. No build step, no dependencies.
 
 Three **radically different directions**, each covering the same three screens —
 library, recipe, and cooking. Switch with the floating black bar at the bottom,
-the `←` / `→` arrow keys, or `?v=a|b|c&s=library|recipe|cook` in the URL.
+the `←` / `→` arrow keys, or `?v=a|b|c&s=home|recipes|recipe|cook` in the URL.
 
-**A is the candidate** after Aurélien's first pass: A's look won, C's home-screen
+**A is the candidate.** After Aurélien's second pass it has separate **Home** and
+**Recipes** screens with a tab bar between them, and **timers read out of the step's
+own text**. After his first pass: A's look won, C's home-screen
 shelves were folded into it, and its cooking screen now carries the amounts for the
 current step. B and C are kept as they were, for comparison.
 
@@ -46,6 +48,7 @@ judged against the real thing and not a mock-up:
 - **A cook in progress is an unfinished Attempt** ([ADR 0010](../../docs/adr/0010-a-cook-in-progress-is-an-unfinished-attempt.md)) — the cooking screen *is* the Attempt. The library offers to resume it. Finishing is where a rating or note is attached, and "delete — false start" is the counterweight.
 - **A recipe never averages its ratings** ([ADR 0005](../../docs/adr/0005-an-attempt-is-a-version-you-cooked-but-did-not-keep.md)) — the history shows each person's rating by name and date.
 - **Scaling changes the Yield, never the written line** — the stepper adds a computed quantity beside the line and leaves the line alone.
+- **Durations are read out of the step text, never typed beside it** ([#6](https://github.com/BattermanZ/Kamosu/issues/6)) — "simmer for about 7 minutes" offers a 7-minute timer. Nothing about the timer is stored, and it follows you as you move between steps.
 - Versions, Branches, Visibility, the Français translation and how far behind it is all appear as ordinary text on the recipe.
 
 ## Not in it

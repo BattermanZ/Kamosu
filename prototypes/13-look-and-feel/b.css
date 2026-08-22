@@ -24,7 +24,7 @@ body[data-variant="b"] {
 
 /* ---- library ---- */
 .b-head { display: flex; align-items: baseline; justify-content: space-between;
-  padding: 20px 16px 12px; border-bottom: 2px solid var(--ink); }
+  padding: 58px 16px 12px; border-bottom: 2px solid var(--ink); }
 .b-brand { font-weight: 800; font-size: 22px; letter-spacing: .16em; }
 .b-headmeta { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .08em; color: var(--ink-2); }
 

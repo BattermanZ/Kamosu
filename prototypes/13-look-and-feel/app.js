@@ -9,13 +9,13 @@ const VARIANTS = {
   b: { mod: B, name: 'Ticket — the whole method, one rail' },
   c: { mod: C, name: 'Counter — split, ingredients pinned' },
 };
-const SCREENS = ['library', 'recipe', 'cook'];
+const SCREENS = ['home', 'recipes', 'recipe', 'cook'];
 
 const params = new URLSearchParams(location.search);
 
 export const state = {
   v: VARIANTS[params.get('v')] ? params.get('v') : 'a',
-  screen: SCREENS.includes(params.get('s')) ? params.get('s') : 'library',
+  screen: SCREENS.includes(params.get('s')) ? params.get('s') : 'home',
   scale: 1,
   cook: {
     // An In Progress Attempt: which step, which ingredients ticked, the yield cooked to.
@@ -26,6 +26,8 @@ export const state = {
     finished: false,
     rating: null,
     note: '',
+    // A timer started from a duration read out of the step's own text.
+    timer: null, // { label, secs, startedAt }
   },
 };
 
@@ -53,8 +55,14 @@ const steps = cookedSteps(KATSU);
 
 const actions = {
   open: () => (state.screen = 'recipe'),
-  library: () => (state.screen = 'library'),
+  home: () => (state.screen = 'home'),
+  recipes: () => (state.screen = 'recipes'),
+  library: () => (state.screen = 'home'),
   back: () => (state.screen = 'recipe'),
+  startTimer: (el) => {
+    state.cook.timer = { label: el.dataset.label, secs: Number(el.dataset.secs), startedAt: Date.now() };
+  },
+  stopTimer: () => (state.cook.timer = null),
   scale: (el) => {
     const y = Math.max(1, state.cook.yieldAmount + Number(el.dataset.d));
     state.cook.yieldAmount = y;
@@ -105,6 +113,23 @@ app.addEventListener('click', (e) => {
   render();
 });
 
+// The timer ticks without redrawing the screen — cooking mode should not flicker.
+export function timerLeft() {
+  const t = state.cook.timer;
+  if (!t) return null;
+  return Math.max(0, t.secs - Math.floor((Date.now() - t.startedAt) / 1000));
+}
+setInterval(() => {
+  const el = document.querySelector('[data-timer-count]');
+  if (!el) return;
+  const left = timerLeft();
+  if (left == null) return;
+  const m = Math.floor(left / 60);
+  const sec = String(left % 60).padStart(2, '0');
+  el.textContent = left === 0 ? 'Time' : `${m}:${sec}`;
+  el.closest('[data-timer]')?.classList.toggle('is-up', left === 0);
+}, 250);
+
 app.addEventListener('input', (e) => {
   if (e.target.matches('[data-note]')) state.cook.note = e.target.value;
 });
@@ -119,7 +144,7 @@ function drawBar() {
     <span class="sep"></span>
     ${SCREENS.map(
       (s) =>
-        `<button class="scr" data-screen="${s}" aria-current="${state.screen === s}">${s[0].toUpperCase() + s.slice(1)}</button>`
+        `<button class="scr" data-screen="${s}" aria-current="${state.screen === s}">${{home:'Home',recipes:'All',recipe:'Recipe',cook:'Cook'}[s]}</button>`
     ).join('')}`;
 }
 

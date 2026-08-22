@@ -6,13 +6,37 @@
 // instruction, so the one thing you interrupt cooking to look up is already on screen.
 // Parked: the indigo of the cooking screen — a colour question for later, not a shape one.
 import { KATSU, LIBRARY, ME, cookedSteps, scaleLine, readingLabel, stars } from './data.js';
+import { timerLeft } from './app.js';
+
+// Durations live in the words, so this reads them rather than asking anyone to type them.
+function timersIn(text) {
+  const out = [];
+  const re = /(\d+)\s*(hours?|hrs?|minutes?|mins?)\b/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const n = Number(m[1]);
+    const isHour = /^h/i.test(m[2]);
+    out.push({ secs: n * (isHour ? 3600 : 60), label: `${n} ${isHour ? (n > 1 ? 'hours' : 'hour') : 'min'}` });
+  }
+  return out.slice(0, 2);
+}
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 export function render(state) {
-  if (state.screen === 'library') return library(state);
+  if (state.screen === 'home') return home(state);
+  if (state.screen === 'recipes') return recipes(state);
   if (state.screen === 'cook') return cook(state);
   return recipe(state);
+}
+
+// Home and all-recipes are two destinations, not one long page.
+function tabs(screen) {
+  const t = (id, label, glyph) =>
+    `<button class="a-tab${screen === id ? ' on' : ''}" data-act="${id}">
+       <span class="a-tab-g">${glyph}</span><span>${label}</span>
+     </button>`;
+  return `<nav class="a-tabs">${t('home', 'Home', '⌂')}${t('recipes', 'Recipes', '☰')}</nav>`;
 }
 
 /* ---------------------------------------------------------------- library */
@@ -41,7 +65,7 @@ function shelf(title, blurb, ids) {
   </section>`;
 }
 
-function library(state) {
+function home(state) {
   const resume = state.cook.started
     ? `<button class="a-resume" data-act="resume">
          <span class="a-resume-k">Still cooking</span>
@@ -57,14 +81,28 @@ function library(state) {
       <div class="a-wordmark">Kamosu</div>
       <div class="a-kitchen">Maison Batterman</div>
     </header>
-    <div class="a-searchwrap"><input class="a-search" placeholder="Search 86 recipes" aria-label="Search recipes"></div>
     ${resume}
 
     ${shelf('Cooked most', 'The ones that earned their place', ['dough', 'kfc', 'gateau', 'katsu', 'puree', 'dandan'])}
     ${shelf('Quick tonight', 'Under 35 minutes, start to plate', ['ramen', 'katsu', 'dandan', 'puree', 'meringue'])}
     ${shelf('Never cooked', 'Saved and still waiting', ['meringue', 'tatin', 'iles', 'ribs'])}
 
-    <div class="a-alltitle"><h2>All 86 recipes</h2></div>
+    <button class="a-allbtn" data-act="recipes">Browse all 86 recipes →</button>
+  </div>
+  ${tabs('recipes' === state.screen ? 'recipes' : 'home')}`;
+}
+
+function recipes(state) {
+  return `
+  <div class="a">
+    <header class="a-top a-top-plain">
+      <div class="a-wordmark">Recipes</div>
+      <div class="a-kitchen">86 · Maison Batterman</div>
+    </header>
+    <div class="a-searchwrap"><input class="a-search" placeholder="Search titles, ingredients, anything" aria-label="Search recipes"></div>
+    <div class="a-sortrow">
+      <span class="a-sort on">Recently cooked</span><span class="a-sort">A–Z</span><span class="a-sort">Added</span>
+    </div>
     <div class="a-list">
       ${LIBRARY.map(
         (r) => `
@@ -83,7 +121,8 @@ function library(state) {
         </article>`
       ).join('')}
     </div>
-  </div>`;
+  </div>
+  ${tabs('recipes')}`;
 }
 
 /* ----------------------------------------------------------------- recipe */
@@ -125,7 +164,7 @@ function recipe(state) {
 
   return `
   <div class="a a-recipe">
-    <div class="a-hero"><img src="${r.photo}" alt=""><button class="a-back" data-act="library">←</button></div>
+    <div class="a-hero"><img src="${r.photo}" alt=""><button class="a-back" data-act="recipes">←</button></div>
     <div class="a-sheet">
       <p class="a-eyebrow">${esc(r.source)}</p>
       <h1 class="a-title">${esc(r.title)}</h1>
@@ -169,7 +208,8 @@ function recipe(state) {
       </div>
     </div>
     <div class="a-cta"><button data-act="startCook">Start cooking</button></div>
-  </div>`;
+  </div>
+  ${tabs('recipes')}`;
 }
 
 /* ------------------------------------------------------------------- cook */
@@ -181,6 +221,12 @@ function cook(state) {
   const last = i === steps.length - 1;
 
   if (state.cook.finished) return finishSheet(state);
+
+  // Durations are read out of the step's own text — never typed beside it (#6).
+  // "simmer for about 7 minutes" offers a 7-minute timer; nothing is stored.
+  const durations = timersIn(s.text);
+  const t = state.cook.timer;
+  const left = timerLeft();
 
   // The change: what this step needs is on screen for the whole step, so the one
   // thing you'd otherwise break out of cooking to look up is already here.
@@ -218,6 +264,22 @@ function cook(state) {
 
     <div class="a-cook-body">
       <p class="a-cook-step">${esc(s.text)}</p>
+      ${
+        t
+          ? `<div class="a-timer${left === 0 ? ' is-up' : ''}" data-timer>
+               <span class="a-timer-label">${esc(t.label)}</span>
+               <span class="a-timer-count" data-timer-count>${left === 0 ? 'Time' : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`}</span>
+               <button data-act="stopTimer">${left === 0 ? 'Clear' : 'Stop'}</button>
+             </div>`
+          : durations
+              .map(
+                (d) =>
+                  `<button class="a-timerstart" data-act="startTimer" data-secs="${d.secs}" data-label="${esc(d.label)}">
+                     ⏱ Time ${esc(d.label)}
+                   </button>`
+              )
+              .join('')
+      }
     </div>
 
     <div class="a-cook-foot">

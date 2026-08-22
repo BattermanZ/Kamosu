@@ -8,7 +8,7 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 const pad = (n) => String(n).padStart(2, '0');
 
 export function render(state) {
-  if (state.screen === 'library') return library(state);
+  if (state.screen === 'home' || state.screen === 'recipes') return library(state);
   if (state.screen === 'cook') return cook(state);
   return recipe(state);
 }
@@ -93,7 +93,7 @@ function recipe(state) {
   return `
   <div class="b b-recipe">
     <header class="b-rhead">
-      <button class="b-back" data-act="library">←</button>
+      <button class="b-back" data-act="recipes">←</button>
       <div class="b-rhead-t">
         <h1>${esc(r.title)}</h1>
         <p>${esc(r.subtitle)}</p>

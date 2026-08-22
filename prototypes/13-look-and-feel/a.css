@@ -21,11 +21,11 @@ body[data-variant="a"] {
 }
 body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
 
-.a { max-width: 560px; margin: 0 auto; padding-bottom: 120px; }
+.a { max-width: 560px; margin: 0 auto; padding-bottom: 96px; }
 .a button { font: inherit; cursor: pointer; }
 
 /* ---- library ---- */
-.a-top { display: flex; align-items: baseline; gap: 12px; padding: 26px 22px 8px; }
+.a-top { display: flex; align-items: baseline; gap: 12px; padding: 62px 22px 8px; }
 .a-mark {
   font-family: 'Zen Old Mincho', serif; font-size: 30px; line-height: 1;
   color: var(--paper); background: var(--ai); width: 46px; height: 46px;
@@ -64,6 +64,24 @@ body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
 }
 .a-lang-alt { border-color: var(--beni); color: var(--beni); margin-left: 6px; }
 
+
+/* ---- tabs: home and all-recipes are separate destinations ---- */
+.a-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex;
+  background: var(--paper); border-top: 1px solid #ddd3bf; padding-bottom: env(safe-area-inset-bottom); }
+.a-tab { flex: 1; background: none; border: 0; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 11px 0 13px; color: var(--sumi-2); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.a-tab-g { font-size: 19px; line-height: 1; }
+.a-tab.on { color: var(--ai); }
+.a-tab.on .a-tab-g { color: var(--ai); }
+
+.a-top-plain { padding-bottom: 2px; }
+.a-sortrow { display: flex; gap: 18px; padding: 12px 22px 4px; }
+.a-sort { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: #a49c8b; }
+.a-sort.on { color: var(--ai); border-bottom: 1px solid var(--ai); padding-bottom: 2px; }
+
+.a-allbtn { display: block; width: calc(100% - 44px); margin: 40px 22px 0; background: none;
+  border: 1px solid #cfc5b0; border-radius: 2px; padding: 17px; font-family: 'Zen Old Mincho', serif;
+  font-size: 16px; color: var(--ai); }
 
 /* ---- shelves (kept from C, dressed in A's cloth) ---- */
 .a-shelf { margin-top: 30px; }
@@ -136,14 +154,14 @@ body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
 
 .a-prov { margin: 30px 0 0; display: grid; gap: 5px; font-size: 12px; color: #8e8676; }
 
-.a-cta { position: fixed; left: 0; right: 0; bottom: 0; padding: 14px 22px 24px;
+.a-cta { position: fixed; left: 0; right: 0; bottom: calc(60px + env(safe-area-inset-bottom)); padding: 14px 22px 16px;
   background: linear-gradient(to top, var(--paper) 62%, rgba(244,239,227,0)); }
 .a-cta button { display: block; width: 100%; max-width: 516px; margin: 0 auto; border: 0; border-radius: 2px;
   background: var(--ai); color: var(--paper); padding: 18px; font-size: 17px; letter-spacing: .04em;
   font-family: 'Zen Old Mincho', serif; }
 
 /* ---- cook: one step, full screen ---- */
-.a-cook { color: var(--paper); height: 100dvh; display: flex; flex-direction: column; padding-bottom: 0; }
+.a-cook { color: var(--paper); height: 100dvh; padding-bottom: 0; display: flex; flex-direction: column; padding-bottom: 0; }
 
 /* signature: the noren — one hanging panel per step, dyed as you pass it */
 .a-noren { display: flex; align-items: flex-start; gap: 3px; padding: 0 14px; height: 36px; }
@@ -179,6 +197,20 @@ body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
 .a-nextbtn.a-done { background: var(--beni); color: #fff; }
 .a-awake { text-align: center; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #5d719a;
   padding: 14px 0 max(18px, env(safe-area-inset-bottom)); margin: 0; }
+
+/* ---- timers, read out of the step's own words ---- */
+.a-timerstart { margin: 26px 10px 0 0; background: none; border: 1px solid #3b4c74; color: #cddaf0;
+  border-radius: 999px; padding: 13px 22px; font-size: 16px; }
+.a-timer { display: flex; align-items: center; gap: 14px; margin-top: 26px; padding: 12px 14px 12px 18px;
+  background: #26365c; border-radius: 3px; }
+.a-timer-label { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: #93a6c9; }
+.a-timer-count { font-family: 'Zen Old Mincho', serif; font-size: 32px; margin-left: auto;
+  font-variant-numeric: tabular-nums; }
+.a-timer button { background: none; border: 1px solid #4d6394; color: #b9c8e4; border-radius: 999px;
+  padding: 8px 16px; font-size: 14px; }
+.a-timer.is-up { background: var(--beni); }
+.a-timer.is-up .a-timer-label { color: #f6dcdc; }
+.a-timer.is-up button { border-color: #e79a9c; color: #fff; }
 
 /* ---- finish ---- */
 .a-fin { justify-content: center; }
