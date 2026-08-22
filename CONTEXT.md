@@ -29,16 +29,20 @@ _Avoid_: Feature parity, equivalence
 ### People and access
 
 **Person**:
-Someone with an account on this instance. Cooks in one or more Kitchens, keeps their own Attempts, mints their own Access Keys and reads Kamosu in their Reading Language. An agent is never a Person — it acts as one.
+Someone with an account on this instance. Cooks in one or more Kitchens, keeps their own Attempts, mints their own Access Keys, reads Kamosu in their Reading Language and writes under a Hand. An agent is never a Person — it acts as one, under that Person's Hand.
 _Avoid_: User, member, profile, actor, account
 
 **Kitchen**:
-The circle a recipe is held by, and the only circle that may edit it. Every Branch belongs to exactly one Kitchen; a Person cooks in one or more, and a Person on their own is a Kitchen of one — there is no solo case sitting beside a shared one. Anyone may create one. It has a Name given by its creator, which any member may change, and a Nickname each member may set for themselves alone and which nobody else ever sees. Any member may invite another Person or remove one; the last member cannot be removed.
+The circle a recipe is held by, and the only circle that may edit it. Every Branch belongs to exactly one Kitchen; a Person cooks in one or more, and a Person on their own is a Kitchen of one — there is no solo case sitting beside a shared one. Anyone may create one. It has a Name given by its creator, which any member may change, and a Nickname each member may set for themselves alone and which nobody else ever sees. Any member may invite another Person or remove one; the last member cannot be removed. It has a Hand of its own, which travels with every Branch it writes.
 _Avoid_: Household, group, team, family, workspace, organisation, account
 
 **Home Kitchen**:
 The Kitchen a Person was created with. Where anything they write, import, receive or Copy is held unless they say otherwise — a question only ever put to someone who cooks in more than one.
 _Avoid_: Default kitchen, primary group, personal space
+
+**Hand**:
+How Kamosu says who wrote something: a name together with a permanent id, minted with the account and never changed, carried by every Version a Person writes and every Branch a Kitchen holds. It travels in a share bundle and is never verified — anyone editing that file can put any Hand in it, and Kamosu says so plainly rather than implying a check it does not make. Recognisable in the way handwriting on a card is recognisable, and forgeable for the same reason. On the instance that minted it the name is looked up live, so renaming yourself reaches all of your history at once; anywhere else the name that arrived is all there will ever be.
+_Avoid_: Author id, account id, signature, public key, handle, attribution, fingerprint (that names a Version)
 
 **Visibility**:
 How far a recipe can be seen, set by the Kitchen holding it: its own Kitchen, Chosen (named People and Kitchens), Everyone here, or Anyone with the link. Seeing a recipe means reading it, cooking from it and recording an Attempt against it — never editing it. Changing a recipe you can see means taking a Copy.
@@ -173,11 +177,11 @@ A recipe's identity in the world. One id, minted once when the recipe is created
 _Avoid_: Recipe id, UUID, slug, canonical id, family
 
 **Version**:
-One saved state of a recipe, named by a fingerprint of its own content, recording the Version it came from and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten or deleted. Two holders of the identical state hold the same Version without having communicated. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment, not part of what makes it that Version, so two holders of the same Version may label it differently. Its content and its *what changed* line are frozen: those are an account of something that happened.
+One saved state of a recipe, named by a fingerprint of the recipe state **alone** — never of who wrote it, what it is called, or what they said about it — which is what lets two holders of the identical state hold the same Version without having communicated. It records the Version it came from, the **Hand** of the Person who wrote it, and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten or deleted. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment. Its *what changed* line is frozen once written but is no more part of its identity than its name is, so one Version may reach two people carrying two different notes. On the instance where it was written it also records which Access Key wrote it, if any; that is for its author to read and never travels.
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
-One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. A Branch in a different Language from the one it grew out of is a Translation.
+One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Kitchen writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. A Kitchen may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Kitchen. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. A Branch in a different Language from the one it grew out of is a Translation.
 _Avoid_: Copy, fork, variant, clone
 
 **Branch Point**:
