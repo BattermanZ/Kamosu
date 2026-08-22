@@ -197,8 +197,12 @@ _Avoid_: Locale, UI language, preference
 ### Cooking it
 
 **Attempt**:
-One person's record of one cooking — dated, pinned by fingerprint to the Version that was on screen at the time, and never travelling off the instance. Belongs to a Lineage rather than to a Branch, so cooking the dish is remembered however the recipe later diverges. It holds free text, an optional rating, photographs, and an optional As Cooked. Recording one never changes the recipe.
+One person's record of one cooking — dated, pinned by fingerprint to the Version that was on screen at the time, and never travelling off the instance. Belongs to a Lineage rather than to a Branch, so cooking the dish is remembered however the recipe later diverges. It holds free text, an optional rating, photographs, and an optional As Cooked. Recording one never changes the recipe. It begins when the cooking begins, not when it is written up: cooking mode is an Attempt In Progress rather than a thing of its own, and one that is never finished still counts as a cooking that happened. Deleting is how a false start is undone.
 _Avoid_: Cook, log entry, session, make, bake, journal entry
+
+**In Progress**:
+An Attempt between the start of cooking and its end. Held on the server, so one cooking follows its cook from phone to iPad, and it additionally holds where they have got to — which Step, which Ingredients are ticked, and the Yield being cooked to, which is a fact about that cooking and never a deviation. Visible to its cook alone, inheriting the recipe's visibility only once it ends. A Person may have one In Progress per Lineage; two devices are one Attempt, and the last one moved on is where the cook is. Ending is either finishing deliberately — where a rating or a note is added — or simply stopping, after which Kamosu offers to resume for three days from the last action and then stops asking.
+_Avoid_: Cooking session, active cook, live session, draft attempt
 
 **As Cooked**:
 The complete recipe state an Attempt actually cooked, held only when it differed from the Version it started from — the same shape as a Version, but never joined to a Branch and never shared. Differences are written as ordinary Ingredient Lines and Step text, not as a separate record of what changed.
