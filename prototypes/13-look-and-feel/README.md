@@ -17,11 +17,11 @@ Then open `http://<LAN-IP>:9999/` on a phone. No build step, no dependencies.
 
 Three **radically different directions**, each covering the same three screens —
 library, recipe, and cooking. Switch with the floating black bar at the bottom,
-the `←` / `→` arrow keys, or `?v=a|b|c&s=home|recipes|recipe|cook` in the URL.
+the `←` / `→` arrow keys, or `?v=a|b|c&s=home|recipes|shopping|cooked|recipe|cook` in the URL.
 
-**A is the candidate.** After Aurélien's second pass it has separate **Home** and
-**Recipes** screens with a tab bar between them, and **timers read out of the step's
-own text**. After his first pass: A's look won, C's home-screen
+**A is the candidate.** It now has a four-tab bar — **Home · Recipes · Shopping ·
+Cooked** — with settings behind the kitchen name in Home's top-right corner, and
+**timers read out of the step's own text**. Earlier passes: A's look won, C's home-screen
 shelves were folded into it, and its cooking screen now carries the amounts for the
 current step. B and C are kept as they were, for comparison.
 

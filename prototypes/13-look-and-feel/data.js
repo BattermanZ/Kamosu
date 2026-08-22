@@ -109,3 +109,40 @@ export function readingLabel(ing) {
 }
 
 export const stars = (n) => (n == null ? '' : '★'.repeat(n) + '☆'.repeat(5 - n));
+
+// The cooking diary — Attempts across the whole library, newest first.
+// Nothing new is stored: this is the Attempts that already exist, sorted by date
+// instead of by recipe (ADR 0005 — an Attempt belongs to the person, not the Branch).
+export const DIARY = [
+  { recipe: 'Katsu Curry', id: 'katsu', when: '12 Aug 2026', rating: 4, note: 'Added one extra cube of curry. Add some spices to the chicken next time?', asCooked: true },
+  { recipe: 'Gâteau au Chocolat', id: 'gateau', when: '11 Aug 2026', rating: 5, note: 'Pulled it 4 minutes early. Molten middle — keep doing this.' },
+  { recipe: 'Korean Fried Chicken', id: 'kfc', when: '9 Aug 2026', rating: 4, note: '' },
+  { recipe: 'Purée de Pommes de Terre', id: 'puree', when: '6 Aug 2026', rating: null, note: 'Doubled it for the freezer.' },
+  { recipe: 'Dan Dan Noodles', id: 'dandan', when: '30 Jul 2026', rating: 3, note: 'Far too much chilli oil. Half next time.', asCooked: true },
+  { recipe: 'Cheese Ramen', id: 'ramen', when: '21 Jul 2026', rating: 4, note: '' },
+  { recipe: 'Moules Marinières', id: 'moules', when: '4 Jul 2026', rating: 5, note: 'With the Muscadet. Perfect.' },
+  { recipe: 'Katsu Curry', id: 'katsu', when: '3 May 2026', rating: 5, note: '' },
+];
+
+// A shopping list, gathered from recipes and merged by Food (#25 decides its detail;
+// this is only enough shape to see it sitting in the tab bar).
+export const SHOPPING = [
+  { aisle: 'Fruit & veg', items: [
+    { what: 'Onion', qty: '600 g', from: 'Katsu Curry · Moules Marinières', done: false },
+    { what: 'Potato', qty: '250 g', from: 'Katsu Curry', done: false },
+    { what: 'Carrot', qty: '100 g', from: 'Katsu Curry', done: true },
+    { what: 'Flat-leaf parsley', qty: '1 bunch', from: 'Moules Marinières', done: false },
+  ]},
+  { aisle: 'Meat & fish', items: [
+    { what: 'Chicken breast', qty: '2', from: 'Chicken Katsu Cutlets', done: false },
+    { what: 'Mussels', qty: '2 kg', from: 'Moules Marinières', done: false },
+  ]},
+  { aisle: 'Cupboard', items: [
+    { what: 'Japanese curry roux', qty: '230 g', from: 'Katsu Curry', done: false },
+    { what: 'Panko', qty: '80 g', from: 'Chicken Katsu Cutlets', done: true },
+    { what: 'Rice', qty: '4 cups', from: 'Katsu Curry', done: false },
+  ]},
+  { aisle: 'Nobody read these', items: [
+    { what: 'fukujinzuke, to serve', qty: '', from: 'Katsu Curry', done: false, unread: true },
+  ]},
+];

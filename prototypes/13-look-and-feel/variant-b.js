@@ -8,7 +8,7 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 const pad = (n) => String(n).padStart(2, '0');
 
 export function render(state) {
-  if (state.screen === 'home' || state.screen === 'recipes') return library(state);
+  if (['home', 'recipes', 'shopping', 'cooked'].includes(state.screen)) return library(state);
   if (state.screen === 'cook') return cook(state);
   return recipe(state);
 }

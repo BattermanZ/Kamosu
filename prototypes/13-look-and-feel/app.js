@@ -9,7 +9,7 @@ const VARIANTS = {
   b: { mod: B, name: 'Ticket — the whole method, one rail' },
   c: { mod: C, name: 'Counter — split, ingredients pinned' },
 };
-const SCREENS = ['home', 'recipes', 'recipe', 'cook'];
+const SCREENS = ['home', 'recipes', 'shopping', 'cooked', 'recipe', 'cook'];
 
 const params = new URLSearchParams(location.search);
 
@@ -17,6 +17,8 @@ export const state = {
   v: VARIANTS[params.get('v')] ? params.get('v') : 'a',
   screen: SCREENS.includes(params.get('s')) ? params.get('s') : 'home',
   scale: 1,
+  settings: false, // the sheet behind the kitchen name on Home
+
   cook: {
     // An In Progress Attempt: which step, which ingredients ticked, the yield cooked to.
     started: false,
@@ -57,6 +59,10 @@ const actions = {
   open: () => (state.screen = 'recipe'),
   home: () => (state.screen = 'home'),
   recipes: () => (state.screen = 'recipes'),
+  shopping: () => (state.screen = 'shopping'),
+  cooked: () => (state.screen = 'cooked'),
+  settings: () => (state.settings = true),
+  closeSettings: () => (state.settings = false),
   library: () => (state.screen = 'home'),
   back: () => (state.screen = 'recipe'),
   startTimer: (el) => {
@@ -144,7 +150,7 @@ function drawBar() {
     <span class="sep"></span>
     ${SCREENS.map(
       (s) =>
-        `<button class="scr" data-screen="${s}" aria-current="${state.screen === s}">${{home:'Home',recipes:'All',recipe:'Recipe',cook:'Cook'}[s]}</button>`
+        `<button class="scr" data-screen="${s}" aria-current="${state.screen === s}">${{home:'Home',recipes:'All',shopping:'Shop',cooked:'Diary',recipe:'Recipe',cook:'Cook'}[s]}</button>`
     ).join('')}`;
 }
 

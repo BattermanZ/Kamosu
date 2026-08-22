@@ -8,7 +8,7 @@ import { KATSU, LIBRARY, ME, cookedSteps, scaleLine, readingLabel, stars } from 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 export function render(state) {
-  if (state.screen === 'home' || state.screen === 'recipes') return library(state);
+  if (['home', 'recipes', 'shopping', 'cooked'].includes(state.screen)) return library(state);
   if (state.screen === 'cook') return cook(state);
   return recipe(state);
 }

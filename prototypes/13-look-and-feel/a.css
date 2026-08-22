@@ -83,6 +83,50 @@ body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
   border: 1px solid #cfc5b0; border-radius: 2px; padding: 17px; font-family: 'Zen Old Mincho', serif;
   font-size: 16px; color: var(--ai); }
 
+/* ---- shopping ---- */
+.a-aisle { margin-top: 26px; }
+.a-aisle-h { margin: 0 22px 8px; font-family: 'Zen Old Mincho', serif; font-size: 13px; font-weight: 600;
+  letter-spacing: .22em; text-transform: uppercase; color: var(--ai); }
+.a-buy { display: grid; grid-template-columns: 26px 1fr auto; gap: 4px 12px; align-items: baseline;
+  padding: 13px 22px; border-bottom: 1px solid #e3dac7; cursor: pointer; }
+.a-buy input { grid-row: span 2; width: 21px; height: 21px; accent-color: var(--ai); align-self: center; }
+.a-buy-what { font-size: 17px; }
+.a-buy-qty { font-family: 'Zen Old Mincho', serif; font-size: 17px; color: var(--ai); }
+.a-buy-from { grid-column: 2 / span 2; font-size: 12px; color: #8e8676; }
+.a-buy.is-done .a-buy-what, .a-buy.is-done .a-buy-qty { text-decoration: line-through; color: #a49c8b; }
+.a-aisle-foot { margin: 22px 22px 0; font-size: 12px; color: #8e8676; line-height: 1.7; }
+
+/* ---- the cooking diary ---- */
+.a-diary { padding: 18px 22px 0; display: grid; gap: 20px; }
+.a-entry { display: flex; gap: 14px; cursor: pointer; }
+.a-entry-img { flex: 0 0 88px; height: 88px; overflow: hidden; border-radius: 2px; background: var(--paper-2); }
+.a-entry-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.a-entry-date { margin: 0; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--sumi-2); }
+.a-entry-b h3 { font-family: 'Zen Old Mincho', serif; font-size: 20px; font-weight: 600; margin: 4px 0 0; line-height: 1.2; }
+.a-entry-stars { margin: 5px 0 0; color: var(--beni); letter-spacing: .08em; font-size: 14px; }
+.a-entry-note { margin: 6px 0 0; font-size: 14px; color: var(--sumi-2); line-height: 1.5; }
+.a-entry-tag { display: inline-block; margin-top: 7px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  border: 1px solid var(--matcha); color: var(--matcha); padding: 2px 6px; }
+
+/* ---- settings, behind the kitchen name ---- */
+.a-kitchen-btn { background: none; border: 0; font: inherit; font-size: 12px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--sumi-2); padding: 6px 0; }
+.a-sheetwrap { position: fixed; inset: 0; z-index: 60; background: rgba(19,28,51,.5);
+  display: flex; align-items: flex-end; justify-content: center; }
+.a-set { width: 100%; max-width: 560px; max-height: 88dvh; overflow: auto; background: var(--paper);
+  border-radius: 6px 6px 0 0; padding: 24px 22px max(24px, env(safe-area-inset-bottom)); }
+.a-set-head { padding-bottom: 8px; }
+.a-set-head h2 { font-family: 'Zen Old Mincho', serif; font-size: 27px; font-weight: 700; margin: 6px 0 0; }
+.a-set-sub { margin: 4px 0 0; font-size: 14px; color: var(--sumi-2); }
+.a-set-h { margin: 24px 0 4px; font-family: 'Zen Old Mincho', serif; font-size: 12px; font-weight: 600;
+  letter-spacing: .22em; text-transform: uppercase; color: var(--ai); }
+.a-set-row { display: flex; align-items: baseline; gap: 12px; width: 100%; background: none; border: 0;
+  border-bottom: 1px solid #e3dac7; padding: 14px 2px; text-align: left; font: inherit; }
+.a-set-row span { font-size: 16px; color: var(--sumi); }
+.a-set-row em { margin-left: auto; font-style: normal; font-size: 13px; color: var(--sumi-2); }
+.a-set-close { width: 100%; margin-top: 24px; background: var(--ai); color: var(--paper); border: 0;
+  border-radius: 2px; padding: 17px; font-family: 'Zen Old Mincho', serif; font-size: 17px; }
+
 /* ---- shelves (kept from C, dressed in A's cloth) ---- */
 .a-shelf { margin-top: 30px; }
 .a-shelf-h { padding: 0 22px 11px; }

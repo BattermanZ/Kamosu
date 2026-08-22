@@ -5,7 +5,7 @@
 // Changed: the cooking screen now carries the amounts for the current step above the
 // instruction, so the one thing you interrupt cooking to look up is already on screen.
 // Parked: the indigo of the cooking screen — a colour question for later, not a shape one.
-import { KATSU, LIBRARY, ME, cookedSteps, scaleLine, readingLabel, stars } from './data.js';
+import { KATSU, LIBRARY, ME, KITCHEN, DIARY, SHOPPING, cookedSteps, scaleLine, readingLabel, stars } from './data.js';
 import { timerLeft } from './app.js';
 
 // Durations live in the words, so this reads them rather than asking anyone to type them.
@@ -26,6 +26,8 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
 export function render(state) {
   if (state.screen === 'home') return home(state);
   if (state.screen === 'recipes') return recipes(state);
+  if (state.screen === 'shopping') return shopping(state);
+  if (state.screen === 'cooked') return cooked(state);
   if (state.screen === 'cook') return cook(state);
   return recipe(state);
 }
@@ -36,7 +38,7 @@ function tabs(screen) {
     `<button class="a-tab${screen === id ? ' on' : ''}" data-act="${id}">
        <span class="a-tab-g">${glyph}</span><span>${label}</span>
      </button>`;
-  return `<nav class="a-tabs">${t('home', 'Home', '⌂')}${t('recipes', 'Recipes', '☰')}</nav>`;
+  return `<nav class="a-tabs">${t('home', 'Home', '⌂')}${t('recipes', 'Recipes', '☰')}${t('shopping', 'Shopping', '⬚')}${t('cooked', 'Cooked', '✓')}</nav>`;
 }
 
 /* ---------------------------------------------------------------- library */
@@ -65,6 +67,33 @@ function shelf(title, blurb, ids) {
   </section>`;
 }
 
+function settingsSheet() {
+  const row = (label, value) => `<button class="a-set-row"><span>${esc(label)}</span><em>${esc(value)}</em></button>`;
+  return `
+  <div class="a-sheetwrap" data-act="closeSettings">
+    <div class="a-set">
+      <div class="a-set-head">
+        <p class="a-eyebrow">Signed in as ${ME}</p>
+        <h2>${esc(KITCHEN)}</h2>
+        <p class="a-set-sub">You and Camille cook here</p>
+      </div>
+      <p class="a-set-h">Kitchens</p>
+      ${row('Maison Batterman', 'cooking here')}
+      ${row('Chez Camille', 'switch')}
+      ${row('New kitchen', '')}
+      <p class="a-set-h">You</p>
+      ${row('Name and password', ME)}
+      ${row('Reading language', 'English')}
+      ${row('Access keys for agents', '2 active')}
+      <p class="a-set-h">This instance</p>
+      ${row('Backup', 'last night, 04:00')}
+      ${row('Invite someone', '')}
+      ${row('Accounts', '2 people')}
+      <button class="a-set-close" data-act="closeSettings">Done</button>
+    </div>
+  </div>`;
+}
+
 function home(state) {
   const resume = state.cook.started
     ? `<button class="a-resume" data-act="resume">
@@ -79,7 +108,7 @@ function home(state) {
     <header class="a-top">
       <div class="a-mark">醸</div>
       <div class="a-wordmark">Kamosu</div>
-      <div class="a-kitchen">Maison Batterman</div>
+      <button class="a-kitchen a-kitchen-btn" data-act="settings">Maison Batterman ⌄</button>
     </header>
     ${resume}
 
@@ -89,7 +118,8 @@ function home(state) {
 
     <button class="a-allbtn" data-act="recipes">Browse all 86 recipes →</button>
   </div>
-  ${tabs('recipes' === state.screen ? 'recipes' : 'home')}`;
+  ${tabs('home')}
+  ${state.settings ? settingsSheet() : ''}`;
 }
 
 function recipes(state) {
@@ -123,6 +153,62 @@ function recipes(state) {
     </div>
   </div>
   ${tabs('recipes')}`;
+}
+
+function shopping(state) {
+  return `
+  <div class="a">
+    <header class="a-top a-top-plain">
+      <div class="a-wordmark">Shopping</div>
+      <div class="a-kitchen">4 recipes · 10 things</div>
+    </header>
+    ${SHOPPING.map(
+      (g) => `
+      <section class="a-aisle">
+        <p class="a-aisle-h">${esc(g.aisle)}</p>
+        ${g.items
+          .map(
+            (it) => `
+          <label class="a-buy${it.done ? ' is-done' : ''}">
+            <input type="checkbox" ${it.done ? 'checked' : ''}>
+            <span class="a-buy-what">${esc(it.what)}</span>
+            <span class="a-buy-qty">${esc(it.qty)}</span>
+            <span class="a-buy-from">${esc(it.from)}</span>
+          </label>`
+          )
+          .join('')}
+      </section>`
+    ).join('')}
+    <p class="a-aisle-foot">Things Kamosu couldn't read are kept whole and never guessed at.</p>
+  </div>
+  ${tabs('shopping')}`;
+}
+
+function cooked(state) {
+  return `
+  <div class="a">
+    <header class="a-top a-top-plain">
+      <div class="a-wordmark">Cooked</div>
+      <div class="a-kitchen">${DIARY.length} cookings</div>
+    </header>
+    <div class="a-diary">
+      ${DIARY.map((d) => {
+        const r = LIBRARY.find((x) => x.id === d.id);
+        return `
+        <article class="a-entry" data-act="${d.id === 'katsu' ? 'open' : ''}">
+          <div class="a-entry-img"><img src="${r ? r.photo : ''}" alt=""></div>
+          <div class="a-entry-b">
+            <p class="a-entry-date">${esc(d.when)}</p>
+            <h3>${esc(d.recipe)}</h3>
+            ${d.rating ? `<p class="a-entry-stars">${stars(d.rating)}</p>` : ''}
+            ${d.note ? `<p class="a-entry-note">${esc(d.note)}</p>` : ''}
+            ${d.asCooked ? `<span class="a-entry-tag">cooked differently</span>` : ''}
+          </div>
+        </article>`;
+      }).join('')}
+    </div>
+  </div>
+  ${tabs('cooked')}`;
 }
 
 /* ----------------------------------------------------------------- recipe */
