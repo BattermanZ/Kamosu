@@ -162,6 +162,10 @@ _Avoid_: Bake time, waiting time, rest time, total time
 The single image that stands for a recipe wherever it is listed. Optional. Distinct from a Step's photo, which shows one moment in the cooking.
 _Avoid_: Hero image, cover, thumbnail, picture
 
+**Display Copy**:
+What Kamosu shows on a screen when a photograph is asked for — the photograph reduced once to the largest size a screen will ever use. The original is kept and is what Export, the PDF and a Backup carry; it is never sent to a device. A whole library of Display Copies is small enough to live on a phone, which is what lets recipes be read and cooked with no network.
+_Avoid_: Thumbnail, resized image, derivative, optimised image, web version
+
 ### Identity and history
 
 **Lineage**:
