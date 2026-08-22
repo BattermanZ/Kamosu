@@ -19,9 +19,13 @@ Three **radically different directions**, each covering the same three screens �
 library, recipe, and cooking. Switch with the floating black bar at the bottom,
 the `←` / `→` arrow keys, or `?v=a|b|c&s=library|recipe|cook` in the URL.
 
+**A is the candidate** after Aurélien's first pass: A's look won, C's home-screen
+shelves were folded into it, and its cooking screen now carries the amounts for the
+current step. B and C are kept as they were, for comparison.
+
 | | Direction | Cooking answer |
 |---|---|---|
-| **A** | **Noren** — indigo cloth over unbleached paper, mincho type. Quiet, tactile, Japanese. | **One step, full screen.** Everything else disappears. Huge type, two enormous buttons, a hanging-cloth progress strip. |
+| **A** | **Noren** — indigo cloth over unbleached paper, mincho type. Quiet, tactile, Japanese. Home screen is shelves; recipes lead with big photography. | **One step, full screen, with the amounts for that step pinned above it.** Huge type, two enormous buttons, a hanging-cloth progress strip. |
 | **B** | **Ticket** — the kitchen order ticket. Printed, dense, monospace data, no hero photography, one highlighter. | **The rail.** Every step stays on screen; the current one is highlighted, past ones collapse to a struck line. You always see what's coming. |
 | **C** | **Counter** — warm lamplight over a dark counter. Soft, layered, thumb-first. | **The split.** What this step needs is pinned at the top the whole time; the step fills the middle; a filmstrip in thumb reach moves you along. You never scroll away from a quantity. |
 

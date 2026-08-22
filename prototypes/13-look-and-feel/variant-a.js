@@ -1,6 +1,10 @@
-// PROTOTYPE — Variant A, "Noren".
+// PROTOTYPE — Variant A, "Noren" — the candidate, revised after Aurélien's first pass.
 // Direction: indigo-dyed cloth over unbleached paper. Quiet, tactile, one thing at a time.
-// Cooking answer: ONE STEP, FULL SCREEN. Everything else gets out of the way.
+// Kept: the look, and the big photography.
+// Taken from C: shelves on the home screen ("cooked most" / "quick tonight" / "never cooked").
+// Changed: the cooking screen now carries the amounts for the current step above the
+// instruction, so the one thing you interrupt cooking to look up is already on screen.
+// Parked: the indigo of the cooking screen — a colour question for later, not a shape one.
 import { KATSU, LIBRARY, ME, cookedSteps, scaleLine, readingLabel, stars } from './data.js';
 
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -12,6 +16,31 @@ export function render(state) {
 }
 
 /* ---------------------------------------------------------------- library */
+function shelf(title, blurb, ids) {
+  const items = ids.map((id) => LIBRARY.find((r) => r.id === id)).filter(Boolean);
+  return `
+  <section class="a-shelf">
+    <div class="a-shelf-h">
+      <h2>${esc(title)}</h2>
+      <p>${esc(blurb)}</p>
+    </div>
+    <div class="a-scroller">
+      ${items
+        .map(
+          (r) => `
+        <article class="a-tile" data-act="${r.id === 'katsu' ? 'open' : ''}">
+          <div class="a-tile-img"><img src="${r.photo}" alt="">
+            ${r.lang ? `<span class="a-tile-lang">${r.lang}</span>` : ''}
+          </div>
+          <h3>${esc(r.title)}</h3>
+          <p>${r.mins} min${r.cooks ? ` · cooked ${r.cooks}×` : ' · never cooked'}</p>
+        </article>`
+        )
+        .join('')}
+    </div>
+  </section>`;
+}
+
 function library(state) {
   const resume = state.cook.started
     ? `<button class="a-resume" data-act="resume">
@@ -30,6 +59,12 @@ function library(state) {
     </header>
     <div class="a-searchwrap"><input class="a-search" placeholder="Search 86 recipes" aria-label="Search recipes"></div>
     ${resume}
+
+    ${shelf('Cooked most', 'The ones that earned their place', ['dough', 'kfc', 'gateau', 'katsu', 'puree', 'dandan'])}
+    ${shelf('Quick tonight', 'Under 35 minutes, start to plate', ['ramen', 'katsu', 'dandan', 'puree', 'meringue'])}
+    ${shelf('Never cooked', 'Saved and still waiting', ['meringue', 'tatin', 'iles', 'ribs'])}
+
+    <div class="a-alltitle"><h2>All 86 recipes</h2></div>
     <div class="a-list">
       ${LIBRARY.map(
         (r) => `
@@ -147,15 +182,22 @@ function cook(state) {
 
   if (state.cook.finished) return finishSheet(state);
 
-  const uses = (s.uses || [])
-    .map((ix) => {
-      const ing = r.ingredients[ix];
-      const sc = scaleLine(ing, state.scale);
-      return `<button class="a-use${state.cook.ticked.has(ix) ? ' is-done' : ''}" data-act="tick" data-i="${ix}">
-        ${esc(sc || readingLabel(ing) || ing.line)}
-      </button>`;
-    })
-    .join('');
+  // The change: what this step needs is on screen for the whole step, so the one
+  // thing you'd otherwise break out of cooking to look up is already here.
+  const needs = (s.uses || []).length
+    ? (s.uses || [])
+        .map((ix) => {
+          const ing = r.ingredients[ix];
+          const rd = ing.reading;
+          const on = state.cook.ticked.has(ix);
+          const amount = rd && rd.qty != null ? `${rd.qty * state.scale}${rd.unit ? ' ' + rd.unit : ''}` : '';
+          const what = rd?.recipe ? rd.recipe.title : rd?.food || ing.line;
+          return `<button class="a-need${on ? ' is-done' : ''}" data-act="tick" data-i="${ix}">
+            ${amount ? `<b>${esc(amount)}</b>` : ''}<span>${esc(what)}</span>
+          </button>`;
+        })
+        .join('')
+    : `<p class="a-need-none">Nothing new to add — just the pot.</p>`;
 
   return `
   <div class="a a-cook">
@@ -165,13 +207,17 @@ function cook(state) {
 
     <header class="a-cook-top">
       <button class="a-quit" data-act="pause">Pause</button>
-      <span class="a-cook-title">Katsu Curry</span>
+      <span class="a-cook-title">Katsu Curry · ${state.cook.yieldAmount} servings</span>
       <span class="a-cook-count">${i + 1}<i>/${steps.length}</i></span>
     </header>
 
+    <div class="a-needbox">
+      <p class="a-need-h">For this step</p>
+      <div class="a-needs">${needs}</div>
+    </div>
+
     <div class="a-cook-body">
       <p class="a-cook-step">${esc(s.text)}</p>
-      ${uses ? `<div class="a-uses">${uses}</div>` : ''}
     </div>
 
     <div class="a-cook-foot">
@@ -182,7 +228,7 @@ function cook(state) {
           : `<button class="a-nextbtn" data-act="next">Next step</button>`
       }
     </div>
-    <p class="a-awake">Screen stays awake · cooking 4 servings</p>
+    <p class="a-awake">Screen stays awake</p>
   </div>`;
 }
 

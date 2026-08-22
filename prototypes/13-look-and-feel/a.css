@@ -64,6 +64,28 @@ body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
 }
 .a-lang-alt { border-color: var(--beni); color: var(--beni); margin-left: 6px; }
 
+
+/* ---- shelves (kept from C, dressed in A's cloth) ---- */
+.a-shelf { margin-top: 30px; }
+.a-shelf-h { padding: 0 22px 11px; }
+.a-shelf-h h2 { font-family: 'Zen Old Mincho', serif; font-size: 21px; font-weight: 600; margin: 0; }
+.a-shelf-h p { margin: 3px 0 0; font-size: 12px; color: var(--sumi-2); letter-spacing: .02em; }
+.a-scroller { display: flex; gap: 16px; overflow-x: auto; padding: 0 22px 4px;
+  scroll-snap-type: x proximity; scrollbar-width: none; }
+.a-scroller::-webkit-scrollbar { display: none; }
+.a-tile { flex: 0 0 208px; scroll-snap-align: start; cursor: pointer; }
+.a-tile-img { position: relative; aspect-ratio: 4 / 3; overflow: hidden; background: var(--paper-2); border-radius: 2px; }
+.a-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.a-tile-lang { position: absolute; left: 8px; bottom: 8px; font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; background: rgba(19,28,51,.82); color: var(--paper); padding: 3px 7px; }
+.a-tile h3 { font-family: 'Zen Old Mincho', serif; font-size: 17px; font-weight: 600; margin: 9px 0 0; line-height: 1.25; }
+.a-tile p { margin: 3px 0 0; font-size: 12px; color: var(--sumi-2); }
+
+.a-alltitle { padding: 40px 22px 0; border-top: 1px solid #ddd3bf; margin: 34px 22px 0; }
+.a-alltitle h2 { font-family: 'Zen Old Mincho', serif; font-size: 13px; font-weight: 600; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--ai); margin: 0; padding: 0; }
+.a-alltitle { padding-left: 0; padding-right: 0; }
+
 /* ---- recipe ---- */
 .a-hero { position: relative; aspect-ratio: 4 / 3; overflow: hidden; }
 .a-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -121,7 +143,7 @@ body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
   font-family: 'Zen Old Mincho', serif; }
 
 /* ---- cook: one step, full screen ---- */
-.a-cook { color: var(--paper); min-height: 100dvh; display: flex; flex-direction: column; padding-bottom: 0; }
+.a-cook { color: var(--paper); height: 100dvh; display: flex; flex-direction: column; padding-bottom: 0; }
 
 /* signature: the noren — one hanging panel per step, dyed as you pass it */
 .a-noren { display: flex; align-items: flex-start; gap: 3px; padding: 0 14px; height: 36px; }
@@ -135,11 +157,19 @@ body[data-variant="a"][data-screen="cook"] { background: var(--ai-deep); }
 .a-cook-count { margin-left: auto; font-family: 'Zen Old Mincho', serif; font-size: 26px; }
 .a-cook-count i { font-style: normal; font-size: 15px; color: #7489b0; }
 
-.a-cook-body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 20px 24px; }
-.a-cook-step { font-family: 'Zen Old Mincho', serif; font-size: clamp(28px, 6.4vw, 40px); line-height: 1.4; margin: 0; }
-.a-uses { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 32px; }
-.a-use { background: #26365c; color: #dbe4f5; border: 0; border-radius: 999px; padding: 12px 18px; font-size: 17px; }
-.a-use.is-done { background: transparent; color: #647aa3; text-decoration: line-through; box-shadow: inset 0 0 0 1px #3b4c74; }
+/* the amounts for this step, pinned for the whole step */
+.a-needbox { flex: none; margin: 16px 16px 0; padding: 13px 15px; background: #1a2540; border: 1px solid #2c3c63; border-radius: 3px; }
+.a-need-h { margin: 0 0 10px; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: #7c90b8; }
+.a-needs { display: flex; flex-wrap: wrap; gap: 9px; }
+.a-need { display: flex; align-items: baseline; gap: 8px; background: #26365c; border: 0; border-radius: 3px;
+  padding: 11px 15px; color: #e4ebf8; }
+.a-need b { font-family: 'Zen Old Mincho', serif; font-size: 21px; font-weight: 600; color: var(--paper); }
+.a-need span { font-size: 16px; }
+.a-need.is-done { background: transparent; box-shadow: inset 0 0 0 1px #2c3c63; opacity: .45; text-decoration: line-through; }
+.a-need-none { margin: 0; font-size: 15px; color: #7c90b8; }
+
+.a-cook-body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 22px 24px; min-height: 0; overflow: auto; }
+.a-cook-step { font-family: 'Zen Old Mincho', serif; font-size: clamp(27px, 6.2vw, 38px); line-height: 1.4; margin: 0; }
 
 .a-cook-foot { display: flex; gap: 10px; padding: 0 16px; }
 .a-prevbtn { flex: 0 0 30%; background: none; border: 1px solid #3b4c74; color: #b9c8e4; border-radius: 3px; font-size: 18px; padding: 24px 0; }
