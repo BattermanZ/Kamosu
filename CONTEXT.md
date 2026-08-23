@@ -53,7 +53,7 @@ Taking a recipe you can see into your own Kitchen — a new Branch of the same L
 _Avoid_: Duplicate, fork, clone, save, import
 
 **Share Link**:
-The unguessable address of a recipe whose Visibility is *Anyone with the link*. One per recipe, never expiring, freely passed on. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, and offers both the share bundle and a PDF. It never shows Attempts.
+The unguessable address of a recipe whose Visibility is *Anyone with the link*. One per recipe, never expiring, freely passed on. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, the recipe's **Thread** beneath it, and offers both the share bundle and a PDF. It never shows Attempts. Ending a link stops new people arriving and reaches no copy already sent, which the share screen says in the same words every time.
 _Avoid_: Public URL, guest access, token link, published recipe
 
 **Invite**:
@@ -189,7 +189,7 @@ A recipe's identity in the world. One id, minted once when the recipe is created
 _Avoid_: Recipe id, UUID, slug, canonical id, family
 
 **Version**:
-One saved state of a recipe, named by a fingerprint of the recipe state **alone** — never of who wrote it, what it is called, or what they said about it — which is what lets two holders of the identical state hold the same Version without having communicated. It records the Version it came from, the **Hand** of the Person who wrote it, and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten or deleted. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment. Its *what changed* line is frozen once written but is no more part of its identity than its name is, so one Version may reach two people carrying two different notes. On the instance where it was written it also records which Access Key wrote it, if any; that is for its author to read and never travels.
+One saved state of a recipe, named by a fingerprint of the recipe state **alone** — never of who wrote it, what it is called, or what they said about it — which is what lets two holders of the identical state hold the same Version without having communicated. It records the Version it came from, the **Hand** of the Person who wrote it, and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten, deleted, or withheld from a share — a share always carries the complete chain back to the first Version, names and *what changed* lines included, and nobody holding a Version may remove it, its author and its recipients alike. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment. Its *what changed* line is frozen once written but is no more part of its identity than its name is, so one Version may reach two people carrying two different notes. On the instance where it was written it also records which Access Key wrote it, if any; that is for its author to read and never travels.
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
@@ -197,7 +197,7 @@ One holder's line of Versions within a Lineage, carrying a Language. What a pers
 _Avoid_: Copy, fork, variant, clone
 
 **Branch Point**:
-The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means.
+The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means. It always exists between two valid Branches of one Lineage, because every chain reaches the same first Version; a chain that does not is a damaged bundle.
 _Avoid_: Common ancestor, base, merge base, split
 
 **Thread**:
