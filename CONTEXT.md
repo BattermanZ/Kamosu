@@ -135,7 +135,7 @@ What one cup of a Food weighs, about — the one figure that lets a volume becom
 _Avoid_: Density, specific gravity, conversion factor, weight, gram weight
 
 **Step**:
-One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like, and links to the Ingredients it uses. A duration or a temperature is read out of that text, never typed beside it — a duration becoming a timer that can be started, a temperature in the other system becoming a conversion offered beside the sentence and never written into it.
+One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like. Which Ingredients it uses is worked out from their Readings rather than carried — nothing points at anything and nobody types a link. A duration or a temperature is read out of that text, never typed beside it — a duration becoming a timer that can be started, a temperature in the other system becoming a conversion offered beside the sentence and never written into it.
 _Avoid_: Instruction, direction, method, procedure
 
 **Section**:
@@ -207,6 +207,10 @@ _Avoid_: History, log, timeline, changelog, graph
 **Ghost**:
 A line one Branch has and the other has not, shown on the recipe that has not got it — struck through, in the position it occupies in the recipe that really has it, labelled with whose it is. A line the other person removed and a line the other person added are the same thing seen from opposite sides, so one Ghost serves both and every difference is visible from either Branch.
 _Avoid_: Diff, deletion, phantom, missing line
+
+**Pairing**:
+Kamosu deciding that a line of one Branch and a line of the other are the same line, changed — worked out by reading them against the **Branch Point**, never by any name a line carries, because a line carries none. Only lines somebody actually edited need one; anything neither side touched is identical on both sides already. Where the reading is uncertain Kamosu declines to pair and shows both lines, one of them as a **Ghost**, and it never labels a Pairing as a guess: both texts are on screen in full, which is better evidence than a badge about them. It reaches the whole recipe, not only the two lists — Sections and Notes pair as lines do, single values such as the title or the Yield are simply the same or not, and a Photograph is exact because it is known by its own contents. Tags are left out, being how a Kitchen files a recipe rather than anything about the dish.
+_Avoid_: Diff, match, alignment, correlation, line id, key
 
 ### Language and measures
 
