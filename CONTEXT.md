@@ -49,7 +49,7 @@ How far a recipe can be seen, set by the Kitchen holding it: its own Kitchen, Ch
 _Avoid_: Permission, access control, privacy level, sharing setting
 
 **Copy**:
-Taking a recipe you can see into your own Kitchen — a new Branch of the same Lineage, held by you from then on. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a share bundle from another server.
+Changing a recipe you can see but do not hold — which starts a new Branch of the same Lineage, yours from then on, forking at the Version you changed and carrying the whole chain behind it. It happens at the moment of the change, never at the moment of receipt: a **Bundle** arriving puts the sender's Branch in your Kitchen under their id, and only editing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
 _Avoid_: Duplicate, fork, clone, save, import
 
 **Share Link**:
@@ -89,8 +89,16 @@ Bringing recipes into Kamosu from elsewhere — another app's export, or a web p
 _Avoid_: Migration, sync, ingest
 
 **Export**:
-Producing recipes in a form usable outside Kamosu. An Operation like any other.
+Producing recipes in a form usable outside Kamosu — a **Bundle**, or a PDF. An Operation like any other.
 _Avoid_: Download, backup, share
+
+**Bundle**:
+The one form in which recipes leave Kamosu: a folder holding a readable Markdown note per recipe — the recipe as it reads today, with its **Thread** beneath it — and a hidden `.kamosu/` sidecar carrying the complete past Versions, the Readings and the ids. Handed over as a plain zip; a **Vault** is the same folder holding a whole library, written to a directory and kept up to date. It is self-contained and works with the sender's server switched off, carries the complete chain back to the first Version, and names which Lineages it is *about* — everything else in it is a **Passenger**. It carries no Attempts.
+_Avoid_: Export file, archive, package, payload, blob
+
+**Passenger**:
+A recipe present in a **Bundle** only because something else in it needed it — the dough travelling with the pizza. It arrives whole, since a **Component**'s line has nothing to unfold without it, and it is not what the Bundle is about.
+_Avoid_: Dependency, attachment, extra, sub-recipe
 
 **Vault**:
 An optional folder of Markdown notes and images in which one Kitchen's recipes are published, kept up to date by Kamosu and optionally backed by Git. Kamosu writes a Vault and never reads it back; changes made to the files return only through Import. A Vault is a publication with a Kitchen that owns it, a destination and a scope — not where recipes are stored. One per Kitchen, set up by any of its members.
@@ -115,7 +123,7 @@ The ingredient exactly as written or imported — `"2 poignées de farine, envir
 _Avoid_: Original text, raw text, free text, display string
 
 **Reading**:
-An optional interpretation of an Ingredient Line into its parts — how much, in what **Unit**, of what. That last part is either a **Food** or a **Recipe**; where it is a Recipe, the Ingredient is a Component. A Reading may be absent, partial or mistaken; anything built on it degrades politely rather than failing.
+An optional interpretation of an Ingredient Line into its parts — how much, in what **Unit**, of what. That last part is either a **Food** or a **Recipe**; where it is a Recipe, the Ingredient is a Component. A Reading may be absent, partial or mistaken; anything built on it degrades politely rather than failing. It is Kamosu's reading of a line rather than part of the line, so it is no part of a Version's identity: correcting one makes no Version and appears in no Thread. It travels beside the Version it belongs to and is carried, never recomputed — where it points at a Food it carries that Food's names in every Language it has one for and no id, and where it points at a Recipe it names a Lineage.
 _Avoid_: Parse, structured ingredient, decomposition, breakdown
 
 **Unit**:
@@ -189,11 +197,11 @@ A recipe's identity in the world. One id, minted once when the recipe is created
 _Avoid_: Recipe id, UUID, slug, canonical id, family
 
 **Version**:
-One saved state of a recipe, named by a fingerprint of the recipe state **alone** — never of who wrote it, what it is called, or what they said about it — which is what lets two holders of the identical state hold the same Version without having communicated. It records the Version it came from, the **Hand** of the Person who wrote it, and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten, deleted, or withheld from a share — a share always carries the complete chain back to the first Version, names and *what changed* lines included, and nobody holding a Version may remove it, its author and its recipients alike. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment. Its *what changed* line is frozen once written but is no more part of its identity than its name is, so one Version may reach two people carrying two different notes. On the instance where it was written it also records which Access Key wrote it, if any; that is for its author to read and never travels.
+One saved state of a recipe, named by a fingerprint of what a person wrote and chose **alone** — the words and the Photographs, never the **Reading** over a line, and never who wrote it, when, what it is called, or what they said about it — which is what lets two holders of the identical state hold the same Version without having communicated. It records the Version it came from, the **Hand** of the Person who wrote it, and optionally a name and a line saying what changed and why. Every save makes one; none is ever rewritten, deleted, or withheld from a share — a share always carries the complete chain back to the first Version, names and *what changed* lines included, and nobody holding a Version may remove it, its author and its recipients alike. Its **name** is the one thing about it that can be changed later — a label a person puts on a moment. Its *what changed* line is frozen once written but is no more part of its identity than its name is, so one Version may reach two people carrying two different notes. On the instance where it was written it also records which Access Key wrote it, if any; that is for its author to read and never travels.
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
-One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Kitchen writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. A Kitchen may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Kitchen. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. A Branch in a different Language from the one it grew out of is a Translation.
+One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Kitchen writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. A Kitchen may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Kitchen. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. It may also carry the address of the instance it lives on — a hint written into a Bundle, never fetched and never required, since a Bundle must work with that server switched off. A Branch in a different Language from the one it grew out of is a Translation.
 _Avoid_: Copy, fork, variant, clone
 
 **Branch Point**:

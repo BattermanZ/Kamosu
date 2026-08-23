@@ -1,0 +1,62 @@
+# A Bundle is one recipe's worth of Vault
+
+There is **one** form in which recipes leave Kamosu. A **Bundle** is a folder holding a readable Markdown note per recipe and a hidden `.kamosu/` sidecar carrying the machine detail. Sharing a recipe writes that folder and zips it. The deferred **Vault** ([ADR 0003](./0003-the-database-is-the-truth-the-vault-is-a-published-copy.md)) is the same folder holding a whole library, written to a directory and kept up to date, rather than a second format.
+
+The note is the recipe as it reads today, with the **Thread** beneath it — every Version in order with its date, its name, its *what changed* line and its **Hand**, in the same words the Share Link page uses ([ADR 0018](./0018-a-share-begins-at-the-beginning-and-there-is-no-unsay.md)). The complete past states live in the sidecar, as complete states and never as deltas.
+
+A Bundle holds more than one recipe in the general case — a Branch's Translations ([ADR 0006](./0006-a-translation-is-a-branch.md)) and any **Component** travelling as a passenger ([ADR 0008](./0008-a-composed-recipe-is-an-ingredient.md)) — so the sidecar names which Lineages the Bundle is **about**. Everything else in it is a **Passenger**: present because something needed it. A Vault is the same file with every recipe a subject, which is why there is no third case.
+
+The wrapper is a plain **`.zip` with UTF-8 filenames**, recipe notes at the top level and machinery in the dot-directory beneath them.
+
+Each Version carries an empty **signature slot** beside its Hand, and each Branch an optional **origin instance address**. Both are hints, neither is ever fetched, and nothing in v1 writes either.
+
+## Why
+
+- **The one difference that looked structural is not one.** A Vault appears to be a living picture of a library and a Bundle a frozen parcel, which suggests two formats. But both must carry the complete Version history: the Bundle by [ADR 0018](./0018-a-share-begins-at-the-beginning-and-there-is-no-unsay.md), and the Vault because [#12](https://github.com/BattermanZ/Kamosu/issues/12) promises v2 regenerates the library "history included, in one pass" while [ADR 0003](./0003-the-database-is-the-truth-the-vault-is-a-published-copy.md) already forbade leaning on git for it. Two formats would have differed only in how many recipes they held.
+- **One format is how the deferred Vault gets tested.** The format ships in v1 and is exercised by every share, so by the time a Vault is written it has been proven against real recipes for a year. Two formats would have meant every future field added twice and forgettable once — the standing cost [#17](https://github.com/BattermanZ/Kamosu/issues/17) named.
+- **The Thread in the note is what makes the file worth opening in ten years.** [ADR 0018](./0018-a-share-begins-at-the-beginning-and-there-is-no-unsay.md) called the *what changed* line "the vehicle for credit" and "the only thing that makes reading someone else's history worth doing", and put it on the Share Link page. A file that hid it in JSON would be quietly the lesser of the two deliveries of the same recipe, in the place most likely to outlive the server.
+- **Complete states, because a Version is one.** [ADR 0004](./0004-one-lineage-many-branches.md) defines a Version as a complete state rather than a delta, and the receiver recomputes every fingerprint, which needs the state anyway. Deltas would let one bad link corrupt every Version after it, silently.
+- **Marking the subjects costs a list of ids and buys the only sentence that matters on the import screen.** Without it Kamosu cannot say *"Pizza, and one component it needs"* — only *"2 recipes"* — and the Share Link page would have to guess which recipe to render. It degrades worst at depth: a roast composing four sub-recipes would import as five equal recipes with nothing marking the one that was clicked. [ADR 0008](./0008-a-composed-recipe-is-an-ingredient.md) already established the distinction exists; this only lets the file say so.
+- **`.zip` because it opens with no help, everywhere, including a phone.** The rival, `.tar.gz`, cannot be opened by the iOS Files app at all, which disqualifies it for an app used on a phone. `7z` and `zstd` compress better and require software installed in 2036. Compression is nearly moot regardless: photographs dominate the bulk — the real Crouton export was 110 MB, essentially all images ([#5](https://github.com/BattermanZ/Kamosu/issues/5)) — and are already WebP by [ADR 0017](./0017-a-photograph-is-known-by-its-contents.md), so nothing squeezes them further. Zip also allows one file to be read without unpacking the archive, so a large Vault export's sidecar can be checked before it is committed to.
+- **A Kamosu-specific extension would have associated with nothing.** Kamosu is a self-hosted server, not a program on anyone's computer, so `.kamosu` buys the appearance of a real file type and none of the behaviour — while working directly against [#12](https://github.com/BattermanZ/Kamosu/issues/12)'s demand that a Bundle never be an opaque blob. [ADR 0017](./0017-a-photograph-is-known-by-its-contents.md) made the same call normalising photographs to WebP: a Bundle has to be openable, and "a format lottery is what that sentence forbids".
+- **The origin address belongs to a Branch, not to the file.** Receive Marc's pizza, fork your own Branch, send the pair to Nadia: a per-file address would state your server as the origin of Marc's Branch, and every re-share would launder it further. Per-Branch, Nadia's file is truthful about both. It is also the shape the deferred **cross-instance Kitchens** work wants, where *subscription* means asking one instance about one Branch.
+- **The signature sits on a Version because that is what it would attest.** [ADR 0015](./0015-a-name-is-not-identification-it-is-a-reminder.md) put the Hand there and refused to verify it; the slot is the one field that keeps that refusal reversible without leaving a permanent unsigned era in every library.
+
+## A Branch has one Kitchen writing it
+
+Receiving a Bundle puts the sender's Branch in your Kitchen under **their** Branch id and their Kitchen's Hand — readable, cookable, and something you may record an Attempt against. Changing it starts **your** Branch, forking at the Version you edited from and carrying their whole chain behind it. That is precisely the **Copy** of [ADR 0007](./0007-a-recipe-is-held-by-a-kitchen-not-a-person.md), which is why the moment of a Copy is the moment of a change and not the moment of receipt.
+
+The alternative — a received Branch becoming yours on arrival — pays the same price later and in a worse form. Once you have written into a Branch, the sender's next Bundle cannot extend it and must arrive as a second Branch, labelled as coming from the same friend as the recipe you already have.
+
+Two things fall out for nothing:
+
+- **A returning Bundle can only extend, never conflict**, because only the owning Kitchen ever writes a Branch. The sender's second Bundle carries the same Branch id and continues where yours left off — no reconciliation, no question to ask anyone. This is the payoff [ADR 0015](./0015-a-name-is-not-identification-it-is-a-reminder.md) minted the Branch id for.
+- **Divergence then means one honest thing:** you forked and they kept going. Two Branches, the switch and the Ghosts of [ADR 0014](./0014-a-divergence-is-two-recipes-not-a-difference.md), which is the screen that already exists for it.
+
+## A damaged Bundle keeps the dinner and loses the provenance
+
+The receiver recomputes every fingerprint on import, so damage is arithmetic rather than trust, and [ADR 0018](./0018-a-share-begins-at-the-beginning-and-there-is-no-unsay.md) made a short chain mean exactly one thing. Fields the receiver does not recognise are **ignored, not rejected**, or the signature slot could never be filled without orphaning every Bundle written before that day.
+
+Where the chain does not reach the first Version, or a Version's contents do not match its own name, Kamosu refuses the history and offers the recipe as it currently reads — **as a new recipe of your own, with no history and no Lineage id** — and says all three things plainly.
+
+- **It is not a new case.** [ADR 0003](./0003-the-database-is-the-truth-the-vault-is-a-published-copy.md) already settled a folder arriving with no `.kamosu/` at all: "imported best-effort from the notes, and says so." A damaged sidecar is that situation reached by a different road, and a different answer would have been the inconsistency.
+- **Dropping the Lineage id is the strict half, and it is where strictness protects something.** It stops a mangled copy from later lining up beside the real recipe as a Branch whose Branch Point can never be computed — which is the outcome [ADR 0018](./0018-a-share-begins-at-the-beginning-and-there-is-no-unsay.md) spent itself preventing.
+- **Importing it as-is behind a "damaged" flag was refused outright.** Without a complete chain the Branch Point is not computable, so divergence, Ghosts and Pairing stop working for that recipe permanently and quietly — and the flag would be one more thing anyone can hand-edit in a file whose whole point is that it works with the sharer's server switched off.
+- **Refusing the whole Bundle was the safe answer and slightly cruel.** Someone was emailed a recipe, the file was mangled in transit, and Kamosu — plainly able to see the ingredients and the method — would have refused to let them cook it.
+
+## Considered options
+
+- **Two formats, a share bundle and a Vault.** Rejected: their one apparent difference dissolved under the history requirement, leaving only a standing cost.
+- **A flat Bundle with nothing privileged.** Rejected: the import screen and the Share Link page both need to know which recipe was meant, and neither can work it out.
+- **A note per Version.** Rejected: complete readable history at the price of thousands of files in a 200-recipe Vault, wrecking the one thing a Vault exists for.
+- **Machine-only history, no Thread in the note.** Rejected: it would drop the commentary in the place most likely to be read without Kamosu.
+- **`.tar.gz`, `7z`, a `.kamosu` extension.** Rejected on the phone, on 2036, and on there being no program to associate with.
+- **One readable format, zipped, with the subjects named** (chosen).
+
+## Consequences
+
+- **Every way out of Kamosu writes proper names.** Photographs are stored content-addressed ([ADR 0017](./0017-a-photograph-is-known-by-its-contents.md)) and named in the Bundle, embedded from the note so Obsidian renders them.
+- **What travels is now fully enumerated.** In: the recipe, its Translations, its Passengers, the complete Version chain with names, *what changed* lines, Hands and dates, the photographs currently in use, the Lineage id, the Branch id, Tags as names, and Readings ([ADR 0021](./0021-a-reading-is-kamosus-reading-not-the-recipe.md)). Out: Attempts and everything In Progress ([ADR 0005](./0005-an-attempt-is-a-version-you-cooked-but-did-not-keep.md), [ADR 0010](./0010-a-cook-in-progress-is-an-unfinished-attempt.md)), Related Recipes, Cup Weight, and the Access Key that wrote each Version ([ADR 0015](./0015-a-name-is-not-identification-it-is-a-reminder.md)).
+- **Whether an arriving Passenger gets a card on your shelf is left open**, deliberately. It is an import behaviour and belongs to [#26](https://github.com/BattermanZ/Kamosu/issues/26); this decision only guarantees the file carries enough for that choice to exist.
+- **The zip's UTF-8 filename flag is spec, not an implementation detail.** Zip's legacy encoding mangles `Bœuf bourguignon.md`, and 9 of the 86 real recipes are not in English ([#5](https://github.com/BattermanZ/Kamosu/issues/5)).
+- **v2's Vault inherits a format that has been in production for a year**, and inherits the importer with it, since a Vault arriving back is an ordinary Bundle with many subjects.
