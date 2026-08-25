@@ -26,6 +26,10 @@ _Avoid_: Adapter, interface, transport, front end, client
 The guarantee that both Doors offer the same Operations. It holds because the Doors are built from the Catalogue rather than written separately, so an Operation cannot exist at one Door alone.
 _Avoid_: Feature parity, equivalence
 
+**Meaning Search**:
+The half of searching that matches on meaning rather than on words, so *that thing with aubergines* finds a recipe that never says aubergine. It is **optional and off until an Operator turns it on**, because it needs a model Kamosu does not ship and whose terms only a person can accept. Searching is one Operation either way and the **Catalogue** never changes shape — what changes is how a result can match, which a result already says. Its index is derived from the database and can always be rebuilt, so turning it on is a **Job** and turning it off discards nothing.
+_Avoid_: Semantic search, vector search, embeddings, AI search, similarity search
+
 ### People and access
 
 **Person**:
@@ -109,8 +113,12 @@ An optional folder of Markdown notes and images in which one Kitchen's recipes a
 _Avoid_: Mirror, source of truth, repository, notes folder
 
 **Backup**:
-An Operation producing a single archive from which a Kamosu instance can be restored — a consistent copy of the database together with the photographs. A Vault is not a Backup.
-_Avoid_: Export, dump, snapshot
+An Operation producing a single archive from which a Kamosu instance can be restored — a consistent copy of the database together with the photographs. Kamosu writes it beside the database, on a schedule an Operator sets, keeping the last few; any archive it holds can be fetched at either Door. **Kamosu never sends one anywhere** — carrying it off the machine belongs to whatever already backs the machine up. A Vault is not a Backup, and neither is a **Snapshot**.
+_Avoid_: Export, dump, cloud backup
+
+**Snapshot**:
+The copy of the database Kamosu takes of its own accord before it migrates, and the only way back from an upgrade. It is the database alone and never the photographs, which is not a shortcut: a **Photograph** cannot change once it exists, so a migration cannot touch one, and the database by itself is a complete way back. Restoring is putting the file back. It is **not a Backup** — it is small, automatic, unscheduled, and about the last few minutes rather than the last few weeks.
+_Avoid_: Backup, dump, restore point, checkpoint
 
 ### What a recipe is made of
 
