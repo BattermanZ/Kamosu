@@ -61,7 +61,7 @@ A one-use link that turns a stranger into a Person, or adds a Person to a Kitche
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A long secret a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. A Key can never mint another Key.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. It acts as that Person across every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite, so an agent cannot turn a leak into an account.
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator**:
@@ -73,6 +73,14 @@ _Avoid_: Admin, root, superuser, owner, host
 **Credential**:
 What a request presents to prove who is acting — always as a Person. It comes from one of two places: a Person logging in, or an Access Key they minted. Every Door resolves one before the Core runs anything, so the same permissions apply whether a person or an agent is asking. Obtaining a Credential is not an Operation.
 _Avoid_: Token, session, auth, API key, login
+
+**Secret**:
+A long random string where holding it *is* the permission — a **Share Link** token, an **Access Key**, an **Invite**, a recovery link, a **Session**. All are alike: 256 bits of randomness, stored hashed, shown once at minting, known afterwards only by a name and when they were last used, revocable one at a time, and **never on a clock**. A Secret ends in one of exactly two ways — it is *spent*, as an Invite and a recovery link are on first use, or it is *revoked*. A password is not a Secret: it is short, chosen by a person, never stored, and the only thing in Kamosu that is throttled.
+_Avoid_: Token, key, credential, nonce, bearer token
+
+**Session**:
+The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time — a Person sees their own beside their Access Keys, each named for the device and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
+_Avoid_: Cookie, login, token, sign-in
 
 **Immediate Operation**:
 An Operation that answers within a single request.

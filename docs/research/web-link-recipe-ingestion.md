@@ -215,3 +215,56 @@ Concretely:
 5. **For issue #12 ("The v1 cut line"), not issue #11 as originally framed to this research** (issue #11 is "Accounts, ownership and sharing" — a check of the actual GitHub issues via `gh api` shows the v1-scope-decision ticket is **#12**; this document uses the correct number): **web-link import, in the scoped-down form above, is cheap enough to belong in v1.** The Rust-native extractor is a self-contained, dependency-free module with no new deployment surface — it is not the kind of feature that needs the foundation to "already accommodate" something bigger, unlike (say) versioning or multi-language variants from the sibling doc's Synthesis 2. The one genuine judgment call for issue #12 is whether to ship it *with* or *without* structured ingredient parsing on day one — this document's recommendation is **ship without it** (original-text-only ingredients from web import, filled in by a later ticket), since that keeps the v1 dependency footprint at zero non-Rust runtime pieces while still delivering the actual wish-list ask ("automatically ingest a recipe from a supplied web link").
 
 **Where confidence is weakest**: the adoption-rate claim in §1 ("most mainstream recipe sites publish schema.org data") is Medium/inferred, not a measured statistic — no authoritative percentage was found. The qualitative claim in §4 that most of `recipe-scrapers`' custom-HTML-scraper files (the 39%) are narrow single-field patches rather than full re-scrapes rests on sampling 3 of 247 files, not all of them. Neither gap changes the recommendation's direction, but both are worth a cheap sanity check (e.g. sampling another 10–15 scraper files) before this becomes a firm engineering estimate rather than a scoping recommendation.
+
+---
+
+## Addendum (2026-08-25, from [#31](https://github.com/BattermanZ/Kamosu/issues/31)): `rust-recipe` audited in source
+
+§2 rejected `rust-recipe` on metrics — downloads, staleness, one author — without opening it. That is not evidence, and the same reasoning was overturned in the same session when `reqwest-ssrf-guard` (860 downloads) turned out on reading to be better than a hand-rolled equivalent. So the crate was audited properly: repo `BreD1810/rust-recipe` HEAD `a86bb48` and the v0.2.0 tarball are byte-identical in `src/` and `tests/`; 573 lines of library code, MIT.
+
+**The rejection stands, now on code facts.** Two of the three ways it could have been disqualified outright, it passed:
+
+- **Ingredients come back verbatim** — `schema_scraper.rs:103-117` returns `recipeIngredient` strings untouched, no splitting, no normalisation; its test asserts `"¼ tsp ground nutmeg"` glyph-for-glyph. Independent confirmation of §1's finding that schema.org's `recipeIngredient` is free Text, and compatible with [ADR 0002](../adr/0002-the-written-ingredient-line-is-the-truth.md).
+- **Fetching is separable** — `pub fn scrape_recipe(html: &str)` (`lib.rs:25`); the URL functions are `#[cfg(feature)]`-gated two-line wrappers and pull in no HTTP client by default. It would have worked with Kamosu's guarded client ([ADR 0033](../adr/0033-kamosu-assumes-the-proxy-did-nothing-but-carry-the-bytes.md)).
+
+**What disqualifies it** is robustness, each verified by executing the crate:
+
+1. `schema_scraper.rs:35-38` — a literal `panic!` when a page carries no Recipe JSON-LD. "Someone pasted a URL that isn't a recipe" is the commonest failure a recipe importer sees.
+2. `schema_scraper.rs:23` — the `?` on `serde_json::from_str` sits **inside** the loop over `ld+json` blocks, so one malformed block from any unrelated plugin aborts the scrape even when a valid Recipe block follows. Real pages carry several blocks.
+3. `schema_scraper.rs:25-32` — only a top-level object whose `@type` is exactly the string `"Recipe"` is accepted. `@graph` (what Yoast emits, and Yoast is on a large share of food blogs), `@type` as an array, and a top-level array of nodes all fall through to the panic.
+
+It also pins `scraper = "0.19"`, so adopting it compiles a second `scraper`/`html5ever`/`selectors`/`cssparser` tree.
+
+### The table that matters: what a naive extractor gets wrong
+
+Seventeen real-world JSON-LD shapes, each run through a compiled probe. `rust-recipe` handles three. **This is the specification for Kamosu's own extractor** — building from it yields something strictly more robust than this crate on day one, which was not a claim §4 could make before.
+
+| Real-world case | `rust-recipe` | Kamosu must |
+|---|---|---|
+| `@graph` nesting (Yoast) | panics | walk `@graph` for a Recipe node |
+| `@type` as array `["Recipe","NewsArticle"]` | panics | accept a `Recipe` member |
+| Top-level array of nodes | panics | scan members |
+| Several `ld+json` blocks, one malformed | hard error | skip the bad block, keep looking |
+| No Recipe on the page at all | panics | return "not a recipe", gracefully |
+| `recipeInstructions` as `HowToStep[]` | ✅ handled | — |
+| `recipeInstructions` as a single string | returns none | split into steps |
+| `recipeInstructions` with `HowToSection` | returns **empty** — looks like a recipe with no steps | flatten sections into steps |
+| `image` as object with `url` | ✅ handled | — |
+| `image` as a bare string | returns none | accept |
+| `image` as an array | returns none | take the first usable |
+| `recipeYield` as array | returns none | accept |
+| `recipeYield` as number | returns none | accept |
+| `recipeCategory` as array | returns none | accept |
+| `author` as a single object | returns none | accept |
+| ISO-8601 durations | ✅ via `iso8601-duration` | use the same crate |
+| HTML entities in ingredient text | passed through raw (`&amp;` survives) | decode before storing |
+
+The `HowToSection` row is the nastiest: silent success with zero steps is worse than an error, because nothing signals it.
+
+### Worth taking from it
+
+- **`iso8601-duration`** for `prepTime`/`cookTime`/`totalTime` (`schema_scraper.rs:69-77`). Do not hand-roll ISO-8601.
+- **`get_first_number_from_str`** (`nutrition_information.rs:46-73`) — the regex `(\d*[.])?\d+` pulling `612` out of `"612 calories"`, plus its map of the twelve schema.org nutrition keys that actually appear. Directly useful for the manual per-recipe nutrition field auto-filled from the source page.
+- **`RestrictedDiet`** (`restricted_diet.rs:7-45`) — the closed enum of schema.org's twelve dietary values with a `FromStr`, if dietary tags are ever surfaced.
+
+**Uncertainty:** probes were synthetic JSON-LD, not a corpus of live pages, so no hit-rate is attached to how often each miss fires in the wild. The code-level behaviour was executed, not inferred. Note that the crate's own evidence base is one site (BBC Good Food), which happens to emit exactly the shape its code assumes.
