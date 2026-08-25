@@ -271,3 +271,17 @@ _Avoid_: Deviation, adjustment, diff, draft, variant, modification
 **Promotion**:
 The deliberate act of taking something provisional out of an Attempt and making it part of the recipe — an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. The point at which an Attempt's freedoms end and the recipe's rules begin: what is promoted is append-only, and promoting requires the right to edit the recipe.
 _Avoid_: Apply, merge, commit, save back, accept
+
+### Shopping
+
+**Shopping List**:
+One **Person**'s standing choice of what they are about to cook — the recipes they picked, how much of each they are shopping for, and any **Loose Item** they typed. Everyone has exactly one; it has no name, it is never archived, and sending it offers to empty it but never does so by itself. It holds a **Branch** rather than a **Lineage**, because on the day you are cooking one particular text and a friend's version of the dish may want anchovies where yours does not — and always that Branch's latest **Version**, never a pinned one, so a recipe edited on Monday is right on Tuesday. What is stored is the choosing; what is shown is worked out from it every time and kept nowhere. A recipe that is deleted or whose sharing is withdrawn stays on the list, keeps the name it was known by and contributes nothing, saying so.
+_Avoid_: Basket, cart, meal plan, groceries, list
+
+**Shopping Row**:
+One thing to buy, worked out from a **Shopping List** and stored nowhere. It names a **Food** rather than any **Ingredient Line**, in the reader's **Reading Language** and falling back to whatever name the Food has, marked — so every mention of flour across every recipe on the list becomes one row. It carries as many amounts as the arithmetic honestly supports: added together where the **Unit**s convert, in the reader's **Reading Measures** and saying *about*; side by side where they do not, `500 g + 2 poignées`, because two true amounts beat one wrong one. An amount nobody stated is one of those, shown as *some* and never dropped. The lines it was made from are always one tap away.
+_Avoid_: Item, entry, line, aggregate, shopping item
+
+**Loose Item**:
+A line typed straight onto a **Shopping List** that belongs to no recipe — bin bags, coffee. Kept exactly as typed and never interpreted, so it has no **Food**, no quantity and merges with nothing: typing *flour* beside a recipe that wants flour gives two lines. Reading it would mean guessing at a number about to be shopped by, where a **Shopping Row** is built on **Reading**s that already exist. An **Ingredient Line** nobody ever read appears on a list the same way.
+_Avoid_: Extra, manual item, custom item, note
