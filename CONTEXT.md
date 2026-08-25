@@ -85,8 +85,12 @@ _Avoid_: Task, background job, async operation, queue item
 ### Getting recipes in and out
 
 **Import**:
-Bringing recipes into Kamosu from elsewhere — another app's export, or a web page. An Operation like any other, available at both Doors.
+Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. An Operation like any other, available at both Doors, and held in the **Home Kitchen** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
 _Avoid_: Migration, sync, ingest
+
+**Import Report**:
+What an **Import** made, as a person reads it — and it does not go away when the screen does. It says what arrived, including which recipes came as a bare name and a link; what is waiting for a tap, which is where a recipe the Import has seen before and found changed is offered rather than written over, and where **Related Recipe** candidates sharing a **Source** are ticked; and what could not be read at all, named with the reason, a damaged **Bundle** among them. It is read through ordinary Operations, so an agent asking how an import went is answered from the same place.
+_Avoid_: Log, error list, summary, receipt, job output
 
 **Export**:
 Producing recipes in a form usable outside Kamosu — a **Bundle**, or a **Sheet**. An Operation like any other.
@@ -97,7 +101,7 @@ The one form in which recipes leave Kamosu: a folder holding a readable Markdown
 _Avoid_: Export file, archive, package, payload, blob
 
 **Passenger**:
-A recipe present in a **Bundle** only because something else in it needed it — the dough travelling with the pizza. It arrives whole, since a **Component**'s line has nothing to unfold without it, and it is not what the Bundle is about.
+A recipe present in a **Bundle** only because something else in it needed it — the dough travelling with the pizza. It arrives whole, since a **Component**'s line has nothing to unfold without it, and it is not what the Bundle is about. The word says how it travelled and not what it is: once **Import** has opened the Bundle it is a Recipe like any other, on the shelf and readable on its own, exactly as the dough your own pizza points at already is.
 _Avoid_: Dependency, attachment, extra, sub-recipe
 
 **Sheet**:
