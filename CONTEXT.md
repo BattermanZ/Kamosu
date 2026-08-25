@@ -53,7 +53,7 @@ Changing a recipe you can see but do not hold — which starts a new Branch of t
 _Avoid_: Duplicate, fork, clone, save, import
 
 **Share Link**:
-The unguessable address of a recipe whose Visibility is *Anyone with the link*. One per recipe, never expiring, freely passed on. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, the recipe's **Thread** beneath it, and offers both the share bundle and a PDF. It never shows Attempts. Ending a link stops new people arriving and reaches no copy already sent, which the share screen says in the same words every time.
+The unguessable address of a recipe whose Visibility is *Anyone with the link*. One per recipe, never expiring, freely passed on. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, the recipe's **Thread** beneath it, and offers both the share bundle and a **Sheet**. It never shows Attempts. Ending a link stops new people arriving and reaches no copy already sent, which the share screen says in the same words every time.
 _Avoid_: Public URL, guest access, token link, published recipe
 
 **Invite**:
@@ -79,7 +79,7 @@ An Operation that answers within a single request.
 _Avoid_: Sync operation
 
 **Job**:
-An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a PDF. Asking for one returns a job id at once; its progress is then read through ordinary Operations.
+An Operation too slow to answer within a single request — importing a library, fetching a recipe from a website, producing a **Sheet**. Asking for one returns a job id at once; its progress is then read through ordinary Operations.
 _Avoid_: Task, background job, async operation, queue item
 
 ### Getting recipes in and out
@@ -89,7 +89,7 @@ Bringing recipes into Kamosu from elsewhere — another app's export, or a web p
 _Avoid_: Migration, sync, ingest
 
 **Export**:
-Producing recipes in a form usable outside Kamosu — a **Bundle**, or a PDF. An Operation like any other.
+Producing recipes in a form usable outside Kamosu — a **Bundle**, or a **Sheet**. An Operation like any other.
 _Avoid_: Download, backup, share
 
 **Bundle**:
@@ -99,6 +99,10 @@ _Avoid_: Export file, archive, package, payload, blob
 **Passenger**:
 A recipe present in a **Bundle** only because something else in it needed it — the dough travelling with the pizza. It arrives whole, since a **Component**'s line has nothing to unfold without it, and it is not what the Bundle is about.
 _Avoid_: Dependency, attachment, extra, sub-recipe
+
+**Sheet**:
+One recipe rendered for paper — the printable form a **Share Link** offers beside the **Bundle**, made by anyone who can see the recipe and a stranger holding a link alike. It carries the recipe, not the library: what is a fact about the dish is on it, what is a fact about how Kamosu files the dish is not — so Tags, Attempts, the **Thread** and every past Version stay behind. It is one **Branch**, the one on screen, printed as it stands there with any scaling already applied and no dialog of its own; **Components** unfold after it, parent first, each already scaled. The written **Ingredient Line** is what is printed and a **Reading** is not, save for a scaled amount beneath a line and a Component's page number. It ends with a small block saying which **Version** it came from and whose **Hand** wrote it, so a page found in a drawer can still say what it is. Dead in both directions: nothing leads back into Kamosu from it, and nothing is ever read out of it.
+_Avoid_: PDF, printout, export, print view, hard copy
 
 **Vault**:
 An optional folder of Markdown notes and images in which one Kitchen's recipes are published, kept up to date by Kamosu and optionally backed by Git. Kamosu writes a Vault and never reads it back; changes made to the files return only through Import. A Vault is a publication with a Kitchen that owns it, a destination and a scope — not where recipes are stored. One per Kitchen, set up by any of its members.
@@ -199,7 +203,7 @@ A picture held by Kamosu, known by its own contents rather than by a name or a p
 _Avoid_: Image, file, upload, original, master, asset
 
 **Display Copy**:
-What Kamosu shows on a screen when a Photograph is asked for — the Photograph reduced to one of a small fixed set of sizes, so that a shelf of cards is not built out of full-size pictures. Never sent anywhere but a screen: Export, the PDF and a Backup carry the Photograph itself. A Display Copy is worked out from the Photograph and kept only for convenience, so it belongs to no Version, travels in nothing, and can be thrown away and remade — which is what makes its sizes and its format free to change later. A whole library of Display Copies is small enough to live on a phone, which is what lets recipes be read and cooked with no network.
+What Kamosu shows on a screen when a Photograph is asked for — the Photograph reduced to one of a small fixed set of sizes, so that a shelf of cards is not built out of full-size pictures. Never sent anywhere but a screen: Export and a Backup carry the Photograph itself, and a **Sheet** carries a print-sized rendering of it — one more size in the same small set. A Display Copy is worked out from the Photograph and kept only for convenience, so it belongs to no Version, travels in nothing, and can be thrown away and remade — which is what makes its sizes and its format free to change later. A whole library of Display Copies is small enough to live on a phone, which is what lets recipes be read and cooked with no network.
 _Avoid_: Thumbnail, resized image, derivative, optimised image, web version
 
 ### Identity and history
