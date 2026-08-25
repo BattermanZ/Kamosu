@@ -65,7 +65,7 @@ A long secret a Person mints for an agent to act with — named, revocable on it
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator**:
-A Person who also administers the instance: minting Invites, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, merging Foods, and deleting a Kitchen nobody is left in. Nothing beyond that list — no Operator can read another Person's recipes or Attempts. More than one is allowed and the last cannot be demoted. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+A Person who also administers the instance: minting Invites, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, merging Foods and deleting one nothing points at, and deleting a Kitchen nobody is left in. Nothing beyond that list — no Operator can read another Person's recipes or Attempts. More than one is allowed and the last cannot be demoted. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
 _Avoid_: Admin, root, superuser, owner, host
 
 ### Doing and permission
@@ -135,8 +135,20 @@ The role an Ingredient plays when its Reading names a Recipe rather than a Food 
 _Avoid_: Sub-recipe, nested recipe, linked recipe, component list, ingredient group
 
 **Food**:
-An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded. It holds a name per Language — flour and farine are one Food — so a shopping list merges them and nutrition is matched once. There is one list of Foods for the whole instance, because matching a Food to nutrition data is the expensive part and is worth doing once: anyone may create one or add a name to it, but only the Operator may merge two into one.
+An edible thing Kamosu knows about, pointed at by the Readings that mention it and shared across every recipe that uses it. Created automatically from whatever word a Reading found. The one place a food's other names and its nutrition are recorded. It holds a name per Language — flour and farine are one Food — so a shopping list merges them and nutrition is matched once. There is one list of Foods for the whole instance, because matching a Food to nutrition data is the expensive part and is worth doing once: anyone may create one, or add a name to it, or remove one, but only the Operator may merge two into one or delete one nothing points at. It is known by its words alone: nothing about a Food's identity, its nutrition or what a cupful of it weighs ever arrives from another instance. A Food nothing points at is kept, because what it knows was expensive to learn.
 _Avoid_: Item, product, ingredient (an Ingredient is a row in a recipe; a Food is the thing itself)
+
+**Food Match**:
+How a word looking for a Food finds one — the same act whether the word arrived in a Bundle, was read out of a Crouton file or a web page, or was typed. Two words are the same word when they are in the same Language and equal once capitals and stray spaces are folded away; accents and plurals are meaning, so *maïs* is not *mais* and English *raisin* is not French *raisin*. It never asks a question and never interrupts a recipe arriving. One hit matches, and the Food learns any arriving name that nothing on the instance answers to. **Doubt makes a new Food, never a merge**: where an arriving Food's words hit two, it lands as a third carrying all of them, because welding two Foods together cannot be undone while keeping two apart is one tap to repair. A lone word that is ambiguous goes to the Food the most Readings already use. Getting it wrong is survivable in every case, since the Ingredient Line reads as written whatever the Reading over it points at.
+_Avoid_: Matching, resolution, deduplication, fuzzy match, lookup
+
+**Merge Suggestion**:
+A note that two Foods on this instance are probably one thing, kept with the reason it was made and shown to the Operator where merging happens. Made when an arriving Food's words hit two — which is somebody on another server saying plainly that they are the same — or when a name is typed onto a Food that another already answers to. It is evidence, never an instruction: nothing merges itself, and a merge clears every suggestion naming either Food.
+_Avoid_: Duplicate warning, conflict, candidate, proposal
+
+**Merge**:
+Joining two Foods into one, which only the Operator may do. The survivor takes every name from both, every Reading that pointed at the other points at it instead, and where the two disagree about **Cup Weight** the Operator says which figure survives. It says how many Ingredient Lines it is about to move before it moves them, and that saying is the whole safety net: a merge cannot be undone.
+_Avoid_: Combine, deduplicate, link, alias
 
 **Cup Weight**:
 What one cup of a Food weighs, about — the one figure that lets a volume become a weight, since a cup of flour is 125 g and a cup of butter is 227 g. Kamosu ships a figure for the staples and anyone may correct it; a Food that has none is not a gap to be filled, only a line that offers millilitres instead of grams. Every other volume measure of that Food follows from it by arithmetic. It is a fact about a cupful rather than about the food, which is why it is not a density: the same cream is 238 g poured and 120 g whipped. It belongs to this instance and never travels in a share bundle.
