@@ -44,16 +44,12 @@ _Avoid_: Default kitchen, primary group, personal space
 How Kamosu says who wrote something: a name together with a permanent id, minted with the account and never changed, carried by every Version a Person writes and every Branch a Kitchen holds. It travels in a share bundle and is never verified — anyone editing that file can put any Hand in it, and Kamosu says so plainly rather than implying a check it does not make. Recognisable in the way handwriting on a card is recognisable, and forgeable for the same reason. On the instance that minted it the name is looked up live, so renaming yourself reaches all of your history at once; anywhere else the name that arrived is all there will ever be.
 _Avoid_: Author id, account id, signature, public key, handle, attribution, fingerprint (that names a Version)
 
-**Visibility**:
-How far a recipe can be seen, set by the Kitchen holding it: its own Kitchen, Chosen (named People and Kitchens), Everyone here, or Anyone with the link. Seeing a recipe means reading it, cooking from it and recording an Attempt against it — never editing it. Changing a recipe you can see means taking a Copy.
-_Avoid_: Permission, access control, privacy level, sharing setting
-
 **Copy**:
-Changing a recipe you can see but do not hold — which starts a new Branch of the same Lineage, yours from then on, forking at the Version you changed and carrying the whole chain behind it. It happens at the moment of the change, never at the moment of receipt: a **Bundle** arriving puts the sender's Branch in your Kitchen under their id, and only editing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
+Changing a recipe your Kitchen did not write — which starts a new Branch of the same Lineage, yours from then on, forking at the Version you changed and carrying the whole chain behind it. It happens at the moment of the change, never at the moment of receipt: a **Bundle** arriving puts the sender's Branch in your Kitchen under their id, and only editing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
 _Avoid_: Duplicate, fork, clone, save, import
 
 **Share Link**:
-The unguessable address of a recipe whose Visibility is *Anyone with the link*. One per recipe, never expiring, freely passed on. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, the recipe's **Thread** beneath it, and offers both the share bundle and a **Sheet**. It never shows Attempts. Ending a link stops new people arriving and reaches no copy already sent, which the share screen says in the same words every time.
+The unguessable address at which a recipe can be read by anyone holding it — the only way a recipe leaves the Kitchen that holds it, and the same way whether the reader is on this instance or another. One per recipe, never expiring, freely passed on. There is no scale of audiences and no naming of individuals: a recipe is seen by its Kitchen, or by anyone with its link. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, the recipe's **Thread** beneath it, and offers both the share bundle and a **Sheet**. It never shows Attempts. Ending a link stops new people arriving and reaches no copy already sent, which the share screen says in the same words every time.
 _Avoid_: Public URL, guest access, token link, published recipe
 
 **Invite**:
@@ -139,7 +135,7 @@ What a quantity is counted in — grams, cups, spoons, *poignées*. Whatever the
 _Avoid_: UOM, measure, measurement, quantity type, dimension
 
 **Component**:
-The role an Ingredient plays when its Reading names a Recipe rather than a Food — the dough inside the pizza. Not a separate kind of thing and not a list of its own: a Component is an ordinary Ingredient, and if the Recipe it names is deleted, absent or never received, its line still reads as written. It names a Lineage, so it always shows whichever Branch of that recipe the reader holds. How much of it is wanted is worked out by comparing the Reading against that recipe's Yield, and is never stored. It unfolds inside the recipe using it, and travels with it as a passenger — readable through it, without a page, a link or a Visibility of its own.
+The role an Ingredient plays when its Reading names a Recipe rather than a Food — the dough inside the pizza. Not a separate kind of thing and not a list of its own: a Component is an ordinary Ingredient, and if the Recipe it names is deleted, absent or never received, its line still reads as written. It names a Lineage, so it always shows whichever Branch of that recipe the reader holds. How much of it is wanted is worked out by comparing the Reading against that recipe's Yield, and is never stored. It unfolds inside the recipe using it, and travels with it as a passenger — readable through it, without a page or a Share Link of its own.
 _Avoid_: Sub-recipe, nested recipe, linked recipe, component list, ingredient group
 
 **Food**:
@@ -200,7 +196,7 @@ _Avoid_: Bake time, waiting time, rest time, total time
 
 **Main Photo**:
 The single Photograph that stands for a recipe wherever it is listed. Optional — and commonly absent. Distinct from a Step's photo, which shows one moment in the cooking.
-_Avoid_: Hero image, cover, thumbnail, picture
+_Avoid_: Hero image, thumbnail, picture, cover (that names the generated stand-in)
 
 **Photograph**:
 A picture held by Kamosu, known by its own contents rather than by a name or a place: two identical pictures are one Photograph, and a Photograph never changes once it exists. It is stored once however many Versions, Attempts and recipes point at it, and it is part of what a Version is — so replacing one is an edit to the recipe, like rewording a step. Whatever arrives is remade at the door into a single agreed form and it is that form, not the file that was handed over, which the Photograph is; a Photograph arriving from another instance is already made and is left alone. What is stripped at the door is everything a camera staples on and nobody asked for, the place a picture was taken above all.
@@ -209,6 +205,10 @@ _Avoid_: Image, file, upload, original, master, asset
 **Display Copy**:
 What Kamosu shows on a screen when a Photograph is asked for — the Photograph reduced to one of a small fixed set of sizes, so that a shelf of cards is not built out of full-size pictures. Never sent anywhere but a screen: Export and a Backup carry the Photograph itself, and a **Sheet** carries a print-sized rendering of it — one more size in the same small set. A Display Copy is worked out from the Photograph and kept only for convenience, so it belongs to no Version, travels in nothing, and can be thrown away and remade — which is what makes its sizes and its format free to change later. A whole library of Display Copies is small enough to live on a phone, which is what lets recipes be read and cooked with no network.
 _Avoid_: Thumbnail, resized image, derivative, optimised image, web version
+
+**Cover**:
+What leads a recipe that has no **Main Photo** — a coloured ground carrying the recipe's title, generated from the recipe's **Lineage** id and therefore the same after a rename, the same on every instance the recipe reaches, and the same across its **Translation**s. Used on a card and at the top of a page, in the space a Photograph would have filled. Not a placeholder for something missing: a recipe needs only a title, and roughly a third of a real library has no photograph at all.
+_Avoid_: Placeholder, fallback image, default image, thumbnail, avatar, identicon
 
 ### Identity and history
 
