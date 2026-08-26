@@ -97,6 +97,20 @@ impl TestApp {
         parse(response.status, &response.body)
     }
 
+    /// POST at the browser authentication boundary: credential minting precedes
+    /// Operations, then its Session cookie becomes the Credential.
+    #[allow(dead_code)]
+    pub fn post_auth(&self, path: &str, body: &str) -> (u16, Value) {
+        let response = self.post_auth_response(path, body);
+        parse(response.status, &response.body)
+    }
+
+    #[allow(dead_code)]
+    pub fn post_auth_response(&self, path: &str, body: &str) -> http_min::Response {
+        self.wait_until_serving();
+        http_min::post_json(self.addr, path, None, body).expect("auth reachable")
+    }
+
     /// POST JSON-RPC to the MCP door, as an agent would.
     pub fn post_mcp(&self, payload: &str, bearer: Option<&str>) -> (u16, Value) {
         self.wait_until_serving();

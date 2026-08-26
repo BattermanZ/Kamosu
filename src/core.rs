@@ -7,6 +7,11 @@
 
 use std::sync::Arc;
 
+use argon2::{
+    Algorithm, Argon2, Params, Version,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+};
+use rand::{TryRng, rngs::SysRng};
 use rusqlite::OptionalExtension;
 use rusqlite::params;
 use serde_json::{Value, json};
@@ -106,6 +111,11 @@ pub struct Caller {
 /// One asking of an Operation: who is acting, and (when the Operation runs as a
 /// Job) the handle through which the running work reports its progress.
 #[derive(Clone)]
+struct Session {
+    id: String,
+    secret: String,
+}
+
 pub struct Invocation {
     pub caller: Option<Caller>,
     /// Set only while an Operation declared `Kind::Job` is being carried out.
@@ -235,25 +245,28 @@ impl Core {
     /// Session joins when accounts do. Stored hashed, never in the clear.
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         let hash = hash_secret(secret);
-        let key: Option<(String, bool)> = self.db().with_conn(|conn| {
+        let credential: Option<(String, bool, bool)> = self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT person_id, read_only FROM access_keys WHERE secret_hash = ?1 AND revoked = 0",
+                "SELECT person_id, read_only, 0 FROM access_keys WHERE secret_hash = ?1 AND revoked = 0
+                 UNION ALL
+                 SELECT person_id, 0, 1 FROM sessions WHERE secret_hash = ?1 AND revoked = 0
+                 LIMIT 1",
                 params![hash],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
-            .map_err(|e| OpError::internal(format!("cannot read access keys: {e}")))
+            .map_err(|e| OpError::internal(format!("cannot resolve Credential: {e}")))
         })?;
 
-        match key {
-            Some((person_id, read_only)) => {
+        match credential {
+            Some((person_id, read_only, is_session)) => {
                 let _ = self.db().with_conn(|conn| {
+                    let table = if is_session { "sessions" } else { "access_keys" };
                     conn.execute(
-                        "UPDATE access_keys SET last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-                         WHERE secret_hash = ?1",
+                        &format!("UPDATE {table} SET last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE secret_hash = ?1"),
                         params![hash],
                     )
-                    .map_err(|e| OpError::internal(format!("cannot record key use: {e}")))?;
+                    .map_err(|e| OpError::internal(format!("cannot record Credential use: {e}")))?;
                     Ok(())
                 });
                 Ok(Caller {
@@ -298,8 +311,213 @@ impl Core {
         Ok(secret)
     }
 
-    /// Create a Person. Onboarding proper arrives with a later ticket; this exists
-    /// so the skeleton has real People behind its Credentials rather than fixtures.
+    /// The fresh-instance door: one Person wins it, becomes the Operator, and
+    /// receives the Kitchen and Hand that make a Person a complete account.
+    pub fn create_first_person(
+        &self,
+        name: &str,
+        password: &str,
+        session_name: &str,
+    ) -> Result<Value, OpError> {
+        let name = required_text(name, "name")?;
+        let password_hash = hash_password(password)?;
+        let session_name = required_text(session_name, "session_name")?;
+        let person_id = format!("p_{}", hex::encode(random_bytes(8)));
+        let kitchen_id = format!("k_{}", hex::encode(random_bytes(8)));
+        let session = Session {
+            id: format!("s_{}", hex::encode(random_bytes(8))),
+            secret: generate_secret(),
+        };
+
+        self.db().with_conn(|conn| {
+            conn.execute_batch("BEGIN IMMEDIATE")
+                .map_err(|e| OpError::internal(format!("cannot begin first-person setup: {e}")))?;
+            let created = (|| -> Result<(), OpError> {
+                if conn.execute(
+                    "INSERT OR IGNORE INTO instance_setup(singleton) VALUES (1)",
+                    [],
+                ).map_err(|e| OpError::internal(format!("cannot reserve first-person setup: {e}")))? == 0 {
+                    return Err(OpError::unauthorized("this instance already has its first Person"));
+                }
+                conn.execute(
+                    "INSERT INTO people (id, name, password_hash, home_kitchen_id, is_operator) VALUES (?1, ?2, ?3, ?4, 1)",
+                    params![person_id, name, password_hash, kitchen_id],
+                ).map_err(|e| OpError::internal(format!("cannot create first Person: {e}")))?;
+                conn.execute(
+                    "UPDATE instance_setup SET operator_person_id = ?1 WHERE singleton = 1",
+                    params![person_id],
+                ).map_err(|e| OpError::internal(format!("cannot name first Operator: {e}")))?;
+                conn.execute(
+                    "INSERT INTO kitchens (id, name, hand_id) VALUES (?1, ?2, ?1)",
+                    params![kitchen_id, format!("{}'s Home Kitchen", name)],
+                ).map_err(|e| OpError::internal(format!("cannot create Home Kitchen: {e}")))?;
+                conn.execute(
+                    "INSERT INTO kitchen_members (kitchen_id, person_id) VALUES (?1, ?2)",
+                    params![kitchen_id, person_id],
+                ).map_err(|e| OpError::internal(format!("cannot add first Person to Home Kitchen: {e}")))?;
+                conn.execute(
+                    "INSERT INTO sessions (id, secret_hash, person_id, name) VALUES (?1, ?2, ?3, ?4)",
+                    params![session.id, hash_secret(&session.secret), person_id, session_name],
+                ).map_err(|e| OpError::internal(format!("cannot mint first Session: {e}")))?;
+                Ok(())
+            })();
+            match created {
+                Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(format!("cannot finish first-person setup: {e}"))),
+                Err(err) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(err)
+                }
+            }
+        })?;
+
+        Ok(json!({
+            "person": {
+                "id": person_id,
+                "name": name,
+                "hand_id": person_id,
+                "home_kitchen_id": kitchen_id,
+                "reading_language": "en",
+                "reading_measures": "us",
+                "is_operator": true,
+            },
+            "_session_secret": session.secret,
+            "session_id": session.id,
+        }))
+    }
+
+    /// Check a human-chosen password and mint the browser Session it unlocks.
+    pub fn log_in(&self, name: &str, password: &str, session_name: &str) -> Result<Value, OpError> {
+        let name = required_text(name, "name")?;
+        let session_name = required_text(session_name, "session_name")?;
+        self.throttle_login(name)?;
+        let password_hash: Option<String> = self.db().with_conn(|conn| {
+            conn.query_row(
+                "SELECT password_hash FROM people WHERE name = ?1",
+                params![name],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| OpError::internal(format!("cannot read Person for login: {e}")))
+        })?;
+        let verified = password_hash.as_deref().is_some_and(|encoded| {
+            PasswordHash::new(encoded)
+                .ok()
+                .and_then(|parsed| {
+                    Argon2::default()
+                        .verify_password(password.as_bytes(), &parsed)
+                        .ok()
+                })
+                .is_some()
+        });
+        if !verified {
+            self.record_login_failure(name)?;
+            return Err(OpError::unauthorized("that name and password do not match"));
+        }
+        self.db().with_conn(|conn| {
+            conn.execute("DELETE FROM login_failures WHERE name = ?1", params![name])
+                .map_err(|e| OpError::internal(format!("cannot clear login throttle: {e}")))?;
+            Ok(())
+        })?;
+        let person_id: String = self.db().with_conn(|conn| {
+            conn.query_row(
+                "SELECT id FROM people WHERE name = ?1",
+                params![name],
+                |r| r.get(0),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read logged-in Person: {e}")))
+        })?;
+        let session = self.mint_session(&person_id, session_name)?;
+        Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
+    }
+
+    pub fn set_reading_preferences(
+        &self,
+        person_id: &str,
+        language: &str,
+        measures: &str,
+    ) -> Result<(), OpError> {
+        if !matches!(language, "en" | "fr" | "es")
+            || !matches!(measures, "us" | "metric" | "as_written")
+        {
+            return Err(OpError::bad_request(
+                "reading_language and reading_measures are not supported",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "UPDATE people SET reading_language = ?1, reading_measures = ?2 WHERE id = ?3",
+                params![language, measures, person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot set reading preferences: {e}")))?;
+            Ok(())
+        })
+    }
+
+    pub fn revoke_session(&self, person_id: &str, session_id: &str) -> Result<(), OpError> {
+        let changed = self.db().with_conn(|conn| {
+            conn.execute(
+                "UPDATE sessions SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0",
+                params![session_id, person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot revoke Session: {e}")))
+        })?;
+        if changed == 0 {
+            return Err(OpError::not_found(
+                "no live Session by that name belongs to this Person",
+            ));
+        }
+        Ok(())
+    }
+
+    fn mint_session(&self, person_id: &str, name: &str) -> Result<Session, OpError> {
+        let secret = generate_secret();
+        let id = format!("s_{}", hex::encode(random_bytes(8)));
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO sessions (id, secret_hash, person_id, name) VALUES (?1, ?2, ?3, ?4)",
+                params![id, hash_secret(&secret), person_id, name],
+            )
+            .map_err(|e| OpError::internal(format!("cannot mint Session: {e}")))?;
+            Ok(())
+        })?;
+        Ok(Session { id, secret })
+    }
+
+    /// A wrong password slows only the next attempt for this name: two free
+    /// misses, then 1, 2, 4… seconds capped at 30. A correct password deletes
+    /// the counter, so a stranger cannot lock an account out (ADR 0031).
+    fn throttle_login(&self, name: &str) -> Result<(), OpError> {
+        let failures: i64 = self.db().with_conn(|conn| {
+            conn.query_row(
+                "SELECT consecutive_failures FROM login_failures WHERE name = ?1",
+                params![name],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|count| count.unwrap_or(0))
+            .map_err(|e| OpError::internal(format!("cannot read login throttle: {e}")))
+        })?;
+        let seconds = if failures < 2 {
+            0
+        } else {
+            1u64 << (failures - 2).min(5)
+        };
+        if seconds > 0 {
+            std::thread::sleep(std::time::Duration::from_secs(seconds));
+        }
+        Ok(())
+    }
+
+    fn record_login_failure(&self, name: &str) -> Result<(), OpError> {
+        self.db().with_conn(|conn| {
+            conn.execute("INSERT INTO login_failures(name, consecutive_failures) VALUES (?1, 1) ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1", params![name])
+                .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))?;
+            Ok(())
+        })
+    }
+
+    /// Create a Person. Test plumbing uses this until Invites arrive; real account
+    /// creation enters through `create_first_person` or an Invite.
     pub fn create_person(&self, name: &str) -> Result<String, OpError> {
         let id = format!("p_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
@@ -317,23 +535,21 @@ impl Core {
     /// first-visitor-wins flow is a later ticket — so a fresh install says false.
     pub fn setup_complete(&self) -> Result<bool, OpError> {
         self.db().with_conn(|conn| {
-            let value: Option<String> = conn
+            let setup: bool = conn
                 .query_row(
-                    "SELECT value FROM meta WHERE key = 'setup_complete'",
+                    "SELECT EXISTS(SELECT 1 FROM instance_setup WHERE singleton = 1)",
                     [],
                     |row| row.get(0),
                 )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read meta: {e}")))?;
-            Ok(value.as_deref() == Some("true"))
+                .map_err(|e| OpError::internal(format!("cannot read instance setup: {e}")))?;
+            Ok(setup)
         })
     }
 
     pub fn mark_setup_complete(&self) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
             conn.execute(
-                "INSERT INTO meta(key, value) VALUES ('setup_complete', 'true')
-                 ON CONFLICT(key) DO UPDATE SET value = 'true'",
+                "INSERT OR IGNORE INTO instance_setup(singleton) VALUES (1)",
                 [],
             )
             .map_err(|e| OpError::internal(format!("cannot record setup flag: {e}")))?;
@@ -354,6 +570,31 @@ pub fn generate_secret() -> String {
 
 fn random_bytes(n: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; n];
-    rand::fill(&mut bytes);
+    SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("the operating system random source is unavailable");
     bytes
+}
+
+/// Passwords are short human-chosen secrets, not Secrets: Argon2id salts and
+/// hashes them separately at the cost ADR 0031 names (20 MiB, roughly a tenth s).
+fn hash_password(password: &str) -> Result<String, OpError> {
+    let password = required_text(password, "password")?;
+    let params = Params::new(20 * 1024, 2, 1, None)
+        .map_err(|e| OpError::internal(format!("cannot configure password hashing: {e}")))?;
+    let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let salt = SaltString::encode_b64(&random_bytes(16))
+        .map_err(|e| OpError::internal(format!("cannot generate password salt: {e}")))?;
+    argon
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|e| OpError::internal(format!("cannot hash password: {e}")))
+}
+
+fn required_text<'a>(value: &'a str, field: &str) -> Result<&'a str, OpError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(OpError::bad_request(format!("{field} is required")));
+    }
+    Ok(value)
 }

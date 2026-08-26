@@ -14,6 +14,26 @@ export type InstanceStatusOutput = {
 	version: string;
 };
 
+/** Set the Language and measures this Person reads in. */
+export type SetReadingPreferencesInput = {
+	reading_language: "en" | "fr" | "es";
+	reading_measures: "us" | "metric" | "as_written";
+};
+/** What set_reading_preferences answers. */
+export type SetReadingPreferencesOutput = {
+	reading_language: string;
+	reading_measures: string;
+};
+
+/** End one of your browser Sessions. */
+export type RevokeSessionInput = {
+	session_id: string;
+};
+/** What revoke_session answers. */
+export type RevokeSessionOutput = {
+	revoked: boolean;
+};
+
 /** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 export type GetJobInput = {
 	job_id: string;
@@ -68,6 +88,18 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'public';
 	};
+	set_reading_preferences: {
+		input: SetReadingPreferencesInput;
+		output: SetReadingPreferencesOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	revoke_session: {
+		input: RevokeSessionInput;
+		output: RevokeSessionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	get_job: {
 		input: GetJobInput;
 		output: GetJobOutput;
@@ -121,6 +153,82 @@ export const CATALOGUE = [
 			"required": [
 				"version",
 				"setup_complete"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_reading_preferences",
+		"summary": "Set the Language and measures this Person reads in.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"reading_language": {
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"reading_measures": {
+					"enum": [
+						"us",
+						"metric",
+						"as_written"
+					]
+				}
+			},
+			"required": [
+				"reading_language",
+				"reading_measures"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"reading_language": {
+					"type": "string"
+				},
+				"reading_measures": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"reading_language",
+				"reading_measures"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "revoke_session",
+		"summary": "End one of your browser Sessions.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"session_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"session_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"revoked": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"revoked"
 			],
 			"type": "object"
 		}
@@ -306,6 +414,8 @@ export const CATALOGUE = [
 /** The camelCase method the client exposes for each Operation. */
 export const METHOD_NAMES = {
 	instance_status: 'instanceStatus',
+	set_reading_preferences: 'setReadingPreferences',
+	revoke_session: 'revokeSession',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	list_jobs: 'listJobs',
@@ -315,6 +425,10 @@ export const METHOD_NAMES = {
 export interface KamosuClient {
 	/** The version of this Kamosu and whether setup has happened. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
+	/** Set the Language and measures this Person reads in. */
+	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
+	/** End one of your browser Sessions. */
+	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */

@@ -43,11 +43,14 @@ export default defineConfig({
 		port: 5174,
 		strictPort: true,
 		host: '0.0.0.0',
+		// The TLS test proxy serves this exact hostname to a browser. Keep the
+		// allowlist narrow: accepting arbitrary Host headers enables DNS rebinding.
+		allowedHosts: ['kamosu-dev.batterlan.cc'],
 		// Everything the binary owns, proxied so dev and production serve the same
 		// URLs. `/favicon.svg` is named by app.html; the two root PNGs are asked
 		// for by Safari's own convention. All three would 404 in dev otherwise.
 		proxy: Object.fromEntries(
-			['/api', '/assets', '/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png'].map(
+			['/api', '/auth', '/assets', '/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png'].map(
 				(path) => [path, { target: BACKEND, changeOrigin: false }]
 			)
 		)

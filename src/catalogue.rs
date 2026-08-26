@@ -85,6 +85,24 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             handler: crate::operations::instance_status,
         },
+        Operation {
+            name: "set_reading_preferences",
+            summary: "Set the Language and measures this Person reads in.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "reading_language": { "type": "string" }, "reading_measures": { "type": "string" } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
+            handler: crate::operations::set_reading_preferences,
+        },
+        Operation {
+            name: "revoke_session",
+            summary: "End one of your browser Sessions.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
+            handler: crate::operations::revoke_session,
+        },
         // Watching slow work: two ordinary Operations, so a browser polling an
         // import and an agent polling the same import use the identical shape.
         Operation {

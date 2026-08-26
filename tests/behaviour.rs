@@ -177,6 +177,105 @@ async fn instance_status_says_the_version_and_whether_setup_has_happened() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_first_visitor_becomes_the_operator_with_a_home_kitchen_and_hand() {
+    let app = support::spawn_app();
+    let first = json!({
+        "name": "Aurélien",
+        "password": "a password only its person knows",
+        "session_name": "test browser",
+    });
+
+    let (status, created) = app.post_auth("/auth/first-person", &first.to_string());
+    assert_eq!(status, 200, "{created}");
+    let person = &created["result"]["person"];
+    assert_eq!(person["name"], json!("Aurélien"));
+    assert!(person["id"].as_str().is_some_and(|id| id.starts_with("p_")));
+    assert_eq!(person["hand_id"], person["id"]);
+    assert!(
+        person["home_kitchen_id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("k_"))
+    );
+    assert_eq!(person["reading_language"], json!("en"));
+    assert_eq!(person["reading_measures"], json!("us"));
+    assert_eq!(person["is_operator"], json!(true));
+
+    // Becoming the Operator closes the first-visitor door forever: another
+    // stranger cannot race an account onto a live instance.
+    let (status, refused) = app.post_auth("/auth/first-person", &first.to_string());
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+
+    let (_, status) = app.post_op("instance_status", None, "{}");
+    assert_eq!(status["result"]["setup_complete"], json!(true));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn logging_in_mints_a_revocable_session_credential() {
+    let app = support::spawn_app();
+    let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "first browser" });
+    assert_eq!(
+        app.post_auth("/auth/first-person", &create.to_string()).0,
+        200
+    );
+
+    let login =
+        json!({ "name": "Aurélien", "password": "the right password", "session_name": "laptop" });
+    let logged_in = app.post_auth_response("/auth/login", &login.to_string());
+    assert_eq!(logged_in.status, 200, "{}", logged_in.body);
+    let session_id: Value = serde_json::from_str(&logged_in.body).expect("auth envelope");
+    let session_id = session_id["result"]["session_id"]
+        .as_str()
+        .expect("Session id");
+    let secret = logged_in
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .and_then(|(_, value)| value.split(';').next())
+        .and_then(|pair| pair.strip_prefix("kamosu_session="))
+        .expect("HttpOnly session cookie");
+    assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 200);
+    let (status, revoked) = app.post_op(
+        "revoke_session",
+        Some(secret),
+        &json!({ "session_id": session_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{revoked}");
+    assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn login_throttling_slows_guesses_but_a_correct_password_clears_it() {
+    let app = support::spawn_app();
+    let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "first browser" });
+    assert_eq!(
+        app.post_auth("/auth/first-person", &create.to_string()).0,
+        200
+    );
+    let wrong =
+        json!({ "name": "Aurélien", "password": "wrong", "session_name": "laptop" }).to_string();
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    let started = Instant::now();
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    assert!(
+        started.elapsed() >= Duration::from_secs(1),
+        "the third guess must wait"
+    );
+
+    let correct =
+        json!({ "name": "Aurélien", "password": "the right password", "session_name": "laptop" })
+            .to_string();
+    assert_eq!(app.post_auth("/auth/login", &correct).0, 200);
+    let started = Instant::now();
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "a correct password clears the throttle"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn instance_status_refuses_input_it_does_not_declare() {
     let app = support::spawn_app();
 

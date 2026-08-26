@@ -83,6 +83,45 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 3,
+        description: "the first Person, their Home Kitchen, and account preferences",
+        sql: r#"
+        ALTER TABLE people ADD COLUMN password_hash TEXT;
+        ALTER TABLE people ADD COLUMN home_kitchen_id TEXT;
+        ALTER TABLE people ADD COLUMN reading_language TEXT NOT NULL DEFAULT 'en';
+        ALTER TABLE people ADD COLUMN reading_measures TEXT NOT NULL DEFAULT 'us';
+        ALTER TABLE people ADD COLUMN is_operator INTEGER NOT NULL DEFAULT 0;
+        CREATE TABLE IF NOT EXISTS kitchens (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            hand_id     TEXT NOT NULL UNIQUE,
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        CREATE TABLE IF NOT EXISTS kitchen_members (
+            kitchen_id TEXT NOT NULL REFERENCES kitchens(id),
+            person_id  TEXT NOT NULL REFERENCES people(id),
+            PRIMARY KEY (kitchen_id, person_id)
+        );
+        CREATE TABLE IF NOT EXISTS instance_setup (
+            singleton          INTEGER PRIMARY KEY CHECK (singleton = 1),
+            operator_person_id TEXT REFERENCES people(id)
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+            id           TEXT PRIMARY KEY,
+            secret_hash  TEXT NOT NULL UNIQUE,
+            person_id    TEXT NOT NULL REFERENCES people(id),
+            name         TEXT NOT NULL,
+            revoked      INTEGER NOT NULL DEFAULT 0,
+            created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            last_used_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS login_failures (
+            name             TEXT PRIMARY KEY,
+            consecutive_failures INTEGER NOT NULL DEFAULT 0
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

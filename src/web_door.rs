@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, post};
 use axum::{Json, Router};
@@ -22,7 +22,24 @@ pub fn router(core: Arc<Core>) -> Router {
     // router: every other path belongs to the interface, which is merged after
     // the Doors and owns the fallback. `/api/op/anything-else` is still a
     // Catalogue question, and still answered as one.
-    let mut router = Router::new().route("/api/op/{*name}", any(unknown_operation));
+    let first_core = core.clone();
+    let login_core = core.clone();
+    let mut router = Router::new()
+        .route("/api/op/{*name}", any(unknown_operation))
+        // Credential minting is deliberately outside the Catalogue: it precedes
+        // every Operation, then the cookie becomes the Credential the Door carries.
+        .route(
+            "/auth/first-person",
+            post(move |body: Option<Json<Value>>| async move {
+                respond(authenticate_first_person(&first_core, body))
+            }),
+        )
+        .route(
+            "/auth/login",
+            post(move |body: Option<Json<Value>>| async move {
+                respond(authenticate_login(&login_core, body))
+            }),
+        );
     for op in catalogue::OPERATIONS.iter() {
         let core = core.clone();
         router = router.route(
@@ -41,6 +58,43 @@ pub fn router(core: Arc<Core>) -> Router {
 /// Catalogue does not declare. Naming it back is the whole of the answer.
 async fn unknown_operation(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
     respond(Err(OpError::unknown_operation(&name)))
+}
+
+fn authenticate_first_person(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let name = input.get("name").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("account creation takes { name, password, session_name }")
+    })?;
+    let password = input
+        .get("password")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("account creation takes { name, password, session_name }")
+        })?;
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("account creation takes { name, password, session_name }")
+        })?;
+    core.create_first_person(name, password, session_name)
+}
+
+fn authenticate_login(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("login takes { name, password, session_name }"))?;
+    let password = input
+        .get("password")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("login takes { name, password, session_name }"))?;
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("login takes { name, password, session_name }"))?;
+    core.log_in(name, password, session_name)
 }
 
 fn call_operation(
@@ -65,7 +119,26 @@ fn call_operation(
 
 fn respond(result: Result<Value, OpError>) -> Response {
     match result {
-        Ok(value) => (StatusCode::OK, Json(json!({ "ok": true, "result": value }))).into_response(),
+        Ok(mut value) => {
+            // A browser Session is delivered in an HttpOnly Secure cookie, never
+            // exposed to the app's JavaScript. The private field is Core plumbing,
+            // removed before the declared Operation result crosses this Door.
+            let session_secret = value
+                .as_object_mut()
+                .and_then(|object| object.remove("_session_secret"))
+                .and_then(|secret| secret.as_str().map(str::to_owned));
+            let mut response =
+                (StatusCode::OK, Json(json!({ "ok": true, "result": value }))).into_response();
+            if let Some(secret) = session_secret {
+                let cookie =
+                    format!("kamosu_session={secret}; Path=/; HttpOnly; Secure; SameSite=Lax");
+                response.headers_mut().insert(
+                    header::SET_COOKIE,
+                    HeaderValue::from_str(&cookie).expect("safe session cookie"),
+                );
+            }
+            response
+        }
         Err(err) => (status_for(err.kind), Json(error_body(&err))).into_response(),
     }
 }
@@ -107,12 +180,19 @@ fn kind_name(kind: ErrorKind) -> &'static str {
 /// Pull `Authorization: Bearer <secret>` off a request. Shared by both Doors as a
 /// transport detail; what the Secret means is decided in the Core alone.
 pub fn bearer_from_headers(headers: &HeaderMap) -> Option<String> {
-    let value = headers
-        .get(axum::http::header::AUTHORIZATION)?
-        .to_str()
-        .ok()?;
-    let rest = value
-        .strip_prefix("Bearer ")
-        .or_else(|| value.strip_prefix("bearer "))?;
-    Some(rest.trim().to_string())
+    if let Some(value) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        && let Some(rest) = value
+            .strip_prefix("Bearer ")
+            .or_else(|| value.strip_prefix("bearer "))
+    {
+        return Some(rest.trim().to_string());
+    }
+    headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())?
+        .split(';')
+        .map(str::trim)
+        .find_map(|part| part.strip_prefix("kamosu_session=").map(str::to_owned))
 }

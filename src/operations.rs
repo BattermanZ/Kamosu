@@ -30,6 +30,90 @@ pub fn instance_status(
     }))
 }
 
+/// The one unauthenticated account-creation door: it succeeds exactly once, on
+/// a new instance, and creates the complete first Person rather than a partial
+/// record an Operator would have to repair later.
+pub fn create_first_person(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input.get("name").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("create_first_person takes { name, password, session_name }")
+    })?;
+    let password = input
+        .get("password")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("create_first_person takes { name, password, session_name }")
+        })?;
+    // The browser-facing Session is minted by the login slice. Its name is
+    // accepted now so this public account-creation shape remains complete.
+    let _session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("create_first_person takes { name, password, session_name }")
+        })?;
+    core.create_first_person(name, password, _session_name)
+}
+
+pub fn log_in(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("log_in takes { name, password, session_name }"))?;
+    let password = input
+        .get("password")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("log_in takes { name, password, session_name }"))?;
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("log_in takes { name, password, session_name }"))?;
+    core.log_in(name, password, session_name)
+}
+
+pub fn set_reading_preferences(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let language = input
+        .get("reading_language")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "set_reading_preferences takes { reading_language, reading_measures }",
+            )
+        })?;
+    let measures = input
+        .get("reading_measures")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "set_reading_preferences takes { reading_language, reading_measures }",
+            )
+        })?;
+    let caller = caller_of(invocation)?;
+    core.set_reading_preferences(&caller.person_id, language, measures)?;
+    Ok(json!({ "reading_language": language, "reading_measures": measures }))
+}
+
+pub fn revoke_session(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let session_id = input
+        .get("session_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("revoke_session takes { session_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.revoke_session(&caller.person_id, session_id)?;
+    Ok(json!({ "revoked": true }))
+}
+
 /// Read one Job back: its state, its progress, and its result or the reason it
 /// failed. This is where watching slow work happens — at both Doors alike.
 pub fn get_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {

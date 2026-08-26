@@ -36,5 +36,13 @@
 	"tokens_type": "Escala tipográfica",
 	"tokens_spacing": "Espaciado",
 	"tokens_shape": "Forma",
-	"tokens_specimen": "The quick brown fox · Le renard brun saute par-dessus le chien paresseux"
+	"tokens_specimen": "The quick brown fox · Le renard brun saute par-dessus le chien paresseux",
+	"account_setup_title": "Configura Kamosu",
+	"account_setup_blurb": "La primera persona se convierte en la Operadora de esta cocina.",
+	"account_login_title": "Bienvenido de nuevo",
+	"account_name": "Nombre",
+	"account_password": "Contraseña",
+	"account_create": "Crear mi cuenta",
+	"account_login": "Iniciar sesión",
+	"account_failed": "Ese nombre y contraseña no coinciden."
 }
