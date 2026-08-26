@@ -29,7 +29,7 @@ fn tasks_capability() -> Value {
 fn arguments_for(name: &str) -> Value {
     match name {
         // A Job id that names nothing is the honest probe for routing.
-        "get_job" => json!({ "job_id": "parity-no-such-job" }),
+        "get_job" | "cancel_job" => json!({ "job_id": "parity-no-such-job" }),
         _ => json!({}),
     }
 }
@@ -40,7 +40,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
 
     for op in catalogue::OPERATIONS.iter() {
         let (body_text, expected_status) = match op.name {
-            "get_job" => (r#"{"job_id":"parity-no-such-job"}"#, 404),
+            "get_job" | "cancel_job" => (r#"{"job_id":"parity-no-such-job"}"#, 404),
             // Person-only Operations answer the stranger with a refusal.
             "list_jobs" => ("{}", 401),
             _ => ("{}", 200),
@@ -107,7 +107,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
         let result = &body["result"];
         if result["resultType"] == "task" {
             follow_task(&app, name, result["taskId"].clone());
-        } else if matches!(name, "get_job" | "list_jobs") {
+        } else if matches!(name, "get_job" | "list_jobs" | "cancel_job") {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.
             assert_eq!(

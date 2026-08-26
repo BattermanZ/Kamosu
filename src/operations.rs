@@ -63,6 +63,24 @@ pub fn list_jobs(core: &Core, invocation: &Invocation, input: Value) -> Result<V
     }))
 }
 
+/// Cancel a Job: the same ownership rule as reading it, and the cancellation
+/// itself lives here in the Core — the MCP door's tasks/cancel is decoration
+/// over this Operation, exactly as ADR 0001 asks of anything state-changing.
+pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let job_id = input
+        .get("job_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("cancel_job takes { job_id }"))?;
+
+    let record = core
+        .job(job_id)?
+        .ok_or_else(|| OpError::not_found(format!("no Job with id '{job_id}'")))?;
+    jobs::ensure_reader(&record, &invocation.caller)?;
+
+    let cancelled = core.cancel_job_if_queued(job_id)?;
+    Ok(json!({ "cancelled": cancelled }))
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller.as_ref().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")

@@ -73,8 +73,42 @@ const MEMBER_LINE: usize = 16;
 const STRANGER_WORKERS: usize = 1;
 const STRANGER_LINE: usize = 4;
 
+/// The five states a Job can be in. Kept an enum rather than bare strings so
+/// every comparison and mapping spells the states in one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl JobStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobStatus::Queued => "queued",
+            JobStatus::Running => "running",
+            JobStatus::Completed => "completed",
+            JobStatus::Failed => "failed",
+            JobStatus::Cancelled => "cancelled",
+        }
+    }
+
+    fn from_column(value: String) -> Self {
+        match value.as_str() {
+            "running" => JobStatus::Running,
+            "completed" => JobStatus::Completed,
+            "failed" => JobStatus::Failed,
+            "cancelled" => JobStatus::Cancelled,
+            _ => JobStatus::Queued,
+        }
+    }
+}
+
 /// One Job as the database holds it: what was asked, by whom, how far it has
 /// got, and how it ended. The row is the truth; this is that truth in memory.
+#[derive(Debug)]
 pub struct JobRecord {
     pub id: String,
     /// The Person who asked, when one did; None for work a stranger caused.
@@ -82,8 +116,7 @@ pub struct JobRecord {
     pub read_only: bool,
     pub operation: String,
     pub input: Value,
-    /// queued | running | completed | failed | cancelled.
-    pub status: String,
+    pub status: JobStatus,
     pub progress_done: Option<i64>,
     pub progress_total: Option<i64>,
     pub progress_message: Option<String>,
@@ -158,6 +191,78 @@ async fn carry(core: Arc<crate::core::Core>, job_id: String) {
     let _ = tokio::task::spawn_blocking(move || core.run_job(&job_id)).await;
 }
 
+/// Called once at startup, before any Door answers: work a previous process
+/// accepted must not strand. Running work can't be resumed honestly — the
+/// handler died with the process — so it reports why it ended; queued work
+/// re-enters its lane and is carried as if just asked for.
+pub fn recover_at_startup(db: &Arc<Db>, lanes: &Lanes) {
+    let _ = db.with_conn(|conn| {
+        let interrupted = conn
+            .execute(
+                "UPDATE jobs SET status = 'failed',
+             error = 'this Job was interrupted when Kamosu restarted',
+             error_code = -32603,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             WHERE status = 'running'",
+                [],
+            )
+            .map_err(|e| OpError::internal(format!("cannot recover interrupted Jobs: {e}")))?;
+        if interrupted > 0 {
+            tracing::warn!(
+                "{interrupted} Job(s) were mid-flight at shutdown; marked failed with the reason"
+            );
+        }
+        Ok(())
+    });
+
+    let waiting: Vec<(String, bool)> = match db.with_conn(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, person_id IS NULL FROM jobs
+                 WHERE status = 'queued' ORDER BY created_at",
+            )
+            .map_err(|e| OpError::internal(format!("cannot list waiting Jobs: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? != 0))
+            })
+            .map_err(|e| OpError::internal(format!("cannot list waiting Jobs: {e}")))?
+            .filter_map(Result::ok)
+            .collect();
+        Ok(rows)
+    }) {
+        Ok(rows) => rows,
+        Err(err) => {
+            tracing::warn!("cannot recover waiting Jobs: {err}");
+            return;
+        }
+    };
+
+    for (job_id, is_stranger_work) in waiting {
+        let lane = if is_stranger_work {
+            &lanes.stranger
+        } else {
+            &lanes.member
+        };
+        if lane.try_send(job_id.clone()).is_err() {
+            // The line was already full at boot; refuse honestly rather than
+            // leave the row pretending to wait forever.
+            let _ = db.with_conn(|conn| {
+                conn.execute(
+                    "UPDATE jobs SET status = 'failed',
+                     error = 'refused when Kamosu restarted: the lane for this Job was full',
+                     error_code = -32603,
+                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                     WHERE id = ?1",
+                    params![job_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot fail recovered Job: {e}")))?;
+                Ok(())
+            });
+        }
+    }
+}
+
 impl crate::core::Core {
     /// Carry one Job from its row to its end state. Runs on the blocking pool.
     pub(crate) fn run_job(&self, job_id: &str) {
@@ -169,7 +274,7 @@ impl crate::core::Core {
         };
         // Only a queued row is ours to carry: a cancelled one is skipped, and
         // anything else has already ended some other way.
-        if record.status != "queued" {
+        if record.status != JobStatus::Queued {
             return;
         }
 
@@ -279,33 +384,14 @@ pub fn forget(core: &crate::core::Core, job_id: &str) -> Result<(), OpError> {
 /// Read one Job back from the database.
 pub fn read(core: &crate::core::Core, job_id: &str) -> Result<Option<JobRecord>, OpError> {
     core.db().with_conn(|conn| {
-        conn.query_row(
+        conn.prepare(
             "SELECT id, person_id, read_only, operation, input, status,
-                    progress_done, progress_total, progress_message,
-                    result, error, error_code, created_at, updated_at
-             FROM jobs WHERE id = ?1",
-            params![job_id],
-            |row| {
-                Ok(JobRecord {
-                    id: row.get(0)?,
-                    person_id: row.get(1)?,
-                    read_only: row.get::<_, i64>(2)? != 0,
-                    operation: row.get(3)?,
-                    input: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or(Value::Null),
-                    status: row.get(5)?,
-                    progress_done: row.get(6)?,
-                    progress_total: row.get(7)?,
-                    progress_message: row.get(8)?,
-                    result: row
-                        .get::<_, Option<String>>(9)?
-                        .map(|t| serde_json::from_str(&t).unwrap_or(Value::Null)),
-                    error: row.get(10)?,
-                    error_code: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
-                })
-            },
+                        progress_done, progress_total, progress_message,
+                        result, error, error_code, created_at, updated_at
+                 FROM jobs WHERE id = ?1",
         )
+        .map_err(|e| OpError::internal(format!("cannot read Job: {e}")))?
+        .query_row(params![job_id], map_record)
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Job: {e}")))
     })
@@ -342,7 +428,7 @@ fn map_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRecord> {
         read_only: row.get::<_, i64>(2)? != 0,
         operation: row.get(3)?,
         input: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or(Value::Null),
-        status: row.get(5)?,
+        status: JobStatus::from_column(row.get(5)?),
         progress_done: row.get(6)?,
         progress_total: row.get(7)?,
         progress_message: row.get(8)?,
@@ -422,7 +508,7 @@ pub fn to_value(record: &JobRecord) -> Value {
     json!({
         "id": record.id,
         "operation": record.operation,
-        "status": record.status,
+        "status": record.status.as_str(),
         "progress": {
             "done": record.progress_done,
             "total": record.progress_total,
@@ -441,7 +527,7 @@ pub fn to_summary(record: &JobRecord) -> Value {
     json!({
         "id": record.id,
         "operation": record.operation,
-        "status": record.status,
+        "status": record.status.as_str(),
         "created_at": record.created_at,
     })
 }

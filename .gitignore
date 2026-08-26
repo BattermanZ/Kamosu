@@ -20,3 +20,6 @@ samples/
 
 # Data from running the container locally — the truth belongs inside the mount
 kamosu-data/
+
+# CodeGraph index — machine-local, rebuilt by `codegraph init/sync`
+.codegraph/

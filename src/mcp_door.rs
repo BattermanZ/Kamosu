@@ -214,6 +214,8 @@ fn tasks_get(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result
 
 /// `tasks/cancel`: signal intent to cancel. Acknowledged either way; honoured
 /// while the work still waits in line, cooperative once a worker carries it.
+/// Decoration over the ordinary `cancel_job` Operation — the Catalogue owns
+/// cancellation, this only translates it.
 fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {
     let params = params.cloned().unwrap_or(Value::Null);
     if !declares_tasks_capability(&params) {
@@ -224,9 +226,23 @@ fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Res
         .and_then(Value::as_str)
         .ok_or_else(|| json_rpc_error(-32602, "params.taskId is required"))?;
 
-    read_job_for_task(core, headers, task_id)?;
-    let _ = core.cancel_job_if_queued(task_id);
-    Ok(json!({ "resultType": "complete" }))
+    let secret = web_door::bearer_from_headers(headers);
+    match core.execute(
+        secret.as_deref(),
+        "cancel_job",
+        json!({ "job_id": task_id }),
+    ) {
+        Ok(_) => Ok(json!({ "resultType": "complete" })),
+        Err(err) => match err.kind {
+            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::Unauthorized => {
+                Err(json_rpc_error(
+                    -32602,
+                    format!("Failed to cancel task: no such Job '{task_id}'"),
+                ))
+            }
+            _ => Err(json_rpc_error(-32603, err.to_sentence())),
+        },
+    }
 }
 
 /// Resolve one taskId to a readable Job, or say it names nothing — a forbidden

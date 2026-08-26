@@ -104,6 +104,28 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_job,
         },
         Operation {
+            name: "cancel_job",
+            summary: "Cancel a Job you asked for: acknowledged always, honoured \
+                      while it still waits in line.",
+            permission: Permission::Public,
+            kind: Kind::Immediate,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "job_id": { "type": "string" } },
+                "required": ["job_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cancelled": { "type": "boolean" },
+                },
+                "required": ["cancelled"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::cancel_job,
+        },
+        Operation {
             name: "list_jobs",
             summary: "List the Jobs this Person has asked for, newest first.",
             permission: Permission::Person,

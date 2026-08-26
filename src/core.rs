@@ -128,9 +128,11 @@ impl Core {
     }
 
     /// Open the database *and* start carrying Jobs: both Doors share this entry.
-    /// The lanes exist from the moment the instance serves.
+    /// The lanes exist from the moment the instance serves — and anything a
+    /// previous process left behind is recovered before the first answer goes out.
     pub fn start(db: Arc<Db>) -> Arc<Core> {
         let (lanes, receivers) = jobs::lanes();
+        jobs::recover_at_startup(&db, &lanes);
         let core = Core { db, lanes };
         let core = Arc::new(core);
         jobs::spawn_workers(core.clone(), receivers);

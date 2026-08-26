@@ -99,6 +99,9 @@ fn migrate(conn: &Connection) -> Result<(), OpError> {
         -- it failed — so it survives the request that started it and is read back
         -- through ordinary Operations at both Doors. A Job ends only in a terminal
         -- status; it never vanishes.
+        -- Added while every table still ships in one idempotent batch; when the
+        -- versioned-migration machinery arrives (ADR 0030), this becomes a
+        -- numbered step taken behind a pre-migration Snapshot.
         CREATE TABLE IF NOT EXISTS jobs (
             id                TEXT PRIMARY KEY,
             person_id         TEXT REFERENCES people(id),

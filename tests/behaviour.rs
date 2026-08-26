@@ -7,6 +7,7 @@ mod support;
 
 use kamosu::MCP_PROTOCOL_VERSION;
 use serde_json::{Value, json};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 // --- The Job shape (issue #34) -----------------------------------------------
@@ -617,4 +618,67 @@ async fn cancelling_a_task_is_acknowledged_and_honoured_while_it_waits_in_line()
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("the running task never completed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn work_accepted_before_a_restart_never_strands() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let db = Arc::new(kamosu::db::Db::open(dir.path()).expect("database"));
+    let _first = kamosu::core::Core::start(db.clone());
+
+    // Two Jobs a previous process accepted: one waiting in line, one that the
+    // shutdown caught mid-run. Written straight into the truth, as a crash
+    // would leave them.
+    db.with_conn(|conn| {
+        conn.execute(
+            "INSERT INTO jobs (id, person_id, operation, input, status)
+             VALUES ('j_waiting', NULL, 'probe_job', '{\"steps\":1,\"delay_ms\":10}', 'queued')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO jobs (id, person_id, operation, input, status)
+             VALUES ('j_midflight', NULL, 'probe_job', '{\"steps\":9,\"delay_ms\":10}', 'running')",
+            [],
+        )
+        .unwrap();
+        Ok(())
+    })
+    .expect("seed rows");
+
+    // The process comes back. Its recovery must answer for both.
+    let second = kamosu::core::Core::start(db.clone());
+
+    let midflight = loop {
+        match second.job("j_midflight").expect("read") {
+            Some(r) if r.status == kamosu::jobs::JobStatus::Failed => break r,
+            Some(_) => std::thread::sleep(Duration::from_millis(25)),
+            None => panic!("the interrupted Job vanished"),
+        }
+    };
+    assert!(
+        midflight
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("interrupted"),
+        "the reason must say what happened: {midflight:?}"
+    );
+
+    let waiting = loop {
+        match second.job("j_waiting").expect("read") {
+            Some(r)
+                if matches!(
+                    r.status,
+                    kamosu::jobs::JobStatus::Completed | kamosu::jobs::JobStatus::Failed
+                ) =>
+            {
+                assert_eq!(r.status, kamosu::jobs::JobStatus::Completed, "{r:?}");
+                break r;
+            }
+            Some(_) => std::thread::sleep(Duration::from_millis(25)),
+            None => panic!("the waiting Job vanished"),
+        }
+    };
+    assert_eq!(waiting.result.as_ref().unwrap()["steps"], json!(1));
 }
