@@ -11,6 +11,7 @@ pub mod catalogue;
 pub mod config;
 pub mod core;
 pub mod db;
+pub mod design_tokens;
 pub mod http_min;
 pub mod mcp_door;
 pub mod operations;

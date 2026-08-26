@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use kamosu::core::Core;
-use kamosu::{db, http_min, mcp_door, web_door};
+use kamosu::{db, design_tokens, http_min, mcp_door, web_door};
 
 pub struct TestApp {
     pub addr: SocketAddr,
@@ -36,7 +36,11 @@ pub fn spawn_app() -> TestApp {
     let dir = tempfile::tempdir().expect("temp dir");
     let db = Arc::new(db::Db::open(dir.path()).expect("database"));
     let core = Arc::new(Core::open(db));
-    let app = web_door::router(core.clone()).merge(mcp_door::router(core.clone()));
+    // The same assembly the binary runs: both Doors plus the design-token
+    // assets, so tests exercise exactly what is served.
+    let app = web_door::router(core.clone())
+        .merge(mcp_door::router(core.clone()))
+        .merge(design_tokens::router());
 
     let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
     std_listener.set_nonblocking(true).unwrap();
@@ -80,6 +84,20 @@ impl TestApp {
         let response =
             http_min::post_json(self.addr, "/mcp", bearer, payload).expect("mcp door reachable");
         parse(response.status, &response.body)
+    }
+
+    /// GET one path — an asset or the tokens page — as a browser would.
+    /// Returns (status, content-type, body). Binary bodies are lossy text;
+    /// assert on status and headers for those. Unused by parity tests.
+    #[allow(dead_code)]
+    pub fn get(&self, path: &str) -> (u16, String, String) {
+        self.wait_until_serving();
+        let response = http_min::get(self.addr, path).expect("server reachable");
+        (
+            response.status,
+            response.content_type().unwrap_or_default().to_string(),
+            response.body,
+        )
     }
 }
 

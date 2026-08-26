@@ -8,8 +8,19 @@ use std::net::SocketAddr;
 
 pub struct Response {
     pub status: u16,
+    pub headers: Vec<(String, String)>,
     #[allow(dead_code)]
     pub body: String,
+}
+
+impl Response {
+    /// The first Content-Type header, lowercased, if any.
+    pub fn content_type(&self) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| value.as_str())
+    }
 }
 
 /// POST JSON to `http://<addr><path>` and read one response. Sends
@@ -21,22 +32,47 @@ pub fn post_json(
     bearer: Option<&str>,
     body: &str,
 ) -> std::io::Result<Response> {
+    request(
+        addr,
+        "POST",
+        path,
+        bearer,
+        Some(("Content-Type: application/json\r\n", body)),
+    )
+}
+
+/// GET one resource and read one response. Binary bodies are decoded lossily —
+/// enough for tests that assert status and headers, never for bytes themselves.
+pub fn get(addr: SocketAddr, path: &str) -> std::io::Result<Response> {
+    request(addr, "GET", path, None, None)
+}
+
+fn request(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    bearer: Option<&str>,
+    body: Option<(&str, &str)>,
+) -> std::io::Result<Response> {
     let mut stream = std::net::TcpStream::connect(addr)?;
     stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
-    let mut request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\n\
-         Content-Length: {}\r\nConnection: close\r\n",
-        addr,
-        body.len()
-    );
-    if let Some(secret) = bearer {
-        request.push_str(&format!("Authorization: Bearer {secret}\r\n"));
+    let mut r = format!("{method} {path} HTTP/1.1\r\nHost: {}\r\n", addr);
+    if let Some((content_header, content)) = body {
+        r.push_str(&format!(
+            "{content_header}Content-Length: {}\r\n",
+            content.len()
+        ));
     }
-    request.push_str("\r\n");
-    request.push_str(body);
-
-    stream.write_all(request.as_bytes())?;
+    r.push_str("Connection: close\r\n");
+    if let Some(secret) = bearer {
+        r.push_str(&format!("Authorization: Bearer {secret}\r\n"));
+    }
+    r.push_str("\r\n");
+    if let Some((_, content)) = body {
+        r.push_str(content);
+    }
+    stream.write_all(r.as_bytes())?;
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw)?;
 
@@ -51,9 +87,19 @@ pub fn post_json(
                 "unreadable HTTP status line",
             )
         })?;
-    let body = text
+    let (head, body) = text
         .split_once("\r\n\r\n")
-        .map(|(_, b)| b.to_string())
+        .map(|(h, b)| (h.to_string(), b.to_string()))
         .unwrap_or_default();
-    Ok(Response { status, body })
+    let headers = head
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.split_once(": "))
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect();
+    Ok(Response {
+        status,
+        headers,
+        body,
+    })
 }

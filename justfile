@@ -149,15 +149,59 @@ _warn-cache-size:
 test:
     cargo test
 
-# Check formatting and lints without changing anything.
+# Check formatting and lints without changing anything. Also verifies the
+# committed design-token stylesheet and icons are fresh against their sources:
+# the build fails if what is committed has drifted from ui/.
 check:
-    cargo fmt --check && cargo clippy --all-targets -- -D warnings
+    cargo fmt --check && cargo clippy --all-targets -- -D warnings && just _check-tokens-fresh
+
+# ── Design tokens ─────────────────────────────────────────────────────────────
+
+# Regenerate the one generated stylesheet (assets/app.css) and the icon PNGs
+# from their single source of truth in ui/. Safe to run any time.
+css:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd ui
+    if [[ ! -d node_modules ]]; then
+        echo "installing ui dependencies (npm ci)"
+        npm ci --no-audit --no-fund >/dev/null
+    fi
+    npm run --silent css
+    npm run --silent icons
+
+# Internal: regenerate the stylesheet and icons into a temp directory and
+# compare byte-for-byte with what is committed. Fails without touching the tree,
+# so a stale generated file can never pass `just check` unnoticed.
+_check-tokens-fresh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    mkdir -p "$tmp/assets/icons"
+    ( cd ui
+      if [[ ! -d node_modules ]]; then
+          npm ci --no-audit --no-fund >/dev/null
+      fi
+      CSS_OUT="$tmp/assets/app.css" npm run --silent css >/dev/null
+      node ./generate-icons.mjs "$tmp/assets/icons" >/dev/null
+    )
+    if ! diff -r assets/app.css "$tmp/assets/app.css" \
+        || ! diff -r assets/icons "$tmp/assets/icons"; then
+        echo "error: committed design-token output has drifted from ui/ —" >&2
+        echo "       run 'just css' and commit the regenerated files." >&2
+        exit 1
+    fi
+
+tokens-fresh: _check-tokens-fresh
 
 # ── Packaging ─────────────────────────────────────────────────────────────────
 
 # Build the distroless image exactly as a stranger would. --load puts it in the
 # local image store (a no-op on hosts where docker build already does that).
-docker-build:
+# Depends on the tokens freshness gate: the image embeds assets/app.css, so a
+# stale committed stylesheet must fail here too, not only in `just check`.
+docker-build: _check-tokens-fresh
     docker build --load -t kamosu .
 
 # Run the image as the one-mount-one-port install: ./kamosu-data holds the truth,

@@ -141,3 +141,67 @@ async fn everything_durable_lives_under_one_data_directory() {
         .expect("journal mode");
     assert_eq!(mode.to_lowercase(), "wal");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_tokens_page_reads_every_value_from_the_real_stylesheet() {
+    let app = support::spawn_app();
+
+    let (status, content_type, body) = app.get("/tokens");
+    assert_eq!(status, 200, "the tokens page serves without a Credential");
+    assert!(content_type.starts_with("text/html"), "{content_type}");
+
+    // Values are parsed out of the embedded stylesheet, not maintained by hand:
+    // the page shows the accent's hex exactly as /assets/app.css declares it.
+    assert!(body.contains("--color-accent"), "{body:200}");
+    let stylesheet = std::str::from_utf8(include_bytes!("../assets/app.css")).expect("utf-8");
+    let accent_value = stylesheet
+        .split("--color-accent: ")
+        .nth(1)
+        .and_then(|rest| rest.split(';').next())
+        .expect("accent declared");
+    assert!(body.contains(accent_value), "page shows {accent_value}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_generated_stylesheet_serves_the_whole_look_and_no_tailwind_defaults() {
+    let app = support::spawn_app();
+
+    let (status, content_type, body) = app.get("/assets/app.css");
+    assert_eq!(status, 200);
+    assert!(content_type.starts_with("text/css"), "{content_type}");
+    // The identity's tokens are in it...
+    assert!(body.contains("--color-ground: #f4efe3"), "kinari ground");
+    assert!(
+        body.contains("--text-step: 33px"),
+        "the Step is the largest type (ADR 0011)"
+    );
+    assert!(body.contains("--spacing-gutter: 20px"));
+    // ...and Tailwind's own palette is not reachable.
+    assert!(!body.contains("--color-red-"), "no default red");
+    assert!(!body.contains("--color-slate-"), "no default slate");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fonts_icons_and_mark_are_self_hosted_under_the_binary() {
+    let app = support::spawn_app();
+
+    for path in [
+        "/assets/fonts/zen-old-mincho-600-latin.woff2",
+        "/assets/fonts/zen-kaku-gothic-new-400-latin.woff2",
+        "/assets/icons/icon-192.png",
+        "/assets/icons/apple-touch-icon.png",
+        "/assets/img/kamosu-mark.svg",
+        "/favicon.svg",
+    ] {
+        let (status, content_type, _) = app.get(path);
+        assert_eq!(status, 200, "{path}");
+        assert!(
+            content_type.starts_with("font/") || content_type.starts_with("image/"),
+            "{path}: {content_type}"
+        );
+    }
+
+    // An unknown font is a loud 404, not a silent empty response.
+    let (status, _, _) = app.get("/assets/fonts/not-a-font.woff2");
+    assert_eq!(status, 404);
+}

@@ -10,7 +10,7 @@ use serde_json::json;
 
 use kamosu::config::Config;
 use kamosu::core::Core;
-use kamosu::{db, http_min, mcp_door, web_door};
+use kamosu::{db, design_tokens, http_min, mcp_door, web_door};
 
 #[derive(Parser)]
 #[command(
@@ -63,7 +63,11 @@ fn serve(config: Config) {
         let core = Arc::new(Core::open(Arc::new(
             db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
         )));
-        let app = web_door::router(core.clone()).merge(mcp_door::router(core));
+        // The Doors carry the Catalogue; the design tokens ride beside them —
+        // static assets and the /tokens dev page, never Operations.
+        let app = web_door::router(core.clone())
+            .merge(mcp_door::router(core))
+            .merge(design_tokens::router());
 
         let listener = tokio::net::TcpListener::bind(config.bind_address())
             .await

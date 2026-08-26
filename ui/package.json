@@ -1,0 +1,15 @@
+{
+  "name": "kamosu-ui",
+  "private": true,
+  "description": "Kamosu's design tokens: one Tailwind build, one generated stylesheet.",
+  "type": "module",
+  "scripts": {
+    "css": "tailwindcss -i ./src/app.css -o \"${CSS_OUT:-../assets/app.css}\"",
+    "icons": "node ./generate-icons.mjs"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

@@ -6,6 +6,10 @@ FROM rust:1.95-slim AS build
 WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY src ./src
+# Embedded at compile time by src/design_tokens.rs (include_str!/include_bytes!):
+# the generated stylesheet, the self-hosted fonts and the icon PNGs. ui/ itself
+# is not needed — its output is committed and verified fresh by `just check`.
+COPY assets ./assets
 RUN cargo build --release
 
 FROM gcr.io/distroless/cc-debian12
