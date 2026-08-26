@@ -15,13 +15,15 @@
 
 @import "tailwindcss";
 
-/* Scan Rust sources for utility classes: the tokens page (and, later, the
-   Share Link page) are rendered from Rust strings. */
-@source "../../src/**/*.rs";
-
 /* `static`: every token below is emitted into :root even when no utility uses
-   it yet — the tokens page reads them all, and screens will adopt them one by
-   one without the stylesheet quietly losing values in between. */
+   it yet — the tokens page reads them all back with getComputedStyle, and
+   screens adopt them one by one without the stylesheet quietly losing values in
+   between.
+
+   When the Share Link page arrives it is rendered from Rust strings (ADR 0013)
+   and an @source rule pointing at ../../src will be needed here. Tailwind's
+   classes are identical everywhere, which is exactly why both renderings can
+   draw from this one file. Nothing in Rust emits a class today. */
 @theme static {
   /* ── Replace Tailwind wholesale ─────────────────────────────────────────── */
   --color-*: initial;
@@ -95,7 +97,11 @@
   --text-label: 10.5px;         /* uppercase labels */
   --text-label--letter-spacing: 0.15em;
 
-  /* ── Spacing — seven steps and a gutter, nothing else exists ────────────── */
+  /* ── Spacing — seven steps and a gutter, nothing else exists ──────────────
+     Zero is here because it is the *absence* of a step rather than another one:
+     without it Tailwind generates no `inset-x-0`, `top-0` or `p-0` at all, since
+     killing `--spacing` above also killed the dynamic scale those come from. */
+  --spacing-0: 0px;
   --spacing-1: 4px;
   --spacing-2: 8px;
   --spacing-3: 12px;
@@ -216,4 +222,70 @@
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
   }
+}
+
+/* ── The signature transition ──────────────────────────────────────────────
+   A card expanding into its page, rather than the screen swapping. This used
+   to need a framework's animation library; it is now the View Transitions API
+   and plain CSS (ADR 0012), which is why the choice of framework cost nothing
+   aesthetically. Safari 18+ supports it, and a browser that does not simply
+   navigates — the transition is the whole of the enhancement.
+
+   How the pair is made: a card sets `view-transition-name` to a name unique to
+   the thing it shows, and the page that opens sets the *same* name on the
+   element the card becomes. The browser then draws one from the other. */
+@layer base {
+  @view-transition {
+    navigation: auto;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 220ms;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  /* The expanding pair moves and resizes rather than cross-fading: the card is
+     understood to *become* the page, which a fade does not say. */
+  ::view-transition-group(.expanding) {
+    animation-duration: 320ms;
+    animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  ::view-transition-old(.expanding) {
+    animation: none;
+    opacity: 0;
+  }
+
+  ::view-transition-new(.expanding) {
+    animation: none;
+  }
+
+  /* Somebody who has asked their phone to stop moving things gets a plain cut. */
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+      animation-duration: 1ms !important;
+    }
+  }
+}
+
+/* ── The safe area ─────────────────────────────────────────────────────────
+   iOS Safari is the platform this project targets (ADR 0012). The tab bar sits
+   on the home indicator unless it is told not to; `viewport-fit=cover` in
+   app.html is what makes these insets non-zero. */
+@utility pb-safe {
+  padding-bottom: max(var(--spacing-2), env(safe-area-inset-bottom));
+}
+
+@utility pt-safe {
+  padding-top: max(var(--spacing-2), env(safe-area-inset-top));
+}
+
+/* The room every screen leaves for the tab bar, which is fixed over it: the
+   bar's own height, its safe-area padding, and a step of air. Named once so a
+   screen never guesses a number, and so changing the bar changes every screen. */
+@utility pb-tabbar {
+  padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom));
 }

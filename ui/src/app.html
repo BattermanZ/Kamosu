@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<!-- The platform this project targets is iOS Safari (ADR 0012): the app must
+		     fill a phone, survive a notch, and never zoom when a field is focused. -->
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		<!-- Filled in from --color-ground by the root layout: a colour typed here
+		     would be a second place the look lives. -->
+		<meta name="theme-color" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-title" content="Kamosu" />
+		<link rel="manifest" href="/manifest.webmanifest" />
+		<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+		<link rel="icon" href="/assets/icons/favicon-32.png" sizes="32x32" type="image/png" />
+		<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png" />
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

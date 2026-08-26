@@ -229,6 +229,36 @@ fn empty_input() -> Value {
     })
 }
 
+/// The Catalogue as JSON: every declaration, in the order both Doors walk them.
+///
+/// This is the one export the interface builds against. `kamosu catalogue`
+/// prints it and `just client` turns it into the typed client every screen
+/// calls through, so the frontend and the Core cannot disagree about an
+/// Operation's shape — a renamed field is a failed build, not a blank screen.
+pub fn declarations() -> Value {
+    Value::Array(
+        OPERATIONS
+            .iter()
+            .map(|op| {
+                json!({
+                    "name": op.name,
+                    "summary": op.summary,
+                    "permission": match op.permission {
+                        Permission::Public => "public",
+                        Permission::Person => "person",
+                    },
+                    "kind": match op.kind {
+                        Kind::Immediate => "immediate",
+                        Kind::Job => "job",
+                    },
+                    "input_schema": op.input_schema.clone(),
+                    "output_schema": op.output_schema.clone(),
+                })
+            })
+            .collect(),
+    )
+}
+
 /// Look up one Operation by name.
 pub fn find(name: &str) -> Option<&'static Operation> {
     OPERATIONS.iter().find(|op| op.name == name)
@@ -261,6 +291,28 @@ mod tests {
                 .filter(|op| op.kind == Kind::Job)
                 .all(|op| matches!(op.output_schema["type"], Value::String(_))),
             "a Job's declared output describes its eventual result, not the id envelope"
+        );
+    }
+
+    #[test]
+    fn declarations_carry_every_operation_verbatim() {
+        let declared = declarations();
+        let list = declared.as_array().expect("an array of declarations");
+        assert_eq!(list.len(), OPERATIONS.len());
+        for (entry, op) in list.iter().zip(OPERATIONS.iter()) {
+            assert_eq!(entry["name"], op.name);
+            assert_eq!(entry["input_schema"], op.input_schema);
+            assert_eq!(entry["output_schema"], op.output_schema);
+        }
+        // The two enums are exported as words, not numbers: the interface's
+        // generator reads them, and a number would be a silent renumbering.
+        assert!(
+            list.iter()
+                .all(|e| matches!(e["permission"].as_str(), Some("public" | "person")))
+        );
+        assert!(
+            list.iter()
+                .all(|e| matches!(e["kind"].as_str(), Some("immediate" | "job")))
         );
     }
 }

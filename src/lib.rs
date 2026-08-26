@@ -13,12 +13,32 @@ pub mod core;
 pub mod db;
 pub mod design_tokens;
 pub mod http_min;
+pub mod interface;
 pub mod jobs;
 pub mod mcp_door;
 pub mod operations;
 pub mod web_door;
 
 pub use core::{ErrorKind, OpError};
+
+use std::sync::Arc;
+
+/// The whole served application, assembled once.
+///
+/// Both Doors carry the Catalogue; the design tokens and the interface ride
+/// beside them — stylesheet, fonts, icons and the compiled app, never
+/// Operations. **The interface is merged last** because it owns the fallback: a
+/// path is a screen only once nothing else has claimed it.
+///
+/// This exists as one function so the binary and the behaviour suite cannot
+/// assemble the app differently. A test that served a different arrangement
+/// from the one shipped would be testing something nobody runs.
+pub fn app(core: Arc<core::Core>) -> axum::Router {
+    web_door::router(core.clone())
+        .merge(mcp_door::router(core))
+        .merge(design_tokens::router())
+        .merge(interface::router())
+}
 
 /// The MCP revision this build speaks: stateless, no handshake.
 pub const MCP_PROTOCOL_VERSION: &str = "2026-07-28";

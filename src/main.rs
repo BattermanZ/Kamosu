@@ -10,7 +10,7 @@ use serde_json::json;
 
 use kamosu::config::Config;
 use kamosu::core::Core;
-use kamosu::{db, design_tokens, http_min, mcp_door, web_door};
+use kamosu::{db, http_min};
 
 #[derive(Parser)]
 #[command(
@@ -32,6 +32,9 @@ enum Command {
     /// Check that this Kamosu answers its own Operations. Exits 0 when healthy.
     /// Run by the container's HEALTHCHECK — a distroless image has no curl to do it.
     HealthCheck,
+    /// Print the Catalogue as JSON: every Operation's name, permission, kind and
+    /// schemas. The interface's typed client is generated from this (`just client`).
+    Catalogue,
 }
 
 fn main() {
@@ -41,6 +44,13 @@ fn main() {
     match cli.command.unwrap_or(Command::Serve) {
         Command::Serve => serve(config),
         Command::Status => status(&config),
+        Command::Catalogue => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&kamosu::catalogue::declarations())
+                    .expect("the Catalogue serialises")
+            );
+        }
         Command::HealthCheck => {
             let addr: SocketAddr = format!("127.0.0.1:{}", config.port)
                 .parse()
@@ -65,11 +75,7 @@ fn serve(config: Config) {
         let core = Core::start(Arc::new(
             db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
         ));
-        // The Doors carry the Catalogue; the design tokens ride beside them —
-        // static assets and the /tokens dev page, never Operations.
-        let app = web_door::router(core.clone())
-            .merge(mcp_door::router(core))
-            .merge(design_tokens::router());
+        let app = kamosu::app(core);
 
         let listener = tokio::net::TcpListener::bind(config.bind_address())
             .await

@@ -5,3 +5,6 @@ kamosu-data/
 samples/
 .playwright-mcp/
 .git/
+ui/node_modules/
+ui/build/
+ui/.svelte-kit/

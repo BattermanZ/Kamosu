@@ -299,23 +299,68 @@ async fn everything_durable_lives_under_one_data_directory() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_tokens_page_reads_every_value_from_the_real_stylesheet() {
+async fn every_screen_is_one_shell_served_by_the_binary_itself() {
     let app = support::spawn_app();
 
-    let (status, content_type, body) = app.get("/tokens");
-    assert_eq!(status, 200, "the tokens page serves without a Credential");
+    // The interface is compiled into the binary (ADR 0028), and SvelteKit runs
+    // on adapter-static with a fallback: the router runs in the browser, so
+    // every screen path is the same document arriving at a different address.
+    let (status, content_type, shell) = app.get("/");
+    assert_eq!(status, 200, "the app serves without a Credential");
     assert!(content_type.starts_with("text/html"), "{content_type}");
+    assert!(
+        shell.contains("/_app/immutable/"),
+        "the shell names the built app's chunks: {shell:.200}"
+    );
 
-    // Values are parsed out of the embedded stylesheet, not maintained by hand:
-    // the page shows the accent's hex exactly as /assets/app.css declares it.
-    assert!(body.contains("--color-accent"), "{body:200}");
-    let stylesheet = std::str::from_utf8(include_bytes!("../assets/app.css")).expect("utf-8");
-    let accent_value = stylesheet
-        .split("--color-accent: ")
-        .nth(1)
-        .and_then(|rest| rest.split(';').next())
-        .expect("accent declared");
-    assert!(body.contains(accent_value), "page shows {accent_value}");
+    for path in ["/recipes", "/shopping", "/cooked", "/settings", "/tokens"] {
+        let (status, content_type, body) = app.get(path);
+        assert_eq!(status, 200, "{path}");
+        assert!(
+            content_type.starts_with("text/html"),
+            "{path}: {content_type}"
+        );
+        assert_eq!(body, shell, "{path} is the same shell");
+    }
+
+    // Something that asked for a file is told the file is not there, rather than
+    // handed HTML it will fail to parse later and less clearly.
+    let (status, _, _) = app.get("/_app/immutable/nothing-like-this.js");
+    assert_eq!(status, 404);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_path_that_is_not_an_operation_is_still_answered_as_a_catalogue_question() {
+    let app = support::spawn_app();
+
+    // The interface owns the fallback now, but `/api/op/…` is a question about
+    // the Catalogue wherever it lands, and is answered as one.
+    let (status, body) = app.post_op("not_an_operation", None, "{}");
+    assert_eq!(status, 404);
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["error"]["kind"], "unknown_operation");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_web_manifest_points_at_the_icons_the_binary_serves() {
+    let app = support::spawn_app();
+
+    let (status, content_type, body) = app.get("/manifest.webmanifest");
+    assert_eq!(status, 200);
+    assert!(
+        content_type.starts_with("application/manifest+json"),
+        "a web manifest has its own registered media type: {content_type}"
+    );
+
+    let manifest: serde_json::Value = serde_json::from_str(&body).expect("a manifest");
+    let icons = manifest["icons"].as_array().expect("icons");
+    assert!(!icons.is_empty());
+    for icon in icons {
+        let src = icon["src"].as_str().expect("a src");
+        assert!(src.starts_with("/assets/icons/"), "{src}");
+        let (status, _, _) = app.get(src);
+        assert_eq!(status, 200, "the manifest names {src}, so it must serve");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -2,14 +2,29 @@
 # no Node, no browser, no model. The binary checks its own health because there
 # is no curl to do it. One mount (/data) and one port (5266) are the whole install.
 
+# The interface is built here and compiled *into* the binary below, never copied
+# beside it. Node exists in this stage and nowhere else: the artefact is the
+# version, so a half-upgraded install — new binary, last month's assets — is not
+# something an operator can arrive at.
+FROM node:24-slim AS ui
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY ui ./
+RUN npm run build
+
 FROM rust:1.95-slim AS build
 WORKDIR /build
-COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml build.rs ./
 COPY src ./src
 # Embedded at compile time by src/design_tokens.rs (include_str!/include_bytes!):
-# the generated stylesheet, the self-hosted fonts and the icon PNGs. ui/ itself
-# is not needed — its output is committed and verified fresh by `just check`.
+# the generated stylesheet, the self-hosted fonts and the icon PNGs. Their
+# source in ui/ is not needed — the output is committed and verified fresh by
+# `just check`.
 COPY assets ./assets
+# Embedded at compile time by src/interface.rs: the built Svelte app. build.rs
+# refuses a release build without it, so this COPY is load-bearing, not optional.
+COPY --from=ui /ui/build ./ui/build
 RUN cargo build --release
 
 FROM gcr.io/distroless/cc-debian12

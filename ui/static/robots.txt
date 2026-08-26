@@ -1,0 +1,3 @@
+# Kamosu is somebody's kitchen, not a website. Nothing here is for a crawler.
+User-agent: *
+Disallow: /

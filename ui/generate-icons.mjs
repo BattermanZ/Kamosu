@@ -7,6 +7,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { DEFAULT_STYLESHEET, token } from "./tokens.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const svg = readFileSync(path.join(root, "assets/img/kamosu-mark.svg"), "utf8");
@@ -18,16 +19,24 @@ const sizes = [
   ["favicon-32.png", 32], // browser tab fallback for browsers without SVG favicons
 ];
 
-// Optional first argument redirects output elsewhere — used by the freshness
+// Optional first argument redirects output elsewhere, and an optional second
+// names the stylesheet to read the colour from — both used by the freshness
 // check, which regenerates into a temp directory instead of touching the tree.
 const outDir = process.argv[2]
   ? path.resolve(process.cwd(), process.argv[2])
   : path.join(root, "assets/icons");
+const stylesheet = process.argv[3]
+  ? path.resolve(process.cwd(), process.argv[3])
+  : DEFAULT_STYLESHEET;
+
+// iOS composites the home-screen icon onto an opaque square, so it needs a
+// background — read from the stylesheet, never typed here.
+const accent = token("--color-accent", stylesheet);
 
 for (const [name, size] of sizes) {
   const resvg = new Resvg(svg, {
     fitTo: { mode: "width", value: size },
-    background: name === "apple-touch-icon.png" ? "#1d2b4c" : undefined,
+    background: name === "apple-touch-icon.png" ? accent : undefined,
   });
   const png = resvg.render().asPng();
   writeFileSync(path.join(outDir, name), png);

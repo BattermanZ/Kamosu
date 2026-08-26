@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use kamosu::core::Core;
-use kamosu::{db, design_tokens, http_min, mcp_door, web_door};
+use kamosu::{db, http_min};
 
 pub struct TestApp {
     pub addr: SocketAddr,
@@ -43,12 +43,11 @@ pub fn spawn_app() -> TestApp {
 /// migration tests do.
 pub fn spawn_app_in(data_dir: &std::path::Path) -> TestApp {
     let db = Arc::new(db::Db::open(data_dir).expect("database"));
-    // The same assembly the binary runs: a Core with its Job lanes started, both
-    // Doors plus the design-token assets — tests exercise exactly what is served.
+    // Literally the application the binary serves — `kamosu::app` is the only
+    // place it is assembled, so a test can never drive an arrangement nobody
+    // runs. A Core with its Job lanes started sits underneath it.
     let core = Core::start(db);
-    let app = web_door::router(core.clone())
-        .merge(mcp_door::router(core.clone()))
-        .merge(design_tokens::router());
+    let app = kamosu::app(core.clone());
 
     let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
     std_listener.set_nonblocking(true).unwrap();

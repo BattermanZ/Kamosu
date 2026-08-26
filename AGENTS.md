@@ -4,10 +4,6 @@ Project conventions for Kamosu. Host-specific conventions live in
 `AGENTS.local.md`; vocabulary lives in `CONTEXT.md`; decisions live in
 `docs/adr/`. **Where the spec and an ADR disagree, the ADR wins.**
 
-Build, run and test instructions arrive with the walking skeleton
-([#33](https://github.com/BattermanZ/Kamosu/issues/33)), which creates the
-codebase this file describes.
-
 ## CodeGraph
 
 **When a `.codegraph/` directory exists at the repository root, reach for
@@ -46,6 +42,14 @@ npx sv create                  # scaffolds SvelteKit at its current version
 A version string typed by hand into `Cargo.toml` or `package.json` is a bug,
 the same way a permission check inside a Door is a bug.
 
+**Svelte's own documentation for models is committed to this repo.** Read
+`docs/svelte/llms-small.txt` before writing any Svelte or SvelteKit code, and
+search `docs/svelte/llms-full.txt` for what the small file omits. This is not
+optional: Svelte was chosen over React on the argument that a model reaching for
+Svelte 4 habits is a risk closable at build time, and these files are what closes
+it (ADR 0012). Both are pinned; `docs/svelte/README.md` says to which version and
+how to refresh them.
+
 **Read the library's current documentation before writing against it.** Use the
 **Context7** MCP server before writing code that calls a library API, even when
 you believe you know the API. Getting the version number right and then calling
@@ -75,19 +79,27 @@ Everything runs through `just` at the repo root — never a hand-rolled
 `cargo run &`, which leaks a process holding the port.
 
 ```sh
-just check      # fmt + clippy + the tokens freshness gate (see Design tokens below)
-just test       # the behaviour suite: real Operations, real Credential, real SQLite
+just check      # fmt + clippy + svelte-check + the two freshness gates (below)
+just test       # the behaviour suite (real Operations, real SQLite) + the screen tests
 just css        # regenerate assets/app.css and the icon PNGs from ui/ (their source)
-just dev-start  # background server on 5266, bound to 0.0.0.0; prints log path + LAN URL
-just dev-status # running? since when? build-cache size
-just dev-logs   # follow .dev/kamosu.log
-just dev-stop   # stops the whole process group
+just client     # regenerate the typed client from the Catalogue (see The interface)
+just ui-build   # build the Svelte app into ui/build, which the binary embeds
+just dev-start  # server on 5266 AND vite on 5174, both on 0.0.0.0; prints both URLs
+just dev-status # each half running? since when? build-cache size
+just dev-logs   # follow .dev/kamosu.log and .dev/vite.log together
+just dev-stop   # stops both process groups
 just docker-build && just docker-run   # the one-mount-one-port install, as a stranger runs it
 ```
 
+**Development is two processes side by side** (ADR 0028): the binary serves the
+Operations on **5266**, vite serves the interface on **5174** and proxies
+everything the binary owns to it, so a browser only ever talks to one origin.
+Open the 5174 URL. Both ports are fixed with no environment variable — 5173 is
+taken on the dev host, and vite runs with `--strictPort` so a silent fallback to
+another port cannot happen. `dev-start` is always safe to re-run for both.
+
 `dev-clean` deletes `target/` to reclaim build cache; the next build is a full
-rebuild. Dev state lives in gitignored `.dev/`. The dev server uses port 5266
-with no environment variable set — dev and production match.
+rebuild. Dev state lives in gitignored `.dev/`.
 
 ## Design tokens
 
@@ -100,9 +112,37 @@ never needs Node — but `just check` regenerates it into a temp directory and
 **fails if what is committed has drifted from `ui/`**. Never hand-edit
 `assets/app.css`; change `ui/src/app.css` and run `just css`.
 
+## The interface
+
+The frontend is **Svelte 5 + SvelteKit on `adapter-static` + TypeScript +
+Tailwind 4 + Paraglide**, and it is **compiled into the binary** (ADR 0028) —
+never copied beside it. `rust-embed` reads `ui/build` from disk in a debug build
+and embeds it in a release build, so a frontend change recompiles no Rust and a
+release binary that would ship no interface fails in `build.rs` instead.
+
+**The interface calls Kamosu through a client generated from the Catalogue.**
+`kamosu catalogue` prints every Operation's declaration as JSON; `just client`
+turns that into `ui/src/lib/api/catalogue.ts`. It is the third thing built by
+walking the one declaration list, after the two Doors, so the frontend and the
+Core cannot disagree about an Operation's shape. Never edit the generated file:
+change `src/catalogue.rs`, run `just client`, and commit both. `just check`
+fails if what is committed has drifted.
+
+**Screens are tested against a Catalogue-derived stand-in.** `standIn({ … })` in
+`ui/src/lib/api/stand-in.ts` answers what a test says — and checks every answer
+against the output schema the Catalogue declares first. A test can lie about the
+values; it cannot lie about the shape. Screens take their client from context,
+never from `fetch`.
+
+**`svelte-check` runs strict and its warnings are failures**, Svelte's
+accessibility warnings included (ADR 0012). **Paraglide compiles every phrase to
+a function**, so a misspelt key is a build error; messages live in
+`ui/messages/{en,fr,es}.json` and all three are present from the first day.
+
 ## Project layout
 
 ```
+build.rs            refuses a release build that would ship no interface
 src/catalogue.rs    the Catalogue: every Operation declared once
 src/core.rs         the Core: dispatch + the only authorisation check in Kamosu
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
@@ -112,9 +152,12 @@ src/web_door.rs     Axum router generated by walking the Catalogue
 src/mcp_door.rs     MCP endpoint generated by walking the Catalogue
 src/config.rs       the four optional environment variables
 src/http_min.rs     dependency-free HTTP client for the self-run healthcheck
-src/design_tokens.rs embeds the generated stylesheet + fonts/icons, serves /tokens
+src/design_tokens.rs embeds and serves the generated stylesheet, fonts and icons
+src/interface.rs    embeds and serves the built Svelte app; owns the fallback
 tests/parity.rs     both Doors materialise every Operation — drift breaks the build
 tests/behaviour.rs  behaviour through real Doors against a real database file
+ui/                 the Svelte app; ui/src/app.css is the design tokens' source
+docs/svelte/        Svelte's documentation for models, pinned (read this first)
 ```
 
 ## How the program is shaped

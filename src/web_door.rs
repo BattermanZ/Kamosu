@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{any, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
@@ -18,7 +18,11 @@ use crate::core::{Core, ErrorKind, OpError};
 /// Build the whole web door from the Catalogue. One route per Operation; nothing
 /// else. A permission check here would be a bug — authorisation lives in the Core.
 pub fn router(core: Arc<Core>) -> Router {
-    let mut router = Router::new().fallback(unknown_operation_fallback);
+    // The unknown-Operation answer is scoped to `/api/op/…`, not to the whole
+    // router: every other path belongs to the interface, which is merged after
+    // the Doors and owns the fallback. `/api/op/anything-else` is still a
+    // Catalogue question, and still answered as one.
+    let mut router = Router::new().route("/api/op/{*name}", any(unknown_operation));
     for op in catalogue::OPERATIONS.iter() {
         let core = core.clone();
         router = router.route(
@@ -33,9 +37,10 @@ pub fn router(core: Arc<Core>) -> Router {
     router.with_state(())
 }
 
-async fn unknown_operation_fallback() -> Response {
-    let err = OpError::unknown_operation("(the path does not name an Operation in the Catalogue)");
-    respond(Err(err))
+/// Reached only when no exact route claimed the path, so the name is one the
+/// Catalogue does not declare. Naming it back is the whole of the answer.
+async fn unknown_operation(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
+    respond(Err(OpError::unknown_operation(&name)))
 }
 
 fn call_operation(
