@@ -93,6 +93,28 @@ fn migrate(conn: &Connection) -> Result<(), OpError> {
             created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
             last_used_at TEXT
         );
+
+        -- A Job: slow work asked for through an Operation. The row is the truth
+        -- about the work — its state, its progress, and its result or the reason
+        -- it failed — so it survives the request that started it and is read back
+        -- through ordinary Operations at both Doors. A Job ends only in a terminal
+        -- status; it never vanishes.
+        CREATE TABLE IF NOT EXISTS jobs (
+            id                TEXT PRIMARY KEY,
+            person_id         TEXT REFERENCES people(id),
+            read_only         INTEGER NOT NULL DEFAULT 0,
+            operation         TEXT NOT NULL,
+            input             TEXT NOT NULL,
+            status            TEXT NOT NULL DEFAULT 'queued',
+            progress_done     INTEGER,
+            progress_total    INTEGER,
+            progress_message  TEXT,
+            result            TEXT,
+            error             TEXT,
+            error_code        INTEGER,
+            created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
         "#,
     )
     .map_err(|e| OpError::internal(format!("migration failed: {e}")))?;

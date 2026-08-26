@@ -13,6 +13,7 @@ pub mod core;
 pub mod db;
 pub mod design_tokens;
 pub mod http_min;
+pub mod jobs;
 pub mod mcp_door;
 pub mod operations;
 pub mod web_door;
@@ -21,3 +22,7 @@ pub use core::{ErrorKind, OpError};
 
 /// The MCP revision this build speaks: stateless, no handshake.
 pub const MCP_PROTOCOL_VERSION: &str = "2026-07-28";
+
+/// The standard long-running-task extension carried at the MCP door: asking for
+/// a Job answers a CreateTaskResult, polled back through ordinary Operations.
+pub const MCP_TASKS_EXTENSION: &str = "io.modelcontextprotocol/tasks";

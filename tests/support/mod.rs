@@ -35,7 +35,9 @@ impl TestApp {
 pub fn spawn_app() -> TestApp {
     let dir = tempfile::tempdir().expect("temp dir");
     let db = Arc::new(db::Db::open(dir.path()).expect("database"));
-    let core = Arc::new(Core::open(db));
+    // The same assembly the binary runs: a Core with its Job lanes started, both
+    // Doors plus the design-token assets — tests exercise exactly what is served.
+    let core = Core::start(db);
     // The same assembly the binary runs: both Doors plus the design-token
     // assets, so tests exercise exactly what is served.
     let app = web_door::router(core.clone())

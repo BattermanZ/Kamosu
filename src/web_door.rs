@@ -79,6 +79,10 @@ fn status_for(kind: ErrorKind) -> StatusCode {
     match kind {
         ErrorKind::Unauthorized => StatusCode::UNAUTHORIZED,
         ErrorKind::UnknownOperation => StatusCode::NOT_FOUND,
+        ErrorKind::NotFound => StatusCode::NOT_FOUND,
+        // Refused, not failed: a full lane answers busy rather than growing
+        // (ADR 0032). The caller is invited back in a moment.
+        ErrorKind::Busy => StatusCode::SERVICE_UNAVAILABLE,
         ErrorKind::BadRequest => StatusCode::BAD_REQUEST,
         ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     }
@@ -88,6 +92,8 @@ fn kind_name(kind: ErrorKind) -> &'static str {
     match kind {
         ErrorKind::Unauthorized => "unauthorized",
         ErrorKind::UnknownOperation => "unknown_operation",
+        ErrorKind::NotFound => "not_found",
+        ErrorKind::Busy => "busy",
         ErrorKind::BadRequest => "bad_request",
         ErrorKind::Internal => "internal",
     }

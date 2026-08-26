@@ -16,6 +16,13 @@ tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "t
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
+[features]
+# Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
+# drive the whole Job shape — ask, poll, fail, the two lanes — end-to-end through
+# real Doors. Production builds leave it out: no synthetic Operations ship; the
+# first Jobs arrive with Import, Sheet rendering and Meaning Search.
+test-jobs = []
+
 [dev-dependencies]
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }

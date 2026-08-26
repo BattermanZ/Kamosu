@@ -9,11 +9,12 @@ use std::sync::Arc;
 
 use rusqlite::OptionalExtension;
 use rusqlite::params;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::catalogue::{self, Permission};
+use crate::catalogue::{self, Kind, Permission};
 use crate::db::Db;
+use crate::jobs::{self, JobProgress, JobRecord};
 
 /// What went wrong with an Operation, in words a caller can act on. The Doors map
 /// these to their own transports; they never decide them.
@@ -31,6 +32,12 @@ pub enum ErrorKind {
     UnknownOperation,
     /// The input envelope does not fit the Operation's declaration.
     BadRequest,
+    /// No such thing — a Job id that names nothing, read by its owner or not at all.
+    NotFound,
+    /// The work is refused rather than queued: the lane asked for is full.
+    /// A stranger may cause work, never work that scales with them (ADR 0032) —
+    /// a full line answers *busy* so collapse becomes latency instead.
+    Busy,
     /// Kamosu itself failed. Never the caller's fault.
     Internal,
 }
@@ -52,6 +59,18 @@ impl OpError {
         OpError {
             kind: ErrorKind::BadRequest,
             message: message.into(),
+        }
+    }
+    pub fn not_found(message: impl Into<String>) -> Self {
+        OpError {
+            kind: ErrorKind::NotFound,
+            message: message.into(),
+        }
+    }
+    pub fn busy() -> Self {
+        OpError {
+            kind: ErrorKind::Busy,
+            message: "Kamosu is busy right now — try again in a moment".to_string(),
         }
     }
     pub fn internal(message: impl Into<String>) -> Self {
@@ -84,18 +103,44 @@ pub struct Caller {
     pub read_only: bool,
 }
 
-/// The Core. Holds the database — the truth (ADR 0003).
+/// One asking of an Operation: who is acting, and (when the Operation runs as a
+/// Job) the handle through which the running work reports its progress.
+#[derive(Clone)]
+pub struct Invocation {
+    pub caller: Option<Caller>,
+    /// Set only while an Operation declared `Kind::Job` is being carried out.
+    pub job: Option<JobProgress>,
+}
+
+/// The Core. Holds the database — the truth (ADR 0003) — and the Job lanes that
+/// carry slow work (ADR 0032): one for members, one depth-one lane for strangers.
 pub struct Core {
     db: Arc<Db>,
+    lanes: jobs::Lanes,
 }
 
 impl Core {
     pub fn open(db: Arc<Db>) -> Core {
-        Core { db }
+        // Terminal commands open a Core without Job workers; they never ask for
+        // slow work. A Job asked for here would be refused as busy.
+        let (lanes, _) = jobs::lanes();
+        Core { db, lanes }
     }
 
-    pub fn db(&self) -> &Db {
-        &self.db
+    /// Open the database *and* start carrying Jobs: both Doors share this entry.
+    /// The lanes exist from the moment the instance serves.
+    pub fn start(db: Arc<Db>) -> Arc<Core> {
+        let (lanes, receivers) = jobs::lanes();
+        let core = Core { db, lanes };
+        let core = Arc::new(core);
+        jobs::spawn_workers(core.clone(), receivers);
+        core
+    }
+
+    /// The database, shared. An Arc clone keeps Job progress reporting able to
+    /// write while the Core itself is borrowed elsewhere.
+    pub fn db(&self) -> Arc<Db> {
+        self.db.clone()
     }
 
     /// Where Kamosu's truth lives: one SQLite file under the one data directory.
@@ -137,7 +182,51 @@ impl Core {
             }
         }
 
-        (op.handler)(self, &caller, input)
+        let invocation = Invocation { caller, job: None };
+
+        match op.kind {
+            Kind::Immediate => (op.handler)(self, &invocation, input),
+            Kind::Job => self.ask_job(op.name, &invocation, input),
+        }
+    }
+
+    /// Accept slow work and answer at once with an id. The work itself runs in a
+    /// lane: members never wait behind strangers (ADR 0032). A full line refuses
+    /// rather than grows — the caller is told busy, try again in a moment.
+    fn ask_job(
+        &self,
+        operation_name: &str,
+        invocation: &Invocation,
+        input: Value,
+    ) -> Result<Value, OpError> {
+        let job_id = jobs::record(self, operation_name, invocation, input)?;
+        let lane = if invocation.caller.is_some() {
+            &self.lanes.member
+        } else {
+            &self.lanes.stranger
+        };
+        if lane.try_send(job_id.clone()).is_err() {
+            // Refused outright: the row must not linger as work nobody carries.
+            let _ = jobs::forget(self, &job_id);
+            return Err(OpError::busy());
+        }
+        Ok(json!({ "job_id": job_id }))
+    }
+
+    /// Read one Job back: its state, progress, and result or failure reason.
+    pub fn job(&self, job_id: &str) -> Result<Option<JobRecord>, OpError> {
+        jobs::read(self, job_id)
+    }
+
+    /// Every Job one Person has asked for, newest first.
+    pub fn jobs_of(&self, person_id: &str) -> Result<Vec<JobRecord>, OpError> {
+        jobs::read_of_person(self, person_id)
+    }
+
+    /// Cancel a Job cooperatively: honoured while it still waits in line, acked
+    /// either way. Running work decides for itself whether to notice.
+    pub fn cancel_job_if_queued(&self, job_id: &str) -> Result<bool, OpError> {
+        jobs::cancel_if_queued(self, job_id)
     }
 
     /// Resolve a raw Secret to the Person it acts as: an Access Key today; a login

@@ -60,9 +60,11 @@ fn serve(config: Config) {
         .build()
         .expect("tokio runtime");
     runtime.block_on(async move {
-        let core = Arc::new(Core::open(Arc::new(
+        // Core::start opens the database and starts the Job lanes: slow work is
+        // carried from the moment the instance serves.
+        let core = Core::start(Arc::new(
             db::Db::open(&config.data_dir).unwrap_or_else(|e| panic!("cannot open /data: {e}")),
-        )));
+        ));
         // The Doors carry the Catalogue; the design tokens ride beside them —
         // static assets and the /tokens dev page, never Operations.
         let app = web_door::router(core.clone())

@@ -2,6 +2,13 @@
 //!
 //! Speaks MCP revision `2026-07-28` only — stateless, no handshake. A legacy
 //! `initialize` receives a courteous error naming the version this door speaks.
+//!
+//! It carries the standard long-running-task extension
+//! (`io.modelcontextprotocol/tasks`): asking for an Operation declared `Kind::Job`
+//! answers a `CreateTaskResult`, whose taskId is Kamosu's job id, and the client
+//! polls `tasks/get` until the work ends. Underneath, that is decoration over
+//! ordinary Operations — every poll reads through `get_job`, exactly what the
+//! web door serves, so watching slow work is never a feature of one Door alone.
 
 use std::sync::Arc;
 
@@ -13,8 +20,9 @@ use axum::{Json, Router};
 use serde_json::{Value, json};
 
 use crate::catalogue;
-use crate::core::Core;
-use crate::{MCP_PROTOCOL_VERSION, web_door};
+use crate::core::{Core, ErrorKind};
+use crate::jobs;
+use crate::{MCP_PROTOCOL_VERSION, MCP_TASKS_EXTENSION, web_door};
 
 /// Build the MCP door from the Catalogue: one stateless route whose listing is
 /// the Catalogue itself.
@@ -49,6 +57,8 @@ async fn handle(
         "initialize" => Err(courteous_initialize_refusal()),
         "tools/list" => Ok(tools_list()),
         "tools/call" => tools_call(&core, &headers, request.get("params")),
+        "tasks/get" => tasks_get(&core, &headers, request.get("params")),
+        "tasks/cancel" => tasks_cancel(&core, &headers, request.get("params")),
         "" => Err(json_rpc_error(
             -32600,
             "Invalid Request: 'method' is missing",
@@ -100,23 +110,192 @@ fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Resul
         .cloned()
         .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
-    if catalogue::find(name).is_none() {
-        return Err(json_rpc_error(-32602, format!("no tool named '{name}'")));
+    let op = catalogue::find(name)
+        .ok_or_else(|| json_rpc_error(-32602, format!("no tool named '{name}'")))?;
+
+    // A Job answers through the long-running-task extension, and only to clients
+    // that declared it. Refusing before any work is recorded is the point: a
+    // client that cannot poll must not be able to cause work it can never see.
+    if op.kind == catalogue::Kind::Job && !declares_tasks_capability(&params) {
+        return Err(missing_tasks_capability_error());
     }
 
     let secret = web_door::bearer_from_headers(headers);
 
     match core.execute(secret.as_deref(), name, arguments) {
-        Ok(result) => Ok(json!({
-            "content": [{ "type": "text", "text": serde_json::to_string_pretty(&result).expect("serialisable result") }],
-            "structuredContent": result,
-            "isError": false,
-        })),
+        Ok(result) => {
+            if op.kind == catalogue::Kind::Job {
+                let job_id = result["job_id"]
+                    .as_str()
+                    .ok_or_else(|| json_rpc_error(-32603, "a Job answered without an id"))?;
+                // The row was durably written inside execute(), so the first
+                // tasks/get for this taskId already resolves.
+                let record = core
+                    .job(job_id)
+                    .map_err(|e| json_rpc_error(-32603, e.to_sentence()))?
+                    .ok_or_else(|| json_rpc_error(-32603, "the Job vanished as it was created"))?;
+                Ok(create_task_result(&record))
+            } else {
+                Ok(json!({
+                    "content": [{ "type": "text", "text": serde_json::to_string_pretty(&result).expect("serialisable result") }],
+                    "structuredContent": result,
+                    "isError": false,
+                }))
+            }
+        }
         Err(err) => Ok(json!({
             "content": [{ "type": "text", "text": err.to_sentence() }],
             "isError": true,
         })),
     }
+}
+
+// --- The long-running-task extension (io.modelcontextprotocol/tasks) ---------
+
+/// Whether this request's `_meta` declares the tasks extension capability.
+fn declares_tasks_capability(params: &Value) -> bool {
+    params
+        .pointer("/_meta/io.modelcontextprotocol~1clientCapabilities/extensions")
+        .and_then(|extensions| extensions.get(MCP_TASKS_EXTENSION))
+        .is_some()
+}
+
+fn missing_tasks_capability_error() -> Value {
+    // Same envelope as json_rpc_error: the handle() plumbing unwraps ["error"].
+    json!({
+        "error": {
+            "code": -32003,
+            "message": "Missing required client capability",
+            "data": {
+                "requiredCapabilities": {
+                    "extensions": {
+                        MCP_TASKS_EXTENSION: {},
+                    },
+                },
+            },
+        },
+    })
+}
+
+/// The `CreateTaskResult`: the seed state of the task, sent only after the row
+/// behind it exists — so the first `tasks/get` for this taskId resolves.
+fn create_task_result(record: &jobs::JobRecord) -> Value {
+    let mut result = json!({
+        "resultType": "task",
+        "taskId": record.id,
+        // A just-created Job is working, whatever the lane still has queued.
+        "status": "working",
+        "createdAt": record.created_at,
+        "lastUpdatedAt": record.updated_at,
+        "ttlMs": null,
+        "pollIntervalMs": jobs::POLL_INTERVAL_MS,
+    });
+    if let Some(message) = &record.progress_message {
+        result["statusMessage"] = json!(message);
+    }
+    result
+}
+
+/// `tasks/get`: poll one task. Reads through the ordinary `get_job` Operation —
+/// the same ownership rules, the same truth, at both Doors alike.
+fn tasks_get(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {
+    let params = params.cloned().unwrap_or(Value::Null);
+    if !declares_tasks_capability(&params) {
+        return Err(missing_tasks_capability_error());
+    }
+    let task_id = params
+        .get("taskId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| json_rpc_error(-32602, "params.taskId is required"))?;
+
+    let job = read_job_for_task(core, headers, task_id)?;
+    Ok(detailed_task(&job))
+}
+
+/// `tasks/cancel`: signal intent to cancel. Acknowledged either way; honoured
+/// while the work still waits in line, cooperative once a worker carries it.
+fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {
+    let params = params.cloned().unwrap_or(Value::Null);
+    if !declares_tasks_capability(&params) {
+        return Err(missing_tasks_capability_error());
+    }
+    let task_id = params
+        .get("taskId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| json_rpc_error(-32602, "params.taskId is required"))?;
+
+    read_job_for_task(core, headers, task_id)?;
+    let _ = core.cancel_job_if_queued(task_id);
+    Ok(json!({ "resultType": "complete" }))
+}
+
+/// Resolve one taskId to a readable Job, or say it names nothing — a forbidden
+/// Job and an absent one are indistinguishable here, so asking tells you nothing
+/// about other People's work.
+fn read_job_for_task(core: &Core, headers: &HeaderMap, task_id: &str) -> Result<Value, Value> {
+    let secret = web_door::bearer_from_headers(headers);
+    match core.execute(secret.as_deref(), "get_job", json!({ "job_id": task_id })) {
+        Ok(job) => Ok(job),
+        Err(err) => match err.kind {
+            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::Unauthorized => {
+                Err(json_rpc_error(
+                    -32602,
+                    format!("Failed to retrieve task: no such Job '{task_id}'"),
+                ))
+            }
+            _ => Err(json_rpc_error(-32603, err.to_sentence())),
+        },
+    }
+}
+
+/// One `tasks/get` response: the full DetailedTask for the current status.
+fn detailed_task(job: &Value) -> Value {
+    let status = match job["status"].as_str().unwrap_or("") {
+        "completed" => "completed",
+        "failed" => "failed",
+        "cancelled" => "cancelled",
+        // Both queued and running are, to a polling client, work in progress.
+        _ => "working",
+    };
+
+    let mut task = json!({
+        "resultType": "complete",
+        "taskId": job["id"],
+        "status": status,
+        "createdAt": job["created_at"],
+        "lastUpdatedAt": job["updated_at"],
+        "ttlMs": null,
+        "pollIntervalMs": jobs::POLL_INTERVAL_MS,
+    });
+    if let Some(message) = job.pointer("/progress/message").filter(|m| !m.is_null()) {
+        task["statusMessage"] = message.clone();
+    }
+    match status {
+        "completed" => {
+            // The final result matches the original request's shape: a
+            // CallToolResult carrying what the Operation produced.
+            task["result"] = call_tool_result(job["result"].clone());
+        }
+        "failed" => {
+            task["error"] = json!({
+                "code": job.get("errorCode").and_then(Value::as_i64).unwrap_or(-32603),
+                "message": job["error"],
+            });
+        }
+        _ => {}
+    }
+    task
+}
+
+fn call_tool_result(structured: Value) -> Value {
+    json!({
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string_pretty(&structured).unwrap_or_default(),
+        }],
+        "structuredContent": structured,
+        "isError": false,
+    })
 }
 
 // --- JSON-RPC plumbing -------------------------------------------------------

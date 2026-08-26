@@ -146,8 +146,10 @@ _warn-cache-size:
 # ── Checking the code ─────────────────────────────────────────────────────────
 
 # Run the behaviour suite (real Operations, real Credential, real SQLite file).
+# The test-jobs feature adds `probe_job`, a demonstration Job, so slow work is
+# provable end-to-end before real Jobs (Import, Sheets) arrive in later tickets.
 test:
-    cargo test
+    cargo test --features test-jobs
 
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
