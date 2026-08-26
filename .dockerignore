@@ -1,0 +1,7 @@
+# Build only what the image needs.
+target/
+.dev/
+kamosu-data/
+samples/
+.playwright-mcp/
+.git/

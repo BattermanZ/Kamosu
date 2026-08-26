@@ -1,0 +1,4 @@
+# Kamosu pins its compiler (see AGENTS.md): one Rust version for every machine
+# and every CI run. Crates float; the kitchen does not.
+[toolchain]
+channel = "1.95.0"

@@ -9,3 +9,14 @@ samples/
 
 # Screenshots from browser automation
 .playwright-mcp/
+
+
+# Added by cargo
+
+/target
+
+# Dev ritual state — pidfiles, logs, the dev instance's database
+.dev/
+
+# Data from running the container locally — the truth belongs inside the mount
+kamosu-data/

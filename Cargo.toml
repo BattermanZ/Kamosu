@@ -1,0 +1,21 @@
+[package]
+name = "kamosu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.9"
+clap = { version = "4.6.6", features = ["derive"] }
+hex = "0.4.3"
+rand = "0.10.2"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = "1.0.229"
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
