@@ -16,16 +16,17 @@ pub struct TestApp {
     /// Used by behaviour tests; unused by parity tests.
     #[allow(dead_code)]
     pub core: Arc<Core>,
-    /// Holds the temporary data directory open for the life of the test.
-    dir: tempfile::TempDir,
+    /// Holds the temporary data directory open for the life of the test. None
+    /// when the caller owns the directory itself (migration tests do).
+    dir: Option<tempfile::TempDir>,
 }
 
 impl TestApp {
-    /// The one data directory this instance was given. Used by behaviour tests;
-    /// not every test crate reads it.
+    /// The one data directory this instance was given, when this helper created
+    /// it. Tests that brought their own directory hold it themselves.
     #[allow(dead_code)]
-    pub fn data_dir(&self) -> &std::path::Path {
-        self.dir.path()
+    pub fn data_dir(&self) -> Option<&std::path::Path> {
+        self.dir.as_ref().map(|d| d.path())
     }
 }
 
@@ -34,12 +35,17 @@ impl TestApp {
 /// task keeps serving while the test blocks on ordinary HTTP calls.
 pub fn spawn_app() -> TestApp {
     let dir = tempfile::tempdir().expect("temp dir");
-    let db = Arc::new(db::Db::open(dir.path()).expect("database"));
+    spawn_app_in(dir.path()).hold_dir(dir)
+}
+
+/// Start a real Kamosu in a data directory the caller chose and keeps open —
+/// used where the test builds the database's *prior* state first, as the
+/// migration tests do.
+pub fn spawn_app_in(data_dir: &std::path::Path) -> TestApp {
+    let db = Arc::new(db::Db::open(data_dir).expect("database"));
     // The same assembly the binary runs: a Core with its Job lanes started, both
     // Doors plus the design-token assets — tests exercise exactly what is served.
     let core = Core::start(db);
-    // The same assembly the binary runs: both Doors plus the design-token
-    // assets, so tests exercise exactly what is served.
     let app = web_door::router(core.clone())
         .merge(mcp_door::router(core.clone()))
         .merge(design_tokens::router());
@@ -53,7 +59,19 @@ pub fn spawn_app() -> TestApp {
         axum::serve(listener, app).await.expect("server");
     });
 
-    TestApp { addr, core, dir }
+    TestApp {
+        addr,
+        core,
+        dir: None,
+    }
+}
+
+impl TestApp {
+    /// Attach a temporary directory this app should keep open for its lifetime.
+    fn hold_dir(mut self, dir: tempfile::TempDir) -> TestApp {
+        self.dir = Some(dir);
+        self
+    }
 }
 
 impl TestApp {

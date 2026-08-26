@@ -280,7 +280,7 @@ async fn everything_durable_lives_under_one_data_directory() {
         db_path.display()
     );
     assert!(
-        db_path.starts_with(app.data_dir()),
+        db_path.starts_with(app.data_dir().expect("the helper owns a temp dir")),
         "database must live under the one data dir"
     );
 
@@ -681,4 +681,145 @@ async fn work_accepted_before_a_restart_never_strands() {
         }
     };
     assert_eq!(waiting.result.as_ref().unwrap()["steps"], json!(1));
+}
+
+// --- Migrations and the Snapshot (issue #35) ---------------------------------
+
+use kamosu::db::{self, Migration};
+
+/// Build a database at an old schema by running the real migration list
+/// truncated to version 1, then stamp it as version 1. This is exactly what a
+/// pre-jobs Kamosu left on disk.
+fn build_v1_database(data_dir: &std::path::Path) {
+    std::fs::create_dir_all(data_dir).expect("data dir");
+    let only_v1: &[Migration] = &db::MIGRATIONS[..1];
+    db::Db::open_with_migrations(data_dir, only_v1).expect("v1 database");
+}
+
+fn stored_schema_version(data_dir: &std::path::Path) -> i64 {
+    let conn = rusqlite::Connection::open_with_flags(
+        data_dir.join(db::DATABASE_FILE),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .expect("read the database file");
+    conn.query_row(
+        "SELECT value FROM meta WHERE key = 'schema_version'",
+        [],
+        |r| r.get::<_, String>(0),
+    )
+    .expect("schema_version row")
+    .parse()
+    .expect("numeric schema_version")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_database_at_an_old_schema_migrates_forward_and_serves() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    build_v1_database(&data_dir);
+
+    // Opening the current binary against that old database migrates it forward:
+    // no down-migration exists to reach for (ADR 0030).
+    let app = support::spawn_app_in(&data_dir);
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app.core.mint_access_key(&person, "browser", false).unwrap();
+
+    // The migrated schema serves real Operations — the Job shape works, which is
+    // what migration 2 added.
+    let (_, ask) = app.post_op("probe_job", Some(&key), r#"{"steps":2,"delay_ms":1}"#);
+    assert_eq!(ask["ok"], json!(true), "{ask}");
+
+    // And the ledger says the database now stands at the newest step.
+    assert_eq!(
+        stored_schema_version(&data_dir),
+        db::LATEST_SCHEMA_VERSION,
+        "the database must stand at the newest migration"
+    );
+}
+
+#[test]
+fn a_failing_migration_refuses_to_serve_and_leaves_a_restorable_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    build_v1_database(&data_dir);
+    let db_path = data_dir.join(db::DATABASE_FILE);
+
+    // An upgrade whose second step fails halfway. SQLite rolls the transaction
+    // back; Kamosu must refuse rather than serve half-migrated, and say where
+    // the Snapshot is (ADR 0030).
+    let broken_v2 = Migration {
+        version: 2,
+        description: "the Job shape",
+        sql: "CREATE TABLE this_is_not_sql (",
+    };
+    let steps: &[Migration] = &[db::MIGRATIONS[0], broken_v2];
+    let failure = db::Db::open_with_migrations(&data_dir, steps)
+        .err()
+        .expect("must refuse");
+    let message = failure.to_sentence();
+
+    // The refusal names the failed step and the Snapshot to restore.
+    assert!(
+        message.contains("the Job shape") && message.contains("migration"),
+        "the refusal must say which migration failed: {message}"
+    );
+    let snapshot_marker = "snapshot";
+    assert!(
+        message.contains(snapshot_marker),
+        "the refusal must point at the Snapshot: {message}"
+    );
+    let snapshot_path = data_dir.join(
+        message
+            .split_whitespace()
+            .find(|word| word.contains(snapshot_marker))
+            .map(|word| word.trim_end_matches(['(', ')', '[', ']', ',']))
+            .expect("a snapshot path in the message"),
+    );
+    assert!(
+        snapshot_path.exists(),
+        "the Snapshot named in the refusal must exist on disk"
+    );
+
+    // The database itself is untouched: still old, not half-migrated.
+    assert_eq!(stored_schema_version(&data_dir), 1, "no half-migration");
+
+    // Restoring is putting the file back — nothing more clever than a copy.
+    std::fs::copy(&snapshot_path, &db_path).expect("restore the snapshot");
+    let restored = db::Db::open(&data_dir).expect("the restored database opens");
+    let job_rows: i64 = restored
+        .with_conn(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM jobs", [], |r| r.get(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("the migrated schema serves");
+    assert_eq!(
+        job_rows, 0,
+        "a restored v1 database migrates to an empty jobs table"
+    );
+    assert_eq!(stored_schema_version(&data_dir), db::LATEST_SCHEMA_VERSION);
+}
+
+#[test]
+fn an_older_binary_against_a_newer_database_refuses_loudly() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path();
+    build_v1_database(data_dir);
+
+    // Someone ran a newer Kamosu once; this older binary meets the result.
+    let conn = rusqlite::Connection::open(data_dir.join(db::DATABASE_FILE)).unwrap();
+    conn.execute(
+        "UPDATE meta SET value = '99' WHERE key = 'schema_version'",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let failure = db::Db::open(data_dir)
+        .err()
+        .expect("an older binary must refuse");
+    let message = failure.to_sentence();
+    assert!(
+        message.contains("99") && message.contains("newer"),
+        "the refusal must say what it met and why it stopped: {message}"
+    );
 }

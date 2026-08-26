@@ -8,6 +8,27 @@ Build, run and test instructions arrive with the walking skeleton
 ([#33](https://github.com/BattermanZ/Kamosu/issues/33)), which creates the
 codebase this file describes.
 
+## CodeGraph
+
+**When a `.codegraph/` directory exists at the repository root, reach for
+CodeGraph before grep, find, or reading source files** — both locating code and
+understanding it go through it first.
+
+```sh
+codegraph explore "<symbols or question>"
+```
+
+Prefer the `codegraph_explore` MCP tool where it is available: it returns the
+relevant source, the call paths between the symbols, and a blast-radius summary
+in one query — a round trip a grep-and-read loop cannot match.
+
+The index is machine-local and gitignored, so **a fresh clone has none.** When
+`.codegraph/` is absent, use the ordinary search and read tools and do not
+initialize an index automatically; `codegraph init` at the repo root is a
+human's decision, not an agent's. Where the directory exists but neither the MCP
+tool nor the CLI is reachable, fall back to normal search rather than blocking
+the task.
+
 ## Dependencies
 
 **The registry is the source of truth for every version number.** A version

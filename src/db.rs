@@ -1,15 +1,92 @@
 //! The SQLite file under `/data` — the truth (ADR 0003). WAL mode is a
 //! requirement, not a detail: a second process (the recovery command) opens the
 //! same file while the server runs.
+//!
+//! The schema moves forward only (ADR 0030): each change is one numbered
+//! [`Migration`], applied in order at startup behind a **Snapshot** of the
+//! database taken just before. There is no down-migration and no tool for one —
+//! going back is putting the Snapshot file back and running the old image.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::OpError;
 
 pub const DATABASE_FILE: &str = "kamosu.db";
+
+/// One numbered step on the only path the schema walks: forward (ADR 0030).
+/// Written carefully once — there is no inverse to get wrong.
+#[derive(Debug, Clone, Copy)]
+pub struct Migration {
+    /// Where this step leaves the schema. Steps apply strictly in order.
+    pub version: i64,
+    /// What the step does, named for the log and the failure message.
+    pub description: &'static str,
+    /// The step itself. Runs inside one transaction, together with the
+    /// `schema_version` stamp, so a failure leaves nothing half-done.
+    pub sql: &'static str,
+}
+
+/// Every migration, oldest first. Appending a new tail entry *is* the upgrade;
+/// nothing earlier is ever rewritten.
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        description: "the base schema: People and their Access Keys",
+        sql: r#"
+        CREATE TABLE IF NOT EXISTS people (
+            id         TEXT PRIMARY KEY,
+            name       TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- An Access Key: the Secret a Person mints for an agent to act with.
+        -- 256 bits of randomness, stored hashed, shown once at minting, revocable,
+        -- ending only when spent or revoked — never on a clock (ADR 0031).
+        CREATE TABLE IF NOT EXISTS access_keys (
+            secret_hash TEXT PRIMARY KEY,
+            person_id   TEXT NOT NULL REFERENCES people(id),
+            name        TEXT NOT NULL,
+            read_only   INTEGER NOT NULL DEFAULT 0,
+            revoked     INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            last_used_at TEXT
+        );
+        "#,
+    },
+    Migration {
+        version: 2,
+        description: "the Job shape: slow work answers an id at once",
+        sql: r#"
+        -- A Job: slow work asked for through an Operation. The row is the truth
+        -- about the work — its state, its progress, and its result or the reason
+        -- it failed — so it survives the request that started it and is read back
+        -- through ordinary Operations at both Doors. A Job ends only in a terminal
+        -- status; it never vanishes.
+        CREATE TABLE IF NOT EXISTS jobs (
+            id                TEXT PRIMARY KEY,
+            person_id         TEXT REFERENCES people(id),
+            read_only         INTEGER NOT NULL DEFAULT 0,
+            operation         TEXT NOT NULL,
+            input             TEXT NOT NULL,
+            status            TEXT NOT NULL DEFAULT 'queued',
+            progress_done     INTEGER,
+            progress_total    INTEGER,
+            progress_message  TEXT,
+            result            TEXT,
+            error             TEXT,
+            error_code        INTEGER,
+            created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        "#,
+    },
+];
+
+/// The newest step [`MIGRATIONS`] carries: what this binary understands.
+pub const LATEST_SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
 
 /// The database handle shared by the Core.
 pub struct Db {
@@ -19,9 +96,17 @@ pub struct Db {
 
 impl Db {
     /// Open (creating if needed) the database inside `data_dir`, turn on WAL and
-    /// the pragmas Kamosu depends on, and bring the schema forward. The path is
-    /// forward-only (ADR 0030): version 1 is the floor, never rewritten.
+    /// the pragmas Kamosu depends on, and bring the schema forward along the
+    /// shipped [`MIGRATIONS`].
     pub fn open(data_dir: &Path) -> Result<Db, OpError> {
+        Self::open_with_migrations(data_dir, MIGRATIONS)
+    }
+
+    /// The machinery of [`Self::open`] with the migration steps chosen by the
+    /// caller: tests build databases at an *old* schema by truncating the list,
+    /// and force failures by appending a broken step. Startup always uses the
+    /// full shipped list.
+    pub fn open_with_migrations(data_dir: &Path, migrations: &[Migration]) -> Result<Db, OpError> {
         std::fs::create_dir_all(data_dir).map_err(|e| {
             OpError::internal(format!(
                 "cannot create data directory {}: {e}",
@@ -30,10 +115,14 @@ impl Db {
         })?;
         let conn = Connection::open(data_dir.join(DATABASE_FILE))
             .map_err(|e| OpError::internal(format!("cannot open database: {e}")))?;
-        Self::initialise(conn, data_dir)
+        Self::initialise(conn, data_dir, migrations)
     }
 
-    pub fn initialise(conn: Connection, data_dir: &Path) -> Result<Db, OpError> {
+    pub fn initialise(
+        conn: Connection,
+        data_dir: &Path,
+        migrations: &[Migration],
+    ) -> Result<Db, OpError> {
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| OpError::internal(format!("WAL mode refused: {e}")))?;
         // The documented pairing for WAL: safe and fast.
@@ -47,7 +136,7 @@ impl Db {
             conn: Mutex::new(conn),
             data_dir: data_dir.to_path_buf(),
         };
-        db.with_conn(migrate)?;
+        db.with_conn(|conn| migrate(conn, data_dir, migrations))?;
         Ok(db)
     }
 
@@ -67,68 +156,113 @@ impl Db {
     }
 }
 
-fn migrate(conn: &Connection) -> Result<(), OpError> {
+fn latest_step(migrations: &[Migration]) -> i64 {
+    migrations.last().map(|m| m.version).unwrap_or(0)
+}
+
+fn stored_schema_version(conn: &Connection) -> Result<i64, OpError> {
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'schema_version'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read schema version: {e}")))?;
+    raw.map(|v| v.parse().map_err(|_| ()))
+        .unwrap_or(Ok(0))
+        .map_err(|_| {
+            OpError::internal(
+                "the schema_version recorded in meta is not a number; \
+                 this file may not be a Kamosu database",
+            )
+        })
+}
+
+fn migrate(conn: &Connection, data_dir: &Path, migrations: &[Migration]) -> Result<(), OpError> {
+    // The ledger itself: infrastructure beneath every step, never migrated.
     conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS meta (
-            key   TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS people (
-            id         TEXT PRIMARY KEY,
-            name       TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        );
-
-        -- An Access Key: the Secret a Person mints for an agent to act with.
-        -- 256 bits of randomness, stored hashed, shown once at minting, revocable,
-        -- ending only when spent or revoked — never on a clock (ADR 0031).
-        CREATE TABLE IF NOT EXISTS access_keys (
-            secret_hash TEXT PRIMARY KEY,
-            person_id   TEXT NOT NULL REFERENCES people(id),
-            name        TEXT NOT NULL,
-            read_only   INTEGER NOT NULL DEFAULT 0,
-            revoked     INTEGER NOT NULL DEFAULT 0,
-            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            last_used_at TEXT
-        );
-
-        -- A Job: slow work asked for through an Operation. The row is the truth
-        -- about the work — its state, its progress, and its result or the reason
-        -- it failed — so it survives the request that started it and is read back
-        -- through ordinary Operations at both Doors. A Job ends only in a terminal
-        -- status; it never vanishes.
-        -- Added while every table still ships in one idempotent batch; when the
-        -- versioned-migration machinery arrives (ADR 0030), this becomes a
-        -- numbered step taken behind a pre-migration Snapshot.
-        CREATE TABLE IF NOT EXISTS jobs (
-            id                TEXT PRIMARY KEY,
-            person_id         TEXT REFERENCES people(id),
-            read_only         INTEGER NOT NULL DEFAULT 0,
-            operation         TEXT NOT NULL,
-            input             TEXT NOT NULL,
-            status            TEXT NOT NULL DEFAULT 'queued',
-            progress_done     INTEGER,
-            progress_total    INTEGER,
-            progress_message  TEXT,
-            result            TEXT,
-            error             TEXT,
-            error_code        INTEGER,
-            created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-            updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        );
-        "#,
+        "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
     )
-    .map_err(|e| OpError::internal(format!("migration failed: {e}")))?;
+    .map_err(|e| OpError::internal(format!("cannot prepare the schema ledger: {e}")))?;
 
-    conn.execute(
-        "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', '1')",
-        [],
-    )
-    .map_err(|e| OpError::internal(format!("cannot record schema version: {e}")))?;
+    let current = stored_schema_version(conn)?;
+    let latest = latest_step(migrations);
 
+    // An older binary against a newer database stops here, loudly. Running old
+    // code over a new cookbook is how recipes get quietly mangled (ADR 0030).
+    if current > latest {
+        return Err(OpError::internal(format!(
+            "this database stands at schema version {current}, which is NEWER \
+             than what this Kamosu understands (up to version {latest}). \
+             An upgrade went past this binary. Start the newer Kamosu again — \
+             do not run this older image against it"
+        )));
+    }
+
+    let pending: Vec<&Migration> = migrations.iter().filter(|m| m.version > current).collect();
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    // Before any migration runs, copy the database aside. It is the database
+    // alone because a Photograph cannot change once it exists (ADR 0017) — the
+    // file alone is a complete way back.
+    let snapshot = write_snapshot(conn, data_dir, current, latest)?;
+
+    for step in pending {
+        // Schema change and version stamp commit together or not at all: SQLite
+        // rolls them back as one, so a failed step leaves exactly what was there.
+        let batch = format!(
+            "BEGIN IMMEDIATE;\n{}\nINSERT INTO meta(key, value) VALUES ('schema_version', '{}') \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value;\nCOMMIT;",
+            step.sql, step.version
+        );
+        if let Err(e) = conn.execute_batch(&batch) {
+            return Err(OpError::internal(format!(
+                "migration {} ({}) failed: {}. Kamosu refuses to serve \
+                 half-migrated; nothing was changed. To go back, stop Kamosu and \
+                 put the Snapshot back over {} (and remove any -wal/-shm \
+                 neighbours of it first) — copy the Snapshot from {}",
+                step.version,
+                step.description,
+                e,
+                data_dir.join(DATABASE_FILE).display(),
+                snapshot.display()
+            )));
+        }
+    }
+    tracing::info!(
+        from = current,
+        to = latest,
+        snapshot = %snapshot.display(),
+        "schema migrated forward; Snapshot kept beside the database"
+    );
     Ok(())
+}
+
+/// Copy the database file aside under `/data`, naming the span of versions it
+/// undoes. WAL is checkpointed first so the one file is complete on its own.
+fn write_snapshot(
+    conn: &Connection,
+    data_dir: &Path,
+    from: i64,
+    to: i64,
+) -> Result<PathBuf, OpError> {
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|e| OpError::internal(format!("cannot checkpoint before snapshot: {e}")))?;
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let dest = data_dir.join(format!("kamosu-snapshot-v{from}-to-v{to}-{seconds}.db"));
+    std::fs::copy(data_dir.join(DATABASE_FILE), &dest).map_err(|e| {
+        OpError::internal(format!(
+            "cannot write the pre-migration Snapshot to {}: {e}",
+            dest.display()
+        ))
+    })?;
+    Ok(dest)
 }
 
 #[cfg(test)]
