@@ -122,6 +122,14 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 4,
+        description: "a login name names exactly one password-bearing Person",
+        sql: r#"
+        CREATE UNIQUE INDEX people_login_names_unique
+            ON people(name) WHERE password_hash IS NOT NULL;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

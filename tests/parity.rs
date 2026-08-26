@@ -30,12 +30,8 @@ fn arguments_for(name: &str) -> Value {
     match name {
         // A Job id that names nothing is the honest probe for routing.
         "get_job" | "cancel_job" => json!({ "job_id": "parity-no-such-job" }),
-        "create_first_person" | "log_in" => json!({
-            "name": "Parity",
-            "password": "the parity password",
-            "session_name": "parity browser",
-        }),
         "set_reading_preferences" => json!({ "reading_language": "en", "reading_measures": "us" }),
+        "rename_person" => json!({ "name": "Parity" }),
         "revoke_session" => json!({ "session_id": "s_parity" }),
         _ => json!({}),
     }
@@ -49,11 +45,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
         let (body_text, expected_status) = match op.name {
             "get_job" | "cancel_job" => (r#"{"job_id":"parity-no-such-job"}"#, 404),
             // Person-only Operations answer the stranger with a refusal.
-            "list_jobs" | "set_reading_preferences" | "revoke_session" => ("{}", 401),
-            "create_first_person" | "log_in" => (
-                r#"{"name":"Parity","password":"the parity password","session_name":"parity browser"}"#,
-                200,
-            ),
+            "list_jobs" | "list_sessions" | "set_reading_preferences" | "rename_person" | "revoke_session" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -120,7 +112,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
             follow_task(&app, name, result["taskId"].clone());
         } else if matches!(
             name,
-            "get_job" | "list_jobs" | "cancel_job" | "set_reading_preferences" | "revoke_session"
+            "get_job" | "list_jobs" | "list_sessions" | "cancel_job" | "set_reading_preferences" | "rename_person" | "revoke_session"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

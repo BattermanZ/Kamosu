@@ -25,6 +25,28 @@ export type SetReadingPreferencesOutput = {
 	reading_measures: string;
 };
 
+/** Change this Person's current reminder name. */
+export type RenamePersonInput = {
+	name: string;
+};
+/** What rename_person answers. */
+export type RenamePersonOutput = {
+	name: string;
+};
+
+/** List this Person's browser Sessions by device and last use. */
+export type ListSessionsInput = Record<string, never>;
+/** What list_sessions answers. */
+export type ListSessionsOutput = {
+	sessions: {
+		created_at: string;
+		id: string;
+		last_used_at: string | null;
+		name: string;
+		revoked: boolean;
+	}[];
+};
+
 /** End one of your browser Sessions. */
 export type RevokeSessionInput = {
 	session_id: string;
@@ -91,6 +113,18 @@ export interface Operations {
 	set_reading_preferences: {
 		input: SetReadingPreferencesInput;
 		output: SetReadingPreferencesOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_person: {
+		input: RenamePersonInput;
+		output: RenamePersonOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_sessions: {
+		input: ListSessionsInput;
+		output: ListSessionsOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -199,6 +233,90 @@ export const CATALOGUE = [
 			"required": [
 				"reading_language",
 				"reading_measures"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_person",
+		"summary": "Change this Person's current reminder name.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_sessions",
+		"summary": "List this Person's browser Sessions by device and last use.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"sessions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_used_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": "string"
+							},
+							"revoked": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"created_at",
+							"last_used_at",
+							"revoked"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"sessions"
 			],
 			"type": "object"
 		}
@@ -415,6 +533,8 @@ export const CATALOGUE = [
 export const METHOD_NAMES = {
 	instance_status: 'instanceStatus',
 	set_reading_preferences: 'setReadingPreferences',
+	rename_person: 'renamePerson',
+	list_sessions: 'listSessions',
 	revoke_session: 'revokeSession',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
@@ -427,6 +547,10 @@ export interface KamosuClient {
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
+	/** Change this Person's current reminder name. */
+	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
+	/** List this Person's browser Sessions by device and last use. */
+	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** End one of your browser Sessions. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */

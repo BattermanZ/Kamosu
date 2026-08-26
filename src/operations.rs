@@ -30,50 +30,6 @@ pub fn instance_status(
     }))
 }
 
-/// The one unauthenticated account-creation door: it succeeds exactly once, on
-/// a new instance, and creates the complete first Person rather than a partial
-/// record an Operator would have to repair later.
-pub fn create_first_person(
-    core: &Core,
-    _invocation: &Invocation,
-    input: Value,
-) -> Result<Value, OpError> {
-    let name = input.get("name").and_then(Value::as_str).ok_or_else(|| {
-        OpError::bad_request("create_first_person takes { name, password, session_name }")
-    })?;
-    let password = input
-        .get("password")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            OpError::bad_request("create_first_person takes { name, password, session_name }")
-        })?;
-    // The browser-facing Session is minted by the login slice. Its name is
-    // accepted now so this public account-creation shape remains complete.
-    let _session_name = input
-        .get("session_name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            OpError::bad_request("create_first_person takes { name, password, session_name }")
-        })?;
-    core.create_first_person(name, password, _session_name)
-}
-
-pub fn log_in(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    let name = input
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("log_in takes { name, password, session_name }"))?;
-    let password = input
-        .get("password")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("log_in takes { name, password, session_name }"))?;
-    let session_name = input
-        .get("session_name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("log_in takes { name, password, session_name }"))?;
-    core.log_in(name, password, session_name)
-}
-
 pub fn set_reading_preferences(
     core: &Core,
     invocation: &Invocation,
@@ -98,6 +54,24 @@ pub fn set_reading_preferences(
     let caller = caller_of(invocation)?;
     core.set_reading_preferences(&caller.person_id, language, measures)?;
     Ok(json!({ "reading_language": language, "reading_measures": measures }))
+}
+
+pub fn rename_person(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("rename_person takes { name }"))?;
+    let caller = caller_of(invocation)?;
+    core.rename_person(&caller.person_id, name)?;
+    Ok(json!({ "name": name }))
+}
+
+pub fn list_sessions(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request("list_sessions takes no input"));
+    }
+    let caller = caller_of(invocation)?;
+    Ok(json!({ "sessions": core.sessions_of(&caller.person_id)? }))
 }
 
 pub fn revoke_session(

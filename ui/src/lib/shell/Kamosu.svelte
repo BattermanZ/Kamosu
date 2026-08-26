@@ -7,15 +7,18 @@
 	import type { Snippet } from 'svelte';
 	import type { KamosuClient } from '$lib/api/catalogue';
 	import { provideKamosu } from '$lib/kamosu';
+	import { provideAuth, type AuthClient } from '$lib/auth';
 
 	interface Props {
 		client: KamosuClient;
+		auth?: AuthClient;
 		children: Snippet;
 	}
 
-	let { client, children }: Props = $props();
+	let { client, auth = { authenticate: async () => {} }, children }: Props = $props();
 
 	provideKamosu(() => client);
+	provideAuth(() => auth);
 </script>
 
 {@render children()}

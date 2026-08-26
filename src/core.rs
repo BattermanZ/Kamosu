@@ -453,6 +453,37 @@ impl Core {
         })
     }
 
+    /// A Person's name is a reminder, not their Hand's identity: records keep
+    /// the permanent Person id and render this current value when read.
+    pub fn rename_person(&self, person_id: &str, name: &str) -> Result<(), OpError> {
+        let name = required_text(name, "name")?;
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "UPDATE people SET name = ?1 WHERE id = ?2",
+                params![name, person_id],
+            )
+            .map_err(|e| OpError::bad_request(format!("cannot use that name: {e}")))?;
+            Ok(())
+        })
+    }
+
+    /// Sessions remain knowable by their device name and last use until their
+    /// owner revokes them; their Secret never appears in this record.
+    pub fn sessions_of(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
+        self.db().with_conn(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT id, name, created_at, last_used_at, revoked FROM sessions WHERE person_id = ?1 ORDER BY created_at DESC",
+            ).map_err(|e| OpError::internal(format!("cannot list Sessions: {e}")))?;
+            statement.query_map(params![person_id], |row| Ok(json!({
+                "id": row.get::<_, String>(0)?, "name": row.get::<_, String>(1)?,
+                "created_at": row.get::<_, String>(2)?, "last_used_at": row.get::<_, Option<String>>(3)?,
+                "revoked": row.get::<_, i64>(4)? != 0,
+            }))).map_err(|e| OpError::internal(format!("cannot read Sessions: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read Sessions: {e}")))
+        })
+    }
+
     pub fn revoke_session(&self, person_id: &str, session_id: &str) -> Result<(), OpError> {
         let changed = self.db().with_conn(|conn| {
             conn.execute(

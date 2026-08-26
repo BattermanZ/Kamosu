@@ -7,11 +7,13 @@
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 	import TabBar from '$lib/shell/TabBar.svelte';
 	import { realKamosu } from '$lib/kamosu';
+	import { realAuth } from '$lib/auth';
 	import { readToken } from '$lib/tokens';
 
 	let { children } = $props();
 
 	const client = realKamosu();
+	const auth = realAuth();
 
 	// The document's language is the locale Paraglide resolved, which is what
 	// tells a screen reader — and Safari's translation offer — what it is reading.
@@ -44,7 +46,7 @@
 	const onSettings = $derived(page.url.pathname.startsWith('/settings'));
 </script>
 
-<Kamosu {client}>
+<Kamosu {client} {auth}>
 	<header class="sticky top-0 z-10 border-b border-rule bg-ground pt-safe">
 		<div class="mx-auto flex max-w-2xl px-gutter py-3">
 			<!-- The Kitchen's card. Settings live behind the Kitchen's name — the
