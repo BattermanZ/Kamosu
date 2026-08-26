@@ -2,7 +2,7 @@
 
 [ADR 0028](./0028-kamosu-is-one-file-and-one-directory.md) publishes one port of plain HTTP and puts TLS on a reverse proxy. That is the whole of the proxy's job in v1. Everything about *who may do what* is Kamosu's, and Kamosu never assumes the proxy did any of it.
 
-The test of the rule: **Kamosu exposed directly on port 8080 with no proxy at all is exactly as safe, minus encryption in transit.**
+The test of the rule: **Kamosu exposed directly on port 5266 with no proxy at all is exactly as safe, minus encryption in transit.**
 
 - **Kamosu never trusts `X-Forwarded-For`** — a header the visitor writes. [ADR 0031](./0031-a-secret-is-spent-or-revoked-never-on-a-clock.md) removed the only reason to want it by counting failed passwords per account name.
 - **Kamosu never relies on the proxy for authentication or rate limiting.**

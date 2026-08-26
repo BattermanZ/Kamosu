@@ -7,7 +7,7 @@ Kamosu is delivered as **one executable and one data directory**. The web interf
 - **One published port**, plain HTTP. Kamosu never handles a certificate.
 - **A healthcheck the binary runs against itself**, because a distroless image has no shell and no `curl`.
 
-`docker run -v ./kamosu-data:/data -p 8080:8080` is a complete install. Nothing else is required, and **no environment variable is required at all**.
+`docker run -v ./kamosu-data:/data -p 5266:5266` is a complete install. Nothing else is required, and **no environment variable is required at all**.
 
 ## Why
 
