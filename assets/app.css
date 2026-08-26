@@ -213,6 +213,9 @@
   }
 }
 @layer utilities {
+  .collapse {
+    visibility: collapse;
+  }
   .fixed {
     position: fixed;
   }
@@ -267,11 +270,17 @@
   .mb-6 {
     margin-bottom: var(--spacing-6);
   }
+  .block {
+    display: block;
+  }
   .flex {
     display: flex;
   }
   .grid {
     display: grid;
+  }
+  .table {
+    display: table;
   }
   .h-4 {
     height: var(--spacing-4);
