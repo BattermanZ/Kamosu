@@ -266,6 +266,59 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 11,
+        description: "the Tag: how a Kitchen files its own cookbook (ADR 0035)",
+        sql: r#"
+        -- A Tag: a word a Kitchen describes its recipes by. Kept once per
+        -- Kitchen and pointed at by every recipe of that Kitchen which uses
+        -- it, so renaming one reaches all of them at once (ADR 0007). Flat:
+        -- no hierarchy, and no parent column to grow one.
+        CREATE TABLE tags (
+            id         TEXT PRIMARY KEY,
+            kitchen_id TEXT NOT NULL REFERENCES kitchens(id),
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- A Tag's name in one Language. Named per Language rather than split
+        -- by it (ADR 0006), so *dessert* and *dessert* are one Tag wearing two
+        -- words rather than two Tags. `kitchen_id` is carried here as well as
+        -- on `tags` purely so one word can be held unique within a Kitchen by
+        -- an index rather than by a read-then-write race.
+        --
+        -- `name` is what the cook typed, kept exactly as typed and always what
+        -- is shown. `name_folded` is that word reduced to the form two spellings
+        -- of one word share — Unicode canonical caseless matching, computed in
+        -- Rust by `folded_word` — and exists only to be compared. Storing the
+        -- fold rather than folding at query time is what lets one word be held
+        -- unique by an index: SQLite's own NOCASE folds ASCII alone, which
+        -- would file "Été" and "été" as two Tags in a cookbook whose Languages
+        -- are English, French and Spanish.
+        CREATE TABLE tag_names (
+            tag_id      TEXT NOT NULL REFERENCES tags(id),
+            kitchen_id  TEXT NOT NULL REFERENCES kitchens(id),
+            language    TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            name_folded TEXT NOT NULL,
+            PRIMARY KEY (tag_id, language)
+        );
+
+        -- One word, one Tag, within one Kitchen and one Language.
+        CREATE UNIQUE INDEX tag_names_one_word_per_kitchen
+            ON tag_names(kitchen_id, language, name_folded);
+
+        -- Which recipes carry which Tag. On the Branch — the recipe as this
+        -- Kitchen holds it — and deliberately not inside a Version's content:
+        -- filing is not what a recipe is, so tagging mints no Version and
+        -- moves no fingerprint (ADR 0035).
+        CREATE TABLE branch_tags (
+            branch_id TEXT NOT NULL REFERENCES branches(id),
+            tag_id    TEXT NOT NULL REFERENCES tags(id),
+            PRIMARY KEY (branch_id, tag_id)
+        );
+        CREATE INDEX branch_tags_by_tag ON branch_tags(tag_id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

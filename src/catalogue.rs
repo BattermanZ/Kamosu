@@ -360,6 +360,92 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::delete_kitchen,
         },
         Operation {
+            name: "create_tag",
+            summary: "Create a Tag in a Kitchen, named in one Language. A word \
+                      the Kitchen already files under returns the Tag it \
+                      already has rather than making a second.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["kitchen_id", "language", "name"], "additionalProperties": false }),
+            output_schema: tag_schema(),
+            handler: crate::operations::create_tag,
+        },
+        Operation {
+            name: "list_tags",
+            summary: "List every Tag a Kitchen files by, each shown in the \
+                      reader's Reading Language where it has a name there.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "tags": { "type": "array", "items": tag_schema() } },
+                "required": ["tags"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_tags,
+        },
+        Operation {
+            name: "rename_tag",
+            summary: "Name a Tag in one Language, or change the name it has \
+                      there. Reaches every recipe carrying it at once, and \
+                      mints no Version.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["tag_id", "language", "name"], "additionalProperties": false }),
+            output_schema: tag_schema(),
+            handler: crate::operations::rename_tag,
+        },
+        Operation {
+            name: "merge_tags",
+            summary: "Merge two of a Kitchen's Tags into one: every recipe \
+                      filed under the merged Tag is filed under the kept one \
+                      instead. Mints no Version.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "keep_tag_id": { "type": "string" }, "merge_tag_id": { "type": "string" } }, "required": ["keep_tag_id", "merge_tag_id"], "additionalProperties": false }),
+            output_schema: tag_schema(),
+            handler: crate::operations::merge_tags,
+        },
+        Operation {
+            name: "delete_tag",
+            summary: "Take a Tag out of a Kitchen's list and off every recipe \
+                      carrying it. No recipe changes.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" } }, "required": ["tag_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
+            handler: crate::operations::delete_tag,
+        },
+        Operation {
+            name: "set_recipe_tag",
+            summary: "File a recipe under one of its Kitchen's Tags, or take \
+                      it back out. Mints no Version: filing is not what a \
+                      recipe is.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "tag_id": { "type": "string" }, "carried": { "type": "boolean" } }, "required": ["branch_id", "tag_id", "carried"], "additionalProperties": false }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "tags": { "type": "array", "items": tag_schema() } },
+                "required": ["tags"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::set_recipe_tag,
+        },
+        Operation {
             name: "create_recipe",
             summary: "Create a Recipe: a Lineage, a Branch in this Kitchen, \
                       and a first Version. A title is all it needs.",
@@ -652,6 +738,38 @@ fn kitchen_schema() -> Value {
     })
 }
 
+/// The shape a Tag is served in: the word to show this reader, the Language
+/// that word is in, and every name the Tag has. `name` and `language` are null
+/// for a Tag holding no name at all: no Operation here can leave one in that
+/// state — `create_tag` demands a word and nothing removes a single name — but
+/// that is true by omission rather than by anything enforcing it, so a screen
+/// reading them still has to survive it.
+fn tag_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "kitchen_id": { "type": "string" },
+            "name": { "type": ["string", "null"] },
+            "language": { "type": ["string", "null"] },
+            "names": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "language": { "type": "string" },
+                        "name": { "type": "string" },
+                    },
+                    "required": ["language", "name"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["id", "kitchen_id", "name", "language", "names"],
+        "additionalProperties": false,
+    })
+}
+
 /// The shape a Recipe is served in: the Branch as it stands and its whole
 /// chain of Versions, oldest first — created by `create_recipe`, read back
 /// by `get_recipe`.
@@ -688,10 +806,14 @@ fn recipe_schema() -> Value {
                     "additionalProperties": false,
                 },
             },
+            // The Tags this Kitchen files the recipe under, as it stands now.
+            // Outside `versions` on purpose: filing is not recipe content and
+            // is named by no fingerprint (ADR 0035).
+            "tags": { "type": "array", "items": tag_schema() },
         },
         "required": [
             "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
-            "origin_address", "head_version_id", "versions"
+            "origin_address", "head_version_id", "versions", "tags"
         ],
         "additionalProperties": false,
     })

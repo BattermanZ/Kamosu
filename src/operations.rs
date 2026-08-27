@@ -368,6 +368,97 @@ pub fn delete_kitchen(
     Ok(json!({ "deleted": true }))
 }
 
+pub fn create_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "create_tag takes { kitchen_id, language, name }";
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let language = input
+        .get("language")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.create_tag(&caller.person_id, kitchen_id, language, name)
+}
+
+pub fn list_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("list_tags takes { kitchen_id }"))?;
+    let caller = caller_of(invocation)?;
+    Ok(json!({ "tags": core.list_tags(&caller.person_id, kitchen_id)? }))
+}
+
+pub fn rename_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "rename_tag takes { tag_id, language, name }";
+    let tag_id = input
+        .get("tag_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let language = input
+        .get("language")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.rename_tag(&caller.person_id, tag_id, language, name)
+}
+
+pub fn merge_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "merge_tags takes { keep_tag_id, merge_tag_id }";
+    let keep_tag_id = input
+        .get("keep_tag_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let merge_tag_id = input
+        .get("merge_tag_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.merge_tags(&caller.person_id, keep_tag_id, merge_tag_id)
+}
+
+pub fn delete_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let tag_id = input
+        .get("tag_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("delete_tag takes { tag_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.delete_tag(&caller.person_id, tag_id)?;
+    Ok(json!({ "deleted": true }))
+}
+
+pub fn set_recipe_tag(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "set_recipe_tag takes { branch_id, tag_id, carried }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let tag_id = input
+        .get("tag_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let carried = input
+        .get("carried")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.set_recipe_tag(&caller.person_id, branch_id, tag_id, carried)
+}
+
 pub fn create_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let kitchen_id = input
         .get("kitchen_id")

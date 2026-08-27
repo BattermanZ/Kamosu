@@ -1051,6 +1051,251 @@ impl Core {
         })
     }
 
+    /// Create a Tag in a Kitchen, named in one Language. Any member may.
+    ///
+    /// A word already used in that Kitchen and Language does not make a second
+    /// Tag: the one already there is returned, which is what keeps *dessert*
+    /// and *dessert* one Tag (#51). Two people reaching for the same word have
+    /// agreed, not collided.
+    pub fn create_tag(
+        &self,
+        person_id: &str,
+        kitchen_id: &str,
+        language: &str,
+        name: &str,
+    ) -> Result<Value, OpError> {
+        let language = supported_language(language)?;
+        let name = required_text(name, "name")?.to_string();
+        let tag_id = format!("t_{}", hex::encode(random_bytes(8)));
+        self.db().with_conn(|conn| {
+            ensure_member(conn, kitchen_id, person_id)?;
+            if let Some(existing) = tag_id_for_word(conn, kitchen_id, language, &name)? {
+                return tag_summary(conn, &existing, person_id);
+            }
+            conn.execute(
+                "INSERT INTO tags (id, kitchen_id) VALUES (?1, ?2)",
+                params![tag_id, kitchen_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot create Tag: {e}")))?;
+            conn.execute(
+                "INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![tag_id, kitchen_id, language, name, folded_word(&name)],
+            )
+            .map_err(|e| OpError::internal(format!("cannot name Tag: {e}")))?;
+            tag_summary(conn, &tag_id, person_id)
+        })
+    }
+
+    /// Every Tag a Kitchen files by, each shown in the reader's Reading
+    /// Language and falling back to whatever name it does have (#51).
+    pub fn list_tags(&self, person_id: &str, kitchen_id: &str) -> Result<Vec<Value>, OpError> {
+        self.db().with_conn(|conn| {
+            ensure_member(conn, kitchen_id, person_id)?;
+            let ids: Vec<String> = {
+                let mut statement = conn
+                    .prepare("SELECT id FROM tags WHERE kitchen_id = ?1 ORDER BY created_at, id")
+                    .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?;
+                statement
+                    .query_map(params![kitchen_id], |row| row.get(0))
+                    .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?
+            };
+            ids.iter()
+                .map(|id| tag_summary(conn, id, person_id))
+                .collect()
+        })
+    }
+
+    /// Give a Tag its name in one Language — the first name it has there, or a
+    /// different one in place of the name it had.
+    ///
+    /// Because the Tag is kept once and pointed at, this reaches every recipe
+    /// carrying it at once, with nothing to walk and nothing to re-save: no
+    /// Version is minted and no fingerprint moves (ADR 0035).
+    pub fn rename_tag(
+        &self,
+        person_id: &str,
+        tag_id: &str,
+        language: &str,
+        name: &str,
+    ) -> Result<Value, OpError> {
+        let language = supported_language(language)?;
+        let name = required_text(name, "name")?.to_string();
+        self.db().with_conn(|conn| {
+            let kitchen_id = kitchen_of_tag(conn, tag_id)?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+            // The word may already be this Tag's own — renaming *dessert* to
+            // *Dessert* is a change of spelling, not a collision with itself.
+            match tag_id_for_word(conn, &kitchen_id, language, &name)? {
+                Some(owner) if owner != tag_id => {
+                    return Err(OpError::bad_request(
+                        "this Kitchen already files under that word in that Language",
+                    ));
+                }
+                _ => {}
+            }
+            conn.execute(
+                "INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) \
+                 ON CONFLICT(tag_id, language) \
+                 DO UPDATE SET name = excluded.name, name_folded = excluded.name_folded",
+                params![tag_id, kitchen_id, language, name, folded_word(&name)],
+            )
+            .map_err(|e| OpError::internal(format!("cannot rename Tag: {e}")))?;
+            tag_summary(conn, tag_id, person_id)
+        })
+    }
+
+    /// Merge two of a Kitchen's Tags into one: every recipe filed under the
+    /// merged Tag is filed under the kept one instead, and the merged Tag is
+    /// gone. The other half of what CONTEXT.md says a Tag is — "renaming or
+    /// merging one reaches all of them at once".
+    ///
+    /// The kept Tag keeps its own names. Where it has no name in a Language and
+    /// the merged Tag did, that name is adopted rather than thrown away: the
+    /// merge is how two words are found to have meant one thing, so the word
+    /// the other Language had is worth keeping.
+    ///
+    /// Like every other act of filing, this mints no Version (ADR 0035).
+    pub fn merge_tags(
+        &self,
+        person_id: &str,
+        keep_tag_id: &str,
+        merge_tag_id: &str,
+    ) -> Result<Value, OpError> {
+        if keep_tag_id == merge_tag_id {
+            return Err(OpError::bad_request("a Tag cannot be merged into itself"));
+        }
+        self.db().with_conn(|conn| {
+            let keep_kitchen = kitchen_of_tag(conn, keep_tag_id)?;
+            let merge_kitchen = kitchen_of_tag(conn, merge_tag_id)?;
+            ensure_member(conn, &keep_kitchen, person_id)?;
+            // Two Kitchens' filing systems are separate things, and neither is
+            // the other's to fold into (ADR 0007).
+            if keep_kitchen != merge_kitchen {
+                return Err(OpError::bad_request(
+                    "two Tags of different Kitchens cannot be merged",
+                ));
+            }
+
+            let carried: Vec<(String, String, String)> = {
+                let mut statement = conn
+                    .prepare("SELECT language, name, name_folded FROM tag_names WHERE tag_id = ?1")
+                    .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?;
+                statement
+                    .query_map(params![merge_tag_id], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    })
+                    .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?
+            };
+
+            // Every recipe under the merged Tag is now under the kept one.
+            // OR IGNORE for the recipes already carrying both.
+            conn.execute(
+                "INSERT OR IGNORE INTO branch_tags (branch_id, tag_id) \
+                 SELECT branch_id, ?1 FROM branch_tags WHERE tag_id = ?2",
+                params![keep_tag_id, merge_tag_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot carry recipes across: {e}")))?;
+
+            // The merged Tag's own rows go before the kept Tag adopts any of
+            // its words: one word is unique per Kitchen and Language, so the
+            // two Tags may not hold the same word even for an instant.
+            for statement in [
+                "DELETE FROM branch_tags WHERE tag_id = ?1",
+                "DELETE FROM tag_names WHERE tag_id = ?1",
+                "DELETE FROM tags WHERE id = ?1",
+            ] {
+                conn.execute(statement, params![merge_tag_id])
+                    .map_err(|e| OpError::internal(format!("cannot merge Tag: {e}")))?;
+            }
+
+            for (language, name, folded) in carried {
+                conn.execute(
+                    "INSERT OR IGNORE INTO tag_names \
+                     (tag_id, kitchen_id, language, name, name_folded) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![keep_tag_id, keep_kitchen, language, name, folded],
+                )
+                .map_err(|e| OpError::internal(format!("cannot adopt Tag name: {e}")))?;
+            }
+
+            tag_summary(conn, keep_tag_id, person_id)
+        })
+    }
+
+    /// Take a Tag out of a Kitchen's list, and off every recipe carrying it.
+    /// No recipe changes: a Version records what was written, never how it was
+    /// filed (ADR 0035).
+    pub fn delete_tag(&self, person_id: &str, tag_id: &str) -> Result<(), OpError> {
+        self.db().with_conn(|conn| {
+            let kitchen_id = kitchen_of_tag(conn, tag_id)?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+            for statement in [
+                "DELETE FROM branch_tags WHERE tag_id = ?1",
+                "DELETE FROM tag_names WHERE tag_id = ?1",
+                "DELETE FROM tags WHERE id = ?1",
+            ] {
+                conn.execute(statement, params![tag_id])
+                    .map_err(|e| OpError::internal(format!("cannot delete Tag: {e}")))?;
+            }
+            Ok(())
+        })
+    }
+
+    /// File a recipe under a Tag, or take it back out — `carried` says which.
+    /// Both are ordinary filing: neither mints a Version, neither appears in
+    /// the Thread, and the recipe's fingerprint is untouched (ADR 0035).
+    pub fn set_recipe_tag(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        tag_id: &str,
+        carried: bool,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let branch_kitchen: String = conn
+                .query_row(
+                    "SELECT kitchen_id FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &branch_kitchen, person_id)?;
+
+            // A Tag belongs to one Kitchen, so a recipe can only be filed
+            // under its own Kitchen's words (ADR 0007). Reaching across is a
+            // request for a Tag this Kitchen does not have.
+            let tag_kitchen = kitchen_of_tag(conn, tag_id)?;
+            if tag_kitchen != branch_kitchen {
+                return Err(OpError::not_found(
+                    "no such Tag in the Kitchen holding this recipe",
+                ));
+            }
+
+            if carried {
+                conn.execute(
+                    "INSERT OR IGNORE INTO branch_tags (branch_id, tag_id) VALUES (?1, ?2)",
+                    params![branch_id, tag_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot file recipe under Tag: {e}")))?;
+            } else {
+                conn.execute(
+                    "DELETE FROM branch_tags WHERE branch_id = ?1 AND tag_id = ?2",
+                    params![branch_id, tag_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot take recipe off Tag: {e}")))?;
+            }
+            Ok(json!({ "tags": tags_of_branch(conn, branch_id, person_id)? }))
+        })
+    }
+
     /// Create a Recipe: a Lineage, a Branch of it in the creating Kitchen, and
     /// a first Version fingerprinted from its content (ADR 0004). A recipe
     /// needs only a title — every other field of `input` (Yield, Prep/Cook
@@ -1380,6 +1625,11 @@ impl Core {
                 "origin_address": origin_address,
                 "head_version_id": head_version_id,
                 "versions": versions,
+                // Beside the Versions rather than inside any of them: a Tag is
+                // how this Kitchen files the recipe, not part of what the
+                // recipe is, so it belongs to the Branch as it stands now and
+                // to no Version's content (ADR 0035).
+                "tags": tags_of_branch(conn, branch_id, person_id)?,
             }))
         })
     }
@@ -1863,6 +2113,155 @@ fn kitchen_summary(
     }))
 }
 
+/// The Languages Kamosu is written in. A Tag may be named in any of them and
+/// need be named in only one.
+const LANGUAGES: [&str; 3] = ["en", "fr", "es"];
+
+fn supported_language(language: &str) -> Result<&str, OpError> {
+    if LANGUAGES.contains(&language) {
+        Ok(language)
+    } else {
+        Err(OpError::bad_request(format!(
+            "language must be one of {}",
+            LANGUAGES.join(", ")
+        )))
+    }
+}
+
+/// Which Kitchen a Tag belongs to — and, by failing, that it exists at all.
+fn kitchen_of_tag(conn: &rusqlite::Connection, tag_id: &str) -> Result<String, OpError> {
+    conn.query_row(
+        "SELECT kitchen_id FROM tags WHERE id = ?1",
+        params![tag_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Tag: {e}")))?
+    .ok_or_else(|| OpError::not_found("no such Tag"))
+}
+
+/// One word reduced to the form every spelling of it shares, so a Kitchen can
+/// hold one word once. This is Unicode canonical caseless matching — decompose,
+/// case-fold, decompose again — written out as a value rather than a comparison
+/// so the fold can be stored and indexed.
+///
+/// It settles both ways one word arrives looking like two. Case: *Été* and
+/// *été* are one word, which SQLite's own NOCASE cannot say, folding ASCII
+/// alone. And shape: an *é* typed as one character and an *e* followed by a
+/// combining accent look identical on screen and are different bytes — a French
+/// cookbook meets both, depending on the keyboard.
+///
+/// What it does not fold is what the Unicode default fold leaves alone: *straße*
+/// and *strasse* stay two words. That is the standard's own line, not one drawn
+/// here.
+fn folded_word(name: &str) -> String {
+    use caseless::Caseless;
+    use unicode_normalization::UnicodeNormalization;
+    name.chars().nfd().default_case_fold().nfd().collect()
+}
+
+/// The Tag a Kitchen already files under this word in this Language, if any.
+/// Compared on the fold, which is what the schema holds unique.
+fn tag_id_for_word(
+    conn: &rusqlite::Connection,
+    kitchen_id: &str,
+    language: &str,
+    name: &str,
+) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT tag_id FROM tag_names \
+           WHERE kitchen_id = ?1 AND language = ?2 AND name_folded = ?3",
+        params![kitchen_id, language, folded_word(name)],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot look up Tag: {e}")))
+}
+
+/// One Tag as a reader sees it: every name it has, and the one to show them —
+/// their Reading Language where the Tag has a name there, and otherwise
+/// whatever name it does have (#51). `language` says which of the two happened,
+/// so a screen can mark a word standing in from another Language rather than
+/// having to guess.
+fn tag_summary(
+    conn: &rusqlite::Connection,
+    tag_id: &str,
+    viewer_person_id: &str,
+) -> Result<Value, OpError> {
+    let kitchen_id = kitchen_of_tag(conn, tag_id)?;
+    let mut statement = conn
+        .prepare("SELECT language, name FROM tag_names WHERE tag_id = ?1")
+        .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?;
+    let named: Vec<(String, String)> = statement
+        .query_map(params![tag_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?;
+
+    let reading_language: String = conn
+        .query_row(
+            "SELECT reading_language FROM people WHERE id = ?1",
+            params![viewer_person_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read reading Language: {e}")))?;
+
+    // The reader's own Language first; failing that, the fixed order of
+    // LANGUAGES, so a Tag falls back to the same word for everyone rather than
+    // to whichever row SQLite happened to return first.
+    let shown = named
+        .iter()
+        .find(|(language, _)| *language == reading_language)
+        .or_else(|| {
+            LANGUAGES
+                .iter()
+                .find_map(|wanted| named.iter().find(|(language, _)| language == wanted))
+        });
+
+    let names: Vec<Value> = LANGUAGES
+        .iter()
+        .filter_map(|wanted| {
+            named
+                .iter()
+                .find(|(language, _)| language == wanted)
+                .map(|(language, name)| json!({ "language": language, "name": name }))
+        })
+        .collect();
+
+    Ok(json!({
+        "id": tag_id,
+        "kitchen_id": kitchen_id,
+        "name": shown.map(|(_, name)| name.as_str()),
+        "language": shown.map(|(language, _)| language.as_str()),
+        "names": names,
+    }))
+}
+
+/// The Tags one recipe carries, as its reader sees them.
+fn tags_of_branch(
+    conn: &rusqlite::Connection,
+    branch_id: &str,
+    viewer_person_id: &str,
+) -> Result<Vec<Value>, OpError> {
+    let ids: Vec<String> = {
+        let mut statement = conn
+            .prepare(
+                "SELECT branch_tags.tag_id FROM branch_tags \
+                 JOIN tags ON tags.id = branch_tags.tag_id \
+                 WHERE branch_tags.branch_id = ?1 ORDER BY tags.created_at, tags.id",
+            )
+            .map_err(|e| OpError::internal(format!("cannot read a recipe's Tags: {e}")))?;
+        statement
+            .query_map(params![branch_id], |row| row.get(0))
+            .map_err(|e| OpError::internal(format!("cannot read a recipe's Tags: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OpError::internal(format!("cannot read a recipe's Tags: {e}")))?
+    };
+    ids.iter()
+        .map(|id| tag_summary(conn, id, viewer_person_id))
+        .collect()
+}
+
 /// Hash a Secret for storage/lookup. The Secret itself is never stored.
 pub fn hash_secret(secret: &str) -> String {
     hex::encode(Sha256::digest(secret.as_bytes()))
@@ -1902,4 +2301,27 @@ fn required_text<'a>(value: &'a str, field: &str) -> Result<&'a str, OpError> {
         return Err(OpError::bad_request(format!("{field} is required")));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::folded_word;
+
+    /// The fold is what holds one word to one Tag, so it is checked directly
+    /// rather than only through the Operations that lean on it.
+    #[test]
+    fn one_word_folds_to_one_form_however_it_was_typed() {
+        // Case, ASCII and beyond it.
+        assert_eq!(folded_word("Dessert"), folded_word("dessert"));
+        assert_eq!(folded_word("ÉTÉ"), folded_word("été"));
+        assert_eq!(folded_word("RÁPIDO"), folded_word("rápido"));
+
+        // Shape: one character, or a letter and a combining accent.
+        assert_eq!(folded_word("crème"), folded_word("cre\u{0300}me"));
+        assert_eq!(folded_word("Crème"), folded_word("CRE\u{0300}ME"));
+
+        // And words that really are different stay different.
+        assert_ne!(folded_word("dessert"), folded_word("desert"));
+        assert_ne!(folded_word("été"), folded_word("ete"));
+    }
 }

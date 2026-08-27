@@ -228,6 +228,106 @@ export type DeleteKitchenOutput = {
 	deleted: boolean;
 };
 
+/** Create a Tag in a Kitchen, named in one Language. A word the Kitchen already files under returns the Tag it already has rather than making a second. */
+export type CreateTagInput = {
+	kitchen_id: string;
+	language: "en" | "fr" | "es";
+	name: string;
+};
+/** What create_tag answers. */
+export type CreateTagOutput = {
+	id: string;
+	kitchen_id: string;
+	language: string | null;
+	name: string | null;
+	names: {
+		language: string;
+		name: string;
+	}[];
+};
+
+/** List every Tag a Kitchen files by, each shown in the reader's Reading Language where it has a name there. */
+export type ListTagsInput = {
+	kitchen_id: string;
+};
+/** What list_tags answers. */
+export type ListTagsOutput = {
+	tags: {
+		id: string;
+		kitchen_id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+	}[];
+};
+
+/** Name a Tag in one Language, or change the name it has there. Reaches every recipe carrying it at once, and mints no Version. */
+export type RenameTagInput = {
+	language: "en" | "fr" | "es";
+	name: string;
+	tag_id: string;
+};
+/** What rename_tag answers. */
+export type RenameTagOutput = {
+	id: string;
+	kitchen_id: string;
+	language: string | null;
+	name: string | null;
+	names: {
+		language: string;
+		name: string;
+	}[];
+};
+
+/** Merge two of a Kitchen's Tags into one: every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version. */
+export type MergeTagsInput = {
+	keep_tag_id: string;
+	merge_tag_id: string;
+};
+/** What merge_tags answers. */
+export type MergeTagsOutput = {
+	id: string;
+	kitchen_id: string;
+	language: string | null;
+	name: string | null;
+	names: {
+		language: string;
+		name: string;
+	}[];
+};
+
+/** Take a Tag out of a Kitchen's list and off every recipe carrying it. No recipe changes. */
+export type DeleteTagInput = {
+	tag_id: string;
+};
+/** What delete_tag answers. */
+export type DeleteTagOutput = {
+	deleted: boolean;
+};
+
+/** File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is. */
+export type SetRecipeTagInput = {
+	branch_id: string;
+	carried: boolean;
+	tag_id: string;
+};
+/** What set_recipe_tag answers. */
+export type SetRecipeTagOutput = {
+	tags: {
+		id: string;
+		kitchen_id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+	}[];
+};
+
 /** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 export type CreateRecipeInput = {
 	cook_time_minutes?: number | null;
@@ -263,6 +363,16 @@ export type CreateRecipeOutput = {
 	language: string;
 	lineage_id: string;
 	origin_address: string | null;
+	tags: {
+		id: string;
+		kitchen_id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+	}[];
 	versions: {
 		change_note: string | null;
 		content: {
@@ -361,6 +471,16 @@ export type GetRecipeOutput = {
 	language: string;
 	lineage_id: string;
 	origin_address: string | null;
+	tags: {
+		id: string;
+		kitchen_id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+	}[];
 	versions: {
 		change_note: string | null;
 		content: {
@@ -583,6 +703,42 @@ export interface Operations {
 	delete_kitchen: {
 		input: DeleteKitchenInput;
 		output: DeleteKitchenOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	create_tag: {
+		input: CreateTagInput;
+		output: CreateTagOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_tags: {
+		input: ListTagsInput;
+		output: ListTagsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_tag: {
+		input: RenameTagInput;
+		output: RenameTagOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	merge_tags: {
+		input: MergeTagsInput;
+		output: MergeTagsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	delete_tag: {
+		input: DeleteTagInput;
+		output: DeleteTagOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_recipe_tag: {
+		input: SetRecipeTagInput;
+		output: SetRecipeTagOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -1470,6 +1626,436 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "create_tag",
+		"summary": "Create a Tag in a Kitchen, named in one Language. A word the Kitchen already files under returns the Tag it already has rather than making a second.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id",
+				"language",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"names": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"language": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"language",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"id",
+				"kitchen_id",
+				"name",
+				"language",
+				"names"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_tags",
+		"summary": "List every Tag a Kitchen files by, each shown in the reader's Reading Language where it has a name there.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kitchen_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kitchen_id",
+							"name",
+							"language",
+							"names"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"tags"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_tag",
+		"summary": "Name a Tag in one Language, or change the name it has there. Reaches every recipe carrying it at once, and mints no Version.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"language": {
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"name": {
+					"type": "string"
+				},
+				"tag_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"tag_id",
+				"language",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"names": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"language": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"language",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"id",
+				"kitchen_id",
+				"name",
+				"language",
+				"names"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "merge_tags",
+		"summary": "Merge two of a Kitchen's Tags into one: every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"keep_tag_id": {
+					"type": "string"
+				},
+				"merge_tag_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"keep_tag_id",
+				"merge_tag_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"names": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"language": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"language",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"id",
+				"kitchen_id",
+				"name",
+				"language",
+				"names"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "delete_tag",
+		"summary": "Take a Tag out of a Kitchen's list and off every recipe carrying it. No recipe changes.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"tag_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"tag_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"deleted": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"deleted"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_recipe_tag",
+		"summary": "File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"carried": {
+					"type": "boolean"
+				},
+				"tag_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"tag_id",
+				"carried"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kitchen_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kitchen_id",
+							"name",
+							"language",
+							"names"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"tags"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "create_recipe",
 		"summary": "Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs.",
 		"permission": "person",
@@ -1635,6 +2221,59 @@ export const CATALOGUE = [
 						"string",
 						"null"
 					]
+				},
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kitchen_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kitchen_id",
+							"name",
+							"language",
+							"names"
+						],
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"versions": {
 					"items": {
@@ -1861,7 +2500,8 @@ export const CATALOGUE = [
 				"language",
 				"origin_address",
 				"head_version_id",
-				"versions"
+				"versions",
+				"tags"
 			],
 			"type": "object"
 		}
@@ -2121,6 +2761,59 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kitchen_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kitchen_id",
+							"name",
+							"language",
+							"names"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"versions": {
 					"items": {
 						"additionalProperties": false,
@@ -2346,7 +3039,8 @@ export const CATALOGUE = [
 				"language",
 				"origin_address",
 				"head_version_id",
-				"versions"
+				"versions",
+				"tags"
 			],
 			"type": "object"
 		}
@@ -2637,6 +3331,12 @@ export const METHOD_NAMES = {
 	accept_kitchen_invite: 'acceptKitchenInvite',
 	remove_kitchen_member: 'removeKitchenMember',
 	delete_kitchen: 'deleteKitchen',
+	create_tag: 'createTag',
+	list_tags: 'listTags',
+	rename_tag: 'renameTag',
+	merge_tags: 'mergeTags',
+	delete_tag: 'deleteTag',
+	set_recipe_tag: 'setRecipeTag',
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
 	rename_version: 'renameVersion',
@@ -2689,6 +3389,18 @@ export interface KamosuClient {
 	removeKitchenMember(input: RemoveKitchenMemberInput): Promise<Answer<'remove_kitchen_member'>>;
 	/** An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen. */
 	deleteKitchen(input: DeleteKitchenInput): Promise<Answer<'delete_kitchen'>>;
+	/** Create a Tag in a Kitchen, named in one Language. A word the Kitchen already files under returns the Tag it already has rather than making a second. */
+	createTag(input: CreateTagInput): Promise<Answer<'create_tag'>>;
+	/** List every Tag a Kitchen files by, each shown in the reader's Reading Language where it has a name there. */
+	listTags(input: ListTagsInput): Promise<Answer<'list_tags'>>;
+	/** Name a Tag in one Language, or change the name it has there. Reaches every recipe carrying it at once, and mints no Version. */
+	renameTag(input: RenameTagInput): Promise<Answer<'rename_tag'>>;
+	/** Merge two of a Kitchen's Tags into one: every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version. */
+	mergeTags(input: MergeTagsInput): Promise<Answer<'merge_tags'>>;
+	/** Take a Tag out of a Kitchen's list and off every recipe carrying it. No recipe changes. */
+	deleteTag(input: DeleteTagInput): Promise<Answer<'delete_tag'>>;
+	/** File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is. */
+	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
 	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */

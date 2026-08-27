@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 argon2 = { version = "0.5.3", features = ["password-hash", "rand"] }
 axum = "0.8.9"
+caseless = "0.2.2"
 clap = { version = "4.6.6", features = ["derive"] }
 hex = "0.4.3"
 rand = { version = "0.10.2", features = ["sys_rng"] }
@@ -17,6 +18,7 @@ sha2 = "0.11.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+unicode-normalization = "0.1.25"
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can

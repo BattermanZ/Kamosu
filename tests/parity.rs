@@ -48,6 +48,16 @@ fn arguments_for(name: &str) -> Value {
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" => json!({ "branch_id": "b_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
+        "create_tag" => json!({ "kitchen_id": "k_parity", "language": "en", "name": "parity" }),
+        "list_tags" => json!({ "kitchen_id": "k_parity" }),
+        "rename_tag" => json!({ "tag_id": "t_parity", "language": "en", "name": "parity" }),
+        "delete_tag" => json!({ "tag_id": "t_parity" }),
+        "merge_tags" => {
+            json!({ "keep_tag_id": "t_parity_keep", "merge_tag_id": "t_parity_merge" })
+        }
+        "set_recipe_tag" => {
+            json!({ "branch_id": "b_parity", "tag_id": "t_parity", "carried": true })
+        }
         _ => json!({}),
     }
 }
@@ -84,7 +94,13 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "save_recipe_version"
             | "rename_version"
             | "get_recipe"
-            | "set_reading" => ("{}", 401),
+            | "set_reading"
+            | "create_tag"
+            | "list_tags"
+            | "rename_tag"
+            | "delete_tag"
+            | "merge_tags"
+            | "set_recipe_tag" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -178,6 +194,12 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "rename_version"
                 | "get_recipe"
                 | "set_reading"
+                | "create_tag"
+                | "list_tags"
+                | "rename_tag"
+                | "delete_tag"
+                | "merge_tags"
+                | "set_recipe_tag"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

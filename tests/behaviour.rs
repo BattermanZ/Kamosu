@@ -1490,6 +1490,486 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
     );
 }
 
+// --- Tags (issue #51) --------------------------------------------------------
+
+/// Create a Tag and hand back its id.
+fn tag_in(
+    app: &support::TestApp,
+    key: &str,
+    kitchen_id: &str,
+    language: &str,
+    name: &str,
+) -> String {
+    let (status, created) = app.post_op(
+        "create_tag",
+        Some(key),
+        &json!({ "kitchen_id": kitchen_id, "language": language, "name": name }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    created["result"]["id"].as_str().unwrap().to_string()
+}
+
+/// Create a recipe and hand back its Branch id.
+fn recipe_in(app: &support::TestApp, key: &str, kitchen_id: &str, title: &str) -> String {
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({ "kitchen_id": kitchen_id, "title": title }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    created["result"]["branch_id"].as_str().unwrap().to_string()
+}
+
+fn file_under(
+    app: &support::TestApp,
+    key: &str,
+    branch_id: &str,
+    tag_id: &str,
+    carried: bool,
+) -> Value {
+    let (status, answer) = app.post_op(
+        "set_recipe_tag",
+        Some(key),
+        &json!({ "branch_id": branch_id, "tag_id": tag_id, "carried": carried }).to_string(),
+    );
+    assert_eq!(status, 200, "{answer}");
+    answer["result"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tag_belongs_to_a_kitchen_never_to_the_instance_and_never_to_a_recipe() {
+    let app = support::spawn_app();
+    let (_, key_a, kitchen_a) = person_with_kitchen(&app, "Aurélien");
+    let (_, key_b, kitchen_b) = person_with_kitchen(&app, "Marc");
+
+    // The same word in two Kitchens is two Tags. What one Kitchen means by
+    // "quick" is its own business (ADR 0007).
+    let quick_a = tag_in(&app, &key_a, &kitchen_a, "en", "quick");
+    let quick_b = tag_in(&app, &key_b, &kitchen_b, "en", "quick");
+    assert_ne!(quick_a, quick_b, "one word, two Kitchens, two Tags");
+
+    // Neither Kitchen's list mentions the other's.
+    let (_, listed) = app.post_op(
+        "list_tags",
+        Some(&key_a),
+        &json!({ "kitchen_id": kitchen_a }).to_string(),
+    );
+    let tags = listed["result"]["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0]["id"], json!(quick_a));
+
+    // And a stranger to the Kitchen may not read its filing at all.
+    let (status, refused) = app.post_op(
+        "list_tags",
+        Some(&key_b),
+        &json!({ "kitchen_id": kitchen_a }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+
+    // A recipe cannot be filed under another Kitchen's word.
+    let branch = recipe_in(&app, &key_a, &kitchen_a, "Tarte aux pommes");
+    let (status, refused) = app.post_op(
+        "set_recipe_tag",
+        Some(&key_a),
+        &json!({ "branch_id": branch, "tag_id": quick_b, "carried": true }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_word_twice_is_one_tag_and_case_does_not_make_a_second() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let first = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let again = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let shouted = tag_in(&app, &key, &kitchen, "en", "Dessert");
+    assert_eq!(first, again, "the same word is the same Tag");
+    assert_eq!(first, shouted, "case is not a second Tag");
+
+    let (_, listed) = app.post_op(
+        "list_tags",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    assert_eq!(listed["result"]["tags"].as_array().unwrap().len(), 1);
+
+    // The first spelling is the one kept: a Tag is not renamed by someone
+    // reaching for it in a hurry.
+    assert_eq!(listed["result"]["tags"][0]["name"], json!("dessert"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_word_is_one_tag_past_the_ascii_alphabet() {
+    // Kamosu is written in three Languages, two of them accented, so a fold
+    // that stops at ASCII is a fold that does not work here.
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    // Case, above the ASCII range.
+    let summer = tag_in(&app, &key, &kitchen, "fr", "été");
+    assert_eq!(
+        tag_in(&app, &key, &kitchen, "fr", "Été"),
+        summer,
+        "an accented capital is the same word"
+    );
+    assert_eq!(
+        tag_in(&app, &key, &kitchen, "fr", "ÉTÉ"),
+        summer,
+        "shouted is the same word"
+    );
+
+    // Shape: the same word typed two ways. "é" as one character, and "e"
+    // followed by a combining acute accent — identical on screen, different
+    // bytes, and a French keyboard produces both depending on the machine.
+    let precomposed = "crème";
+    let decomposed = "cre\u{0300}me";
+    assert_ne!(precomposed, decomposed, "these differ as bytes");
+    let cream = tag_in(&app, &key, &kitchen, "fr", precomposed);
+    assert_eq!(
+        tag_in(&app, &key, &kitchen, "fr", decomposed),
+        cream,
+        "one word typed two ways is one Tag"
+    );
+
+    let (_, listed) = app.post_op(
+        "list_tags",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    let tags = listed["result"]["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 2, "été and crème, once each: {listed}");
+
+    // And Spanish, the third Language, folds too.
+    let quick = tag_in(&app, &key, &kitchen, "es", "rápido");
+    assert_eq!(tag_in(&app, &key, &kitchen, "es", "RÁPIDO"), quick);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tag_holds_a_name_per_language_and_is_shown_in_the_readers_own() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, reader_key, _) = person_with_kitchen(&app, "Marc");
+
+    let tag = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let (status, renamed) = app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": tag, "language": "fr", "name": "dessert sucré" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+
+    // One Tag, two words — not two Tags split by Language (ADR 0006).
+    assert_eq!(
+        renamed["result"]["names"],
+        json!([
+            { "language": "en", "name": "dessert" },
+            { "language": "fr", "name": "dessert sucré" },
+        ])
+    );
+
+    // The reader reads English, so English is what they are shown.
+    assert_eq!(renamed["result"]["name"], json!("dessert"));
+    assert_eq!(renamed["result"]["language"], json!("en"));
+
+    // Marc joins the Kitchen and reads French: the same Tag, his word.
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    let secret = invite["result"]["secret"].as_str().unwrap();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&reader_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    app.post_op(
+        "set_reading_preferences",
+        Some(&reader_key),
+        &json!({ "reading_language": "fr", "reading_measures": "metric" }).to_string(),
+    );
+    let (_, listed) = app.post_op(
+        "list_tags",
+        Some(&reader_key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    assert_eq!(listed["result"]["tags"][0]["name"], json!("dessert sucré"));
+    assert_eq!(listed["result"]["tags"][0]["language"], json!("fr"));
+
+    // A Tag with no Spanish name still shows a word rather than a blank: it
+    // falls back to whatever it does have, and says which Language that is.
+    app.post_op(
+        "set_reading_preferences",
+        Some(&reader_key),
+        &json!({ "reading_language": "es", "reading_measures": "metric" }).to_string(),
+    );
+    let (_, fallen_back) = app.post_op(
+        "list_tags",
+        Some(&reader_key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    assert_eq!(fallen_back["result"]["tags"][0]["name"], json!("dessert"));
+    assert_eq!(fallen_back["result"]["tags"][0]["language"], json!("en"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn renaming_a_tag_reaches_every_recipe_carrying_it_immediately() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let tag = tag_in(&app, &key, &kitchen, "en", "desert");
+    let tarte = recipe_in(&app, &key, &kitchen, "Tarte aux pommes");
+    let mousse = recipe_in(&app, &key, &kitchen, "Mousse au chocolat");
+    file_under(&app, &key, &tarte, &tag, true);
+    file_under(&app, &key, &mousse, &tag, true);
+
+    // One rename of the misspelling, no walk over the recipes carrying it.
+    let (status, renamed) = app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": tag, "language": "en", "name": "dessert" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+
+    for branch in [&tarte, &mousse] {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        assert_eq!(
+            read["result"]["tags"][0]["name"],
+            json!("dessert"),
+            "the rename reached this recipe with nothing else asked of it"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn filing_a_recipe_never_touches_its_fingerprint_or_its_thread() {
+    // ADR 0035: a Tag is how a Kitchen files a recipe, not what the recipe is.
+    // So none of tagging, untagging or renaming may mint a Version, move the
+    // head fingerprint, or leave a mark in the Thread.
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let branch = recipe_in(&app, &key, &kitchen, "Tarte aux pommes");
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let head_before = before["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        before["result"]["tags"],
+        json!([]),
+        "filed under nothing yet"
+    );
+
+    let tag = tag_in(&app, &key, &kitchen, "en", "desert");
+    let filed = file_under(&app, &key, &branch, &tag, true);
+    assert_eq!(filed["tags"][0]["id"], json!(tag));
+
+    app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": tag, "language": "en", "name": "dessert" }).to_string(),
+    );
+    file_under(&app, &key, &branch, &tag, false);
+    file_under(&app, &key, &branch, &tag, true);
+
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(
+        after["result"]["head_version_id"],
+        json!(head_before),
+        "filing moved the fingerprint — a Tag has got inside the Version's content"
+    );
+    assert_eq!(
+        after["result"]["versions"].as_array().unwrap().len(),
+        1,
+        "filing left a mark in the Thread; it must mint no Version at all"
+    );
+    // And no Version's content carries the word anywhere.
+    let content = after["result"]["versions"][0]["content"].to_string();
+    assert!(
+        !content.contains("dessert") && !content.contains("desert"),
+        "a Tag appeared inside a Version's content: {content}"
+    );
+    assert_eq!(after["result"]["tags"][0]["name"], json!("dessert"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_tag_takes_it_off_every_recipe_and_changes_no_recipe() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let tag = tag_in(&app, &key, &kitchen, "en", "quick");
+    let branch = recipe_in(&app, &key, &kitchen, "Omelette");
+    file_under(&app, &key, &branch, &tag, true);
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let head_before = before["result"]["head_version_id"].clone();
+
+    let (status, deleted) = app.post_op(
+        "delete_tag",
+        Some(&key),
+        &json!({ "tag_id": tag }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(after["result"]["tags"], json!([]));
+    assert_eq!(
+        after["result"]["head_version_id"], head_before,
+        "the recipe itself is untouched"
+    );
+    let (_, listed) = app.post_op(
+        "list_tags",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    assert_eq!(listed["result"]["tags"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn merging_two_tags_carries_every_recipe_across_and_mints_no_version() {
+    // CONTEXT.md, "Tag": renaming *or merging* one reaches all of them at once.
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let pudding = tag_in(&app, &key, &kitchen, "en", "pudding");
+    let sweet = tag_in(&app, &key, &kitchen, "en", "sweet things");
+    // The losing Tag carries a French word the winner has not got.
+    app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": sweet, "language": "fr", "name": "sucré" }).to_string(),
+    );
+
+    let tarte = recipe_in(&app, &key, &kitchen, "Tarte aux pommes");
+    let mousse = recipe_in(&app, &key, &kitchen, "Mousse au chocolat");
+    file_under(&app, &key, &tarte, &sweet, true);
+    file_under(&app, &key, &mousse, &sweet, true);
+    // One recipe already carries both, which the merge must not double up.
+    file_under(&app, &key, &mousse, &pudding, true);
+
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": tarte }).to_string(),
+    );
+    let head_before = before["result"]["head_version_id"].clone();
+
+    let (status, merged) = app.post_op(
+        "merge_tags",
+        Some(&key),
+        &json!({ "keep_tag_id": pudding, "merge_tag_id": sweet }).to_string(),
+    );
+    assert_eq!(status, 200, "{merged}");
+    assert_eq!(merged["result"]["id"], json!(pudding));
+
+    // The kept Tag keeps its own word, and adopts the one it did not have.
+    assert_eq!(
+        merged["result"]["names"],
+        json!([
+            { "language": "en", "name": "pudding" },
+            { "language": "fr", "name": "sucré" },
+        ])
+    );
+
+    // One Tag left in the Kitchen, and every recipe is under it exactly once.
+    let (_, listed) = app.post_op(
+        "list_tags",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen }).to_string(),
+    );
+    assert_eq!(listed["result"]["tags"].as_array().unwrap().len(), 1);
+    for branch in [&tarte, &mousse] {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        let tags = read["result"]["tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 1, "one Tag, not two: {read}");
+        assert_eq!(tags[0]["id"], json!(pudding));
+    }
+
+    // And the recipes themselves never moved (ADR 0035).
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": tarte }).to_string(),
+    );
+    assert_eq!(after["result"]["head_version_id"], head_before);
+    assert_eq!(after["result"]["versions"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tag_is_merged_only_within_one_kitchen_and_never_into_itself() {
+    let app = support::spawn_app();
+    let (_, key_a, kitchen_a) = person_with_kitchen(&app, "Aurélien");
+    let (_, key_b, kitchen_b) = person_with_kitchen(&app, "Marc");
+
+    let mine = tag_in(&app, &key_a, &kitchen_a, "en", "quick");
+    let theirs = tag_in(&app, &key_b, &kitchen_b, "en", "quick");
+
+    let (status, refused) = app.post_op(
+        "merge_tags",
+        Some(&key_a),
+        &json!({ "keep_tag_id": mine, "merge_tag_id": theirs }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    let (status, refused) = app.post_op(
+        "merge_tags",
+        Some(&key_a),
+        &json!({ "keep_tag_id": mine, "merge_tag_id": mine }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rename_onto_a_word_the_kitchen_already_files_by_is_refused() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let dessert = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let quick = tag_in(&app, &key, &kitchen, "en", "quick");
+
+    let (status, refused) = app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": quick, "language": "en", "name": "dessert" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    // But a Tag may be respelt into its own current word — that is a change of
+    // spelling, not a collision with itself.
+    let (status, respelt) = app.post_op(
+        "rename_tag",
+        Some(&key),
+        &json!({ "tag_id": dessert, "language": "en", "name": "Dessert" }).to_string(),
+    );
+    assert_eq!(status, 200, "{respelt}");
+    assert_eq!(respelt["result"]["name"], json!("Dessert"));
+}
+
 // --- Access Keys and Sessions (issue #41) ------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
