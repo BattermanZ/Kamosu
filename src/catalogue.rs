@@ -367,39 +367,21 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "kitchen_id": { "type": "string" },
-                    "title": { "type": "string" },
-                    "language": { "enum": ["en", "fr", "es"] },
-                },
-                "required": ["kitchen_id", "title"],
-                "additionalProperties": false,
-            }),
+            input_schema: create_recipe_input_schema(),
             output_schema: recipe_schema(),
             handler: crate::operations::create_recipe,
         },
         Operation {
             name: "save_recipe_version",
-            summary: "Save a new state of a Recipe onto a Branch. A rapid \
+            summary: "Save a new state of a Recipe onto a Branch — the whole \
+                      recipe as written, replacing what was there. A rapid \
                       re-save by the same Hand collapses into the Version \
                       already being shaped rather than starting a new one.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "branch_id": { "type": "string" },
-                    "title": { "type": "string" },
-                    "name": { "type": "string" },
-                    "change_note": { "type": "string" },
-                },
-                "required": ["branch_id", "title"],
-                "additionalProperties": false,
-            }),
+            input_schema: save_recipe_version_input_schema(),
             output_schema: json!({
                 "type": "object",
                 "properties": {
@@ -659,7 +641,7 @@ fn recipe_schema() -> Value {
                         "name": { "type": ["string", "null"] },
                         "change_note": { "type": ["string", "null"] },
                         "created_at": { "type": "string" },
-                        "content": { "type": "object" },
+                        "content": recipe_content_schema(),
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
@@ -673,6 +655,124 @@ fn recipe_schema() -> Value {
             "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
             "origin_address", "head_version_id", "versions"
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// The fields of a Recipe a Version's fingerprint covers (ADR 0002, ADR 0019,
+/// ADR 0021): the title, the Ingredient Lines and Steps — each list a flat,
+/// ordered sequence where a `"section"` entry is a heading like "For the
+/// sauce" and the other kind is the written line itself — the optional
+/// Yield, Prep/Cook Time, Note and Source. A Reading is never part of this:
+/// it is Kamosu's guess about a line, not the line (ADR 0021), and has no
+/// slot here.
+fn recipe_content_properties() -> Value {
+    json!({
+        "title": { "type": "string" },
+        "yield": {
+            "type": ["object", "null"],
+            "properties": {
+                "amount": { "type": "string" },
+                // Named `noun`, not `unit`: CONTEXT.md's Yield ("4 servings",
+                // "24 cookies") is a different concept from its Unit glossary
+                // entry (grams, cups, spoons — a closed, convertible list).
+                "noun": { "type": "string" },
+            },
+            "required": ["amount", "noun"],
+            "additionalProperties": false,
+        },
+        "prep_time_minutes": {
+            "type": ["integer", "null"],
+            "description": "Whole minutes of active preparation.",
+        },
+        "cook_time_minutes": {
+            "type": ["integer", "null"],
+            "description": "Whole minutes of cooking, including resting, \
+                             proving, marinating and chilling.",
+        },
+        "note": { "type": ["string", "null"] },
+        "source": {
+            "type": ["object", "null"],
+            "properties": {
+                "text": { "type": "string" },
+                "link": { "type": ["string", "null"] },
+            },
+            "required": ["text", "link"],
+            "additionalProperties": false,
+        },
+        "ingredients": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": { "enum": ["section", "ingredient"] },
+                    "text": { "type": "string" },
+                },
+                "required": ["kind", "text"],
+                "additionalProperties": false,
+            },
+        },
+        "steps": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": { "enum": ["section", "step"] },
+                    "text": { "type": "string" },
+                    "photo": { "type": ["string", "null"] },
+                },
+                "required": ["kind", "text", "photo"],
+                "additionalProperties": false,
+            },
+        },
+    })
+}
+
+/// A Version's content exactly as stored and read back: every field above,
+/// always present — absent input normalises to `null` or `[]` rather than
+/// being left out (see `parse_recipe_content` in `core.rs`).
+fn recipe_content_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": recipe_content_properties(),
+        "required": [
+            "title", "yield", "prep_time_minutes", "cook_time_minutes",
+            "note", "source", "ingredients", "steps",
+        ],
+        "additionalProperties": false,
+    })
+}
+
+/// `create_recipe`'s input: a Kitchen and a title are all a Recipe ever
+/// needs — every other field of the recipe's content is optional here.
+fn create_recipe_input_schema() -> Value {
+    let mut properties = recipe_content_properties();
+    let map = properties.as_object_mut().expect("object schema");
+    map.insert("kitchen_id".to_string(), json!({ "type": "string" }));
+    map.insert(
+        "language".to_string(),
+        json!({ "enum": ["en", "fr", "es"] }),
+    );
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": ["kitchen_id", "title"],
+        "additionalProperties": false,
+    })
+}
+
+/// `save_recipe_version`'s input: the whole recipe as it now reads, replacing
+/// what was on the Branch — a title is the one field that must be there.
+fn save_recipe_version_input_schema() -> Value {
+    let mut properties = recipe_content_properties();
+    let map = properties.as_object_mut().expect("object schema");
+    map.insert("branch_id".to_string(), json!({ "type": "string" }));
+    map.insert("name".to_string(), json!({ "type": "string" }));
+    map.insert("change_note".to_string(), json!({ "type": "string" }));
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": ["branch_id", "title"],
         "additionalProperties": false,
     })
 }

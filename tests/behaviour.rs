@@ -1006,6 +1006,207 @@ async fn only_a_kitchen_member_may_touch_its_branches() {
     assert_eq!(status, 401);
 }
 
+// --- The recipe as written (issue #43) ---------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saving_a_version_carries_the_whole_written_recipe_verbatim() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "10 Minute Chili Garlic Silken Tofu" })
+            .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &branch_id);
+
+    // "pinch of salt" and "Za'tar" are genuine text from Aurélien's
+    // 86-recipe Crouton corpus (samples/crouton/) — two of the 239 real
+    // Ingredient Lines that carry no quantity at all (ADR 0002). Crouton
+    // never stores a combined line for an amount-bearing ingredient (it
+    // splits quantity and name apart, which is the very loss ADR 0002
+    // rejects), so "2 tbsp soy sauce" below is ordinary written test input
+    // rather than a reconstruction of Crouton's split fields.
+    let body = json!({
+        "branch_id": branch_id,
+        "title": "10 Minute Chili Garlic Silken Tofu",
+        "yield": { "amount": "2", "noun": "servings" },
+        "prep_time_minutes": 10,
+        "cook_time_minutes": 5,
+        "note": "This doubles well for a crowd.",
+        "source": { "text": "Mum's ring binder, p.40", "link": null },
+        "ingredients": [
+            { "kind": "section", "text": "For the sauce" },
+            { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+            { "kind": "ingredient", "text": "pinch of salt" },
+            { "kind": "ingredient", "text": "Za’tar" },
+        ],
+        "steps": [
+            { "kind": "section", "text": "Drain the Tofu" },
+            {
+                "kind": "step",
+                "text": "Carefully remove tofu from package. Silken tofu can be quite fragile.",
+                "photo": null,
+            },
+            { "kind": "section", "text": "Prepare the Chili Garlic Sauce" },
+            {
+                "kind": "step",
+                "text": "In a small skillet, combine white parts of scallions, garlic, brown sugar.",
+            },
+        ],
+    });
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &body.to_string());
+    assert_eq!(status, 200, "{saved}");
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let content = &read_back["result"]["versions"][1]["content"];
+
+    assert_eq!(
+        content["title"],
+        json!("10 Minute Chili Garlic Silken Tofu")
+    );
+    assert_eq!(
+        content["yield"],
+        json!({ "amount": "2", "noun": "servings" })
+    );
+    assert_eq!(content["prep_time_minutes"], json!(10));
+    assert_eq!(content["cook_time_minutes"], json!(5));
+    assert_eq!(content["note"], json!("This doubles well for a crowd."));
+    assert_eq!(
+        content["source"],
+        json!({ "text": "Mum's ring binder, p.40", "link": null })
+    );
+    assert_eq!(
+        content["ingredients"],
+        json!([
+            { "kind": "section", "text": "For the sauce" },
+            { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+            { "kind": "ingredient", "text": "pinch of salt" },
+            { "kind": "ingredient", "text": "Za’tar" },
+        ]),
+        "an Ingredient Line survives exactly as typed, no quantity required (ADR 0002)"
+    );
+    assert_eq!(
+        content["steps"],
+        json!([
+            { "kind": "section", "text": "Drain the Tofu", "photo": null },
+            {
+                "kind": "step",
+                "text": "Carefully remove tofu from package. Silken tofu can be quite fragile.",
+                "photo": null,
+            },
+            { "kind": "section", "text": "Prepare the Chili Garlic Sauce", "photo": null },
+            {
+                "kind": "step",
+                "text": "In a small skillet, combine white parts of scallions, garlic, brown sugar.",
+                "photo": null,
+            },
+        ]),
+        "Sections are real entries in both lists, and a Step has no timer or temperature field"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bare_title_still_produces_a_complete_recipe_with_no_rating_field() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Bare Name Recipe" }).to_string(),
+    );
+    let content = &created["result"]["versions"][0]["content"];
+    assert_eq!(content["title"], json!("Bare Name Recipe"));
+    assert_eq!(content["yield"], json!(null));
+    assert_eq!(content["prep_time_minutes"], json!(null));
+    assert_eq!(content["cook_time_minutes"], json!(null));
+    assert_eq!(content["note"], json!(null));
+    assert_eq!(content["source"], json!(null));
+    assert_eq!(content["ingredients"], json!([]));
+    assert_eq!(content["steps"], json!([]));
+    assert!(
+        content.get("rating").is_none(),
+        "no rating field exists on a Recipe"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editing_any_part_of_the_written_recipe_mints_a_version() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let first_version = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Title unchanged; only the Note changes. It is still a Version — the
+    // fingerprint covers everything written, not the title alone (#43).
+    backdate_branch_head(&app, &branch_id);
+    let (_, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Soupe", "note": "Freezes well" }).to_string(),
+    );
+    assert_ne!(saved["result"]["version_id"], json!(first_version));
+    assert_eq!(saved["result"]["collapsed"], json!(false));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saving_a_version_rejects_malformed_recipe_fields() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, response) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Soupe", "prep_time_minutes": -5 }).to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+
+    let (status, response) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Soupe",
+            "ingredients": [{ "kind": "ingredient", "text": "   " }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+
+    let (status, response) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Soupe",
+            "steps": [{ "kind": "not-a-real-kind", "text": "Mix well" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+}
+
 // --- Access Keys and Sessions (issue #41) ------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

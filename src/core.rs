@@ -1051,17 +1051,17 @@ impl Core {
     }
 
     /// Create a Recipe: a Lineage, a Branch of it in the creating Kitchen, and
-    /// a first Version fingerprinted from its title alone (ADR 0004). A
-    /// recipe needs only a title.
+    /// a first Version fingerprinted from its content (ADR 0004). A recipe
+    /// needs only a title — every other field of `input` (Yield, Prep/Cook
+    /// Time, Note, Source, Ingredients, Steps) is optional (#43).
     pub fn create_recipe(
         &self,
         caller: &Caller,
         kitchen_id: &str,
-        title: &str,
+        input: &Value,
         language: Option<&str>,
     ) -> Result<Value, OpError> {
-        let title = required_text(title, "title")?.to_string();
-        let content = json!({ "title": title });
+        let content = parse_recipe_content(input)?;
         let version_id = fingerprint_content(&content);
         let content_text = canonical_json(&content);
         let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
@@ -1126,12 +1126,11 @@ impl Core {
         &self,
         caller: &Caller,
         branch_id: &str,
-        title: &str,
+        input: &Value,
         name: Option<&str>,
         change_note: Option<&str>,
     ) -> Result<Value, OpError> {
-        let title = required_text(title, "title")?.to_string();
-        let content = json!({ "title": title });
+        let content = parse_recipe_content(input)?;
         let version_id = fingerprint_content(&content);
         let content_text = canonical_json(&content);
 
@@ -1389,6 +1388,198 @@ fn fingerprint_content(content: &Value) -> String {
         "v_{}",
         hex::encode(Sha256::digest(canonical_json(content).as_bytes()))
     )
+}
+
+/// Build and validate the stored shape of a Recipe's content out of raw
+/// request input (#43): the title, the optional Yield, Prep/Cook Time, Note
+/// and Source, and the Ingredient Line and Step lists — each a flat, ordered
+/// sequence in which a Section is a real entry rather than a faked line
+/// (CONTEXT.md, "Section"). Every field but the title is optional and
+/// normalises to `null` or `[]` when absent, so `{ "title": "..." }` alone is
+/// a complete, valid Recipe. This is the whole state, never a delta: calling
+/// it again with fields left out replaces them, exactly as a fresh save of
+/// the title alone already did before this ticket.
+fn parse_recipe_content(input: &Value) -> Result<Value, OpError> {
+    let title = input
+        .get("title")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("title is required"))?;
+    let title = required_text(title, "title")?.to_string();
+
+    let recipe_yield = match input.get("yield") {
+        None | Some(Value::Null) => Value::Null,
+        Some(value) => parse_yield(value)?,
+    };
+    let prep_time_minutes =
+        parse_optional_minutes(input.get("prep_time_minutes"), "prep_time_minutes")?;
+    let cook_time_minutes =
+        parse_optional_minutes(input.get("cook_time_minutes"), "cook_time_minutes")?;
+    let note = match input.get("note") {
+        None | Some(Value::Null) => Value::Null,
+        Some(Value::String(text)) => json!(text),
+        Some(_) => return Err(OpError::bad_request("note must be a string or null")),
+    };
+    let source = match input.get("source") {
+        None | Some(Value::Null) => Value::Null,
+        Some(value) => parse_source(value)?,
+    };
+    let ingredients = parse_line_list(input.get("ingredients"), "ingredients", "ingredient")?;
+    let steps = parse_step_list(input.get("steps"))?;
+
+    Ok(json!({
+        "title": title,
+        "yield": recipe_yield,
+        "prep_time_minutes": prep_time_minutes,
+        "cook_time_minutes": cook_time_minutes,
+        "note": note,
+        "source": source,
+        "ingredients": ingredients,
+        "steps": steps,
+    }))
+}
+
+/// A Yield: one amount and what it is an amount of — "4 servings", "24
+/// cookies", "1.5 litres" are all the same field (CONTEXT.md, "Yield"), kept
+/// as written rather than parsed into a number and a Unit. The noun is a
+/// distinct concept from Unit (grams, cups, spoons — a closed, convertible
+/// list), so it is never called `unit` here.
+fn parse_yield(value: &Value) -> Result<Value, OpError> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| OpError::bad_request("yield must be an object with amount and noun"))?;
+    let amount = object
+        .get("amount")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("yield.amount is required"))?;
+    let amount = required_text(amount, "yield.amount")?.to_string();
+    let noun = object
+        .get("noun")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("yield.noun is required"))?;
+    let noun = required_text(noun, "yield.noun")?.to_string();
+    Ok(json!({ "amount": amount, "noun": noun }))
+}
+
+/// Prep Time and Cook Time are whole minutes; Cook Time includes resting,
+/// proving, marinating and chilling — one field for however the dish spends
+/// unattended time, documented at the Catalogue level for any Door reading
+/// it (CONTEXT.md, "Cook Time").
+fn parse_optional_minutes(value: Option<&Value>, field: &str) -> Result<Option<i64>, OpError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => number
+            .as_i64()
+            .filter(|minutes| *minutes >= 0)
+            .map(Some)
+            .ok_or_else(|| {
+                OpError::bad_request(format!(
+                    "{field} must be a whole number of minutes, zero or more"
+                ))
+            }),
+        Some(_) => Err(OpError::bad_request(format!(
+            "{field} must be a whole number of minutes, zero or more"
+        ))),
+    }
+}
+
+/// A Source: free text with an optional link — "Mum's ring binder, p.40" is
+/// as real an attribution as a URL (CONTEXT.md, "Source").
+fn parse_source(value: &Value) -> Result<Value, OpError> {
+    let object = value.as_object().ok_or_else(|| {
+        OpError::bad_request("source must be an object with text and an optional link")
+    })?;
+    let text = object
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("source.text is required"))?;
+    let text = required_text(text, "source.text")?.to_string();
+    let link = match object.get("link") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(link)) => {
+            let link = link.trim();
+            if link.is_empty() { None } else { Some(link) }
+        }
+        Some(_) => return Err(OpError::bad_request("source.link must be a string or null")),
+    };
+    Ok(json!({ "text": text, "link": link }))
+}
+
+/// The Ingredient list: a flat, ordered sequence of Sections and Ingredient
+/// Lines, each kept exactly as typed (ADR 0002) — never trimmed, never
+/// rewritten. Absent entirely, this is an empty list rather than an error,
+/// since a bare-name recipe with no ingredients yet is a real Recipe.
+fn parse_line_list(value: Option<&Value>, field: &str, line_kind: &str) -> Result<Value, OpError> {
+    let items = match value {
+        None => return Ok(json!([])),
+        Some(Value::Array(items)) => items,
+        Some(_) => return Err(OpError::bad_request(format!("{field} must be an array"))),
+    };
+    let mut parsed = Vec::with_capacity(items.len());
+    for item in items {
+        let object = item
+            .as_object()
+            .ok_or_else(|| OpError::bad_request(format!("each {field} entry must be an object")))?;
+        let kind = object
+            .get("kind")
+            .and_then(Value::as_str)
+            .ok_or_else(|| OpError::bad_request(format!("each {field} entry needs a kind")))?;
+        if kind != "section" && kind != line_kind {
+            return Err(OpError::bad_request(format!(
+                "{field} entries must be 'section' or '{line_kind}'"
+            )));
+        }
+        // The written line itself: preserved verbatim, so only its raw string
+        // reaches storage — `required_text`'s trim is used to reject a
+        // whitespace-only line, never to alter what is kept.
+        let text = object
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| OpError::bad_request(format!("each {field} entry needs text")))?;
+        required_text(text, "text")?;
+        parsed.push(json!({ "kind": kind, "text": text }));
+    }
+    Ok(Value::Array(parsed))
+}
+
+/// The Step list: the same flat Section-and-entry shape as the Ingredient
+/// list, where a Step carries text and an optional photo — no timer or
+/// temperature field to fill in (CONTEXT.md, "Step"). The photo is carried
+/// only as a reference for now; storing the picture itself belongs to a
+/// separate Photographs ticket (#45, ADR 0017).
+fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
+    let items = match value {
+        None => return Ok(json!([])),
+        Some(Value::Array(items)) => items,
+        Some(_) => return Err(OpError::bad_request("steps must be an array")),
+    };
+    let mut parsed = Vec::with_capacity(items.len());
+    for item in items {
+        let object = item
+            .as_object()
+            .ok_or_else(|| OpError::bad_request("each step entry must be an object"))?;
+        let kind = object
+            .get("kind")
+            .and_then(Value::as_str)
+            .ok_or_else(|| OpError::bad_request("each step entry needs a kind"))?;
+        if kind != "section" && kind != "step" {
+            return Err(OpError::bad_request(
+                "step entries must be 'section' or 'step'",
+            ));
+        }
+        let text = object
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| OpError::bad_request("each step entry needs text"))?;
+        required_text(text, "text")?;
+        let photo = match object.get("photo") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(photo)) if !photo.is_empty() => Some(photo.as_str()),
+            Some(Value::String(_)) => None,
+            Some(_) => return Err(OpError::bad_request("step photo must be a string or null")),
+        };
+        parsed.push(json!({ "kind": kind, "text": text, "photo": photo }));
+    }
+    Ok(Value::Array(parsed))
 }
 
 /// Create a Kitchen and seat its first member in one place — the shape a

@@ -230,9 +230,29 @@ export type DeleteKitchenOutput = {
 
 /** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 export type CreateRecipeInput = {
+	cook_time_minutes?: number | null;
+	ingredients?: {
+		kind: "section" | "ingredient";
+		text: string;
+	}[];
 	kitchen_id: string;
 	language?: "en" | "fr" | "es";
+	note?: string | null;
+	prep_time_minutes?: number | null;
+	source?: {
+		link: string | null;
+		text: string;
+	} | null;
+	steps?: {
+		kind: "section" | "step";
+		photo: string | null;
+		text: string;
+	}[];
 	title: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
 };
 /** What create_recipe answers. */
 export type CreateRecipeOutput = {
@@ -245,7 +265,29 @@ export type CreateRecipeOutput = {
 	origin_address: string | null;
 	versions: {
 		change_note: string | null;
-		content: Record<string, never>;
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			note: string | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		created_at: string;
 		hand_id: string;
 		name: string | null;
@@ -255,12 +297,32 @@ export type CreateRecipeOutput = {
 	}[];
 };
 
-/** Save a new state of a Recipe onto a Branch. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
+/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
 export type SaveRecipeVersionInput = {
 	branch_id: string;
 	change_note?: string;
+	cook_time_minutes?: number | null;
+	ingredients?: {
+		kind: "section" | "ingredient";
+		text: string;
+	}[];
 	name?: string;
+	note?: string | null;
+	prep_time_minutes?: number | null;
+	source?: {
+		link: string | null;
+		text: string;
+	} | null;
+	steps?: {
+		kind: "section" | "step";
+		photo: string | null;
+		text: string;
+	}[];
 	title: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
 };
 /** What save_recipe_version answers. */
 export type SaveRecipeVersionOutput = {
@@ -296,7 +358,29 @@ export type GetRecipeOutput = {
 	origin_address: string | null;
 	versions: {
 		change_note: string | null;
-		content: Record<string, never>;
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			note: string | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		created_at: string;
 		hand_id: string;
 		name: string | null;
@@ -1359,6 +1443,35 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"cook_time_minutes": {
+					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"ingredient"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"kitchen_id": {
 					"type": "string"
 				},
@@ -1369,8 +1482,91 @@ export const CATALOGUE = [
 						"es"
 					]
 				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"prep_time_minutes": {
+					"description": "Whole minutes of active preparation.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"step"
+								]
+							},
+							"photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text",
+							"photo"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"title": {
 					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
 				}
 			},
 			"required": [
@@ -1417,6 +1613,134 @@ export const CATALOGUE = [
 								]
 							},
 							"content": {
+								"additionalProperties": false,
+								"properties": {
+									"cook_time_minutes": {
+										"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"ingredients": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"ingredient"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"note": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"prep_time_minutes": {
+										"description": "Whole minutes of active preparation.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"source": {
+										"additionalProperties": false,
+										"properties": {
+											"link": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"text",
+											"link"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"step"
+													]
+												},
+												"photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"photo"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"title": {
+										"type": "string"
+									},
+									"yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"title",
+									"yield",
+									"prep_time_minutes",
+									"cook_time_minutes",
+									"note",
+									"source",
+									"ingredients",
+									"steps"
+								],
 								"type": "object"
 							},
 							"created_at": {
@@ -1474,7 +1798,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a new state of a Recipe onto a Branch. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one.",
+		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -1486,11 +1810,123 @@ export const CATALOGUE = [
 				"change_note": {
 					"type": "string"
 				},
+				"cook_time_minutes": {
+					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"ingredient"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"name": {
 					"type": "string"
 				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"prep_time_minutes": {
+					"description": "Whole minutes of active preparation.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"step"
+								]
+							},
+							"photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text",
+							"photo"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"title": {
 					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
 				}
 			},
 			"required": [
@@ -1626,6 +2062,134 @@ export const CATALOGUE = [
 								]
 							},
 							"content": {
+								"additionalProperties": false,
+								"properties": {
+									"cook_time_minutes": {
+										"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"ingredients": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"ingredient"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"note": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"prep_time_minutes": {
+										"description": "Whole minutes of active preparation.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"source": {
+										"additionalProperties": false,
+										"properties": {
+											"link": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"text",
+											"link"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"step"
+													]
+												},
+												"photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"photo"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"title": {
+										"type": "string"
+									},
+									"yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"title",
+									"yield",
+									"prep_time_minutes",
+									"cook_time_minutes",
+									"note",
+									"source",
+									"ingredients",
+									"steps"
+								],
 								"type": "object"
 							},
 							"created_at": {
@@ -1934,7 +2498,7 @@ export interface KamosuClient {
 	deleteKitchen(input: DeleteKitchenInput): Promise<Answer<'delete_kitchen'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a new state of a Recipe onto a Branch. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
+	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
