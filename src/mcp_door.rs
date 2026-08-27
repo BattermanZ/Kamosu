@@ -55,7 +55,7 @@ async fn handle(
     let result = match method.as_str() {
         // The handshake is retired in this revision: requests are self-contained.
         "initialize" => Err(courteous_initialize_refusal()),
-        "tools/list" => Ok(tools_list()),
+        "tools/list" => Ok(tools_list(&core, &headers)),
         "tools/call" => tools_call(&core, &headers, request.get("params")),
         "tasks/get" => tasks_get(&core, &headers, request.get("params")),
         "tasks/cancel" => tasks_cancel(&core, &headers, request.get("params")),
@@ -85,9 +85,18 @@ fn courteous_initialize_refusal() -> Value {
     )
 }
 
-fn tools_list() -> Value {
+/// The listing itself is not an Operation and carries no permission check, but
+/// a read-only Access Key's writes are still absent from it (ADR 0031): the
+/// filter walks the Catalogue exactly as `Core::execute` refuses them, so the
+/// two can never disagree about which Operations that count as.
+fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
+    let secret = web_door::bearer_from_headers(headers);
+    let read_only = secret
+        .as_deref()
+        .is_some_and(|secret| core.is_read_only_credential(secret));
     let tools: Vec<Value> = catalogue::OPERATIONS
         .iter()
+        .filter(|op| !(read_only && op.write))
         .map(|op| {
             json!({
                 "name": op.name,

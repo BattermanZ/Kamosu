@@ -47,6 +47,16 @@ pub struct Operation {
     /// Whether it answers at once or as a Job. Enforced by the Core as well:
     /// no handler decides for itself whether it is allowed to be slow.
     pub kind: Kind,
+    /// Whether performing this Operation changes state. Enforced by the Core:
+    /// a read-only Access Key's Credential is refused every Operation that
+    /// carries this, and the MCP door does not list it as one of that Key's
+    /// tools (ADR 0031) — the filter walks the Catalogue, never a Door.
+    pub write: bool,
+    /// Whether this Operation may be carried out only by a Person who logged
+    /// in directly — never by an Access Key, however unrestricted. An Access
+    /// Key can mint no Key, change no password and mint no Invite, so a leaked
+    /// Key cannot become an account (ADR 0031).
+    pub session_only: bool,
     /// JSON Schema describing the input envelope.
     pub input_schema: Value,
     /// JSON Schema describing the output envelope. For a Job, this describes
@@ -73,6 +83,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "The version of this Kamosu and whether setup has happened.",
             permission: Permission::Public,
             kind: Kind::Immediate,
+            write: false,
+            session_only: false,
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
@@ -90,6 +102,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Set the Language and measures this Person reads in.",
             permission: Permission::Person,
             kind: Kind::Immediate,
+            write: true,
+            session_only: false,
             input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "reading_language": { "type": "string" }, "reading_measures": { "type": "string" } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             handler: crate::operations::set_reading_preferences,
@@ -99,6 +113,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Change this Person's current reminder name.",
             permission: Permission::Person,
             kind: Kind::Immediate,
+            write: true,
+            session_only: false,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             handler: crate::operations::rename_person,
@@ -108,6 +124,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "List this Person's browser Sessions by device and last use.",
             permission: Permission::Person,
             kind: Kind::Immediate,
+            write: false,
+            session_only: false,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "sessions": { "type": "array", "items": { "type": "object", "properties": { "id": {"type":"string"}, "name": {"type":"string"}, "created_at": {"type":"string"}, "last_used_at": {"type":["string","null"]}, "revoked": {"type":"boolean"} }, "required":["id","name","created_at","last_used_at","revoked"], "additionalProperties": false } } }, "required":["sessions"], "additionalProperties": false }),
             handler: crate::operations::list_sessions,
@@ -117,9 +135,84 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "End one of your browser Sessions.",
             permission: Permission::Person,
             kind: Kind::Immediate,
+            write: true,
+            session_only: false,
             input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
             handler: crate::operations::revoke_session,
+        },
+        Operation {
+            name: "mint_access_key",
+            summary: "Mint an Access Key for an agent to act as you, optionally read-only.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" },
+                    "read_only": { "type": "boolean", "default": false },
+                },
+                "required": ["name"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "name": { "type": "string" },
+                    "read_only": { "type": "boolean" },
+                    "secret": { "type": "string" },
+                },
+                "required": ["id", "name", "read_only", "secret"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::mint_access_key,
+        },
+        Operation {
+            name: "list_access_keys",
+            summary: "List this Person's Access Keys by name and last use.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "access_keys": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": { "type": "string" },
+                                "name": { "type": "string" },
+                                "read_only": { "type": "boolean" },
+                                "created_at": { "type": "string" },
+                                "last_used_at": { "type": ["string", "null"] },
+                                "revoked": { "type": "boolean" },
+                            },
+                            "required": ["id", "name", "read_only", "created_at", "last_used_at", "revoked"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["access_keys"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_access_keys,
+        },
+        Operation {
+            name: "revoke_access_key",
+            summary: "End one of your Access Keys.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "access_key_id": { "type": "string" } }, "required": ["access_key_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
+            handler: crate::operations::revoke_access_key,
         },
         // Watching slow work: two ordinary Operations, so a browser polling an
         // import and an agent polling the same import use the identical shape.
@@ -130,6 +223,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       or by anyone when no Person did.",
             permission: Permission::Public,
             kind: Kind::Immediate,
+            write: false,
+            session_only: false,
             input_schema: json!({
                 "type": "object",
                 "properties": { "job_id": { "type": "string" } },
@@ -145,6 +240,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       while it still waits in line.",
             permission: Permission::Public,
             kind: Kind::Immediate,
+            write: true,
+            session_only: false,
             input_schema: json!({
                 "type": "object",
                 "properties": { "job_id": { "type": "string" } },
@@ -166,6 +263,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "List the Jobs this Person has asked for, newest first.",
             permission: Permission::Person,
             kind: Kind::Immediate,
+            write: false,
+            session_only: false,
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
@@ -202,6 +301,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                   when asked to.",
         permission: Permission::Public,
         kind: Kind::Job,
+        write: true,
+        session_only: false,
         input_schema: json!({
             "type": "object",
             "properties": {

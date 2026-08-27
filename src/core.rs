@@ -103,9 +103,13 @@ impl std::fmt::Display for OpError {
 pub struct Caller {
     pub person_id: String,
     /// True when the Credential came from an Access Key minted read-only.
-    /// Nothing refuses it yet — there are no write Operations to refuse — but
-    /// the first one must consult this or the flag is decoration.
+    /// `Core::execute` refuses every Operation the Catalogue declares `write`
+    /// to a caller carrying this (ADR 0031).
     pub read_only: bool,
+    /// True when the Credential came from an Access Key rather than a login
+    /// Session. `Core::execute` refuses every Operation the Catalogue declares
+    /// `session_only` to a caller carrying this, however unrestricted the Key.
+    pub via_access_key: bool,
 }
 
 /// One asking of an Operation: who is acting, and (when the Operation runs as a
@@ -114,6 +118,15 @@ pub struct Caller {
 struct Session {
     id: String,
     secret: String,
+}
+
+/// The answer to minting an Access Key: the raw Secret, shown once and never
+/// stored, alongside what the Key is known by afterwards.
+pub struct AccessKey {
+    pub id: String,
+    pub secret: String,
+    pub name: String,
+    pub read_only: bool,
 }
 
 pub struct Invocation {
@@ -194,6 +207,25 @@ impl Core {
             }
         }
 
+        // The read-only filter and the session-only rule both live here, beneath
+        // both Doors, alongside the permission check above — a Door adding either
+        // check itself would be the same bug as a Door checking permission.
+        if let Some(caller) = &caller {
+            if op.write && caller.read_only {
+                return Err(OpError::unauthorized(format!(
+                    "Operation '{}' writes, and this Credential is a read-only Access Key",
+                    op.name
+                )));
+            }
+            if op.session_only && caller.via_access_key {
+                return Err(OpError::unauthorized(format!(
+                    "Operation '{}' may be performed only by a Person logged in directly, \
+                     never by an Access Key",
+                    op.name
+                )));
+            }
+        }
+
         let invocation = Invocation { caller, job: None };
 
         match op.kind {
@@ -241,11 +273,13 @@ impl Core {
         jobs::cancel_if_queued(self, job_id)
     }
 
-    /// Resolve a raw Secret to the Person it acts as: an Access Key today; a login
-    /// Session joins when accounts do. Stored hashed, never in the clear.
-    fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
-        let hash = hash_secret(secret);
-        let credential: Option<(String, bool, bool)> = self.db().with_conn(|conn| {
+    /// Look up what a Secret's hash names, without marking it used: `(person_id,
+    /// read_only, is_session)`, or nothing for an unknown or revoked Secret.
+    /// `resolve_credential` builds on this and additionally records the use;
+    /// `is_read_only_credential` reads only, so a Door merely listing what a
+    /// Key may do never counts as the Key being used.
+    fn lookup_credential(&self, hash: &str) -> Result<Option<(String, bool, bool)>, OpError> {
+        self.db().with_conn(|conn| {
             conn.query_row(
                 "SELECT person_id, read_only, 0 FROM access_keys WHERE secret_hash = ?1 AND revoked = 0
                  UNION ALL
@@ -256,9 +290,14 @@ impl Core {
             )
             .optional()
             .map_err(|e| OpError::internal(format!("cannot resolve Credential: {e}")))
-        })?;
+        })
+    }
 
-        match credential {
+    /// Resolve a raw Secret to the Person it acts as: an Access Key today; a login
+    /// Session joins when accounts do. Stored hashed, never in the clear.
+    fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
+        let hash = hash_secret(secret);
+        match self.lookup_credential(&hash)? {
             Some((person_id, read_only, is_session)) => {
                 let _ = self.db().with_conn(|conn| {
                     let table = if is_session { "sessions" } else { "access_keys" };
@@ -272,6 +311,7 @@ impl Core {
                 Ok(Caller {
                     person_id,
                     read_only,
+                    via_access_key: !is_session,
                 })
             }
             // Unknown or already-revoked: the same answer either way, saying nothing
@@ -282,6 +322,20 @@ impl Core {
         }
     }
 
+    /// Whether a Secret resolves to a read-only Access Key — for the MCP door's
+    /// tool listing alone, which is not itself an Operation and so does not go
+    /// through `execute` and must not mark the Key used just for being listed
+    /// against. An unresolvable or absent Secret is simply not read-only: the
+    /// listing itself requires no Credential.
+    pub fn is_read_only_credential(&self, secret: &str) -> bool {
+        let hash = hash_secret(secret);
+        self.lookup_credential(&hash)
+            .ok()
+            .flatten()
+            .map(|(_, read_only, _)| read_only)
+            .unwrap_or(false)
+    }
+
     /// Mint an Access Key for a Person. Plumbing beneath both Doors and the
     /// terminal — obtaining a Credential is not an Operation. The raw Secret is
     /// returned once and stored only as its hash.
@@ -290,9 +344,11 @@ impl Core {
         person_id: &str,
         key_name: &str,
         read_only: bool,
-    ) -> Result<String, OpError> {
+    ) -> Result<AccessKey, OpError> {
+        let key_name = required_text(key_name, "name")?.to_string();
         let secret = generate_secret();
         let hash = hash_secret(&secret);
+        let id = format!("ak_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
             let exists: bool = conn
                 .query_row("SELECT COUNT(*) FROM people WHERE id = ?1", params![person_id], |r| r.get(0))
@@ -302,13 +358,53 @@ impl Core {
                 return Err(OpError::bad_request(format!("no Person '{person_id}'")));
             }
             conn.execute(
-                "INSERT INTO access_keys (secret_hash, person_id, name, read_only) VALUES (?1, ?2, ?3, ?4)",
-                params![hash, person_id, key_name, read_only as i64],
+                "INSERT INTO access_keys (id, secret_hash, person_id, name, read_only) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, hash, person_id, key_name, read_only as i64],
             )
             .map_err(|e| OpError::internal(format!("cannot mint access key: {e}")))?;
             Ok(())
         })?;
-        Ok(secret)
+        Ok(AccessKey {
+            id,
+            secret,
+            name: key_name,
+            read_only,
+        })
+    }
+
+    /// Access Keys remain knowable by their name and last use until revoked;
+    /// their Secret never appears in this record — only its one-time minting
+    /// answer carries it.
+    pub fn access_keys_of(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
+        self.db().with_conn(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT id, name, read_only, created_at, last_used_at, revoked FROM access_keys WHERE person_id = ?1 ORDER BY created_at DESC",
+            ).map_err(|e| OpError::internal(format!("cannot list Access Keys: {e}")))?;
+            statement.query_map(params![person_id], |row| Ok(json!({
+                "id": row.get::<_, String>(0)?, "name": row.get::<_, String>(1)?,
+                "read_only": row.get::<_, i64>(2)? != 0,
+                "created_at": row.get::<_, String>(3)?, "last_used_at": row.get::<_, Option<String>>(4)?,
+                "revoked": row.get::<_, i64>(5)? != 0,
+            }))).map_err(|e| OpError::internal(format!("cannot read Access Keys: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read Access Keys: {e}")))
+        })
+    }
+
+    pub fn revoke_access_key(&self, person_id: &str, key_id: &str) -> Result<(), OpError> {
+        let changed = self.db().with_conn(|conn| {
+            conn.execute(
+                "UPDATE access_keys SET revoked = 1 WHERE id = ?1 AND person_id = ?2 AND revoked = 0",
+                params![key_id, person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot revoke Access Key: {e}")))
+        })?;
+        if changed == 0 {
+            return Err(OpError::not_found(
+                "no live Access Key with that id belongs to this Person",
+            ));
+        }
+        Ok(())
     }
 
     /// The fresh-instance door: one Person wins it, becomes the Operator, and

@@ -56,6 +56,42 @@ export type RevokeSessionOutput = {
 	revoked: boolean;
 };
 
+/** Mint an Access Key for an agent to act as you, optionally read-only. */
+export type MintAccessKeyInput = {
+	name: string;
+	read_only?: boolean;
+};
+/** What mint_access_key answers. */
+export type MintAccessKeyOutput = {
+	id: string;
+	name: string;
+	read_only: boolean;
+	secret: string;
+};
+
+/** List this Person's Access Keys by name and last use. */
+export type ListAccessKeysInput = Record<string, never>;
+/** What list_access_keys answers. */
+export type ListAccessKeysOutput = {
+	access_keys: {
+		created_at: string;
+		id: string;
+		last_used_at: string | null;
+		name: string;
+		read_only: boolean;
+		revoked: boolean;
+	}[];
+};
+
+/** End one of your Access Keys. */
+export type RevokeAccessKeyInput = {
+	access_key_id: string;
+};
+/** What revoke_access_key answers. */
+export type RevokeAccessKeyOutput = {
+	revoked: boolean;
+};
+
 /** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 export type GetJobInput = {
 	job_id: string;
@@ -131,6 +167,24 @@ export interface Operations {
 	revoke_session: {
 		input: RevokeSessionInput;
 		output: RevokeSessionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	mint_access_key: {
+		input: MintAccessKeyInput;
+		output: MintAccessKeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_access_keys: {
+		input: ListAccessKeysInput;
+		output: ListAccessKeysOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	revoke_access_key: {
+		input: RevokeAccessKeyInput;
+		output: RevokeAccessKeyOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -352,6 +406,140 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "mint_access_key",
+		"summary": "Mint an Access Key for an agent to act as you, optionally read-only.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"read_only": {
+					"default": false,
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"read_only": {
+					"type": "boolean"
+				},
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"read_only",
+				"secret"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_access_keys",
+		"summary": "List this Person's Access Keys by name and last use.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"access_keys": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_used_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": "string"
+							},
+							"read_only": {
+								"type": "boolean"
+							},
+							"revoked": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"read_only",
+							"created_at",
+							"last_used_at",
+							"revoked"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"access_keys"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "revoke_access_key",
+		"summary": "End one of your Access Keys.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"access_key_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"access_key_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"revoked": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"revoked"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_job",
 		"summary": "Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
 		"permission": "public",
@@ -536,6 +724,9 @@ export const METHOD_NAMES = {
 	rename_person: 'renamePerson',
 	list_sessions: 'listSessions',
 	revoke_session: 'revokeSession',
+	mint_access_key: 'mintAccessKey',
+	list_access_keys: 'listAccessKeys',
+	revoke_access_key: 'revokeAccessKey',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	list_jobs: 'listJobs',
@@ -553,6 +744,12 @@ export interface KamosuClient {
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** End one of your browser Sessions. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
+	/** Mint an Access Key for an agent to act as you, optionally read-only. */
+	mintAccessKey(input: MintAccessKeyInput): Promise<Answer<'mint_access_key'>>;
+	/** List this Person's Access Keys by name and last use. */
+	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
+	/** End one of your Access Keys. */
+	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */

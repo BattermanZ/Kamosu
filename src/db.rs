@@ -130,6 +130,22 @@ pub const MIGRATIONS: &[Migration] = &[
             ON people(name) WHERE password_hash IS NOT NULL;
         "#,
     },
+    Migration {
+        version: 5,
+        description: "an Access Key is known by an id, not its secret hash",
+        sql: r#"
+        ALTER TABLE access_keys ADD COLUMN id TEXT;
+        UPDATE access_keys SET id = 'ak_' || lower(hex(randomblob(8))) WHERE id IS NULL;
+        CREATE UNIQUE INDEX access_keys_id_unique ON access_keys(id);
+        "#,
+    },
+    Migration {
+        version: 6,
+        description: "a Job remembers whether an Access Key asked for it",
+        sql: r#"
+        ALTER TABLE jobs ADD COLUMN via_access_key INTEGER NOT NULL DEFAULT 0;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

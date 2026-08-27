@@ -44,5 +44,19 @@
 	"account_password": "Password",
 	"account_create": "Create my account",
 	"account_login": "Log in",
-	"account_failed": "That name and password do not match."
+	"account_failed": "That name and password do not match.",
+	"settings_access": "Access",
+	"settings_sessions": "Sessions",
+	"settings_access_keys": "Access Keys",
+	"access_sessions_empty": "No Sessions yet.",
+	"access_keys_empty": "No Access Keys yet.",
+	"access_last_used": "Last used {when}",
+	"access_never_used": "Never used",
+	"access_end": "End",
+	"access_key_read_only": "Read-only",
+	"access_key_read_only_label": "Read-only — never mints a Key, changes a password or mints an Invite",
+	"access_key_name": "Name",
+	"access_key_mint": "Create Access Key",
+	"access_key_secret_once": "Copy this now — it is shown once and never again.",
+	"access_key_secret_dismiss": "Done, I copied it"
 }

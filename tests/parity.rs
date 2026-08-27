@@ -33,6 +33,8 @@ fn arguments_for(name: &str) -> Value {
         "set_reading_preferences" => json!({ "reading_language": "en", "reading_measures": "us" }),
         "rename_person" => json!({ "name": "Parity" }),
         "revoke_session" => json!({ "session_id": "s_parity" }),
+        "mint_access_key" => json!({ "name": "parity key" }),
+        "revoke_access_key" => json!({ "access_key_id": "ak_parity" }),
         _ => json!({}),
     }
 }
@@ -45,7 +47,14 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
         let (body_text, expected_status) = match op.name {
             "get_job" | "cancel_job" => (r#"{"job_id":"parity-no-such-job"}"#, 404),
             // Person-only Operations answer the stranger with a refusal.
-            "list_jobs" | "list_sessions" | "set_reading_preferences" | "rename_person" | "revoke_session" => ("{}", 401),
+            "list_jobs"
+            | "list_sessions"
+            | "set_reading_preferences"
+            | "rename_person"
+            | "revoke_session"
+            | "mint_access_key"
+            | "list_access_keys"
+            | "revoke_access_key" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -112,7 +121,16 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
             follow_task(&app, name, result["taskId"].clone());
         } else if matches!(
             name,
-            "get_job" | "list_jobs" | "list_sessions" | "cancel_job" | "set_reading_preferences" | "rename_person" | "revoke_session"
+            "get_job"
+                | "list_jobs"
+                | "list_sessions"
+                | "cancel_job"
+                | "set_reading_preferences"
+                | "rename_person"
+                | "revoke_session"
+                | "mint_access_key"
+                | "list_access_keys"
+                | "revoke_access_key"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.
@@ -160,6 +178,63 @@ fn follow_task(app: &support::TestApp, name: &str, task_id: serde_json::Value) {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     panic!("task for tool '{name}' never reached an end state");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let read_only_key = app
+        .core
+        .mint_access_key(&person, "read-only agent", true)
+        .unwrap()
+        .secret;
+    let full_key = app
+        .core
+        .mint_access_key(&person, "full agent", false)
+        .unwrap()
+        .secret;
+
+    let (_, listing) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+        Some(&read_only_key),
+    );
+    let mut served: Vec<&str> = listing["result"]["tools"]
+        .as_array()
+        .expect("tools list")
+        .iter()
+        .map(|t| t["name"].as_str().expect("tool name"))
+        .collect();
+    served.sort_unstable();
+
+    let mut expected_reads: Vec<&str> = catalogue::OPERATIONS
+        .iter()
+        .filter(|op| !op.write)
+        .map(|op| op.name)
+        .collect();
+    expected_reads.sort_unstable();
+
+    assert_eq!(
+        served, expected_reads,
+        "a read-only Access Key's MCP tool list must be exactly the Catalogue's \
+         non-writing Operations — nothing more, nothing less"
+    );
+
+    // A full-power Key's list is untouched: every Operation, writes included.
+    let (_, full_listing) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        Some(&full_key),
+    );
+    let mut full_served: Vec<&str> = full_listing["result"]["tools"]
+        .as_array()
+        .expect("tools list")
+        .iter()
+        .map(|t| t["name"].as_str().expect("tool name"))
+        .collect();
+    full_served.sort_unstable();
+    let mut every_operation: Vec<&str> = catalogue::OPERATIONS.iter().map(|op| op.name).collect();
+    every_operation.sort_unstable();
+    assert_eq!(full_served, every_operation);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

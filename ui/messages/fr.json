@@ -44,5 +44,19 @@
 	"account_password": "Mot de passe",
 	"account_create": "Créer mon compte",
 	"account_login": "Se connecter",
-	"account_failed": "Ce nom et ce mot de passe ne correspondent pas."
+	"account_failed": "Ce nom et ce mot de passe ne correspondent pas.",
+	"settings_access": "Accès",
+	"settings_sessions": "Sessions",
+	"settings_access_keys": "Clés d’accès",
+	"access_sessions_empty": "Pas encore de session.",
+	"access_keys_empty": "Pas encore de clé d’accès.",
+	"access_last_used": "Dernière utilisation {when}",
+	"access_never_used": "Jamais utilisée",
+	"access_end": "Terminer",
+	"access_key_read_only": "Lecture seule",
+	"access_key_read_only_label": "Lecture seule — ne crée jamais de clé, ne change jamais un mot de passe et ne crée jamais d’invitation",
+	"access_key_name": "Nom",
+	"access_key_mint": "Créer une clé d’accès",
+	"access_key_secret_once": "Copiez-la maintenant — elle n’est montrée qu’une seule fois.",
+	"access_key_secret_dismiss": "C’est fait, je l’ai copiée"
 }

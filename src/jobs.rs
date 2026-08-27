@@ -114,6 +114,7 @@ pub struct JobRecord {
     /// The Person who asked, when one did; None for work a stranger caused.
     pub person_id: Option<String>,
     pub read_only: bool,
+    pub via_access_key: bool,
     pub operation: String,
     pub input: Value,
     pub status: JobStatus,
@@ -286,6 +287,7 @@ impl crate::core::Core {
                     let caller = record.person_id.clone().map(|person_id| Caller {
                         person_id,
                         read_only: record.read_only,
+                        via_access_key: record.via_access_key,
                     });
                     let invocation = Invocation {
                         caller,
@@ -350,18 +352,23 @@ pub fn record(
     input: Value,
 ) -> Result<String, OpError> {
     let job_id = new_id();
-    let (person_id, read_only) = match &invocation.caller {
-        Some(caller) => (Some(caller.person_id.clone()), caller.read_only),
-        None => (None, false),
+    let (person_id, read_only, via_access_key) = match &invocation.caller {
+        Some(caller) => (
+            Some(caller.person_id.clone()),
+            caller.read_only,
+            caller.via_access_key,
+        ),
+        None => (None, false, false),
     };
     core.db().with_conn(|conn| {
         conn.execute(
-            "INSERT INTO jobs (id, person_id, read_only, operation, input)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO jobs (id, person_id, read_only, via_access_key, operation, input)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 job_id,
                 person_id,
                 read_only as i64,
+                via_access_key as i64,
                 operation,
                 input.to_string()
             ],
@@ -385,7 +392,7 @@ pub fn forget(core: &crate::core::Core, job_id: &str) -> Result<(), OpError> {
 pub fn read(core: &crate::core::Core, job_id: &str) -> Result<Option<JobRecord>, OpError> {
     core.db().with_conn(|conn| {
         conn.prepare(
-            "SELECT id, person_id, read_only, operation, input, status,
+            "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
                         result, error, error_code, created_at, updated_at
                  FROM jobs WHERE id = ?1",
@@ -405,7 +412,7 @@ pub fn read_of_person(
     core.db().with_conn(|conn| {
         let mut stmt = conn
             .prepare(
-                "SELECT id, person_id, read_only, operation, input, status,
+                "SELECT id, person_id, read_only, via_access_key, operation, input, status,
                         progress_done, progress_total, progress_message,
                         result, error, error_code, created_at, updated_at
                  FROM jobs WHERE person_id = ?1
@@ -426,19 +433,20 @@ fn map_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<JobRecord> {
         id: row.get(0)?,
         person_id: row.get(1)?,
         read_only: row.get::<_, i64>(2)? != 0,
-        operation: row.get(3)?,
-        input: serde_json::from_str(&row.get::<_, String>(4)?).unwrap_or(Value::Null),
-        status: JobStatus::from_column(row.get(5)?),
-        progress_done: row.get(6)?,
-        progress_total: row.get(7)?,
-        progress_message: row.get(8)?,
+        via_access_key: row.get::<_, i64>(3)? != 0,
+        operation: row.get(4)?,
+        input: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or(Value::Null),
+        status: JobStatus::from_column(row.get(6)?),
+        progress_done: row.get(7)?,
+        progress_total: row.get(8)?,
+        progress_message: row.get(9)?,
         result: row
-            .get::<_, Option<String>>(9)?
+            .get::<_, Option<String>>(10)?
             .map(|t| serde_json::from_str(&t).unwrap_or(Value::Null)),
-        error: row.get(10)?,
-        error_code: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        error: row.get(11)?,
+        error_code: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 

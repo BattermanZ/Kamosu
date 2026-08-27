@@ -47,7 +47,8 @@ async fn asking_for_a_job_returns_an_id_at_once_and_the_result_is_read_at_both_d
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
-        .unwrap();
+        .unwrap()
+        .secret;
 
     // Asking answers immediately — long before the work it names has finished.
     let started = Instant::now();
@@ -244,6 +245,199 @@ async fn logging_in_mints_a_revocable_session_credential() {
     assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 401);
 }
 
+// --- Access Keys and Sessions (issue #41) ------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn minting_an_access_key_shows_the_secret_once_afterwards_known_by_name_and_last_use() {
+    let app = support::spawn_app();
+    let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "first browser" });
+    let created = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(created.status, 200, "{}", created.body);
+    let session_secret = created
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .and_then(|(_, value)| value.split(';').next())
+        .and_then(|pair| pair.strip_prefix("kamosu_session="))
+        .expect("HttpOnly session cookie")
+        .to_string();
+
+    // Minting an Access Key is a Person's own act — never an Access Key's, so
+    // this is asked with the Session the account creation just minted.
+    let (status, minted) = app.post_op(
+        "mint_access_key",
+        Some(&session_secret),
+        r#"{"name":"my agent","read_only":false}"#,
+    );
+    assert_eq!(status, 200, "{minted}");
+    let secret = minted["result"]["secret"]
+        .as_str()
+        .expect("the secret, shown once")
+        .to_string();
+    assert_eq!(minted["result"]["name"], json!("my agent"));
+    assert_eq!(minted["result"]["read_only"], json!(false));
+    assert!(minted["result"]["id"].as_str().is_some());
+
+    // The new Key works as a Credential in its own right.
+    assert_eq!(app.post_op("list_jobs", Some(&secret), "{}").0, 200);
+
+    // And it appears in the list by name and last use — never by its Secret,
+    // which the listing carries nowhere.
+    let (_, listed) = app.post_op("list_access_keys", Some(&session_secret), "{}");
+    let keys = listed["result"]["access_keys"].as_array().expect("keys");
+    let mine = keys
+        .iter()
+        .find(|k| k["name"] == json!("my agent"))
+        .expect("the minted Key is listed");
+    assert!(mine["last_used_at"].is_string(), "used just now, above");
+    assert_eq!(mine["revoked"], json!(false));
+    for key_entry in keys {
+        assert!(
+            key_entry.get("secret").is_none(),
+            "the listing must never carry a Secret: {key_entry}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_only_access_key_is_refused_every_writing_operation_at_both_doors() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let read_only_key = app
+        .core
+        .mint_access_key(&person, "read-only agent", true)
+        .unwrap()
+        .secret;
+
+    // Reading still works.
+    assert_eq!(
+        app.post_op("list_sessions", Some(&read_only_key), "{}").0,
+        200
+    );
+
+    // Writing is refused — at the web door...
+    let (status, refused) = app.post_op(
+        "rename_person",
+        Some(&read_only_key),
+        r#"{"name":"New Name"}"#,
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+
+    // ...and at the MCP door, the same Operation through the same Core.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "rename_person", "arguments": { "name": "New Name" } },
+    });
+    let (_, mcp_refused) = app.post_mcp(&call.to_string(), Some(&read_only_key));
+    assert_eq!(
+        mcp_refused["result"]["isError"],
+        json!(true),
+        "{mcp_refused}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_access_key_cannot_mint_an_access_key_however_unrestricted() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let full_power_key = app
+        .core
+        .mint_access_key(&person, "full agent", false)
+        .unwrap()
+        .secret;
+
+    let (status, refused) = app.post_op(
+        "mint_access_key",
+        Some(&full_power_key),
+        r#"{"name":"a second key"}"#,
+    );
+    assert_eq!(
+        status, 401,
+        "an Access Key minted another Access Key: {refused}"
+    );
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn revoking_one_access_key_leaves_the_others_working() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let admin_key = app
+        .core
+        .mint_access_key(&person, "admin", false)
+        .unwrap()
+        .secret;
+    let doomed = app.core.mint_access_key(&person, "doomed", false).unwrap();
+    let survivor = app
+        .core
+        .mint_access_key(&person, "survivor", false)
+        .unwrap()
+        .secret;
+
+    let (status, revoked) = app.post_op(
+        "revoke_access_key",
+        Some(&admin_key),
+        &json!({ "access_key_id": doomed.id }).to_string(),
+    );
+    assert_eq!(status, 200, "{revoked}");
+    assert_eq!(revoked["result"]["revoked"], json!(true));
+
+    assert_eq!(
+        app.post_op("instance_status", Some(&doomed.secret), "{}").0,
+        401,
+        "the revoked Key still worked"
+    );
+    assert_eq!(
+        app.post_op("instance_status", Some(&survivor), "{}").0,
+        200,
+        "revoking one Key must not touch another"
+    );
+
+    // Revoking it again finds nothing live to revoke.
+    let (status, _) = app.post_op(
+        "revoke_access_key",
+        Some(&admin_key),
+        &json!({ "access_key_id": doomed.id }).to_string(),
+    );
+    assert_eq!(status, 404);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn listing_mcp_tools_does_not_itself_count_as_using_the_access_key() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let admin_key = app
+        .core
+        .mint_access_key(&person, "admin", false)
+        .unwrap()
+        .secret;
+    let watched = app.core.mint_access_key(&person, "watched", false).unwrap();
+
+    // Merely asking what tools a Key may use must not read as the Key having
+    // been used — otherwise a compromised, idle Key polling tools/list would
+    // look active in the Sessions-and-Keys list a Person actually watches.
+    app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+        Some(&watched.secret),
+    );
+
+    let (_, listed) = app.post_op("list_access_keys", Some(&admin_key), "{}");
+    let mine = listed["result"]["access_keys"]
+        .as_array()
+        .expect("keys")
+        .iter()
+        .find(|k| k["id"] == json!(watched.id))
+        .expect("the watched Key is listed");
+    assert_eq!(
+        mine["last_used_at"],
+        Value::Null,
+        "listing tools must not bump last_used_at: {mine}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn login_throttling_slows_guesses_but_a_correct_password_clears_it() {
     let app = support::spawn_app();
@@ -308,7 +502,8 @@ async fn a_real_credential_names_a_person_at_the_web_door() {
     let secret = app
         .core
         .mint_access_key(&person, "my agent", false)
-        .expect("key");
+        .expect("key")
+        .secret;
 
     // A recognised Credential passes.
     let (status, _) = app.post_op("instance_status", Some(&secret), "{}");
@@ -577,7 +772,11 @@ async fn a_job_that_fails_reports_why_through_the_same_operations() {
 async fn a_stranger_may_cause_work_but_never_work_that_scales_with_them() {
     let app = support::spawn_app();
     let person = app.core.create_person("Aurélien").expect("person");
-    let key = app.core.mint_access_key(&person, "member", false).unwrap();
+    let key = app
+        .core
+        .mint_access_key(&person, "member", false)
+        .unwrap()
+        .secret;
 
     // The strangers' lane carries one at a time behind a short bounded line.
     // Fill it: five asks are accepted (one working, four in line), and every
@@ -610,12 +809,14 @@ async fn a_job_is_read_by_the_person_who_asked_for_it_and_listed_to_them_alone()
     let his_key = app
         .core
         .mint_access_key(&aurelien, "his agent", false)
-        .unwrap();
+        .unwrap()
+        .secret;
     let marie = app.core.create_person("Marie").expect("person");
     let her_key = app
         .core
         .mint_access_key(&marie, "her agent", false)
-        .unwrap();
+        .unwrap()
+        .secret;
 
     let (_, ask) = app.post_op("probe_job", Some(&his_key), r#"{"steps":2,"delay_ms":10}"#);
     let job_id = ask["result"]["job_id"]
@@ -866,7 +1067,11 @@ async fn a_database_at_an_old_schema_migrates_forward_and_serves() {
     // no down-migration exists to reach for (ADR 0030).
     let app = support::spawn_app_in(&data_dir);
     let person = app.core.create_person("Aurélien").expect("person");
-    let key = app.core.mint_access_key(&person, "browser", false).unwrap();
+    let key = app
+        .core
+        .mint_access_key(&person, "browser", false)
+        .unwrap()
+        .secret;
 
     // The migrated schema serves real Operations — the Job shape works, which is
     // what migration 2 added.

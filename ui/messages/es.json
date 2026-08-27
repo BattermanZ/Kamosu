@@ -44,5 +44,19 @@
 	"account_password": "Contraseña",
 	"account_create": "Crear mi cuenta",
 	"account_login": "Iniciar sesión",
-	"account_failed": "Ese nombre y contraseña no coinciden."
+	"account_failed": "Ese nombre y contraseña no coinciden.",
+	"settings_access": "Acceso",
+	"settings_sessions": "Sesiones",
+	"settings_access_keys": "Claves de acceso",
+	"access_sessions_empty": "Todavía no hay sesiones.",
+	"access_keys_empty": "Todavía no hay claves de acceso.",
+	"access_last_used": "Usada por última vez {when}",
+	"access_never_used": "Nunca usada",
+	"access_end": "Terminar",
+	"access_key_read_only": "Solo lectura",
+	"access_key_read_only_label": "Solo lectura — nunca crea una clave, cambia una contraseña ni crea una invitación",
+	"access_key_name": "Nombre",
+	"access_key_mint": "Crear clave de acceso",
+	"access_key_secret_once": "Cópiala ahora — se muestra una vez y nunca más.",
+	"access_key_secret_dismiss": "Hecho, la copié"
 }

@@ -88,6 +88,55 @@ pub fn revoke_session(
     Ok(json!({ "revoked": true }))
 }
 
+pub fn mint_access_key(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("mint_access_key takes { name, read_only? }"))?;
+    let read_only = input
+        .get("read_only")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let caller = caller_of(invocation)?;
+    let key = core.mint_access_key(&caller.person_id, name, read_only)?;
+    Ok(json!({
+        "id": key.id,
+        "name": key.name,
+        "read_only": key.read_only,
+        "secret": key.secret,
+    }))
+}
+
+pub fn list_access_keys(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request("list_access_keys takes no input"));
+    }
+    let caller = caller_of(invocation)?;
+    Ok(json!({ "access_keys": core.access_keys_of(&caller.person_id)? }))
+}
+
+pub fn revoke_access_key(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let access_key_id = input
+        .get("access_key_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("revoke_access_key takes { access_key_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.revoke_access_key(&caller.person_id, access_key_id)?;
+    Ok(json!({ "revoked": true }))
+}
+
 /// Read one Job back: its state, its progress, and its result or the reason it
 /// failed. This is where watching slow work happens — at both Doors alike.
 pub fn get_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
