@@ -23,3 +23,6 @@ kamosu-data/
 
 # CodeGraph index — machine-local, rebuilt by `codegraph init/sync`
 .codegraph/
+
+# Machine-local secrets for the dev instance — never committed
+.env
