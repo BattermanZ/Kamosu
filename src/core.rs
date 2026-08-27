@@ -112,6 +112,11 @@ pub struct Caller {
     pub via_access_key: bool,
     /// Whether this Person administers the instance.
     pub is_operator: bool,
+    /// The Access Key that resolved this Credential, if any — never set for a
+    /// login Session. Local only: a Version records it (CONTEXT.md, "Version")
+    /// so it never travels in a Bundle. No Operation surfaces it back yet —
+    /// that is for whichever future ticket reads a Version's full detail.
+    pub access_key_id: Option<String>,
 }
 
 /// One asking of an Operation: who is acting, and (when the Operation runs as a
@@ -130,6 +135,10 @@ pub struct AccessKey {
     pub name: String,
     pub read_only: bool,
 }
+
+/// One row `lookup_credential` can find: `(person_id, read_only, is_session,
+/// is_operator, access_key_id)`.
+type CredentialLookup = (String, bool, bool, bool, Option<String>);
 
 pub struct Invocation {
     pub caller: Option<Caller>,
@@ -288,19 +297,19 @@ impl Core {
     /// `resolve_credential` builds on this and additionally records the use;
     /// `is_read_only_credential` reads only, so a Door merely listing what a
     /// Key may do never counts as the Key being used.
-    fn lookup_credential(&self, hash: &str) -> Result<Option<(String, bool, bool, bool)>, OpError> {
+    fn lookup_credential(&self, hash: &str) -> Result<Option<CredentialLookup>, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator
+                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator, access_keys.id
                    FROM access_keys JOIN people ON people.id = access_keys.person_id
                    WHERE access_keys.secret_hash = ?1 AND access_keys.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  UNION ALL
-                 SELECT sessions.person_id, 0, 1, people.is_operator
+                 SELECT sessions.person_id, 0, 1, people.is_operator, NULL
                    FROM sessions JOIN people ON people.id = sessions.person_id
                    WHERE sessions.secret_hash = ?1 AND sessions.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  LIMIT 1",
                 params![hash],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
             .optional()
             .map_err(|e| OpError::internal(format!("cannot resolve Credential: {e}")))
@@ -312,7 +321,7 @@ impl Core {
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         let hash = hash_secret(secret);
         match self.lookup_credential(&hash)? {
-            Some((person_id, read_only, is_session, is_operator)) => {
+            Some((person_id, read_only, is_session, is_operator, access_key_id)) => {
                 let _ = self.db().with_conn(|conn| {
                     let table = if is_session { "sessions" } else { "access_keys" };
                     conn.execute(
@@ -327,6 +336,7 @@ impl Core {
                     read_only,
                     via_access_key: !is_session,
                     is_operator,
+                    access_key_id,
                 })
             }
             // Unknown or already-revoked: the same answer either way, saying nothing
@@ -347,7 +357,7 @@ impl Core {
         self.lookup_credential(&hash)
             .ok()
             .flatten()
-            .map(|(_, read_only, _, _)| read_only)
+            .map(|(_, read_only, _, _, _)| read_only)
             .unwrap_or(false)
     }
 
@@ -1039,6 +1049,346 @@ impl Core {
             Ok(())
         })
     }
+
+    /// Create a Recipe: a Lineage, a Branch of it in the creating Kitchen, and
+    /// a first Version fingerprinted from its title alone (ADR 0004). A
+    /// recipe needs only a title.
+    pub fn create_recipe(
+        &self,
+        caller: &Caller,
+        kitchen_id: &str,
+        title: &str,
+        language: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let title = required_text(title, "title")?.to_string();
+        let content = json!({ "title": title });
+        let version_id = fingerprint_content(&content);
+        let content_text = canonical_json(&content);
+        let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
+        let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
+
+        self.db().with_conn(|conn| {
+            ensure_member(conn, kitchen_id, &caller.person_id)?;
+            let kitchen_hand_id: String = conn
+                .query_row(
+                    "SELECT hand_id FROM kitchens WHERE id = ?1",
+                    params![kitchen_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
+            let language = match language {
+                Some(language) => required_text(language, "language")?.to_string(),
+                None => conn
+                    .query_row(
+                        "SELECT reading_language FROM people WHERE id = ?1",
+                        params![caller.person_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot read reading Language: {e}")))?,
+            };
+
+            conn.execute(
+                "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
+                params![version_id, content_text],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
+            conn.execute(
+                "INSERT INTO lineages (id) VALUES (?1)",
+                params![lineage_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot mint Lineage: {e}")))?;
+            conn.execute(
+                "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![branch_id, lineage_id, kitchen_id, kitchen_hand_id, language, version_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
+            conn.execute(
+                "INSERT INTO branch_versions \
+                 (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id) \
+                 VALUES (?1, 1, ?2, NULL, ?3, ?4)",
+                params![branch_id, version_id, caller.person_id, caller.access_key_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
+            Ok(())
+        })?;
+
+        self.get_recipe(&caller.person_id, &branch_id)
+    }
+
+    /// Save a new state of a Recipe onto a Branch: an ordinary edit becomes an
+    /// append-only Version. A save by the same Hand within the collapse
+    /// window collapses into the Version already being shaped, rather than
+    /// starting a new one (ADR 0004). Saving content identical to what is
+    /// already there mints nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub fn save_recipe_version(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        title: &str,
+        name: Option<&str>,
+        change_note: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let title = required_text(title, "title")?.to_string();
+        let content = json!({ "title": title });
+        let version_id = fingerprint_content(&content);
+        let content_text = canonical_json(&content);
+
+        self.db().with_conn(|conn| {
+            let kitchen_id: String = conn
+                .query_row(
+                    "SELECT kitchen_id FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &kitchen_id, &caller.person_id)?;
+
+            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window): (
+                i64,
+                String,
+                String,
+                Option<String>,
+                bool,
+            ) = conn
+                .query_row(
+                    "SELECT sequence, version_id, hand_id, parent_version_id, \
+                            (julianday('now') - julianday(created_at)) * 86400.0 <= ?2 \
+                       FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
+                    params![branch_id, COLLAPSE_WINDOW_SECONDS as f64],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Branch head: {e}")))?;
+
+            if version_id == head_version_id {
+                // Identical content: the fingerprint already names this state,
+                // so there is nothing new to save.
+                return Ok(json!({
+                    "version_id": version_id,
+                    "parent_version_id": head_parent_id,
+                    "sequence": head_sequence,
+                    "collapsed": false,
+                }));
+            }
+
+            conn.execute(
+                "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
+                params![version_id, content_text],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
+
+            let collapse = within_window && head_hand_id == caller.person_id;
+            if collapse {
+                conn.execute(
+                    "UPDATE branch_versions SET version_id = ?1, hand_id = ?2, name = ?3, \
+                            change_note = ?4, access_key_id = ?5, \
+                            created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
+                     WHERE branch_id = ?6 AND sequence = ?7",
+                    params![
+                        version_id,
+                        caller.person_id,
+                        name,
+                        change_note,
+                        caller.access_key_id,
+                        branch_id,
+                        head_sequence
+                    ],
+                )
+                .map_err(|e| OpError::internal(format!("cannot collapse Version: {e}")))?;
+            } else {
+                conn.execute(
+                    "INSERT INTO branch_versions \
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        branch_id,
+                        head_sequence + 1,
+                        version_id,
+                        head_version_id,
+                        caller.person_id,
+                        name,
+                        change_note,
+                        caller.access_key_id
+                    ],
+                )
+                .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
+            }
+            conn.execute(
+                "UPDATE branches SET head_version_id = ?1 WHERE id = ?2",
+                params![version_id, branch_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot move Branch head: {e}")))?;
+
+            Ok(json!({
+                "version_id": version_id,
+                "parent_version_id": if collapse { head_parent_id } else { Some(head_version_id) },
+                "sequence": if collapse { head_sequence } else { head_sequence + 1 },
+                "collapsed": collapse,
+            }))
+        })
+    }
+
+    /// Rename a Version — the one thing about it that can change later
+    /// (CONTEXT.md, "Version"). An absent or empty name clears it. Targeted
+    /// by `sequence` rather than `version_id`: the same content can recur
+    /// more than once on one Branch (a save reverting to exact earlier
+    /// text), and each occurrence carries its own independent name — the
+    /// content hash alone cannot tell them apart, but `sequence` always can.
+    /// Returns the name as it was actually stored, trimmed and cleared.
+    pub fn rename_version(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        sequence: i64,
+        name: Option<&str>,
+    ) -> Result<Option<String>, OpError> {
+        let name = name.map(str::trim).filter(|n| !n.is_empty());
+        self.db().with_conn(|conn| {
+            let kitchen_id: String = conn
+                .query_row(
+                    "SELECT kitchen_id FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+            let changed = conn
+                .execute(
+                    "UPDATE branch_versions SET name = ?1 WHERE branch_id = ?2 AND sequence = ?3",
+                    params![name, branch_id, sequence],
+                )
+                .map_err(|e| OpError::internal(format!("cannot rename Version: {e}")))?;
+            if changed == 0 {
+                return Err(OpError::not_found(
+                    "that sequence does not occur on this Branch",
+                ));
+            }
+            Ok(name.map(str::to_string))
+        })
+    }
+
+    /// Read a Recipe: the Branch as it stands and its whole chain of Versions,
+    /// oldest first — the Thread's raw material.
+    pub fn get_recipe(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let (lineage_id, kitchen_id, hand_id, language, origin_address, head_version_id): (
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                String,
+            ) = conn
+                .query_row(
+                    "SELECT lineage_id, kitchen_id, hand_id, language, origin_address, head_version_id \
+                       FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+
+            let mut statement = conn
+                .prepare(
+                    "SELECT branch_versions.sequence, branch_versions.version_id, \
+                            branch_versions.parent_version_id, branch_versions.hand_id, \
+                            branch_versions.name, branch_versions.change_note, \
+                            branch_versions.created_at, versions.content \
+                       FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
+                      WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence ASC",
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
+            let versions: Vec<Value> = statement
+                .query_map(params![branch_id], |row| {
+                    let content: String = row.get(7)?;
+                    Ok(json!({
+                        "sequence": row.get::<_, i64>(0)?,
+                        "version_id": row.get::<_, String>(1)?,
+                        "parent_version_id": row.get::<_, Option<String>>(2)?,
+                        "hand_id": row.get::<_, String>(3)?,
+                        "name": row.get::<_, Option<String>>(4)?,
+                        "change_note": row.get::<_, Option<String>>(5)?,
+                        "created_at": row.get::<_, String>(6)?,
+                        "content": serde_json::from_str::<Value>(&content).unwrap_or(Value::Null),
+                    }))
+                })
+                .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
+
+            Ok(json!({
+                "branch_id": branch_id,
+                "lineage_id": lineage_id,
+                "kitchen_id": kitchen_id,
+                "hand_id": hand_id,
+                "language": language,
+                "origin_address": origin_address,
+                "head_version_id": head_version_id,
+                "versions": versions,
+            }))
+        })
+    }
+}
+
+/// How long a gap between saves on the same Branch, by the same Hand, still
+/// collapses into the Version already being shaped rather than starting a
+/// new one. Chosen at an hour: a save is a deliberate act, never periodic
+/// autosave, so genuinely separate editing sessions land far apart in
+/// practice — there is no realistic pattern this window would wrongly merge,
+/// while it comfortably absorbs one meandering sitting, pauses included
+/// (decided with Aurélien on issue #42).
+const COLLAPSE_WINDOW_SECONDS: i64 = 3600;
+
+/// The canonical serialisation a Version's fingerprint is taken over: object
+/// keys sorted recursively, independent of `serde_json`'s own default Map
+/// ordering, so a field added later stays deterministic.
+fn canonical_json(value: &Value) -> String {
+    fn canonicalise(value: &Value) -> Value {
+        match value {
+            Value::Object(map) => {
+                let sorted: std::collections::BTreeMap<String, Value> = map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), canonicalise(v)))
+                    .collect();
+                json!(sorted)
+            }
+            Value::Array(items) => Value::Array(items.iter().map(canonicalise).collect()),
+            other => other.clone(),
+        }
+    }
+    canonicalise(value).to_string()
+}
+
+/// A Version's id: the fingerprint of its content alone (ADR 0004, ADR 0021).
+fn fingerprint_content(content: &Value) -> String {
+    format!(
+        "v_{}",
+        hex::encode(Sha256::digest(canonical_json(content).as_bytes()))
+    )
 }
 
 /// Create a Kitchen and seat its first member in one place — the shape a

@@ -289,6 +289,10 @@ impl crate::core::Core {
                         read_only: record.read_only,
                         via_access_key: record.via_access_key,
                         is_operator: false,
+                        // A JobRecord does not carry which Access Key asked, only
+                        // that one did (`via_access_key`) — nothing built on a Job
+                        // needs the specific Key today.
+                        access_key_id: None,
                     });
                     let invocation = Invocation {
                         caller,

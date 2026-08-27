@@ -368,6 +368,83 @@ pub fn delete_kitchen(
     Ok(json!({ "deleted": true }))
 }
 
+pub fn create_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("create_recipe takes { kitchen_id, title, language? }")
+        })?;
+    let title = input.get("title").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("create_recipe takes { kitchen_id, title, language? }")
+    })?;
+    let language = input.get("language").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.create_recipe(caller, kitchen_id, title, language)
+}
+
+pub fn save_recipe_version(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "save_recipe_version takes { branch_id, title, name?, change_note? }",
+            )
+        })?;
+    let title = input.get("title").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("save_recipe_version takes { branch_id, title, name?, change_note? }")
+    })?;
+    let name = input.get("name").and_then(Value::as_str);
+    let change_note = input.get("change_note").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.save_recipe_version(caller, branch_id, title, name, change_note)
+}
+
+pub fn rename_version(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("rename_version takes { branch_id, sequence, name }")
+        })?;
+    let sequence = input
+        .get("sequence")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| {
+            OpError::bad_request("rename_version takes { branch_id, sequence, name }")
+        })?;
+    if !input
+        .get("name")
+        .is_some_and(|v| v.is_string() || v.is_null())
+    {
+        return Err(OpError::bad_request(
+            "rename_version takes { branch_id, sequence, name }",
+        ));
+    }
+    let name = input.get("name").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    let stored = core.rename_version(&caller.person_id, branch_id, sequence, name)?;
+    Ok(json!({ "name": stored }))
+}
+
+pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("get_recipe takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.get_recipe(&caller.person_id, branch_id)
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller.as_ref().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")

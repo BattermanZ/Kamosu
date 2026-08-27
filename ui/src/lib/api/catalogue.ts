@@ -228,6 +228,84 @@ export type DeleteKitchenOutput = {
 	deleted: boolean;
 };
 
+/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
+export type CreateRecipeInput = {
+	kitchen_id: string;
+	language?: "en" | "fr" | "es";
+	title: string;
+};
+/** What create_recipe answers. */
+export type CreateRecipeOutput = {
+	branch_id: string;
+	hand_id: string;
+	head_version_id: string;
+	kitchen_id: string;
+	language: string;
+	lineage_id: string;
+	origin_address: string | null;
+	versions: {
+		change_note: string | null;
+		content: Record<string, never>;
+		created_at: string;
+		hand_id: string;
+		name: string | null;
+		parent_version_id: string | null;
+		sequence: number;
+		version_id: string;
+	}[];
+};
+
+/** Save a new state of a Recipe onto a Branch. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
+export type SaveRecipeVersionInput = {
+	branch_id: string;
+	change_note?: string;
+	name?: string;
+	title: string;
+};
+/** What save_recipe_version answers. */
+export type SaveRecipeVersionOutput = {
+	collapsed: boolean;
+	parent_version_id: string | null;
+	sequence: number;
+	version_id: string;
+};
+
+/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
+export type RenameVersionInput = {
+	branch_id: string;
+	name: string | null;
+	sequence: number;
+};
+/** What rename_version answers. */
+export type RenameVersionOutput = {
+	name: string | null;
+};
+
+/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
+export type GetRecipeInput = {
+	branch_id: string;
+};
+/** What get_recipe answers. */
+export type GetRecipeOutput = {
+	branch_id: string;
+	hand_id: string;
+	head_version_id: string;
+	kitchen_id: string;
+	language: string;
+	lineage_id: string;
+	origin_address: string | null;
+	versions: {
+		change_note: string | null;
+		content: Record<string, never>;
+		created_at: string;
+		hand_id: string;
+		name: string | null;
+		parent_version_id: string | null;
+		sequence: number;
+		version_id: string;
+	}[];
+};
+
 /** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 export type GetJobInput = {
 	job_id: string;
@@ -393,6 +471,30 @@ export interface Operations {
 	delete_kitchen: {
 		input: DeleteKitchenInput;
 		output: DeleteKitchenOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	create_recipe: {
+		input: CreateRecipeInput;
+		output: CreateRecipeOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	save_recipe_version: {
+		input: SaveRecipeVersionInput;
+		output: SaveRecipeVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_version: {
+		input: RenameVersionInput;
+		output: RenameVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_recipe: {
+		input: GetRecipeInput;
+		output: GetRecipeOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -1250,6 +1352,336 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "create_recipe",
+		"summary": "Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"title": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id",
+				"title"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"hand_id": {
+					"type": "string"
+				},
+				"head_version_id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"origin_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"versions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"content": {
+								"type": "object"
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parent_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sequence": {
+								"type": "integer"
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"sequence",
+							"version_id",
+							"parent_version_id",
+							"hand_id",
+							"name",
+							"change_note",
+							"created_at",
+							"content"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"branch_id",
+				"lineage_id",
+				"kitchen_id",
+				"hand_id",
+				"language",
+				"origin_address",
+				"head_version_id",
+				"versions"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "save_recipe_version",
+		"summary": "Save a new state of a Recipe onto a Branch. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"change_note": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				},
+				"title": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"title"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"collapsed": {
+					"type": "boolean"
+				},
+				"parent_version_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"version_id",
+				"parent_version_id",
+				"sequence",
+				"collapsed"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_version",
+		"summary": "Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"branch_id",
+				"sequence",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_recipe",
+		"summary": "Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"hand_id": {
+					"type": "string"
+				},
+				"head_version_id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"origin_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"versions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"content": {
+								"type": "object"
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parent_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sequence": {
+								"type": "integer"
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"sequence",
+							"version_id",
+							"parent_version_id",
+							"hand_id",
+							"name",
+							"change_note",
+							"created_at",
+							"content"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"branch_id",
+				"lineage_id",
+				"kitchen_id",
+				"hand_id",
+				"language",
+				"origin_address",
+				"head_version_id",
+				"versions"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_job",
 		"summary": "Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
 		"permission": "public",
@@ -1449,6 +1881,10 @@ export const METHOD_NAMES = {
 	accept_kitchen_invite: 'acceptKitchenInvite',
 	remove_kitchen_member: 'removeKitchenMember',
 	delete_kitchen: 'deleteKitchen',
+	create_recipe: 'createRecipe',
+	save_recipe_version: 'saveRecipeVersion',
+	rename_version: 'renameVersion',
+	get_recipe: 'getRecipe',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	list_jobs: 'listJobs',
@@ -1496,6 +1932,14 @@ export interface KamosuClient {
 	removeKitchenMember(input: RemoveKitchenMemberInput): Promise<Answer<'remove_kitchen_member'>>;
 	/** An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen. */
 	deleteKitchen(input: DeleteKitchenInput): Promise<Answer<'delete_kitchen'>>;
+	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
+	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
+	/** Save a new state of a Recipe onto a Branch. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
+	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
+	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
+	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
+	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
+	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */

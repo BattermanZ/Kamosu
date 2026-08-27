@@ -359,6 +359,106 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
             handler: crate::operations::delete_kitchen,
         },
+        Operation {
+            name: "create_recipe",
+            summary: "Create a Recipe: a Lineage, a Branch in this Kitchen, \
+                      and a first Version. A title is all it needs.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "kitchen_id": { "type": "string" },
+                    "title": { "type": "string" },
+                    "language": { "enum": ["en", "fr", "es"] },
+                },
+                "required": ["kitchen_id", "title"],
+                "additionalProperties": false,
+            }),
+            output_schema: recipe_schema(),
+            handler: crate::operations::create_recipe,
+        },
+        Operation {
+            name: "save_recipe_version",
+            summary: "Save a new state of a Recipe onto a Branch. A rapid \
+                      re-save by the same Hand collapses into the Version \
+                      already being shaped rather than starting a new one.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "title": { "type": "string" },
+                    "name": { "type": "string" },
+                    "change_note": { "type": "string" },
+                },
+                "required": ["branch_id", "title"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "version_id": { "type": "string" },
+                    "parent_version_id": { "type": ["string", "null"] },
+                    "sequence": { "type": "integer" },
+                    "collapsed": { "type": "boolean" },
+                },
+                "required": ["version_id", "parent_version_id", "sequence", "collapsed"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::save_recipe_version,
+        },
+        Operation {
+            name: "rename_version",
+            summary: "Rename a Version — the one thing about it that can \
+                      change later. An absent or empty name clears it. \
+                      Targeted by the Branch's own sequence number, since \
+                      the same content can recur more than once on one \
+                      Branch, each occurrence named on its own.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "sequence": { "type": "integer" },
+                    "name": { "type": ["string", "null"] },
+                },
+                "required": ["branch_id", "sequence", "name"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "name": { "type": ["string", "null"] } },
+                "required": ["name"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::rename_version,
+        },
+        Operation {
+            name: "get_recipe",
+            summary: "Read a Recipe: the Branch as it stands and its whole \
+                      chain of Versions, oldest first.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: recipe_schema(),
+            handler: crate::operations::get_recipe,
+        },
         // Watching slow work: two ordinary Operations, so a browser polling an
         // import and an agent polling the same import use the identical shape.
         Operation {
@@ -529,6 +629,50 @@ fn kitchen_schema() -> Value {
             },
         },
         "required": ["id", "name", "hand_id", "is_home", "nickname", "members"],
+        "additionalProperties": false,
+    })
+}
+
+/// The shape a Recipe is served in: the Branch as it stands and its whole
+/// chain of Versions, oldest first — created by `create_recipe`, read back
+/// by `get_recipe`.
+fn recipe_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "branch_id": { "type": "string" },
+            "lineage_id": { "type": "string" },
+            "kitchen_id": { "type": "string" },
+            "hand_id": { "type": "string" },
+            "language": { "type": "string" },
+            "origin_address": { "type": ["string", "null"] },
+            "head_version_id": { "type": "string" },
+            "versions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "sequence": { "type": "integer" },
+                        "version_id": { "type": "string" },
+                        "parent_version_id": { "type": ["string", "null"] },
+                        "hand_id": { "type": "string" },
+                        "name": { "type": ["string", "null"] },
+                        "change_note": { "type": ["string", "null"] },
+                        "created_at": { "type": "string" },
+                        "content": { "type": "object" },
+                    },
+                    "required": [
+                        "sequence", "version_id", "parent_version_id", "hand_id",
+                        "name", "change_note", "created_at", "content"
+                    ],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": [
+            "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
+            "origin_address", "head_version_id", "versions"
+        ],
         "additionalProperties": false,
     })
 }

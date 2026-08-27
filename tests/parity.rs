@@ -43,6 +43,10 @@ fn arguments_for(name: &str) -> Value {
         "remove_kitchen_member" => json!({ "kitchen_id": "k_parity", "person_id": "p_parity" }),
         "delete_kitchen" => json!({ "kitchen_id": "k_parity" }),
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
+        "create_recipe" => json!({ "kitchen_id": "k_parity", "title": "Parity Recipe" }),
+        "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
+        "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
+        "get_recipe" => json!({ "branch_id": "b_parity" }),
         _ => json!({}),
     }
 }
@@ -74,7 +78,11 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "mint_invite"
             | "disable_account"
             | "delete_account"
-            | "mint_recovery_link" => ("{}", 401),
+            | "mint_recovery_link"
+            | "create_recipe"
+            | "save_recipe_version"
+            | "rename_version"
+            | "get_recipe" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -163,6 +171,10 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "disable_account"
                 | "delete_account"
                 | "mint_recovery_link"
+                | "create_recipe"
+                | "save_recipe_version"
+                | "rename_version"
+                | "get_recipe"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.
@@ -273,7 +285,9 @@ async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
 async fn no_route_exists_outside_the_catalogue() {
     let app = support::spawn_app();
 
-    let (status, _) = app.post_op("create_recipe", None, "{}");
+    // Also documents ADR 0004: there is no Operation that merges two
+    // Lineages, in v1 or ever.
+    let (status, _) = app.post_op("merge_lineages", None, "{}");
     assert_eq!(status, 404, "an Operation outside the Catalogue answered");
 
     let (status, _) = app.post_op("../etc/passwd", None, "{}");

@@ -614,6 +614,398 @@ async fn logging_in_mints_a_revocable_session_credential() {
     assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 401);
 }
 
+// --- Lineage, Branch, Version (issue #42) ------------------------------------
+
+/// A Person, their Access Key, and a Kitchen they belong to — the setup every
+/// recipe test starts from.
+fn person_with_kitchen(app: &support::TestApp, name: &str) -> (String, String, String) {
+    let person = app.core.create_person(name).expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": format!("{name}'s Kitchen") }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    (person, key, kitchen_id)
+}
+
+/// Push a Branch's current head further into the past, so the next save
+/// falls outside the collapse window instead of being read as a rapid
+/// re-save. The one place these tests reach past Operations into the Core's
+/// own store — there is no clock to fast-forward otherwise.
+fn backdate_branch_head(app: &support::TestApp, branch_id: &str) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branch_versions SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours') \
+                 WHERE branch_id = ?1 AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1)",
+                rusqlite::params![branch_id],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("backdate Branch head");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn creating_a_recipe_needs_only_a_title_and_produces_a_lineage_branch_and_first_version() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Tarte aux pommes" }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let recipe = &created["result"];
+    assert_eq!(recipe["kitchen_id"], json!(kitchen_id));
+    let branch_id = recipe["branch_id"].as_str().unwrap().to_string();
+    let lineage_id = recipe["lineage_id"].as_str().unwrap();
+    assert!(lineage_id.starts_with("l_"));
+    assert!(branch_id.starts_with("b_"));
+    assert!(
+        recipe["head_version_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("v_")
+    );
+
+    let versions = recipe["versions"].as_array().unwrap();
+    assert_eq!(versions.len(), 1, "exactly one first Version");
+    assert_eq!(versions[0]["version_id"], recipe["head_version_id"]);
+    assert_eq!(versions[0]["parent_version_id"], json!(null));
+    assert_eq!(versions[0]["content"]["title"], json!("Tarte aux pommes"));
+    assert_eq!(versions[0]["name"], json!(null));
+
+    // Recorded locally for its author to read (CONTEXT.md, "Version") — but
+    // never surfaced through get_recipe, since it never travels off-instance.
+    let access_key_id: Option<String> = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT access_key_id FROM branch_versions WHERE branch_id = ?1",
+                rusqlite::params![branch_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert!(access_key_id.unwrap().starts_with("ak_"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn identical_text_on_two_instances_produces_the_same_fingerprint() {
+    // "Two instances" — two entirely separate databases, never having
+    // communicated, that both happen to be handed the identical title.
+    let app_a = support::spawn_app();
+    let app_b = support::spawn_app();
+    let (_, key_a, kitchen_a) = person_with_kitchen(&app_a, "Aurélien");
+    let (_, key_b, kitchen_b) = person_with_kitchen(&app_b, "Marc");
+
+    let (_, created_a) = app_a.post_op(
+        "create_recipe",
+        Some(&key_a),
+        &json!({ "kitchen_id": kitchen_a, "title": "Ratatouille" }).to_string(),
+    );
+    let (_, created_b) = app_b.post_op(
+        "create_recipe",
+        Some(&key_b),
+        &json!({ "kitchen_id": kitchen_b, "title": "Ratatouille" }).to_string(),
+    );
+
+    assert_eq!(
+        created_a["result"]["head_version_id"], created_b["result"]["head_version_id"],
+        "identical text must fingerprint to the same Version id, unprompted"
+    );
+    // But the Lineage and Branch each instance minted are its own.
+    assert_ne!(
+        created_a["result"]["lineage_id"],
+        created_b["result"]["lineage_id"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn renaming_a_version_never_changes_its_identity_hand_or_parent() {
+    let app = support::spawn_app();
+    let (person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let version_id = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (status, renamed) = app.post_op(
+        "rename_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "sequence": 1, "name": "Original" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+    assert_eq!(renamed["result"]["name"], json!("Original"));
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let version = &read_back["result"]["versions"][0];
+    assert_eq!(
+        version["version_id"],
+        json!(version_id),
+        "renaming does not mint a new Version"
+    );
+    assert_eq!(version["name"], json!("Original"));
+    assert_eq!(version["hand_id"], json!(person));
+    assert_eq!(version["parent_version_id"], json!(null));
+
+    // Clears back to unnamed.
+    let (_, cleared) = app.post_op(
+        "rename_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "sequence": 1, "name": null }).to_string(),
+    );
+    assert_eq!(cleared["result"]["name"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recurring_version_id_is_named_per_occurrence_not_globally() {
+    // The same content can land on a Branch more than once — save something
+    // else, then save back to the exact original words. Both occurrences
+    // share a Version id (it is a pure content fingerprint), but each is its
+    // own row in the chain, and each must be nameable on its own.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let original_version = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    backdate_branch_head(&app, &branch_id);
+    app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Soupe froide" }).to_string(),
+    );
+
+    backdate_branch_head(&app, &branch_id);
+    let (_, reverted) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Soupe" }).to_string(),
+    );
+    assert_eq!(
+        reverted["result"]["version_id"],
+        json!(original_version),
+        "reverting to the exact original words reproduces the same fingerprint"
+    );
+    let recurrence_sequence = reverted["result"]["sequence"].as_i64().unwrap();
+    assert_eq!(recurrence_sequence, 3);
+
+    app.post_op(
+        "rename_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "sequence": 1, "name": "First take" }).to_string(),
+    );
+    app.post_op(
+        "rename_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "sequence": recurrence_sequence, "name": "Back to basics" })
+            .to_string(),
+    );
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let versions = read_back["result"]["versions"].as_array().unwrap();
+    let first = versions.iter().find(|v| v["sequence"] == json!(1)).unwrap();
+    let third = versions
+        .iter()
+        .find(|v| v["sequence"] == json!(recurrence_sequence))
+        .unwrap();
+    assert_eq!(
+        first["version_id"], third["version_id"],
+        "same content, same fingerprint"
+    );
+    assert_eq!(
+        first["name"],
+        json!("First take"),
+        "renaming one occurrence must not rename the other"
+    );
+    assert_eq!(third["name"], json!("Back to basics"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rapid_re_saves_collapse_and_history_stays_append_only() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Tarte" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let first_version = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A save identical to what is already there mints nothing.
+    let (_, no_op) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Tarte" }).to_string(),
+    );
+    assert_eq!(no_op["result"]["version_id"], json!(first_version));
+    assert_eq!(no_op["result"]["collapsed"], json!(false));
+
+    // The first genuine edit falls outside the (backdated) collapse window,
+    // so it is its own Version.
+    backdate_branch_head(&app, &branch_id);
+    let (_, edited) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Tarte aux pomme" }).to_string(),
+    );
+    assert_eq!(edited["result"]["collapsed"], json!(false));
+    let second_version = edited["result"]["version_id"].as_str().unwrap().to_string();
+    assert_ne!(second_version, first_version);
+    assert_eq!(edited["result"]["parent_version_id"], json!(first_version));
+
+    // Two rapid typo fixes right after it collapse into the Version already
+    // being shaped — the fingerprint changes, but no new chain entry appears.
+    let (_, fix_one) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Tarte aux pommes" }).to_string(),
+    );
+    assert_eq!(fix_one["result"]["collapsed"], json!(true));
+    assert_eq!(fix_one["result"]["parent_version_id"], json!(first_version));
+
+    let (_, fix_two) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Tarte aux pommes au four", "name": "Weeknight version" })
+            .to_string(),
+    );
+    assert_eq!(fix_two["result"]["collapsed"], json!(true));
+    let third_version = fix_two["result"]["version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(third_version, second_version);
+
+    // Falling outside the window again starts a genuinely new Version.
+    backdate_branch_head(&app, &branch_id);
+    let (_, final_edit) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Tarte aux pommes au four, pâte brisée" })
+            .to_string(),
+    );
+    assert_eq!(final_edit["result"]["collapsed"], json!(false));
+    assert_eq!(
+        final_edit["result"]["parent_version_id"],
+        json!(third_version)
+    );
+    let fourth_version = final_edit["result"]["version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Exactly three entries ever became part of the Thread: the first
+    // Version, the collapsed edit (however many saves shaped it), and the
+    // final one — the two typo-fix saves left no trace of their own.
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let versions = read_back["result"]["versions"].as_array().unwrap();
+    let ids: Vec<&str> = versions
+        .iter()
+        .map(|v| v["version_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            first_version.as_str(),
+            third_version.as_str(),
+            fourth_version.as_str()
+        ],
+        "rapid re-saves collapsed; nothing else was ever deleted or rewritten"
+    );
+    assert_eq!(versions[1]["name"], json!("Weeknight version"));
+    assert_eq!(
+        versions[1]["content"]["title"],
+        json!("Tarte aux pommes au four")
+    );
+
+    // Append-only: the first Version's content is exactly what it always was.
+    assert_eq!(versions[0]["content"]["title"], json!("Tarte"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_kitchen_member_may_touch_its_branches() {
+    let app = support::spawn_app();
+    let (_owner, owner_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let stranger = app.core.create_person("Marc").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (status, _) = app.post_op(
+        "create_recipe",
+        Some(&stranger_key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Not yours" }).to_string(),
+    );
+    assert_eq!(status, 401);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&owner_key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, _) = app.post_op(
+        "get_recipe",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 401);
+
+    let (status, _) = app.post_op(
+        "save_recipe_version",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_id, "title": "Soupe froide" }).to_string(),
+    );
+    assert_eq!(status, 401);
+}
+
 // --- Access Keys and Sessions (issue #41) ------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

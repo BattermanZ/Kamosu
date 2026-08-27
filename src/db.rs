@@ -184,6 +184,67 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 9,
+        description: "Lineage, Branch and Version: a recipe's identity (ADR 0004)",
+        sql: r#"
+        -- A Lineage: a recipe's identity in the world. One id, minted once,
+        -- never joined to another (ADR 0004).
+        CREATE TABLE lineages (
+            id         TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- A Version: one saved state, named by a fingerprint of the words and
+        -- Photographs alone (ADR 0004, ADR 0021) — never the Reading, the Hand,
+        -- its name, its what-changed line, or the time. Content-addressed and
+        -- global: two Branches that reach identical content hold the same row
+        -- without having communicated, which is what makes a Branch Point a
+        -- computable fact rather than an assertion.
+        CREATE TABLE versions (
+            id         TEXT PRIMARY KEY,
+            content    TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- A Branch: one Kitchen's line of Versions within a Lineage.
+        -- `signature` is a slot the acceptance criteria ask for and v1 leaves
+        -- unused — nothing here signs it or reads it.
+        CREATE TABLE branches (
+            id              TEXT PRIMARY KEY,
+            lineage_id      TEXT NOT NULL REFERENCES lineages(id),
+            kitchen_id      TEXT NOT NULL REFERENCES kitchens(id),
+            hand_id         TEXT NOT NULL,
+            language        TEXT NOT NULL,
+            origin_address  TEXT,
+            signature       TEXT,
+            head_version_id TEXT NOT NULL REFERENCES versions(id),
+            created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- One Branch's occurrence of one Version in its chain: everything a
+        -- content hash cannot carry — who wrote it, what it is named, what
+        -- changed and why, and (local only, never shared) which Access Key
+        -- wrote it. The same Version id may occur on more than one Branch, or
+        -- more than once on the same Branch, each with its own parent and
+        -- Hand (ADR 0015, ADR 0021) — convergence is about content, never
+        -- about authorship. `sequence` is the append-only chain order; a
+        -- rapid re-save collapses by replacing the row at the current head
+        -- sequence rather than appending one.
+        CREATE TABLE branch_versions (
+            branch_id          TEXT NOT NULL REFERENCES branches(id),
+            sequence           INTEGER NOT NULL,
+            version_id         TEXT NOT NULL REFERENCES versions(id),
+            parent_version_id  TEXT REFERENCES versions(id),
+            hand_id            TEXT NOT NULL,
+            name               TEXT,
+            change_note        TEXT,
+            access_key_id      TEXT REFERENCES access_keys(id),
+            created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (branch_id, sequence)
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
