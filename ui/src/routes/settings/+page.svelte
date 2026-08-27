@@ -484,4 +484,8 @@
 			</form>
 		</Section>
 	{/if}
+
+	<Section heading={m.settings_security()}>
+		<p class="text-body text-ink-2">{m.settings_operator_boundary()}</p>
+	</Section>
 </Screen>

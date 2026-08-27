@@ -110,6 +110,8 @@ pub struct Caller {
     /// Session. `Core::execute` refuses every Operation the Catalogue declares
     /// `session_only` to a caller carrying this, however unrestricted the Key.
     pub via_access_key: bool,
+    /// Whether this Person administers the instance.
+    pub is_operator: bool,
 }
 
 /// One asking of an Operation: who is acting, and (when the Operation runs as a
@@ -205,6 +207,14 @@ impl Core {
                     )));
                 }
             }
+            Permission::Operator => {
+                if !caller.as_ref().is_some_and(|caller| caller.is_operator) {
+                    return Err(OpError::unauthorized(format!(
+                        "Operation '{}' requires a Credential naming an Operator",
+                        op.name
+                    )));
+                }
+            }
         }
 
         // The read-only filter and the session-only rule both live here, beneath
@@ -278,15 +288,19 @@ impl Core {
     /// `resolve_credential` builds on this and additionally records the use;
     /// `is_read_only_credential` reads only, so a Door merely listing what a
     /// Key may do never counts as the Key being used.
-    fn lookup_credential(&self, hash: &str) -> Result<Option<(String, bool, bool)>, OpError> {
+    fn lookup_credential(&self, hash: &str) -> Result<Option<(String, bool, bool, bool)>, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT person_id, read_only, 0 FROM access_keys WHERE secret_hash = ?1 AND revoked = 0
+                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator
+                   FROM access_keys JOIN people ON people.id = access_keys.person_id
+                   WHERE access_keys.secret_hash = ?1 AND access_keys.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  UNION ALL
-                 SELECT person_id, 0, 1 FROM sessions WHERE secret_hash = ?1 AND revoked = 0
+                 SELECT sessions.person_id, 0, 1, people.is_operator
+                   FROM sessions JOIN people ON people.id = sessions.person_id
+                   WHERE sessions.secret_hash = ?1 AND sessions.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  LIMIT 1",
                 params![hash],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .optional()
             .map_err(|e| OpError::internal(format!("cannot resolve Credential: {e}")))
@@ -298,7 +312,7 @@ impl Core {
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         let hash = hash_secret(secret);
         match self.lookup_credential(&hash)? {
-            Some((person_id, read_only, is_session)) => {
+            Some((person_id, read_only, is_session, is_operator)) => {
                 let _ = self.db().with_conn(|conn| {
                     let table = if is_session { "sessions" } else { "access_keys" };
                     conn.execute(
@@ -312,6 +326,7 @@ impl Core {
                     person_id,
                     read_only,
                     via_access_key: !is_session,
+                    is_operator,
                 })
             }
             // Unknown or already-revoked: the same answer either way, saying nothing
@@ -332,7 +347,7 @@ impl Core {
         self.lookup_credential(&hash)
             .ok()
             .flatten()
-            .map(|(_, read_only, _)| read_only)
+            .map(|(_, read_only, _, _)| read_only)
             .unwrap_or(false)
     }
 
@@ -488,7 +503,7 @@ impl Core {
         self.throttle_login(name)?;
         let password_hash: Option<String> = self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT password_hash FROM people WHERE name = ?1",
+                "SELECT password_hash FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0",
                 params![name],
                 |r| r.get(0),
             )
@@ -516,7 +531,7 @@ impl Core {
         })?;
         let person_id: String = self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT id FROM people WHERE name = ?1",
+                "SELECT id FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0",
                 params![name],
                 |r| r.get(0),
             )
@@ -639,6 +654,111 @@ impl Core {
         self.db().with_conn(|conn| {
             conn.execute("INSERT INTO login_failures(name, consecutive_failures) VALUES (?1, 1) ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1", params![name])
                 .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))?;
+            Ok(())
+        })
+    }
+
+    pub fn mint_invite(&self, is_operator: bool) -> Result<String, OpError> {
+        let secret = generate_secret();
+        self.db().with_conn(|conn| {
+            conn.execute("INSERT INTO account_links (secret_hash, kind, is_operator) VALUES (?1, 'invite', ?2)", params![hash_secret(&secret), is_operator as i64])
+                .map_err(|e| OpError::internal(format!("cannot mint Invite: {e}")))?;
+            Ok(())
+        })?;
+        Ok(format!("/invite/{secret}"))
+    }
+
+    pub fn redeem_invite(
+        &self,
+        link: &str,
+        name: &str,
+        password: &str,
+        session_name: &str,
+    ) -> Result<Value, OpError> {
+        let secret = link
+            .strip_prefix("/invite/")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| OpError::bad_request("Invite link is invalid"))?;
+        let name = required_text(name, "name")?;
+        let password_hash = hash_password(password)?;
+        let session_name = required_text(session_name, "session_name")?;
+        let person_id = format!("p_{}", hex::encode(random_bytes(8)));
+        let kitchen_id = format!("k_{}", hex::encode(random_bytes(8)));
+        let session = Session {
+            id: format!("s_{}", hex::encode(random_bytes(8))),
+            secret: generate_secret(),
+        };
+        let operator = self.db().with_conn(|conn| {
+            conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
+            let result = (|| -> Result<bool, OpError> {
+                let role: Option<i64> = conn.query_row("SELECT is_operator FROM account_links WHERE secret_hash=?1 AND kind='invite' AND spent=0 AND revoked=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
+                let role = role.ok_or_else(|| OpError::unauthorized("this Invite has already been spent or revoked"))?;
+                conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1", params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
+                conn.execute("INSERT INTO people (id,name,password_hash,home_kitchen_id,is_operator) VALUES (?1,?2,?3,?4,?5)", params![person_id,name,password_hash,kitchen_id,role]).map_err(|e| OpError::bad_request(e.to_string()))?;
+                insert_kitchen_with_member(conn, &kitchen_id, &format!("{name}'s Home Kitchen"), &person_id)?;
+                conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)", params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
+                Ok(role != 0)
+            })();
+            match result { Ok(v) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(v) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
+        })?;
+        Ok(
+            json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"home_kitchen_id":kitchen_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"session_id":session.id,"_session_secret":session.secret}),
+        )
+    }
+
+    pub fn mint_recovery_link(&self, name: &str) -> Result<String, OpError> {
+        let secret = generate_secret();
+        self.db().with_conn(|conn| {
+            let person_id: Option<String> = conn.query_row("SELECT id FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0", params![required_text(name, "name")?], |r| r.get(0)).optional()
+                .map_err(|e| OpError::internal(format!("cannot read Person for recovery: {e}")))?;
+            let person_id = person_id.ok_or_else(|| OpError::not_found(format!("no active Person '{name}'")))?;
+            conn.execute("INSERT INTO account_links (secret_hash, kind, person_id) VALUES (?1, 'recovery', ?2)", params![hash_secret(&secret), person_id])
+                .map_err(|e| OpError::internal(format!("cannot mint recovery link: {e}")))?;
+            Ok(())
+        })?;
+        Ok(format!("/recover/{secret}"))
+    }
+
+    pub fn redeem_recovery(
+        &self,
+        link: &str,
+        password: &str,
+        session_name: &str,
+    ) -> Result<Value, OpError> {
+        let secret = link
+            .strip_prefix("/recover/")
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| OpError::bad_request("recovery link is invalid"))?;
+        let password_hash = hash_password(password)?;
+        let session_name = required_text(session_name, "session_name")?;
+        let session = Session {
+            id: format!("s_{}", hex::encode(random_bytes(8))),
+            secret: generate_secret(),
+        };
+        self.db().with_conn(|conn| {
+            conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
+            let result = (|| -> Result<(), OpError> {
+                let person_id: Option<String> = conn.query_row("SELECT people.id FROM account_links JOIN people ON people.id=account_links.person_id WHERE secret_hash=?1 AND kind='recovery' AND spent=0 AND revoked=0 AND disabled=0 AND deleted=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
+                let person_id=person_id.ok_or_else(|| OpError::unauthorized("this recovery link has already been spent or revoked"))?;
+                conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1 AND spent=0",params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
+                conn.execute("UPDATE people SET password_hash=?1 WHERE id=?2",params![password_hash,person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)",params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
+                Ok(())
+            })();
+            match result { Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string())), Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
+        })?;
+        Ok(json!({"session_id":session.id,"_session_secret":session.secret}))
+    }
+
+    pub fn end_account(&self, name: &str, deleted: bool) -> Result<(), OpError> {
+        let name = required_text(name, "name")?;
+        self.db().with_conn(|conn| {
+            let changed = conn.execute("UPDATE people SET disabled = 1, deleted = CASE WHEN ?1 THEN 1 ELSE deleted END WHERE name = ?2 AND deleted = 0", params![deleted as i64, name])
+                .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
+            if changed == 0 { return Err(OpError::not_found(format!("no active Person '{name}'"))); }
+            conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
+            conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
+            if deleted { conn.execute("DELETE FROM kitchen_members WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?; }
             Ok(())
         })
     }

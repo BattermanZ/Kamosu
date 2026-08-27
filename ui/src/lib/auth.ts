@@ -2,7 +2,10 @@ import { getContext, setContext } from 'svelte';
 import { OperationError } from './api/client';
 
 export interface AuthClient {
-	authenticate(mode: 'first-person' | 'login', input: { name: string; password: string; session_name: string }): Promise<void>;
+	authenticate(
+		mode: 'first-person' | 'login' | 'invite' | 'recover',
+		input: { name?: string; password: string; session_name: string; link?: string }
+	): Promise<void>;
 }
 
 const KEY = Symbol('auth');
@@ -19,7 +22,13 @@ export function useAuth(): AuthClient {
 
 export const realAuth = (): AuthClient => ({
 	async authenticate(mode, input) {
-		const response = await fetch(mode === 'login' ? '/auth/login' : '/auth/first-person', {
+		const path = {
+			'first-person': '/auth/first-person',
+			login: '/auth/login',
+			invite: '/auth/invite',
+			recover: '/auth/recover'
+		}[mode];
+		const response = await fetch(path, {
 			method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input)
 		});
 		if (!response.ok) throw new OperationError('authentication', 'unauthorized', 'authentication failed');

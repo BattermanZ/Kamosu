@@ -76,5 +76,13 @@
 	"kitchen_join_title": "Join a Kitchen",
 	"kitchen_join_secret_label": "Invite",
 	"kitchen_join": "Join",
-	"kitchen_error": "That did not work."
+	"kitchen_error": "That did not work.",
+	"account_invite_title": "Join Kamosu",
+	"account_invite_blurb": "This one-use Invite creates your account and Home Kitchen.",
+	"account_invite_submit": "Create my account",
+	"account_recover_title": "Choose a new password",
+	"account_recover_blurb": "This one-use recovery link is spent when you set your new password.",
+	"account_recover_submit": "Set new password",
+	"settings_security": "What Kamosu does not protect",
+	"settings_operator_boundary": "The Operator boundary is a courtesy, not a wall: whoever holds the disk holds everything."
 }

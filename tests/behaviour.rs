@@ -1397,6 +1397,118 @@ async fn work_accepted_before_a_restart_never_strands() {
     assert_eq!(waiting.result.as_ref().unwrap()["steps"], json!(1));
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_mints_a_one_use_invite_that_creates_a_person_and_home_kitchen() {
+    let app = support::spawn_app();
+    let first = json!({
+        "name": "Aurélien",
+        "password": "the operator password",
+        "session_name": "operator browser",
+    });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    assert_eq!(operator.status, 200, "{}", operator.body);
+    let operator_secret = operator
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .and_then(|(_, value)| value.split(';').next())
+        .and_then(|pair| pair.strip_prefix("kamosu_session="))
+        .expect("operator Session cookie");
+
+    let (status, minted) = app.post_op("mint_invite", Some(operator_secret), r#"{}"#);
+    assert_eq!(status, 200, "{minted}");
+    let link = minted["result"]["link"].as_str().expect("invite link");
+
+    let join = json!({
+        "link": link,
+        "name": "Marie",
+        "password": "a password only Marie knows",
+        "session_name": "Marie’s browser",
+    });
+    let (status, joined) = app.post_auth("/auth/invite", &join.to_string());
+    assert_eq!(status, 200, "{joined}");
+    assert_eq!(joined["result"]["person"]["name"], json!("Marie"));
+    assert!(joined["result"]["person"]["home_kitchen_id"].is_string());
+    assert_eq!(joined["result"]["person"]["is_operator"], json!(false));
+
+    let (status, spent) = app.post_auth("/auth/invite", &join.to_string());
+    assert_eq!(status, 401, "{spent}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_them() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator_secret = operator
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .and_then(|(_, value)| value.split(';').next())
+        .and_then(|pair| pair.strip_prefix("kamosu_session="))
+        .expect("operator Session cookie");
+
+    let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
+    let marie = json!({ "link": invite["result"]["link"], "name": "Marie", "password": "old password", "session_name": "Marie’s browser" });
+    assert_eq!(app.post_auth("/auth/invite", &marie.to_string()).0, 200);
+
+    let (_, recovery) = app.post_op(
+        "mint_recovery_link",
+        Some(operator_secret),
+        r#"{"name":"Marie"}"#,
+    );
+    let recovered = json!({ "link": recovery["result"]["link"], "password": "new password", "session_name": "replacement browser" });
+    let recovery_session = app.post_auth_response("/auth/recover", &recovered.to_string());
+    assert_eq!(recovery_session.status, 200, "{}", recovery_session.body);
+    assert_eq!(
+        app.post_auth("/auth/recover", &recovered.to_string()).0,
+        401,
+        "a recovery link must be spent"
+    );
+    assert_eq!(
+        app.post_auth(
+            "/auth/login",
+            &json!({ "name":"Marie", "password":"new password", "session_name":"laptop" })
+                .to_string()
+        )
+        .0,
+        200
+    );
+
+    let (status, disabled) = app.post_op(
+        "disable_account",
+        Some(operator_secret),
+        r#"{"name":"Marie"}"#,
+    );
+    assert_eq!(status, 200, "{disabled}");
+    assert_eq!(
+        app.post_auth(
+            "/auth/login",
+            &json!({ "name":"Marie", "password":"new password", "session_name":"laptop" })
+                .to_string()
+        )
+        .0,
+        401,
+        "a disabled account must not obtain a Credential"
+    );
+
+    let (_, second_invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
+    let zoe = json!({ "link": second_invite["result"]["link"], "name": "Zoé", "password": "her password", "session_name": "Zoé’s browser" });
+    assert_eq!(app.post_auth("/auth/invite", &zoe.to_string()).0, 200);
+    let (status, deleted) =
+        app.post_op("delete_account", Some(operator_secret), r#"{"name":"Zoé"}"#);
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(
+        app.post_auth(
+            "/auth/login",
+            &json!({ "name":"Zoé", "password":"her password", "session_name":"laptop" })
+                .to_string()
+        )
+        .0,
+        401
+    );
+}
+
 // --- Migrations and the Snapshot (issue #35) ---------------------------------
 
 use kamosu::db::{self, Migration};

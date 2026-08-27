@@ -76,5 +76,13 @@
 	"kitchen_join_title": "Rejoindre une Cuisine",
 	"kitchen_join_secret_label": "Invitation",
 	"kitchen_join": "Rejoindre",
-	"kitchen_error": "Cela n’a pas fonctionné."
+	"kitchen_error": "Cela n’a pas fonctionné.",
+	"account_invite_title": "Rejoindre Kamosu",
+	"account_invite_blurb": "Cette invitation à usage unique crée votre compte et votre cuisine d’accueil.",
+	"account_invite_submit": "Créer mon compte",
+	"account_recover_title": "Choisissez un nouveau mot de passe",
+	"account_recover_blurb": "Ce lien de récupération à usage unique est dépensé lorsque vous choisissez votre nouveau mot de passe.",
+	"account_recover_submit": "Définir le nouveau mot de passe",
+	"settings_security": "Ce que Kamosu ne protège pas",
+	"settings_operator_boundary": "La frontière de l’opérateur est une courtoisie, pas un mur : qui détient le disque détient tout."
 }

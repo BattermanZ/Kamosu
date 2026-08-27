@@ -288,6 +288,7 @@ impl crate::core::Core {
                         person_id,
                         read_only: record.read_only,
                         via_access_key: record.via_access_key,
+                        is_operator: false,
                     });
                     let invocation = Invocation {
                         caller,

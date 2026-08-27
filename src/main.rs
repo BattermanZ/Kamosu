@@ -35,6 +35,9 @@ enum Command {
     /// Print the Catalogue as JSON: every Operation's name, permission, kind and
     /// schemas. The interface's typed client is generated from this (`just client`).
     Catalogue,
+    /// Mint a one-use recovery link for a named Person. This never reads, prints,
+    /// or sets a password; the link holder chooses their own.
+    Recover { name: String },
 }
 
 fn main() {
@@ -57,6 +60,7 @@ fn main() {
                 .expect("valid address");
             std::process::exit(health_check(addr));
         }
+        Command::Recover { name } => recover(&config, &name),
     }
 }
 
@@ -112,6 +116,18 @@ fn status(config: &Config) {
         "{}",
         json!({ "version": env!("CARGO_PKG_VERSION"), "setup_complete": setup })
     );
+}
+
+/// Terminal recovery mints one Secret-bearing link and nothing password-shaped.
+fn recover(config: &Config, name: &str) {
+    let core = Core::open(Arc::new(db::Db::open(&config.data_dir).expect("database")));
+    match core.mint_recovery_link(name) {
+        Ok(link) => println!("{link}"),
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Ask this Kamosu whether it can carry out its own Operations. One request to

@@ -66,6 +66,59 @@ pub fn rename_person(core: &Core, invocation: &Invocation, input: Value) -> Resu
     Ok(json!({ "name": name }))
 }
 
+/// Mint a one-use Invite. The Operator receives the link once; its Secret is
+/// stored only hashed and is spent when a stranger uses it.
+pub fn mint_invite(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let is_operator = match input.get("is_operator") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        _ => {
+            return Err(OpError::bad_request(
+                "mint_invite takes optional { is_operator }",
+            ));
+        }
+    };
+    Ok(json!({ "link": core.mint_invite(is_operator)? }))
+}
+
+pub fn disable_account(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("disable_account takes { name }"))?;
+    core.end_account(name, false)?;
+    Ok(json!({ "disabled": true }))
+}
+
+pub fn delete_account(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("delete_account takes { name }"))?;
+    core.end_account(name, true)?;
+    Ok(json!({ "deleted": true }))
+}
+
+pub fn mint_recovery_link(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("mint_recovery_link takes { name }"))?;
+    Ok(json!({ "link": core.mint_recovery_link(name)? }))
+}
+
 pub fn list_sessions(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     if !input.as_object().is_some_and(|map| map.is_empty()) {
         return Err(OpError::bad_request("list_sessions takes no input"));

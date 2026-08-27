@@ -24,6 +24,8 @@ pub fn router(core: Arc<Core>) -> Router {
     // Catalogue question, and still answered as one.
     let first_core = core.clone();
     let login_core = core.clone();
+    let invite_core = core.clone();
+    let recovery_core = core.clone();
     let mut router = Router::new()
         .route("/api/op/{*name}", any(unknown_operation))
         // Credential minting is deliberately outside the Catalogue: it precedes
@@ -38,6 +40,18 @@ pub fn router(core: Arc<Core>) -> Router {
             "/auth/login",
             post(move |body: Option<Json<Value>>| async move {
                 respond(authenticate_login(&login_core, body))
+            }),
+        )
+        .route(
+            "/auth/invite",
+            post(move |body: Option<Json<Value>>| async move {
+                respond(authenticate_invite(&invite_core, body))
+            }),
+        )
+        .route(
+            "/auth/recover",
+            post(move |body: Option<Json<Value>>| async move {
+                respond(authenticate_recovery(&recovery_core, body))
             }),
         );
     for op in catalogue::OPERATIONS.iter() {
@@ -95,6 +109,46 @@ fn authenticate_login(core: &Core, body: Option<Json<Value>>) -> Result<Value, O
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("login takes { name, password, session_name }"))?;
     core.log_in(name, password, session_name)
+}
+
+fn authenticate_invite(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let link = input.get("link").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("Invite redemption takes { link, name, password, session_name }")
+    })?;
+    let name = input.get("name").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("Invite redemption takes { link, name, password, session_name }")
+    })?;
+    let password = input
+        .get("password")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("Invite redemption takes { link, name, password, session_name }")
+        })?;
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("Invite redemption takes { link, name, password, session_name }")
+        })?;
+    core.redeem_invite(link, name, password, session_name)
+}
+
+fn authenticate_recovery(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
+    let input = body.map(|Json(value)| value).unwrap_or_default();
+    let link = input
+        .get("link")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("recovery takes { link, password, session_name }"))?;
+    let password = input
+        .get("password")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("recovery takes { link, password, session_name }"))?;
+    let session_name = input
+        .get("session_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("recovery takes { link, password, session_name }"))?;
+    core.redeem_recovery(link, password, session_name)
 }
 
 fn call_operation(

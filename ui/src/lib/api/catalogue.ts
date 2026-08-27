@@ -34,6 +34,42 @@ export type RenamePersonOutput = {
 	name: string;
 };
 
+/** Mint a one-use Invite link for a new Person. */
+export type MintInviteInput = {
+	is_operator?: boolean;
+};
+/** What mint_invite answers. */
+export type MintInviteOutput = {
+	link: string;
+};
+
+/** Disable an account so it can no longer obtain a Credential. */
+export type DisableAccountInput = {
+	name: string;
+};
+/** What disable_account answers. */
+export type DisableAccountOutput = {
+	disabled: boolean;
+};
+
+/** Delete an account while preserving its Hand in history. */
+export type DeleteAccountInput = {
+	name: string;
+};
+/** What delete_account answers. */
+export type DeleteAccountOutput = {
+	deleted: boolean;
+};
+
+/** Mint a one-use recovery link for a Person who forgot their password. */
+export type MintRecoveryLinkInput = {
+	name: string;
+};
+/** What mint_recovery_link answers. */
+export type MintRecoveryLinkOutput = {
+	link: string;
+};
+
 /** List this Person's browser Sessions by device and last use. */
 export type ListSessionsInput = Record<string, never>;
 /** What list_sessions answers. */
@@ -258,6 +294,30 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	mint_invite: {
+		input: MintInviteInput;
+		output: MintInviteOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	disable_account: {
+		input: DisableAccountInput;
+		output: DisableAccountOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	delete_account: {
+		input: DeleteAccountInput;
+		output: DeleteAccountOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	mint_recovery_link: {
+		input: MintRecoveryLinkInput;
+		output: MintRecoveryLinkOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	list_sessions: {
 		input: ListSessionsInput;
 		output: ListSessionsOutput;
@@ -465,6 +525,124 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "mint_invite",
+		"summary": "Mint a one-use Invite link for a new Person.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"is_operator": {
+					"default": false,
+					"type": "boolean"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"link": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"link"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "disable_account",
+		"summary": "Disable an account so it can no longer obtain a Credential.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"disabled": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"disabled"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "delete_account",
+		"summary": "Delete an account while preserving its Hand in history.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"deleted": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"deleted"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "mint_recovery_link",
+		"summary": "Mint a one-use recovery link for a Person who forgot their password.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"link": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"link"
 			],
 			"type": "object"
 		}
@@ -1254,6 +1432,10 @@ export const METHOD_NAMES = {
 	instance_status: 'instanceStatus',
 	set_reading_preferences: 'setReadingPreferences',
 	rename_person: 'renamePerson',
+	mint_invite: 'mintInvite',
+	disable_account: 'disableAccount',
+	delete_account: 'deleteAccount',
+	mint_recovery_link: 'mintRecoveryLink',
 	list_sessions: 'listSessions',
 	revoke_session: 'revokeSession',
 	mint_access_key: 'mintAccessKey',
@@ -1280,6 +1462,14 @@ export interface KamosuClient {
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
 	/** Change this Person's current reminder name. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
+	/** Mint a one-use Invite link for a new Person. */
+	mintInvite(input: MintInviteInput): Promise<Answer<'mint_invite'>>;
+	/** Disable an account so it can no longer obtain a Credential. */
+	disableAccount(input: DisableAccountInput): Promise<Answer<'disable_account'>>;
+	/** Delete an account while preserving its Hand in history. */
+	deleteAccount(input: DeleteAccountInput): Promise<Answer<'delete_account'>>;
+	/** Mint a one-use recovery link for a Person who forgot their password. */
+	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
 	/** List this Person's browser Sessions by device and last use. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** End one of your browser Sessions. */

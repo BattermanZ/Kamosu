@@ -18,6 +18,8 @@ pub enum Permission {
     /// A resolved Person: the Credential must name one, whether it came from
     /// an Access Key or a login Session.
     Person,
+    /// A resolved Person who administers this instance.
+    Operator,
 }
 
 /// Whether an Operation answers within a request or is too slow to.
@@ -118,6 +120,50 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             handler: crate::operations::rename_person,
+        },
+        Operation {
+            name: "mint_invite",
+            summary: "Mint a one-use Invite link for a new Person.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            input_schema: json!({ "type": "object", "properties": { "is_operator": { "type": "boolean", "default": false } }, "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "link": { "type": "string" } }, "required": ["link"], "additionalProperties": false }),
+            handler: crate::operations::mint_invite,
+        },
+        Operation {
+            name: "disable_account",
+            summary: "Disable an account so it can no longer obtain a Credential.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "disabled": { "type": "boolean" } }, "required": ["disabled"], "additionalProperties": false }),
+            handler: crate::operations::disable_account,
+        },
+        Operation {
+            name: "delete_account",
+            summary: "Delete an account while preserving its Hand in history.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
+            handler: crate::operations::delete_account,
+        },
+        Operation {
+            name: "mint_recovery_link",
+            summary: "Mint a one-use recovery link for a Person who forgot their password.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "link": { "type": "string"} }, "required": ["link"], "additionalProperties": false }),
+            handler: crate::operations::mint_recovery_link,
         },
         Operation {
             name: "list_sessions",
@@ -512,6 +558,7 @@ pub fn declarations() -> Value {
                     "permission": match op.permission {
                         Permission::Public => "public",
                         Permission::Person => "person",
+                        Permission::Operator => "operator",
                     },
                     "kind": match op.kind {
                         Kind::Immediate => "immediate",
@@ -572,10 +619,10 @@ mod tests {
         }
         // The two enums are exported as words, not numbers: the interface's
         // generator reads them, and a number would be a silent renumbering.
-        assert!(
-            list.iter()
-                .all(|e| matches!(e["permission"].as_str(), Some("public" | "person")))
-        );
+        assert!(list.iter().all(|e| matches!(
+            e["permission"].as_str(),
+            Some("public" | "person" | "operator")
+        )));
         assert!(
             list.iter()
                 .all(|e| matches!(e["kind"].as_str(), Some("immediate" | "job")))

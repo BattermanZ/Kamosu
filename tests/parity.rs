@@ -42,6 +42,7 @@ fn arguments_for(name: &str) -> Value {
         "accept_kitchen_invite" => json!({ "secret": "parity-no-such-invite" }),
         "remove_kitchen_member" => json!({ "kitchen_id": "k_parity", "person_id": "p_parity" }),
         "delete_kitchen" => json!({ "kitchen_id": "k_parity" }),
+        "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
         _ => json!({}),
     }
 }
@@ -69,7 +70,11 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "invite_to_kitchen"
             | "accept_kitchen_invite"
             | "remove_kitchen_member"
-            | "delete_kitchen" => ("{}", 401),
+            | "delete_kitchen"
+            | "mint_invite"
+            | "disable_account"
+            | "delete_account"
+            | "mint_recovery_link" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -154,6 +159,10 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "accept_kitchen_invite"
                 | "remove_kitchen_member"
                 | "delete_kitchen"
+                | "mint_invite"
+                | "disable_account"
+                | "delete_account"
+                | "mint_recovery_link"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.
