@@ -446,6 +446,33 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::set_recipe_tag,
         },
         Operation {
+            name: "set_related_recipe",
+            summary: "Relate two Recipes on the same Kitchen shelf, or take \
+                      that single two-way, untyped link back off. It never \
+                      changes either Recipe or travels in a Bundle or Share.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "related_branch_id": { "type": "string" },
+                    "related": { "type": "boolean" },
+                },
+                "required": ["branch_id", "related_branch_id", "related"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "related_recipes": { "type": "array", "items": related_recipe_schema() } },
+                "required": ["related_recipes"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::set_related_recipe,
+        },
+        Operation {
             name: "create_recipe",
             summary: "Create a Recipe: a Lineage, a Branch in this Kitchen, \
                       and a first Version. A title is all it needs.",
@@ -770,6 +797,22 @@ fn tag_schema() -> Value {
     })
 }
 
+/// A Related Recipe shown from one end: an ordinary name when the other
+/// Lineage has left this Kitchen's shelf, otherwise its current Branch and
+/// title. It is a shelf note and has no place inside a Version (#52).
+fn related_recipe_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "lineage_id": { "type": "string" },
+            "branch_id": { "type": ["string", "null"] },
+            "title": { "type": "string" },
+        },
+        "required": ["lineage_id", "branch_id", "title"],
+        "additionalProperties": false,
+    })
+}
+
 /// The shape a Recipe is served in: the Branch as it stands and its whole
 /// chain of Versions, oldest first — created by `create_recipe`, read back
 /// by `get_recipe`.
@@ -810,10 +853,11 @@ fn recipe_schema() -> Value {
             // Outside `versions` on purpose: filing is not recipe content and
             // is named by no fingerprint (ADR 0035).
             "tags": { "type": "array", "items": tag_schema() },
+            "related_recipes": { "type": "array", "items": related_recipe_schema() },
         },
         "required": [
             "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
-            "origin_address", "head_version_id", "versions", "tags"
+            "origin_address", "head_version_id", "versions", "tags", "related_recipes"
         ],
         "additionalProperties": false,
     })

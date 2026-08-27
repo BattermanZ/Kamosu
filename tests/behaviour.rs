@@ -1970,6 +1970,158 @@ async fn a_rename_onto_a_word_the_kitchen_already_files_by_is_refused() {
     assert_eq!(respelt["result"]["name"], json!("Dessert"));
 }
 
+// --- Related Recipes (issue #52) ---------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_name() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, curry) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Curry" }).to_string(),
+    );
+    let (_, naan) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Naan" }).to_string(),
+    );
+    let curry_branch = curry["result"]["branch_id"].as_str().unwrap();
+    let naan_branch = naan["result"]["branch_id"].as_str().unwrap();
+    let curry_lineage = curry["result"]["lineage_id"].as_str().unwrap();
+    let naan_lineage = naan["result"]["lineage_id"].as_str().unwrap();
+
+    let (status, linked) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": curry_branch,
+            "related_branch_id": naan_branch,
+            "related": true,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{linked}");
+    assert_eq!(
+        linked["result"]["related_recipes"],
+        json!([{ "lineage_id": naan_lineage, "branch_id": naan_branch, "title": "Naan" }]),
+    );
+
+    // Repeating the request from the other end still leaves one link, visible
+    // from both Lineages rather than two directed pointers.
+    let (status, reverse) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": naan_branch,
+            "related_branch_id": curry_branch,
+            "related": true,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{reverse}");
+    assert_eq!(
+        reverse["result"]["related_recipes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let (_, curry_read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": curry_branch }).to_string(),
+    );
+    assert_eq!(
+        curry_read["result"]["related_recipes"],
+        json!([{ "lineage_id": naan_lineage, "branch_id": naan_branch, "title": "Naan" }]),
+    );
+    assert_ne!(
+        curry_lineage, naan_lineage,
+        "a Related Recipe never joins Lineages"
+    );
+    assert_eq!(
+        curry_read["result"]["head_version_id"], curry["result"]["head_version_id"],
+        "a shelf link never changes a Version fingerprint"
+    );
+
+    // A future deletion or move off this shelf leaves the remembered name, not
+    // an unusable pointer. Moving the Branch is setup only: every assertion
+    // above and below crosses a real Door.
+    let (_, elsewhere) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "Elsewhere" }).to_string(),
+    );
+    let elsewhere_id = elsewhere["result"]["id"].as_str().unwrap();
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET kitchen_id = ?1 WHERE id = ?2",
+                rusqlite::params![elsewhere_id, naan_branch],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("move related Branch off this shelf");
+    let (_, departed) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": curry_branch }).to_string(),
+    );
+    assert_eq!(
+        departed["result"]["related_recipes"],
+        json!([{ "lineage_id": naan_lineage, "branch_id": null, "title": "Naan" }]),
+    );
+
+    // Either end may remove the one shared link.
+    let (status, _refused) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": curry_branch,
+            "related_branch_id": naan_branch,
+            "related": false,
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        status, 404,
+        "a Branch no longer on this shelf cannot be addressed"
+    );
+    // Put it back, then end the link from Naan's end.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET kitchen_id = ?1 WHERE id = ?2",
+                rusqlite::params![kitchen_id, naan_branch],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("return related Branch to this shelf");
+    let (status, unlinked) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": naan_branch,
+            "related_branch_id": curry_branch,
+            "related": false,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{unlinked}");
+    assert_eq!(unlinked["result"]["related_recipes"], json!([]));
+    let (_, final_curry) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": curry_branch }).to_string(),
+    );
+    assert_eq!(final_curry["result"]["related_recipes"], json!([]));
+}
+
 // --- Access Keys and Sessions (issue #41) ------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

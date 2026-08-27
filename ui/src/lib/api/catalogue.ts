@@ -328,6 +328,21 @@ export type SetRecipeTagOutput = {
 	}[];
 };
 
+/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. */
+export type SetRelatedRecipeInput = {
+	branch_id: string;
+	related: boolean;
+	related_branch_id: string;
+};
+/** What set_related_recipe answers. */
+export type SetRelatedRecipeOutput = {
+	related_recipes: {
+		branch_id: string | null;
+		lineage_id: string;
+		title: string;
+	}[];
+};
+
 /** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 export type CreateRecipeInput = {
 	cook_time_minutes?: number | null;
@@ -363,6 +378,11 @@ export type CreateRecipeOutput = {
 	language: string;
 	lineage_id: string;
 	origin_address: string | null;
+	related_recipes: {
+		branch_id: string | null;
+		lineage_id: string;
+		title: string;
+	}[];
 	tags: {
 		id: string;
 		kitchen_id: string;
@@ -471,6 +491,11 @@ export type GetRecipeOutput = {
 	language: string;
 	lineage_id: string;
 	origin_address: string | null;
+	related_recipes: {
+		branch_id: string | null;
+		lineage_id: string;
+		title: string;
+	}[];
 	tags: {
 		id: string;
 		kitchen_id: string;
@@ -739,6 +764,12 @@ export interface Operations {
 	set_recipe_tag: {
 		input: SetRecipeTagInput;
 		output: SetRecipeTagOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_related_recipe: {
+		input: SetRelatedRecipeInput;
+		output: SetRelatedRecipeOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -2056,6 +2087,67 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "set_related_recipe",
+		"summary": "Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"related": {
+					"type": "boolean"
+				},
+				"related_branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"related_branch_id",
+				"related"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"related_recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"related_recipes"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "create_recipe",
 		"summary": "Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs.",
 		"permission": "person",
@@ -2221,6 +2313,32 @@ export const CATALOGUE = [
 						"string",
 						"null"
 					]
+				},
+				"related_recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"tags": {
 					"items": {
@@ -2501,7 +2619,8 @@ export const CATALOGUE = [
 				"origin_address",
 				"head_version_id",
 				"versions",
-				"tags"
+				"tags",
+				"related_recipes"
 			],
 			"type": "object"
 		}
@@ -2761,6 +2880,32 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"related_recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"tags": {
 					"items": {
 						"additionalProperties": false,
@@ -3040,7 +3185,8 @@ export const CATALOGUE = [
 				"origin_address",
 				"head_version_id",
 				"versions",
-				"tags"
+				"tags",
+				"related_recipes"
 			],
 			"type": "object"
 		}
@@ -3337,6 +3483,7 @@ export const METHOD_NAMES = {
 	merge_tags: 'mergeTags',
 	delete_tag: 'deleteTag',
 	set_recipe_tag: 'setRecipeTag',
+	set_related_recipe: 'setRelatedRecipe',
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
 	rename_version: 'renameVersion',
@@ -3401,6 +3548,8 @@ export interface KamosuClient {
 	deleteTag(input: DeleteTagInput): Promise<Answer<'delete_tag'>>;
 	/** File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is. */
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
+	/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. */
+	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
 	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */

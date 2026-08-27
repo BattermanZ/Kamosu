@@ -459,6 +459,28 @@ pub fn set_recipe_tag(
     core.set_recipe_tag(&caller.person_id, branch_id, tag_id, carried)
 }
 
+pub fn set_related_recipe(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "set_related_recipe takes { branch_id, related_branch_id, related }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let related_branch_id = input
+        .get("related_branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let related = input
+        .get("related")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.set_related_recipe(&caller.person_id, branch_id, related_branch_id, related)
+}
+
 pub fn create_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let kitchen_id = input
         .get("kitchen_id")

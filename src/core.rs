@@ -1296,6 +1296,60 @@ impl Core {
         })
     }
 
+    /// Relate two Recipes held on this Kitchen's shelf, or take that one
+    /// shelf-local relation back off. The stored pair is canonically ordered,
+    /// so asking from either end changes the same untyped, two-way link (#52).
+    pub fn set_related_recipe(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        related_branch_id: &str,
+        related: bool,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let (kitchen_id, lineage_id, title) = recipe_shelf_identity(conn, branch_id)?
+                .ok_or_else(|| OpError::not_found("no such Recipe on this shelf"))?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+
+            let (related_kitchen_id, related_lineage_id, related_title) =
+                recipe_shelf_identity(conn, related_branch_id)?
+                    .ok_or_else(|| OpError::not_found("no such related Recipe on this shelf"))?;
+            if related_kitchen_id != kitchen_id {
+                return Err(OpError::not_found(
+                    "no such related Recipe on the Kitchen's shelf",
+                ));
+            }
+            if lineage_id == related_lineage_id {
+                return Err(OpError::bad_request("a Recipe cannot be Related to itself"));
+            }
+
+            let (lineage_a_id, lineage_a_name, lineage_b_id, lineage_b_name) =
+                if lineage_id < related_lineage_id {
+                    (lineage_id.as_str(), title.as_str(), related_lineage_id.as_str(), related_title.as_str())
+                } else {
+                    (related_lineage_id.as_str(), related_title.as_str(), lineage_id.as_str(), title.as_str())
+                };
+            if related {
+                conn.execute(
+                    "INSERT OR IGNORE INTO related_recipes \
+                     (kitchen_id, lineage_a_id, lineage_b_id, lineage_a_name, lineage_b_name) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![kitchen_id, lineage_a_id, lineage_b_id, lineage_a_name, lineage_b_name],
+                )
+                .map_err(|e| OpError::internal(format!("cannot relate Recipes: {e}")))?;
+            } else {
+                conn.execute(
+                    "DELETE FROM related_recipes WHERE kitchen_id = ?1 AND lineage_a_id = ?2 AND lineage_b_id = ?3",
+                    params![kitchen_id, lineage_a_id, lineage_b_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot remove Related Recipe: {e}")))?;
+            }
+            Ok(json!({
+                "related_recipes": related_recipes_of_lineage(conn, &kitchen_id, &lineage_id)?
+            }))
+        })
+    }
+
     /// Create a Recipe: a Lineage, a Branch of it in the creating Kitchen, and
     /// a first Version fingerprinted from its content (ADR 0004). A recipe
     /// needs only a title — every other field of `input` (Yield, Prep/Cook
@@ -1630,6 +1684,9 @@ impl Core {
                 // recipe is, so it belongs to the Branch as it stands now and
                 // to no Version's content (ADR 0035).
                 "tags": tags_of_branch(conn, branch_id, person_id)?,
+                // Related Recipes are shelf notes between Lineages. They sit
+                // beside the Thread just as Tags do, never inside a Version.
+                "related_recipes": related_recipes_of_lineage(conn, &kitchen_id, &lineage_id)?,
             }))
         })
     }
@@ -2259,6 +2316,77 @@ fn tags_of_branch(
     };
     ids.iter()
         .map(|id| tag_summary(conn, id, viewer_person_id))
+        .collect()
+}
+
+/// The Kitchen, Lineage, and current title of one Branch. These are the three
+/// facts a shelf link needs from either end, so the two lookups in
+/// `set_related_recipe` cannot drift apart.
+fn recipe_shelf_identity(
+    conn: &rusqlite::Connection,
+    branch_id: &str,
+) -> Result<Option<(String, String, String)>, OpError> {
+    conn.query_row(
+        "SELECT branches.kitchen_id, branches.lineage_id, json_extract(versions.content, '$.title') \
+         FROM branches JOIN versions ON versions.id = branches.head_version_id WHERE branches.id = ?1",
+        params![branch_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Recipe: {e}")))
+}
+
+/// The Related Recipes one Lineage shows on one Kitchen's shelf. A Lineage
+/// that is no longer held there is deliberately returned with its remembered
+/// title and no Branch id: text is better than a broken pointer (#52).
+fn related_recipes_of_lineage(
+    conn: &rusqlite::Connection,
+    kitchen_id: &str,
+    lineage_id: &str,
+) -> Result<Vec<Value>, OpError> {
+    let links: Vec<(String, String)> = {
+        let mut statement = conn
+            .prepare(
+                "SELECT CASE WHEN lineage_a_id = ?2 THEN lineage_b_id ELSE lineage_a_id END, \
+                        CASE WHEN lineage_a_id = ?2 THEN lineage_b_name ELSE lineage_a_name END \
+                 FROM related_recipes \
+                 WHERE kitchen_id = ?1 AND (lineage_a_id = ?2 OR lineage_b_id = ?2) \
+                 ORDER BY created_at, lineage_a_id, lineage_b_id",
+            )
+            .map_err(|e| OpError::internal(format!("cannot read Related Recipes: {e}")))?;
+        statement
+            .query_map(params![kitchen_id, lineage_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(|e| OpError::internal(format!("cannot read Related Recipes: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OpError::internal(format!("cannot read Related Recipes: {e}")))?
+    };
+
+    links
+        .into_iter()
+        .map(|(related_lineage_id, remembered_title)| {
+            let present: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT branches.id, json_extract(versions.content, '$.title') \
+                     FROM branches JOIN versions ON versions.id = branches.head_version_id \
+                     WHERE branches.kitchen_id = ?1 AND branches.lineage_id = ?2 \
+                     ORDER BY branches.created_at, branches.id LIMIT 1",
+                    params![kitchen_id, related_lineage_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read related Recipe: {e}")))?;
+            let (branch_id, title) = match present {
+                Some((branch_id, title)) => (Some(branch_id), title),
+                None => (None, remembered_title),
+            };
+            Ok(json!({
+                "lineage_id": related_lineage_id,
+                "branch_id": branch_id,
+                "title": title,
+            }))
+        })
         .collect()
 }
 

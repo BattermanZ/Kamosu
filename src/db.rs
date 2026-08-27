@@ -319,6 +319,28 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX branch_tags_by_tag ON branch_tags(tag_id);
         "#,
     },
+    Migration {
+        version: 12,
+        description: "Related Recipes: one shelf-local, two-way Lineage link (#52)",
+        sql: r#"
+        -- A Related Recipe is a shelf note, not part of either recipe: it links
+        -- two distinct Lineages in one Kitchen, has neither type nor direction,
+        -- and never enters a Version, fingerprint, Bundle, or Share. The saved
+        -- names remain readable if either Lineage later leaves this shelf.
+        CREATE TABLE related_recipes (
+            kitchen_id     TEXT NOT NULL REFERENCES kitchens(id),
+            lineage_a_id   TEXT NOT NULL REFERENCES lineages(id),
+            lineage_b_id   TEXT NOT NULL REFERENCES lineages(id),
+            lineage_a_name TEXT NOT NULL,
+            lineage_b_name TEXT NOT NULL,
+            created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (kitchen_id, lineage_a_id, lineage_b_id),
+            CHECK (lineage_a_id < lineage_b_id)
+        );
+        CREATE INDEX related_recipes_by_lineage_a ON related_recipes(kitchen_id, lineage_a_id);
+        CREATE INDEX related_recipes_by_lineage_b ON related_recipes(kitchen_id, lineage_b_id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
