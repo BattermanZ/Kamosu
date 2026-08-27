@@ -12,6 +12,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use rand::{TryRng, rngs::SysRng};
+use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use rusqlite::params;
 use serde_json::{Value, json};
@@ -1146,17 +1147,21 @@ impl Core {
                 .ok_or_else(|| OpError::not_found("no such Branch"))?;
             ensure_member(conn, &kitchen_id, &caller.person_id)?;
 
-            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window): (
+            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content): (
                 i64,
                 String,
                 String,
                 Option<String>,
                 bool,
+                String,
             ) = conn
                 .query_row(
-                    "SELECT sequence, version_id, hand_id, parent_version_id, \
-                            (julianday('now') - julianday(created_at)) * 86400.0 <= ?2 \
-                       FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
+                    "SELECT branch_versions.sequence, branch_versions.version_id, \
+                            branch_versions.hand_id, branch_versions.parent_version_id, \
+                            (julianday('now') - julianday(branch_versions.created_at)) * 86400.0 <= ?2, \
+                            versions.content \
+                       FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
+                      WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence DESC LIMIT 1",
                     params![branch_id, COLLAPSE_WINDOW_SECONDS as f64],
                     |row| {
                         Ok((
@@ -1165,6 +1170,7 @@ impl Core {
                             row.get(2)?,
                             row.get(3)?,
                             row.get(4)?,
+                            row.get(5)?,
                         ))
                     },
                 )
@@ -1186,6 +1192,17 @@ impl Core {
                 params![version_id, content_text],
             )
             .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
+
+            // A Reading travels with the Version it belongs to and is never
+            // recomputed (ADR 0021) — so wherever this save left a line
+            // reading exactly as it did before, its Reading carries forward
+            // onto the new Version rather than being silently lost. A line
+            // that actually changed loses its Reading, which is ADR 0002's
+            // "re-reading the edited line refreshes the Reading" (the
+            // refresh itself is deferred: nothing here re-parses it).
+            let head_content: Value = serde_json::from_str(&head_content)
+                .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
+            carry_forward_readings(conn, &head_version_id, &head_content, &version_id, &content)?;
 
             let collapse = within_window && head_hand_id == caller.person_id;
             if collapse {
@@ -1321,7 +1338,7 @@ impl Core {
                       WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence ASC",
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
-            let versions: Vec<Value> = statement
+            let mut versions: Vec<Value> = statement
                 .query_map(params![branch_id], |row| {
                     let content: String = row.get(7)?;
                     Ok(json!({
@@ -1339,6 +1356,21 @@ impl Core {
                 .collect::<Result<_, _>>()
                 .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
 
+            // A Reading never sits inside `content` (ADR 0021), so it is
+            // fetched separately here and laid alongside it: one slot per
+            // Ingredient Line, null wherever no Reading has been recorded.
+            for version in &mut versions {
+                let version_id = version["version_id"]
+                    .as_str()
+                    .expect("version_id is always a string")
+                    .to_string();
+                let line_count = version["content"]["ingredients"]
+                    .as_array()
+                    .map(Vec::len)
+                    .unwrap_or(0);
+                version["readings"] = json!(readings_for_version(conn, &version_id, line_count)?);
+            }
+
             Ok(json!({
                 "branch_id": branch_id,
                 "lineage_id": lineage_id,
@@ -1351,6 +1383,148 @@ impl Core {
             }))
         })
     }
+
+    /// Correct a Reading on the Branch's current head Version: Kamosu's
+    /// interpretation of one Ingredient Line, addressed by its position in
+    /// that line's list. This never mints a Version and appears in no
+    /// Thread (ADR 0021) — the row beside the head Version is simply
+    /// replaced or removed. `amount`, `unit` and `target` describe the
+    /// whole new Reading together, the same whole-state convention
+    /// `save_recipe_version` uses for the whole recipe — this is not a
+    /// per-field patch, so correcting one field means sending all three
+    /// wanted. All three absent or blank clears the Reading entirely,
+    /// taking the line back to fully unread.
+    pub fn set_reading(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        line_index: i64,
+        amount: Option<&str>,
+        unit: Option<&str>,
+        target: Option<&str>,
+    ) -> Result<Value, OpError> {
+        if line_index < 0 {
+            return Err(OpError::bad_request("line_index must be zero or more"));
+        }
+        self.db().with_conn(|conn| {
+            let (kitchen_id, head_version_id, content): (String, String, String) = conn
+                .query_row(
+                    "SELECT branches.kitchen_id, branches.head_version_id, versions.content \
+                       FROM branches JOIN versions ON versions.id = branches.head_version_id \
+                      WHERE branches.id = ?1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+
+            let content: Value = serde_json::from_str(&content)
+                .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
+            let line = content["ingredients"]
+                .get(line_index as usize)
+                .ok_or_else(|| OpError::bad_request("no Ingredient Line at that index"))?;
+            if line["kind"] != "ingredient" {
+                return Err(OpError::bad_request(
+                    "a Reading belongs to an Ingredient Line, not a section",
+                ));
+            }
+
+            let amount = amount.map(str::trim).filter(|v| !v.is_empty());
+            let unit = unit.map(str::trim).filter(|v| !v.is_empty());
+            let target = target.map(str::trim).filter(|v| !v.is_empty());
+
+            if amount.is_none() && unit.is_none() && target.is_none() {
+                conn.execute(
+                    "DELETE FROM readings WHERE version_id = ?1 AND line_index = ?2",
+                    params![head_version_id, line_index],
+                )
+                .map_err(|e| OpError::internal(format!("cannot clear Reading: {e}")))?;
+                return Ok(json!({ "line_index": line_index, "reading": Value::Null }));
+            }
+
+            conn.execute(
+                "INSERT INTO readings (version_id, line_index, amount, unit, target) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) \
+                 ON CONFLICT (version_id, line_index) DO UPDATE SET \
+                    amount = excluded.amount, unit = excluded.unit, target = excluded.target, \
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+                params![head_version_id, line_index, amount, unit, target],
+            )
+            .map_err(|e| OpError::internal(format!("cannot save Reading: {e}")))?;
+
+            Ok(json!({
+                "line_index": line_index,
+                "reading": { "amount": amount, "unit": unit, "target": target },
+            }))
+        })
+    }
+}
+
+/// Carry a Reading forward onto a freshly saved Version wherever the
+/// Ingredient Line it belongs to reads identically (same kind, same text)
+/// at the same position in both — the cheapest honest approximation of
+/// Pairing (ADR 0019) available before that exists. A Reading whose line
+/// moved or changed is left behind rather than guessed at.
+fn carry_forward_readings(
+    conn: &Connection,
+    old_version_id: &str,
+    old_content: &Value,
+    new_version_id: &str,
+    new_content: &Value,
+) -> Result<(), OpError> {
+    let no_lines = Vec::new();
+    let old_lines = old_content["ingredients"].as_array().unwrap_or(&no_lines);
+    let new_lines = new_content["ingredients"].as_array().unwrap_or(&no_lines);
+    for (index, (old_line, new_line)) in old_lines.iter().zip(new_lines.iter()).enumerate() {
+        if old_line != new_line {
+            continue;
+        }
+        conn.execute(
+            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target) \
+             SELECT ?1, line_index, amount, unit, target FROM readings \
+              WHERE version_id = ?2 AND line_index = ?3",
+            params![new_version_id, old_version_id, index as i64],
+        )
+        .map_err(|e| OpError::internal(format!("cannot carry Reading forward: {e}")))?;
+    }
+    Ok(())
+}
+
+/// Every Reading recorded against one Version, laid out as one slot per
+/// Ingredient Line — `null` wherever no Reading has been recorded, which is
+/// an entirely ordinary and permanent state for a line (ADR 0002).
+fn readings_for_version(
+    conn: &Connection,
+    version_id: &str,
+    line_count: usize,
+) -> Result<Vec<Value>, OpError> {
+    let mut slots = vec![Value::Null; line_count];
+    let mut statement = conn
+        .prepare("SELECT line_index, amount, unit, target FROM readings WHERE version_id = ?1")
+        .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?;
+    let rows = statement
+        .query_map(params![version_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?;
+    for (line_index, amount, unit, target) in rows {
+        if let Some(slot) = usize::try_from(line_index)
+            .ok()
+            .and_then(|index| slots.get_mut(index))
+        {
+            *slot = json!({ "amount": amount, "unit": unit, "target": target });
+        }
+    }
+    Ok(slots)
 }
 
 /// How long a gap between saves on the same Branch, by the same Hand, still

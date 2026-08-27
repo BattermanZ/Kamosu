@@ -441,6 +441,43 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: recipe_schema(),
             handler: crate::operations::get_recipe,
         },
+        Operation {
+            name: "set_reading",
+            summary: "Correct the Reading on one Ingredient Line of a Recipe's \
+                      current state — an amount, a Unit and a target, sent \
+                      together as the whole new Reading (never a per-field \
+                      patch, the same convention save_recipe_version uses \
+                      for the whole recipe). Mints no Version and appears in \
+                      no history (ADR 0021). Amount, Unit and target left \
+                      out together clears the Reading, taking the line back \
+                      to fully unread.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "line_index": { "type": "integer", "minimum": 0 },
+                    "amount": { "type": ["string", "null"] },
+                    "unit": { "type": ["string", "null"] },
+                    "target": { "type": ["string", "null"] },
+                },
+                "required": ["branch_id", "line_index"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "line_index": { "type": "integer" },
+                    "reading": reading_schema(),
+                },
+                "required": ["line_index", "reading"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::set_reading,
+        },
         // Watching slow work: two ordinary Operations, so a browser polling an
         // import and an agent polling the same import use the identical shape.
         Operation {
@@ -642,10 +679,11 @@ fn recipe_schema() -> Value {
                         "change_note": { "type": ["string", "null"] },
                         "created_at": { "type": "string" },
                         "content": recipe_content_schema(),
+                        "readings": reading_list_schema(),
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
-                        "name", "change_note", "created_at", "content"
+                        "name", "change_note", "created_at", "content", "readings"
                     ],
                     "additionalProperties": false,
                 },
@@ -774,6 +812,32 @@ fn save_recipe_version_input_schema() -> Value {
         "properties": properties,
         "required": ["branch_id", "title"],
         "additionalProperties": false,
+    })
+}
+
+/// A Reading: Kamosu's interpretation of one Ingredient Line — an amount, a
+/// Unit (whatever word was written; see #49) and a target, all optional and
+/// `null` together wherever Kamosu has read nothing (ADR 0002, ADR 0021). A
+/// target names a Food by the word alone; Foods (#47) carry no id here.
+fn reading_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "amount": { "type": ["string", "null"] },
+            "unit": { "type": ["string", "null"] },
+            "target": { "type": ["string", "null"] },
+        },
+        "required": ["amount", "unit", "target"],
+        "additionalProperties": false,
+    })
+}
+
+/// One Reading slot per Ingredient Line in a Version's `ingredients` list,
+/// in the same order — `null` at any index Kamosu has not read.
+fn reading_list_schema() -> Value {
+    json!({
+        "type": "array",
+        "items": reading_schema(),
     })
 }
 

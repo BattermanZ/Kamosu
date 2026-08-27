@@ -292,6 +292,11 @@ export type CreateRecipeOutput = {
 		hand_id: string;
 		name: string | null;
 		parent_version_id: string | null;
+		readings: {
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null[];
 		sequence: number;
 		version_id: string;
 	}[];
@@ -385,9 +390,32 @@ export type GetRecipeOutput = {
 		hand_id: string;
 		name: string | null;
 		parent_version_id: string | null;
+		readings: {
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null[];
 		sequence: number;
 		version_id: string;
 	}[];
+};
+
+/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
+export type SetReadingInput = {
+	amount?: string | null;
+	branch_id: string;
+	line_index: number;
+	target?: string | null;
+	unit?: string | null;
+};
+/** What set_reading answers. */
+export type SetReadingOutput = {
+	line_index: number;
+	reading: {
+		amount: string | null;
+		target: string | null;
+		unit: string | null;
+	} | null;
 };
 
 /** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
@@ -579,6 +607,12 @@ export interface Operations {
 	get_recipe: {
 		input: GetRecipeInput;
 		output: GetRecipeOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_reading: {
+		input: SetReadingInput;
+		output: SetReadingOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -1761,6 +1795,41 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"readings": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"target": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"unit": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"amount",
+										"unit",
+										"target"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"type": "array"
+							},
 							"sequence": {
 								"type": "integer"
 							},
@@ -1776,7 +1845,8 @@ export const CATALOGUE = [
 							"name",
 							"change_note",
 							"created_at",
-							"content"
+							"content",
+							"readings"
 						],
 						"type": "object"
 					},
@@ -2210,6 +2280,41 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"readings": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"target": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"unit": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"amount",
+										"unit",
+										"target"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"type": "array"
+							},
 							"sequence": {
 								"type": "integer"
 							},
@@ -2225,7 +2330,8 @@ export const CATALOGUE = [
 							"name",
 							"change_note",
 							"created_at",
-							"content"
+							"content",
+							"readings"
 						],
 						"type": "object"
 					},
@@ -2241,6 +2347,92 @@ export const CATALOGUE = [
 				"origin_address",
 				"head_version_id",
 				"versions"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_reading",
+		"summary": "Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"amount": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"branch_id": {
+					"type": "string"
+				},
+				"line_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"target": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"unit": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"line_index"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"line_index": {
+					"type": "integer"
+				},
+				"reading": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"target": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"unit": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"amount",
+						"unit",
+						"target"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"line_index",
+				"reading"
 			],
 			"type": "object"
 		}
@@ -2449,6 +2641,7 @@ export const METHOD_NAMES = {
 	save_recipe_version: 'saveRecipeVersion',
 	rename_version: 'renameVersion',
 	get_recipe: 'getRecipe',
+	set_reading: 'setReading',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	list_jobs: 'listJobs',
@@ -2504,6 +2697,8 @@ export interface KamosuClient {
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
 	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
+	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
+	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */

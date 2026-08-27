@@ -47,6 +47,7 @@ fn arguments_for(name: &str) -> Value {
         "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" => json!({ "branch_id": "b_parity" }),
+        "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
         _ => json!({}),
     }
 }
@@ -82,7 +83,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "create_recipe"
             | "save_recipe_version"
             | "rename_version"
-            | "get_recipe" => ("{}", 401),
+            | "get_recipe"
+            | "set_reading" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -175,6 +177,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "save_recipe_version"
                 | "rename_version"
                 | "get_recipe"
+                | "set_reading"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

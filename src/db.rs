@@ -245,6 +245,27 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 10,
+        description: "the Reading: Kamosu's guess about an Ingredient Line (ADR 0021)",
+        sql: r#"
+        -- A Reading: Kamosu's interpretation of one Ingredient Line, addressed
+        -- by its position in that Version's `ingredients` array. It travels
+        -- beside the Version it belongs to, never inside its content, so
+        -- correcting one mints no Version (ADR 0021) — this row is simply
+        -- replaced or deleted in place. `target` names a Food by its written
+        -- word alone; Foods themselves (#47) are not built yet.
+        CREATE TABLE readings (
+            version_id  TEXT NOT NULL REFERENCES versions(id),
+            line_index  INTEGER NOT NULL,
+            amount      TEXT,
+            unit        TEXT,
+            target      TEXT,
+            updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (version_id, line_index)
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

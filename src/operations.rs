@@ -443,6 +443,37 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
     core.get_recipe(&caller.person_id, branch_id)
 }
 
+pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "set_reading takes { branch_id, line_index, amount?, unit?, target? }",
+            )
+        })?;
+    let line_index = input
+        .get("line_index")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "set_reading takes { branch_id, line_index, amount?, unit?, target? }",
+            )
+        })?;
+    let amount = input.get("amount").and_then(Value::as_str);
+    let unit = input.get("unit").and_then(Value::as_str);
+    let target = input.get("target").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.set_reading(
+        &caller.person_id,
+        branch_id,
+        line_index,
+        amount,
+        unit,
+        target,
+    )
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller.as_ref().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")

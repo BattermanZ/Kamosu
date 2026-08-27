@@ -1207,6 +1207,289 @@ async fn saving_a_version_rejects_malformed_recipe_fields() {
     assert_eq!(status, 400, "{response}");
 }
 
+// --- The Reading (issue #44) --------------------------------------------------
+
+/// The measured fact this ticket is built to survive (ADR 0002): 239 of 863
+/// real Ingredient Lines across Aurélien's 86-recipe Crouton corpus
+/// (`docs/research/crouton-real-export.md`) carry no quantity at all — not
+/// an edge case, but roughly a quarter of a real library. Pinned here as a
+/// fixture fact so a future change cannot silently drift from what was
+/// actually measured.
+#[test]
+fn the_crouton_corpus_no_quantity_figure_is_a_fixture_fact() {
+    const LINES_WITHOUT_QUANTITY: u32 = 239;
+    const LINES_TOTAL: u32 = 863;
+    let fraction = f64::from(LINES_WITHOUT_QUANTITY) / f64::from(LINES_TOTAL);
+    assert!(
+        (fraction - 0.28).abs() < 0.005,
+        "measured at 28%, got {:.1}%",
+        fraction * 100.0
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usable() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Genuine text from Aurélien's 86-recipe Crouton corpus
+    // (samples/crouton/): "2 tbsp soy sauce" carries a quantity, "pinch of
+    // salt" and "Za'tar" are two of the 239 real Ingredient Lines that do
+    // not (ADR 0002).
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "10 Minute Chili Garlic Silken Tofu",
+            "ingredients": [
+                { "kind": "section", "text": "For the sauce" },
+                { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "pinch of salt" },
+                { "kind": "ingredient", "text": "Za’tar" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Freshly created: nothing has been read yet, so every line — including
+    // the one with an obvious quantity — carries no Reading. An unread line
+    // is not an error; it is a working line.
+    assert_eq!(
+        created["result"]["versions"][0]["readings"],
+        json!([null, null, null, null]),
+        "no parser runs yet (ADR 0002); every line starts unread"
+    );
+
+    // Reading the soy sauce line (index 1) attaches a Reading beside the
+    // Version — the written line above it is untouched.
+    let (status, read) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "line_index": 1,
+            "amount": "2",
+            "unit": "tbsp",
+            "target": "soy sauce",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(
+        read["result"],
+        json!({
+            "line_index": 1,
+            "reading": { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
+        })
+    );
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let version = &fetched["result"]["versions"][0];
+    assert_eq!(
+        version["content"]["ingredients"][1]["text"],
+        json!("2 tbsp soy sauce"),
+        "the written line is never rewritten by a Reading"
+    );
+    assert_eq!(
+        version["readings"],
+        json!([
+            null,
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
+            null,
+            null,
+        ]),
+        "pinch of salt and Za'tar stay unread — no quantity is not an error"
+    );
+
+    // Correcting the Reading never mints a Version: still exactly one.
+    assert_eq!(fetched["result"]["versions"].as_array().unwrap().len(), 1);
+
+    // Clearing a Reading (every field left out) takes the line back to
+    // fully unread.
+    let (status, cleared) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 1 }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+    assert_eq!(cleared["result"]["reading"], json!(null));
+
+    let (_, fetched_again) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        fetched_again["result"]["versions"][0]["readings"],
+        json!([null, null, null, null])
+    );
+    assert_eq!(
+        fetched_again["result"]["versions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "clearing a Reading mints no Version either"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reading_cannot_land_on_a_section_or_off_the_end_of_the_list() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Soupe",
+            "ingredients": [
+                { "kind": "section", "text": "For the broth" },
+                { "kind": "ingredient", "text": "1 litre stock" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, response) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 0, "amount": "1" }).to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+
+    let (status, response) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 5, "amount": "1" }).to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_a_kitchen_member_may_correct_a_reading() {
+    let app = support::spawn_app();
+    let (_owner, owner_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let stranger = app.core.create_person("Marc").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&owner_key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Soupe",
+            "ingredients": [{ "kind": "ingredient", "text": "1 litre stock" }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, _) = app.post_op(
+        "set_reading",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_id, "line_index": 0, "amount": "1" }).to_string(),
+    );
+    assert_eq!(status, 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Soupe",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "1 litre stock" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 0,
+            "amount": "2", "unit": "tbsp", "target": "soy sauce",
+        })
+        .to_string(),
+    );
+    app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 1,
+            "amount": "1", "unit": "litre", "target": "stock",
+        })
+        .to_string(),
+    );
+
+    // A save that leaves the soy sauce line untouched but rewrites the
+    // stock line: only the changed line's Reading should be left behind
+    // (ADR 0002 — re-reading an edited line refreshes its Reading).
+    backdate_branch_head(&app, &branch_id);
+    app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Soupe",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "2 litres stock" },
+            ],
+        })
+        .to_string(),
+    );
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let versions = fetched["result"]["versions"].as_array().unwrap();
+    assert_eq!(
+        versions.len(),
+        2,
+        "an unrelated line changing still mints a Version"
+    );
+    assert_eq!(
+        versions[1]["readings"],
+        json!([
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
+            null,
+        ]),
+        "the soy sauce Reading survived the save; the rewritten stock line lost its own"
+    );
+    // The earlier Version keeps exactly what it always had.
+    assert_eq!(
+        versions[0]["readings"],
+        json!([
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
+            { "amount": "1", "unit": "litre", "target": "stock" },
+        ])
+    );
+}
+
 // --- Access Keys and Sessions (issue #41) ------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
