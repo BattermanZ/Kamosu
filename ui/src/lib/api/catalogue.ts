@@ -92,6 +92,106 @@ export type RevokeAccessKeyOutput = {
 	revoked: boolean;
 };
 
+/** Create a Kitchen: a new circle, held by its creator until they invite someone else in. */
+export type CreateKitchenInput = {
+	name: string;
+};
+/** What create_kitchen answers. */
+export type CreateKitchenOutput = {
+	hand_id: string;
+	id: string;
+	is_home: boolean;
+	members: {
+		name: string;
+		person_id: string;
+	}[];
+	name: string;
+	nickname: string | null;
+};
+
+/** List every Kitchen this Person cooks in. */
+export type ListKitchensInput = Record<string, never>;
+/** What list_kitchens answers. */
+export type ListKitchensOutput = {
+	kitchens: {
+		hand_id: string;
+		id: string;
+		is_home: boolean;
+		members: {
+			name: string;
+			person_id: string;
+		}[];
+		name: string;
+		nickname: string | null;
+	}[];
+};
+
+/** Change a Kitchen's shared Name. Any member may. */
+export type RenameKitchenInput = {
+	kitchen_id: string;
+	name: string;
+};
+/** What rename_kitchen answers. */
+export type RenameKitchenOutput = {
+	name: string;
+};
+
+/** Set this member's own private Nickname for a Kitchen, seen by nobody else. An absent or empty Nickname clears it. */
+export type SetKitchenNicknameInput = {
+	kitchen_id: string;
+	nickname: string | null;
+};
+/** What set_kitchen_nickname answers. */
+export type SetKitchenNicknameOutput = {
+	nickname: string | null;
+};
+
+/** Mint a one-use Invite for another Person to join this Kitchen. Any member may. */
+export type InviteToKitchenInput = {
+	kitchen_id: string;
+};
+/** What invite_to_kitchen answers. */
+export type InviteToKitchenOutput = {
+	invite_id: string;
+	secret: string;
+};
+
+/** Open a Kitchen Invite: join the Kitchen it names. Spent on use. */
+export type AcceptKitchenInviteInput = {
+	secret: string;
+};
+/** What accept_kitchen_invite answers. */
+export type AcceptKitchenInviteOutput = {
+	hand_id: string;
+	id: string;
+	is_home: boolean;
+	members: {
+		name: string;
+		person_id: string;
+	}[];
+	name: string;
+	nickname: string | null;
+};
+
+/** Remove a Person from a Kitchen — including yourself, to leave. The last member cannot be removed. */
+export type RemoveKitchenMemberInput = {
+	kitchen_id: string;
+	person_id: string;
+};
+/** What remove_kitchen_member answers. */
+export type RemoveKitchenMemberOutput = {
+	removed: boolean;
+};
+
+/** An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen. */
+export type DeleteKitchenInput = {
+	kitchen_id: string;
+};
+/** What delete_kitchen answers. */
+export type DeleteKitchenOutput = {
+	deleted: boolean;
+};
+
 /** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 export type GetJobInput = {
 	job_id: string;
@@ -185,6 +285,54 @@ export interface Operations {
 	revoke_access_key: {
 		input: RevokeAccessKeyInput;
 		output: RevokeAccessKeyOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	create_kitchen: {
+		input: CreateKitchenInput;
+		output: CreateKitchenOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_kitchens: {
+		input: ListKitchensInput;
+		output: ListKitchensOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_kitchen: {
+		input: RenameKitchenInput;
+		output: RenameKitchenOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_kitchen_nickname: {
+		input: SetKitchenNicknameInput;
+		output: SetKitchenNicknameOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	invite_to_kitchen: {
+		input: InviteToKitchenInput;
+		output: InviteToKitchenOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	accept_kitchen_invite: {
+		input: AcceptKitchenInviteInput;
+		output: AcceptKitchenInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_kitchen_member: {
+		input: RemoveKitchenMemberInput;
+		output: RemoveKitchenMemberOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	delete_kitchen: {
+		input: DeleteKitchenInput;
+		output: DeleteKitchenOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -540,6 +688,390 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "create_kitchen",
+		"summary": "Create a Kitchen: a new circle, held by its creator until they invite someone else in.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"hand_id": {
+					"type": "string"
+				},
+				"id": {
+					"type": "string"
+				},
+				"is_home": {
+					"type": "boolean"
+				},
+				"members": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": "string"
+				},
+				"nickname": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"hand_id",
+				"is_home",
+				"nickname",
+				"members"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_kitchens",
+		"summary": "List every Kitchen this Person cooks in.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchens": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"hand_id": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"is_home": {
+								"type": "boolean"
+							},
+							"members": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"nickname": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"hand_id",
+							"is_home",
+							"nickname",
+							"members"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"kitchens"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_kitchen",
+		"summary": "Change a Kitchen's shared Name. Any member may.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_kitchen_nickname",
+		"summary": "Set this member's own private Nickname for a Kitchen, seen by nobody else. An absent or empty Nickname clears it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				},
+				"nickname": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"kitchen_id",
+				"nickname"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"nickname": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"nickname"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "invite_to_kitchen",
+		"summary": "Mint a one-use Invite for another Person to join this Kitchen. Any member may.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"invite_id": {
+					"type": "string"
+				},
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"invite_id",
+				"secret"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "accept_kitchen_invite",
+		"summary": "Open a Kitchen Invite: join the Kitchen it names. Spent on use.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"secret"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"hand_id": {
+					"type": "string"
+				},
+				"id": {
+					"type": "string"
+				},
+				"is_home": {
+					"type": "boolean"
+				},
+				"members": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": "string"
+				},
+				"nickname": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"hand_id",
+				"is_home",
+				"nickname",
+				"members"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_kitchen_member",
+		"summary": "Remove a Person from a Kitchen — including yourself, to leave. The last member cannot be removed.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				},
+				"person_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id",
+				"person_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"removed": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"removed"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "delete_kitchen",
+		"summary": "An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"deleted": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"deleted"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_job",
 		"summary": "Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
 		"permission": "public",
@@ -727,6 +1259,14 @@ export const METHOD_NAMES = {
 	mint_access_key: 'mintAccessKey',
 	list_access_keys: 'listAccessKeys',
 	revoke_access_key: 'revokeAccessKey',
+	create_kitchen: 'createKitchen',
+	list_kitchens: 'listKitchens',
+	rename_kitchen: 'renameKitchen',
+	set_kitchen_nickname: 'setKitchenNickname',
+	invite_to_kitchen: 'inviteToKitchen',
+	accept_kitchen_invite: 'acceptKitchenInvite',
+	remove_kitchen_member: 'removeKitchenMember',
+	delete_kitchen: 'deleteKitchen',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	list_jobs: 'listJobs',
@@ -750,6 +1290,22 @@ export interface KamosuClient {
 	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
 	/** End one of your Access Keys. */
 	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;
+	/** Create a Kitchen: a new circle, held by its creator until they invite someone else in. */
+	createKitchen(input: CreateKitchenInput): Promise<Answer<'create_kitchen'>>;
+	/** List every Kitchen this Person cooks in. */
+	listKitchens(input?: ListKitchensInput): Promise<Answer<'list_kitchens'>>;
+	/** Change a Kitchen's shared Name. Any member may. */
+	renameKitchen(input: RenameKitchenInput): Promise<Answer<'rename_kitchen'>>;
+	/** Set this member's own private Nickname for a Kitchen, seen by nobody else. An absent or empty Nickname clears it. */
+	setKitchenNickname(input: SetKitchenNicknameInput): Promise<Answer<'set_kitchen_nickname'>>;
+	/** Mint a one-use Invite for another Person to join this Kitchen. Any member may. */
+	inviteToKitchen(input: InviteToKitchenInput): Promise<Answer<'invite_to_kitchen'>>;
+	/** Open a Kitchen Invite: join the Kitchen it names. Spent on use. */
+	acceptKitchenInvite(input: AcceptKitchenInviteInput): Promise<Answer<'accept_kitchen_invite'>>;
+	/** Remove a Person from a Kitchen — including yourself, to leave. The last member cannot be removed. */
+	removeKitchenMember(input: RemoveKitchenMemberInput): Promise<Answer<'remove_kitchen_member'>>;
+	/** An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen. */
+	deleteKitchen(input: DeleteKitchenInput): Promise<Answer<'delete_kitchen'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */

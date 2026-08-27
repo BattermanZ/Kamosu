@@ -35,6 +35,13 @@ fn arguments_for(name: &str) -> Value {
         "revoke_session" => json!({ "session_id": "s_parity" }),
         "mint_access_key" => json!({ "name": "parity key" }),
         "revoke_access_key" => json!({ "access_key_id": "ak_parity" }),
+        "create_kitchen" => json!({ "name": "Parity Kitchen" }),
+        "rename_kitchen" => json!({ "kitchen_id": "k_parity", "name": "Parity Kitchen" }),
+        "set_kitchen_nickname" => json!({ "kitchen_id": "k_parity", "nickname": "Parity" }),
+        "invite_to_kitchen" => json!({ "kitchen_id": "k_parity" }),
+        "accept_kitchen_invite" => json!({ "secret": "parity-no-such-invite" }),
+        "remove_kitchen_member" => json!({ "kitchen_id": "k_parity", "person_id": "p_parity" }),
+        "delete_kitchen" => json!({ "kitchen_id": "k_parity" }),
         _ => json!({}),
     }
 }
@@ -54,7 +61,15 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "revoke_session"
             | "mint_access_key"
             | "list_access_keys"
-            | "revoke_access_key" => ("{}", 401),
+            | "revoke_access_key"
+            | "create_kitchen"
+            | "list_kitchens"
+            | "rename_kitchen"
+            | "set_kitchen_nickname"
+            | "invite_to_kitchen"
+            | "accept_kitchen_invite"
+            | "remove_kitchen_member"
+            | "delete_kitchen" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -131,6 +146,14 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "mint_access_key"
                 | "list_access_keys"
                 | "revoke_access_key"
+                | "create_kitchen"
+                | "list_kitchens"
+                | "rename_kitchen"
+                | "set_kitchen_nickname"
+                | "invite_to_kitchen"
+                | "accept_kitchen_invite"
+                | "remove_kitchen_member"
+                | "delete_kitchen"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

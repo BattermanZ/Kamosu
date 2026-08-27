@@ -98,7 +98,8 @@ describe('the settings screen', () => {
 				]
 			},
 			revoke_session: { revoked: true },
-			revoke_access_key: { revoked: true }
+			revoke_access_key: { revoked: true },
+			list_kitchens: { kitchens: [] }
 		});
 
 		expect(await screen.findByText('iPhone')).toBeInTheDocument();
@@ -124,7 +125,8 @@ describe('the settings screen', () => {
 				name: 'a new agent',
 				read_only: false,
 				secret: 'the-one-time-secret'
-			}
+			},
+			list_kitchens: { kitchens: [] }
 		});
 
 		await screen.findByText('No Access Keys yet.');
@@ -136,5 +138,135 @@ describe('the settings screen', () => {
 
 		await fireEvent.click(screen.getByRole('button', { name: "Done, I copied it" }));
 		expect(screen.queryByText('the-one-time-secret')).not.toBeInTheDocument();
+	});
+
+	it('lists a signed-in Person\'s Kitchens, marking the Home one and letting a member be removed', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			list_kitchens: {
+				kitchens: [
+					{
+						id: 'k_home',
+						name: "Aurélien's Home Kitchen",
+						hand_id: 'k_home',
+						is_home: true,
+						nickname: null,
+						members: [{ person_id: 'p_1', name: 'Aurélien' }]
+					},
+					{
+						id: 'k_shared',
+						name: 'Supper Club',
+						hand_id: 'k_shared',
+						is_home: false,
+						nickname: 'Nos amis',
+						members: [
+							{ person_id: 'p_1', name: 'Aurélien' },
+							{ person_id: 'p_2', name: 'Marie' }
+						]
+					}
+				]
+			},
+			remove_kitchen_member: { removed: true }
+		});
+
+		expect(await screen.findByDisplayValue('Supper Club')).toBeInTheDocument();
+		expect(screen.getByDisplayValue("Aurélien's Home Kitchen")).toBeInTheDocument();
+		expect(screen.getByText('Home')).toBeInTheDocument();
+		expect(screen.getByDisplayValue('Nos amis')).toBeInTheDocument();
+
+		const marieRow = screen.getByText('Marie').closest('li');
+		await fireEvent.click(within(marieRow as HTMLElement).getByRole('button', { name: 'Remove' }));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'remove_kitchen_member',
+			input: { kitchen_id: 'k_shared', person_id: 'p_2' }
+		});
+	});
+
+	it('creates a Kitchen from the form', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			list_kitchens: { kitchens: [] },
+			create_kitchen: {
+				id: 'k_new',
+				name: 'Supper Club',
+				hand_id: 'k_new',
+				is_home: false,
+				nickname: null,
+				members: [{ person_id: 'p_1', name: 'Aurélien' }]
+			}
+		});
+
+		await screen.findByText('Create a Kitchen');
+		await fireEvent.input(screen.getByLabelText('Kitchen name'), {
+			target: { value: 'Supper Club' }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Create Kitchen' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'create_kitchen',
+			input: { name: 'Supper Club' }
+		});
+	});
+
+	it('mints a Kitchen Invite and shows its secret once', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			list_kitchens: {
+				kitchens: [
+					{
+						id: 'k_home',
+						name: "Aurélien's Home Kitchen",
+						hand_id: 'k_home',
+						is_home: true,
+						nickname: null,
+						members: [{ person_id: 'p_1', name: 'Aurélien' }]
+					}
+				]
+			},
+			invite_to_kitchen: { invite_id: 'ki_1', secret: 'the-invite-secret' }
+		});
+
+		await screen.findByDisplayValue("Aurélien's Home Kitchen");
+		await fireEvent.click(screen.getByRole('button', { name: 'Invite someone' }));
+
+		expect(await screen.findByText('the-invite-secret')).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).toContain('invite_to_kitchen');
+
+		await fireEvent.click(screen.getByRole('button', { name: "Done, I copied it" }));
+		expect(screen.queryByText('the-invite-secret')).not.toBeInTheDocument();
+	});
+
+	it('joins a Kitchen through a pasted Invite', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			list_kitchens: { kitchens: [] },
+			accept_kitchen_invite: {
+				id: 'k_shared',
+				name: 'Supper Club',
+				hand_id: 'k_shared',
+				is_home: false,
+				nickname: null,
+				members: [{ person_id: 'p_1', name: 'Aurélien' }]
+			}
+		});
+
+		await screen.findByText('Join a Kitchen');
+		await fireEvent.input(screen.getByLabelText('Invite'), {
+			target: { value: 'someones-invite-secret' }
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Join' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'accept_kitchen_invite',
+			input: { secret: 'someones-invite-secret' }
+		});
 	});
 });

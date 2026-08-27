@@ -17,7 +17,8 @@
 	import type {
 		InstanceStatusOutput,
 		ListSessionsOutput,
-		ListAccessKeysOutput
+		ListAccessKeysOutput,
+		ListKitchensOutput
 	} from '$lib/api/catalogue';
 
 	const kamosu = useKamosu();
@@ -112,6 +113,87 @@
 		} finally {
 			minting = false;
 		}
+	}
+
+	// Kitchens: every circle this Person cooks in. Loaded alongside Access —
+	// both require a Credential, and a stranger simply sees neither.
+	type Kitchen = ListKitchensOutput['kitchens'][number];
+
+	let kitchens = $state<Kitchen[]>([]);
+	let kitchensError = $state<string | undefined>(undefined);
+	let mintedInvite = $state<{ kitchenId: string; secret: string } | undefined>(undefined);
+	let newKitchenName = $state('');
+	let joinSecret = $state('');
+	let joining = $state(false);
+
+	async function loadKitchens() {
+		try {
+			const answer = await kamosu.listKitchens();
+			kitchens = answer.kitchens;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			kitchens = [];
+		}
+	}
+
+	$effect(() => {
+		if (signedIn) loadKitchens();
+	});
+
+	async function withKitchenError(action: () => Promise<void>) {
+		kitchensError = undefined;
+		try {
+			await action();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			kitchensError = error.message;
+		}
+	}
+
+	function renameKitchen(kitchenId: string, name: string) {
+		return withKitchenError(async () => {
+			await kamosu.renameKitchen({ kitchen_id: kitchenId, name });
+			await loadKitchens();
+		});
+	}
+
+	function setNickname(kitchenId: string, nickname: string) {
+		return withKitchenError(async () => {
+			await kamosu.setKitchenNickname({ kitchen_id: kitchenId, nickname: nickname || null });
+			await loadKitchens();
+		});
+	}
+
+	function removeMember(kitchenId: string, personId: string) {
+		return withKitchenError(async () => {
+			await kamosu.removeKitchenMember({ kitchen_id: kitchenId, person_id: personId });
+			await loadKitchens();
+		});
+	}
+
+	function inviteToKitchen(kitchenId: string) {
+		return withKitchenError(async () => {
+			const invite = await kamosu.inviteToKitchen({ kitchen_id: kitchenId });
+			mintedInvite = { kitchenId, secret: invite.secret };
+		});
+	}
+
+	async function createKitchen() {
+		await withKitchenError(async () => {
+			await kamosu.createKitchen({ name: newKitchenName });
+			newKitchenName = '';
+			await loadKitchens();
+		});
+	}
+
+	async function joinKitchen() {
+		joining = true;
+		await withKitchenError(async () => {
+			await kamosu.acceptKitchenInvite({ secret: joinSecret });
+			joinSecret = '';
+			await loadKitchens();
+		});
+		joining = false;
 	}
 </script>
 
@@ -251,6 +333,153 @@
 					disabled={minting}
 				>
 					{m.access_key_mint()}
+				</button>
+			</form>
+		</Section>
+
+		<Section heading={m.settings_kitchens()}>
+			{#if kitchensError}
+				<p class="mb-4 text-body text-accent" role="alert">{kitchensError}</p>
+			{/if}
+
+			<ul class="grid gap-4">
+				{#each kitchens as kitchen (kitchen.id)}
+					<li class="rounded-sm border border-rule bg-card p-3">
+						<form
+							class="flex items-center gap-2"
+							onsubmit={(event) => {
+								event.preventDefault();
+								const input = event.currentTarget.elements.namedItem('name') as HTMLInputElement;
+								renameKitchen(kitchen.id, input.value);
+							}}
+						>
+							<label class="sr-only" for={`kitchen-name-${kitchen.id}`}>
+								{m.kitchen_name_label()}
+							</label>
+							<input
+								id={`kitchen-name-${kitchen.id}`}
+								name="name"
+								class="min-h-10 flex-1 rounded-sm border border-rule bg-ground px-2 font-semibold text-ink"
+								value={kitchen.name}
+							/>
+							{#if kitchen.is_home}
+								<span class="shrink-0 text-label uppercase text-ink-2">{m.kitchen_home_badge()}</span>
+							{/if}
+							<button class="shrink-0 text-label text-accent underline" type="submit">
+								{m.kitchen_save()}
+							</button>
+						</form>
+
+						<form
+							class="mt-2 flex items-center gap-2"
+							onsubmit={(event) => {
+								event.preventDefault();
+								const input = event.currentTarget.elements.namedItem(
+									'nickname'
+								) as HTMLInputElement;
+								setNickname(kitchen.id, input.value);
+							}}
+						>
+							<label class="flex-1 text-label text-ink-2" for={`nickname-${kitchen.id}`}>
+								{m.kitchen_nickname_label()}
+							</label>
+							<input
+								id={`nickname-${kitchen.id}`}
+								name="nickname"
+								class="min-h-10 flex-1 rounded-sm border border-rule bg-ground px-2 text-body text-ink"
+								placeholder={m.kitchen_nickname_placeholder()}
+								value={kitchen.nickname ?? ''}
+							/>
+							<button class="shrink-0 text-label text-accent underline" type="submit">
+								{m.kitchen_save()}
+							</button>
+						</form>
+
+						<h3 class="mt-3 mb-1 text-label uppercase text-ink-2">{m.kitchen_members()}</h3>
+						<ul class="grid gap-1">
+							{#each kitchen.members as member (member.person_id)}
+								<li class="flex items-center justify-between gap-3 text-body text-ink">
+									<span>{member.name}</span>
+									<button
+										type="button"
+										class="shrink-0 text-label text-accent underline"
+										onclick={() => removeMember(kitchen.id, member.person_id)}
+									>
+										{m.kitchen_remove()}
+									</button>
+								</li>
+							{/each}
+						</ul>
+
+						{#if mintedInvite?.kitchenId === kitchen.id}
+							<div class="mt-3 rounded-sm border border-accent bg-ground p-3" role="alert">
+								<p class="text-body font-semibold text-ink">{m.kitchen_invite_secret_once()}</p>
+								<code class="mt-2 block overflow-x-auto rounded-sm bg-card p-2 text-read"
+									>{mintedInvite.secret}</code
+								>
+								<button
+									type="button"
+									class="mt-2 text-label text-accent underline"
+									onclick={() => (mintedInvite = undefined)}
+								>
+									{m.kitchen_invite_secret_dismiss()}
+								</button>
+							</div>
+						{:else}
+							<button
+								type="button"
+								class="mt-3 text-label text-accent underline"
+								onclick={() => inviteToKitchen(kitchen.id)}
+							>
+								{m.kitchen_invite()}
+							</button>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+
+			<h3 class="mt-6 mb-2 text-body font-semibold text-ink">{m.kitchen_create_title()}</h3>
+			<form
+				class="grid gap-3"
+				onsubmit={(event) => {
+					event.preventDefault();
+					createKitchen();
+				}}
+			>
+				<label class="grid gap-1 text-body text-ink">
+					{m.kitchen_create_name_label()}
+					<input
+						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						bind:value={newKitchenName}
+						required
+					/>
+				</label>
+				<button class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent">
+					{m.kitchen_create()}
+				</button>
+			</form>
+
+			<h3 class="mt-6 mb-2 text-body font-semibold text-ink">{m.kitchen_join_title()}</h3>
+			<form
+				class="grid gap-3"
+				onsubmit={(event) => {
+					event.preventDefault();
+					joinKitchen();
+				}}
+			>
+				<label class="grid gap-1 text-body text-ink">
+					{m.kitchen_join_secret_label()}
+					<input
+						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						bind:value={joinSecret}
+						required
+					/>
+				</label>
+				<button
+					class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+					disabled={joining}
+				>
+					{m.kitchen_join()}
 				</button>
 			</form>
 		</Section>

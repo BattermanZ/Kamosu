@@ -214,6 +214,105 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
             handler: crate::operations::revoke_access_key,
         },
+        Operation {
+            name: "create_kitchen",
+            summary: "Create a Kitchen: a new circle, held by its creator until \
+                      they invite someone else in.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
+            output_schema: kitchen_schema(),
+            handler: crate::operations::create_kitchen,
+        },
+        Operation {
+            name: "list_kitchens",
+            summary: "List every Kitchen this Person cooks in.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "kitchens": { "type": "array", "items": kitchen_schema() } },
+                "required": ["kitchens"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_kitchens,
+        },
+        Operation {
+            name: "rename_kitchen",
+            summary: "Change a Kitchen's shared Name. Any member may.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["kitchen_id", "name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
+            handler: crate::operations::rename_kitchen,
+        },
+        Operation {
+            name: "set_kitchen_nickname",
+            summary: "Set this member's own private Nickname for a Kitchen, \
+                      seen by nobody else. An absent or empty Nickname clears it.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "nickname": { "type": ["string", "null"] } }, "required": ["kitchen_id", "nickname"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "nickname": { "type": ["string", "null"] } }, "required": ["nickname"], "additionalProperties": false }),
+            handler: crate::operations::set_kitchen_nickname,
+        },
+        Operation {
+            name: "invite_to_kitchen",
+            summary: "Mint a one-use Invite for another Person to join this \
+                      Kitchen. Any member may.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" } }, "required": ["invite_id", "secret"], "additionalProperties": false }),
+            handler: crate::operations::invite_to_kitchen,
+        },
+        Operation {
+            name: "accept_kitchen_invite",
+            summary: "Open a Kitchen Invite: join the Kitchen it names. Spent \
+                      on use.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
+            output_schema: kitchen_schema(),
+            handler: crate::operations::accept_kitchen_invite,
+        },
+        Operation {
+            name: "remove_kitchen_member",
+            summary: "Remove a Person from a Kitchen — including yourself, to \
+                      leave. The last member cannot be removed.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "person_id": { "type": "string" } }, "required": ["kitchen_id", "person_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "removed": { "type": "boolean" } }, "required": ["removed"], "additionalProperties": false }),
+            handler: crate::operations::remove_kitchen_member,
+        },
+        Operation {
+            name: "delete_kitchen",
+            summary: "An Operator's power over a Kitchen: delete one nobody is \
+                      left in. Nothing else about a Kitchen.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
+            handler: crate::operations::delete_kitchen,
+        },
         // Watching slow work: two ordinary Operations, so a browser polling an
         // import and an agent polling the same import use the identical shape.
         Operation {
@@ -354,6 +453,36 @@ fn job_record_schema() -> Value {
             "id", "operation", "status", "progress", "result",
             "error", "errorCode", "created_at", "updated_at"
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// The shape a Kitchen is served in: its shared Name and Hand, whether it is
+/// the asking Person's Home Kitchen, their own Nickname for it (nobody
+/// else's), and who else cooks in it.
+fn kitchen_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "hand_id": { "type": "string" },
+            "is_home": { "type": "boolean" },
+            "nickname": { "type": ["string", "null"] },
+            "members": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "person_id": { "type": "string" },
+                        "name": { "type": "string" },
+                    },
+                    "required": ["person_id", "name"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["id", "name", "hand_id", "is_home", "nickname", "members"],
         "additionalProperties": false,
     })
 }

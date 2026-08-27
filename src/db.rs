@@ -146,6 +146,27 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE jobs ADD COLUMN via_access_key INTEGER NOT NULL DEFAULT 0;
         "#,
     },
+    Migration {
+        version: 7,
+        description: "Kitchen nicknames and Kitchen invites",
+        sql: r#"
+        -- A Nickname: one member's own private relabelling of a Kitchen, seen
+        -- by nobody else and never travelling (ADR 0007).
+        ALTER TABLE kitchen_members ADD COLUMN nickname TEXT;
+
+        -- A Kitchen Invite: a one-use link a member mints, spent the moment
+        -- another Person opens it and joins (CONTEXT.md, "Invite").
+        CREATE TABLE IF NOT EXISTS kitchen_invites (
+            id          TEXT PRIMARY KEY,
+            secret_hash TEXT NOT NULL UNIQUE,
+            kitchen_id  TEXT NOT NULL REFERENCES kitchens(id),
+            created_by  TEXT NOT NULL REFERENCES people(id),
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            used_at     TEXT,
+            used_by     TEXT REFERENCES people(id)
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

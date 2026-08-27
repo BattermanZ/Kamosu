@@ -188,6 +188,133 @@ pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<
     Ok(json!({ "cancelled": cancelled }))
 }
 
+pub fn create_kitchen(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("create_kitchen takes { name }"))?;
+    let caller = caller_of(invocation)?;
+    core.create_kitchen(&caller.person_id, name)
+}
+
+pub fn list_kitchens(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request("list_kitchens takes no input"));
+    }
+    let caller = caller_of(invocation)?;
+    Ok(json!({ "kitchens": core.list_kitchens(&caller.person_id)? }))
+}
+
+pub fn rename_kitchen(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("rename_kitchen takes { kitchen_id, name }"))?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("rename_kitchen takes { kitchen_id, name }"))?;
+    let caller = caller_of(invocation)?;
+    core.rename_kitchen(&caller.person_id, kitchen_id, name)?;
+    Ok(json!({ "name": name }))
+}
+
+pub fn set_kitchen_nickname(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("set_kitchen_nickname takes { kitchen_id, nickname }")
+        })?;
+    if !input
+        .get("nickname")
+        .is_some_and(|v| v.is_string() || v.is_null())
+    {
+        return Err(OpError::bad_request(
+            "set_kitchen_nickname takes { kitchen_id, nickname }",
+        ));
+    }
+    let nickname = input.get("nickname").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.set_kitchen_nickname(&caller.person_id, kitchen_id, nickname)?;
+    Ok(json!({ "nickname": nickname }))
+}
+
+pub fn invite_to_kitchen(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("invite_to_kitchen takes { kitchen_id }"))?;
+    let caller = caller_of(invocation)?;
+    let (id, secret) = core.invite_to_kitchen(&caller.person_id, kitchen_id)?;
+    Ok(json!({ "invite_id": id, "secret": secret }))
+}
+
+pub fn accept_kitchen_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let secret = input
+        .get("secret")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("accept_kitchen_invite takes { secret }"))?;
+    let caller = caller_of(invocation)?;
+    core.accept_kitchen_invite(&caller.person_id, secret)
+}
+
+pub fn remove_kitchen_member(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("remove_kitchen_member takes { kitchen_id, person_id }")
+        })?;
+    let person_id = input
+        .get("person_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("remove_kitchen_member takes { kitchen_id, person_id }")
+        })?;
+    let caller = caller_of(invocation)?;
+    core.remove_kitchen_member(&caller.person_id, kitchen_id, person_id)?;
+    Ok(json!({ "removed": true }))
+}
+
+pub fn delete_kitchen(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let kitchen_id = input
+        .get("kitchen_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("delete_kitchen takes { kitchen_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.delete_kitchen(&caller.person_id, kitchen_id)?;
+    Ok(json!({ "deleted": true }))
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller.as_ref().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")

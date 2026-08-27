@@ -211,6 +211,375 @@ async fn the_first_visitor_becomes_the_operator_with_a_home_kitchen_and_hand() {
     assert_eq!(status["result"]["setup_complete"], json!(true));
 }
 
+// --- Kitchens (issue #40) ----------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_person_alone_is_a_kitchen_of_one_with_its_own_hand() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (status, listed) = app.post_op("list_kitchens", Some(&key), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let kitchens = listed["result"]["kitchens"].as_array().expect("kitchens");
+    assert_eq!(kitchens.len(), 1, "a Person alone is a Kitchen of one");
+    let home = &kitchens[0];
+    assert_eq!(home["is_home"], json!(true));
+    assert_eq!(home["nickname"], json!(null));
+    assert!(home["hand_id"].as_str().is_some(), "its own Hand");
+    let members = home["members"].as_array().expect("members");
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0]["person_id"], json!(person));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn any_person_may_create_a_kitchen_named_by_its_creator() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (status, created) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "Supper Club" }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let kitchen = &created["result"];
+    assert_eq!(kitchen["name"], json!("Supper Club"));
+    assert_eq!(kitchen["is_home"], json!(false));
+    let members = kitchen["members"].as_array().expect("members");
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0]["person_id"], json!(person));
+
+    // Now cooking in more than one Kitchen: the never-asked-when-you-have-one
+    // rule turns on exactly here, and list_kitchens is where a caller reads it.
+    let (_, listed) = app.post_op("list_kitchens", Some(&key), "{}");
+    assert_eq!(listed["result"]["kitchens"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn any_member_may_rename_a_kitchen_and_set_their_own_private_nickname() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+
+    // Bob is not a member yet — every write on this Kitchen refuses him.
+    let (status, _) = app.post_op(
+        "rename_kitchen",
+        Some(&bob_key),
+        &json!({ "kitchen_id": kitchen_id, "name": "Chez Bob" }).to_string(),
+    );
+    assert_eq!(status, 401);
+
+    let invite = app.core.invite_to_kitchen(&alice, &kitchen_id).unwrap().1;
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": invite }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    assert_eq!(joined["result"]["members"].as_array().unwrap().len(), 2);
+
+    // Any member may rename the shared Name — Bob included.
+    let (status, renamed) = app.post_op(
+        "rename_kitchen",
+        Some(&bob_key),
+        &json!({ "kitchen_id": kitchen_id, "name": "Chez Nous" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+
+    // A Nickname is seen only by the Person who set it.
+    let (status, _) = app.post_op(
+        "set_kitchen_nickname",
+        Some(&bob_key),
+        &json!({ "kitchen_id": kitchen_id, "nickname": "Chez Bob" }).to_string(),
+    );
+    assert_eq!(status, 200);
+
+    let (_, bobs_view) = app.post_op("list_kitchens", Some(&bob_key), "{}");
+    let bobs_kitchen = bobs_view["result"]["kitchens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["id"] == json!(kitchen_id))
+        .unwrap();
+    assert_eq!(bobs_kitchen["name"], json!("Chez Nous"));
+    assert_eq!(bobs_kitchen["nickname"], json!("Chez Bob"));
+
+    let (_, alices_view) = app.post_op("list_kitchens", Some(&alice_key), "{}");
+    let alices_kitchen = alices_view["result"]["kitchens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["id"] == json!(kitchen_id))
+        .unwrap();
+    assert_eq!(alices_kitchen["name"], json!("Chez Nous"));
+    assert_eq!(
+        alices_kitchen["nickname"],
+        json!(null),
+        "Bob's Nickname is his alone"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_invite_is_spent_on_first_use_and_refused_afterwards() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+    let carol = app.core.create_person("Carol").expect("person");
+    let carol_key = app
+        .core
+        .mint_access_key(&carol, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&alice_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+
+    assert_eq!(
+        app.post_op(
+            "accept_kitchen_invite",
+            Some(&bob_key),
+            &json!({ "secret": secret }).to_string(),
+        )
+        .0,
+        200
+    );
+
+    let (status, refused) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&carol_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_is_not_a_deletion_and_the_last_member_cannot_be_removed() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let invite = app.core.invite_to_kitchen(&alice, &kitchen_id).unwrap().1;
+    app.core.accept_kitchen_invite(&bob, &invite).unwrap();
+
+    // Bob leaves by removing himself. His own Home Kitchen is untouched, and
+    // this shared Kitchen still stands with Alice in it.
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&bob_key),
+        &json!({ "kitchen_id": kitchen_id, "person_id": bob }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+    let (_, remaining) = app.post_op("list_kitchens", Some(&alice_key), "{}");
+    let shared = remaining["result"]["kitchens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|k| k["id"] == json!(kitchen_id))
+        .unwrap();
+    assert_eq!(shared["members"].as_array().unwrap().len(), 1);
+
+    // Alice is now the last member of this Kitchen — she cannot be removed
+    // from it, by herself or anyone else.
+    let (status, refused) = app.post_op(
+        "remove_kitchen_member",
+        Some(&alice_key),
+        &json!({ "kitchen_id": kitchen_id, "person_id": alice }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_person_cannot_be_removed_from_their_own_last_kitchen() {
+    let app = support::spawn_app();
+    let alice = app.core.create_person("Alice").expect("person");
+    let alice_key = app
+        .core
+        .mint_access_key(&alice, "browser", false)
+        .unwrap()
+        .secret;
+    let bob = app.core.create_person("Bob").expect("person");
+
+    // Bob's Home Kitchen is his only Kitchen; Alice invites him into hers, then
+    // he is asked to leave the shared one — untouched, that leaves him with
+    // his Home Kitchen alone, which is fine. But nobody may strip him of the
+    // last Kitchen he cooks in at all: his own Home Kitchen.
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&alice_key),
+        &json!({ "name": "Home" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let bobs_home_kitchen: String = app
+        .core
+        .list_kitchens(&bob)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    app.core
+        .invite_to_kitchen(&alice, &bobs_home_kitchen)
+        .expect_err("only a member may invite into a Kitchen");
+
+    // Add Bob to Alice's Kitchen directly (test plumbing), then try to strip
+    // him of his Home Kitchen — his last remaining one.
+    let invite = app.core.invite_to_kitchen(&alice, &kitchen_id).unwrap().1;
+    app.core.accept_kitchen_invite(&bob, &invite).unwrap();
+    app.core
+        .remove_kitchen_member(&alice, &kitchen_id, &bob)
+        .expect("Bob still cooks in his Home Kitchen after leaving this one");
+
+    let bob_key = app
+        .core
+        .mint_access_key(&bob, "browser", false)
+        .unwrap()
+        .secret;
+    let (status, refused) = app.post_op(
+        "remove_kitchen_member",
+        Some(&bob_key),
+        &json!({ "kitchen_id": bobs_home_kitchen, "person_id": bob }).to_string(),
+    );
+    assert_eq!(
+        status, 400,
+        "a Person cooks in one or more Kitchens and cannot be stripped of the last one: {refused}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_may_delete_a_kitchen_nobody_is_left_in_and_nothing_else() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "a password only its person knows", "session_name": "test browser" });
+    let (_, created) = app.post_auth("/auth/first-person", &first.to_string());
+    let operator_id = created["result"]["person"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let operator_key = app
+        .core
+        .mint_access_key(&operator_id, "agent", false)
+        .unwrap()
+        .secret;
+
+    let stranger = app.core.create_person("Marie").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&stranger_key),
+        &json!({ "name": "Supper Club" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+
+    // A Kitchen with a member in it refuses deletion, even for an Operator.
+    let (status, refused) = app.post_op(
+        "delete_kitchen",
+        Some(&operator_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    // A Kitchen reaches zero members only the way account deletion (issue #39)
+    // will empty one: not through `remove_kitchen_member`, which refuses to
+    // strip a Kitchen's last member. Test plumbing stands in for that cascade.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM kitchen_members WHERE kitchen_id = ?1",
+                rusqlite::params![kitchen_id],
+            )
+            .map(|_| ())
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("empty the Kitchen directly");
+
+    // A non-Operator may never delete a Kitchen, even an empty one.
+    let (status, refused) = app.post_op(
+        "delete_kitchen",
+        Some(&stranger_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+
+    // Now nobody is left in it, and an Operator may delete it.
+    let (status, deleted) = app.post_op(
+        "delete_kitchen",
+        Some(&operator_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(deleted["result"]["deleted"], json!(true));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn logging_in_mints_a_revocable_session_credential() {
     let app = support::spawn_app();
