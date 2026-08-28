@@ -58,7 +58,12 @@ once.
 
 ## What was chosen
 
-*(Filled in once Aurélien picks — see [issue #53](https://github.com/BattermanZ/Kamosu/issues/53).)*
+**A — Lanes**, 28 August 2026. Aurélien's call: side-by-side columns read best for
+the case that matters most — comparing your Branch against a friend's at a
+glance — and it continues #18's own direction rather than starting over. The
+awkwardness of a second-level fork (Camille's translation, off Marc's Branch
+rather than the trunk) dropping out of the grid to re-fork full-width below was
+accepted as a fair cost for a rare case, not fixed here.
 
 ## What it does not answer, and knows it
 
