@@ -1,0 +1,66 @@
+/* DIRECTION D — the chosen one: B's threshold, A's captions, and an off switch
+   for the whole marking. */
+
+body[data-variant='d'][data-side='theirs'] { --ground: #eeeae2; --ground-2: #e3ded4; --rule: #d8d1c4;
+  --card: #faf8f4; --whose: var(--support); }
+body[data-variant='d'][data-side='mine'] { --whose: var(--accent); }
+body[data-variant='d'] { background: var(--ground); transition: background .25s ease; }
+body[data-variant='d'] .sheet, body[data-variant='d'] .wrap { background: var(--ground); }
+
+/* the threshold — a noren cut into the band itself, never over the page */
+.d-thresh { background: var(--whose); color: var(--on-accent); display: flex; align-items: stretch;
+  padding-bottom: 8px;
+  -webkit-mask-image: linear-gradient(#000 0 0), repeating-linear-gradient(90deg, #000 0 26px, transparent 26px 32px);
+  -webkit-mask-size: 100% calc(100% - 8px), 100% 8px;
+  -webkit-mask-position: 0 0, 0 100%; -webkit-mask-repeat: no-repeat;
+  mask-image: linear-gradient(#000 0 0), repeating-linear-gradient(90deg, #000 0 26px, transparent 26px 32px);
+  mask-size: 100% calc(100% - 8px), 100% 8px;
+  mask-position: 0 0, 0 100%; mask-repeat: no-repeat; }
+.d-here { padding: 11px var(--gutter); flex: 1; min-width: 0; }
+.d-here-k { margin: 0; font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; opacity: .62; }
+.d-here-t { margin: 1px 0 0; font-family: 'Zen Old Mincho', serif; font-size: 17px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-cross { padding: 11px var(--gutter) 11px 14px; text-align: right; border-left: 1px solid rgba(244,239,227,.28);
+  color: inherit; max-width: 58%; }
+.d-cross-k { display: block; font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; opacity: .62; }
+.d-cross-t { display: block; font-family: 'Zen Old Mincho', serif; font-size: 17px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-cross-t em { font-style: normal; opacity: .75; }
+
+/* the one control that governs the marking */
+.d-marks { display: flex; align-items: center; gap: 10px; padding: 8px var(--gutter);
+  border-bottom: 1px solid var(--rule); background: var(--ground); }
+.d-marks p { margin: 0; flex: 1; font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.d-marks button { flex: none; font-size: 12.5px; color: var(--accent); border: 1px solid var(--rule);
+  padding: 5px 11px; background: var(--card); }
+.d-marks.is-off p { color: var(--ink-2); opacity: .8; }
+
+/* the threshold and the marks bar stick together as one strip */
+body[data-variant='d'] .hero + .d-thresh { position: sticky; top: 0; z-index: 21; }
+body[data-variant='d'] .d-marks { position: sticky; top: 55px; z-index: 20; }
+body[data-variant='d'] .sheet { padding-top: 10px; }
+
+/* a marked line: a rule in the room's colour, and a caption that says what it is */
+.d-row { position: relative; padding-left: 11px; }
+.d-row::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; background: var(--accent); }
+body[data-variant='d'][data-side='theirs'] .d-diff::before { background: var(--support); }
+.d-ghost::before { background: var(--support); }
+body[data-variant='d'][data-side='theirs'] .d-ghost::before { background: var(--accent); }
+li.step.d-row { padding-left: 11px; }
+.d-body { flex: 1; }
+
+.d-capt { display: block; margin-top: 3px; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); }
+body[data-variant='d'][data-side='theirs'] .d-diff .d-capt { color: var(--support); }
+.d-ghost .d-capt { color: var(--support); }
+body[data-variant='d'][data-side='theirs'] .d-ghost .d-capt { color: var(--accent); }
+
+/* the Ghost — struck through, dimmed, and named */
+.d-ghost .line, .d-ghost p { text-decoration: line-through; text-decoration-thickness: 1px;
+  text-decoration-color: rgba(92,90,85,.55); color: var(--ink-2); }
+li.d-ghost .read { display: none; }
+.d-ghost .n { opacity: .45; }
+
+.d-row.is-open { background: var(--card); }
+.d-row.is-took { background: rgba(29,43,76,.06); }
+.d-row.is-took .d-capt::after { content: ' · carried across'; }

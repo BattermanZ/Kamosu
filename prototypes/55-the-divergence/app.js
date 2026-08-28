@@ -3,10 +3,12 @@
 import * as A from './a.js';
 import * as B from './b.js';
 import * as C from './c.js';
+import * as D from './d.js';
 import { rows, trayHtml, saveModalHtml, look, esc, THEM } from './shared.js';
 import { explain } from './pair.js';
 
 const VARIANTS = {
+	d: { render: D.render, name: 'CHOSEN — the threshold, captioned Ghosts, and an off switch' },
 	a: { render: A.render, name: 'Two tabs — a caption on every marked line' },
 	b: { render: B.render, name: 'Two rooms — the page changes, the Ghost stays quiet' },
 	c: { render: C.render, name: 'A lever under your thumb, the Ghost on a slab' },
@@ -15,8 +17,9 @@ const VARIANTS = {
 const params = new URLSearchParams(location.search);
 
 const state = {
-	v: VARIANTS[params.get('v')] ? params.get('v') : 'a',
+	v: VARIANTS[params.get('v')] ? params.get('v') : 'd',
 	side: params.get('side') === 'theirs' ? 'theirs' : 'mine',
+	marks: params.get('marks') !== 'off',
 	open: new Set(),
 	taken: new Map(),
 	saving: false,
@@ -36,7 +39,11 @@ function render() {
 	if (state.saving) html += saveModalHtml(state);
 	if (state.pairing) html += pairingPanel();
 	app.innerHTML = `<div class="wrap">${html}</div>`;
-	history.replaceState(null, '', '?' + new URLSearchParams({ v: state.v, side: state.side }));
+	history.replaceState(
+		null,
+		'',
+		'?' + new URLSearchParams({ v: state.v, side: state.side, marks: state.marks ? 'on' : 'off' })
+	);
 	window.scrollTo(0, scroll);
 }
 
@@ -50,6 +57,10 @@ function rowFor(key) {
 const actions = {
 	side: (el) => {
 		state.side = el.dataset.side;
+		state.open.clear();
+	},
+	marks: () => {
+		state.marks = !state.marks;
 		state.open.clear();
 	},
 	toggle: (el) => {

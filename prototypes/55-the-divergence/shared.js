@@ -131,6 +131,27 @@ export function note(state) {
 // number, because it is not a step of the recipe you are standing in.
 
 export function lists(state, renderIng, renderStep) {
+	// Marking off: the recipe you are standing in, plain. Every Ghost goes —
+	// a Ghost is a line of the OTHER recipe, so with the marking off it has no
+	// business on the page at all — and what is left is exactly the list you
+	// would shop from and cook.
+	if (state.marks === false) {
+		let pn = 0;
+		return `<h2 class="h">Ingredients</h2>
+			<div class="pad"><ul class="ings">${ROWS.ings
+				.map((row) => look(row, state.side, ''))
+				.filter((c) => c.own)
+				.map((c) => plainIng(c.own))
+				.join('')}</ul></div>
+			<h2 class="h">Method</h2>
+			<div class="pad"><ol class="steps">${ROWS.steps
+				.map((row) => look(row, state.side, ''))
+				.filter((c) => c.own)
+				.map((c) => `<li class="step"><span class="n">${++pn}</span><p>${esc(c.own.t)}</p></li>`)
+				.join('')}</ol></div>
+			${note(state)}`;
+	}
+
 	const ings = ROWS.ings
 		.map((row, i) => {
 			const c = look(row, state.side, `i${i}`);

@@ -98,4 +98,28 @@ No back end, no persistence. State lives in memory and resets on reload.
 
 ## What was chosen
 
-*Not yet — waiting on Aurélien.*
+**B's switch, A's Ghost, and a new third thing — served as direction D**, the
+default when the page opens. Aurélien's call, 28 August 2026.
+
+- **The threshold wins as the switch.** Crossing into a named kitchen, with the
+  paper and the spine changing colour, beats a pair of tabs — two tabs read as
+  two views of one object, which is the merge idea [ADR 0004](../../docs/adr/0004-one-lineage-many-branches.md)
+  refuses.
+- **The captions stay.** B's silent Ghost was rejected outright: *"it is a bit
+  unclear when some things are struck through."* A struck-through line with no
+  words next to it reads like something crossed off a shopping list rather than a
+  real line of a real recipe. So every marked line and every Ghost is named.
+- **The marking gets an off switch**, which no direction had. One control under
+  the threshold puts the whole divergence away and leaves the recipe you are
+  standing in, plain — no marks, no captions, and **no Ghosts at all**, because a
+  Ghost is a line of the *other* recipe and has no business on the page once you
+  have stopped comparing. The steps renumber to a clean run. This is the page you
+  cook from and the list you shop from.
+
+The off switch is an addition to [ADR 0014](../../docs/adr/0014-a-divergence-is-two-recipes-not-a-difference.md)
+rather than a departure from it: the ADR's own argument is that the reading
+surface is a recipe you can stand in and cook, and hiding the marking makes it
+more of one, not less. Nothing about it implies a reconciled recipe — both
+Branches are still whole, still separate, still one tap apart.
+
+A, B and C are kept as they were, for comparison.
