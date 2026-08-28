@@ -590,6 +590,34 @@ export type UploadPhotographOutput = {
 	photograph_id: string;
 };
 
+/** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
+export type SearchRecipesInput = {
+	kitchen_id?: string | null;
+	mine?: boolean;
+	query?: string | null;
+};
+/** What search_recipes answers. */
+export type SearchRecipesOutput = {
+	query: string | null;
+	recipes: {
+		branch_id: string;
+		language: string;
+		language_fallback: boolean;
+		lineage_id: string;
+		main_photo: string | null;
+		matched: {
+			line: string;
+			step_number: number | null;
+			where: "title" | "tag" | "ingredient" | "step" | "section" | "note" | "attempt";
+		} | null;
+		title: string;
+		yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+};
+
 /** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
 export type GetRecipeInput = {
 	branch_id: string;
@@ -1365,6 +1393,12 @@ export interface Operations {
 	upload_photograph: {
 		input: UploadPhotographInput;
 		output: UploadPhotographOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	search_recipes: {
+		input: SearchRecipesInput;
+		output: SearchRecipesOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -4004,6 +4038,143 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"photograph_id"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "search_recipes",
+		"summary": "The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029).",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"mine": {
+					"type": "boolean"
+				},
+				"query": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"query": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"matched": {
+								"additionalProperties": false,
+								"properties": {
+									"line": {
+										"type": "string"
+									},
+									"step_number": {
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"where": {
+										"enum": [
+											"title",
+											"tag",
+											"ingredient",
+											"step",
+											"section",
+											"note",
+											"attempt"
+										],
+										"type": "string"
+									}
+								},
+								"required": [
+									"where",
+									"line",
+									"step_number"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title",
+							"language",
+							"language_fallback",
+							"main_photo",
+							"yield",
+							"matched"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"query",
+				"recipes"
 			],
 			"type": "object"
 		}
@@ -6723,6 +6894,7 @@ export const METHOD_NAMES = {
 	import_web_link: 'importWebLink',
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
+	search_recipes: 'searchRecipes',
 	get_recipe: 'getRecipe',
 	get_thread: 'getThread',
 	branch_point: 'branchPoint',
@@ -6814,6 +6986,8 @@ export interface KamosuClient {
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
 	/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
 	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;
+	/** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
+	searchRecipes(input: SearchRecipesInput): Promise<Answer<'search_recipes'>>;
 	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */

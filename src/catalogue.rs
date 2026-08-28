@@ -694,6 +694,40 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::upload_photograph,
         },
         Operation {
+            name: "search_recipes",
+            summary: "The shelf, and searching it. With no query: everything \
+                      the Kitchens this Person cooks in hold, merged, \
+                      alphabetical, one entry per Lineage, each titled in the \
+                      reader's Reading Language with a marked fallback. With a \
+                      query: the same shelf narrowed to what matched, an exact \
+                      title first, every entry quoting the line that matched. \
+                      One Operation either way — Meaning Search arrives here \
+                      rather than beside it (ADR 0027, ADR 0029).",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    // Absent or empty is the whole shelf, not an error: the
+                    // screen opens on it before anyone has typed anything.
+                    "query": { "type": ["string", "null"] },
+                    // The two filters, passed on every request and remembered
+                    // nowhere. A filter that persists is a mode, and a mode you
+                    // forgot you set is the Kitchen switcher wearing a hat.
+                    "kitchen_id": { "type": ["string", "null"] },
+                    // Created, branched or cooked by this Person — a history,
+                    // not an ownership, and one that needs no curating ever.
+                    "mine": { "type": "boolean" },
+                },
+                "additionalProperties": false,
+            }),
+            output_schema: shelf_schema(),
+            handler: crate::operations::search_recipes,
+        },
+        Operation {
             name: "get_recipe",
             summary: "Read a Recipe: the Branch as it stands and its whole \
                       chain of Versions, oldest first.",
@@ -1285,6 +1319,83 @@ fn related_recipe_schema() -> Value {
     })
 }
 
+/// The shape the shelf is served in — one entry per Lineage, read back by
+/// `search_recipes` whether or not anything was searched for (ADR 0027).
+///
+/// Deliberately thin: what a card needs and not one field more. In
+/// particular it carries **no Kitchen name and no Kitchen id**, so a card has
+/// nothing to print a fence with; the Kitchen a Branch belongs to is
+/// machinery, and it appears where it means something — in the Thread, and
+/// where two Branches sit side by side.
+fn shelf_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            // What was searched for, echoed back: null is the whole shelf.
+            // The screen needs it to name the query in "nothing matched X"
+            // without trusting that its own field still says what it asked.
+            "query": { "type": ["string", "null"] },
+            "recipes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "lineage_id": { "type": "string" },
+                        // The Branch this entry opens: the one in the reader's
+                        // own Language where the Lineage has one.
+                        "branch_id": { "type": "string" },
+                        "title": { "type": "string" },
+                        "language": { "type": "string" },
+                        // True where the reader is being shown a Language they
+                        // did not ask for. The mark exists so a preference can
+                        // never hide a recipe from its owner (ADR 0006): the
+                        // recipe is shown either way, and says which it is.
+                        "language_fallback": { "type": "boolean" },
+                        "main_photo": { "type": ["string", "null"] },
+                        "yield": yield_schema(),
+                        // The line that matched, for a result that can explain
+                        // itself (ADR 0027). Null on an unsearched shelf, and
+                        // on a title match `line` is the title itself.
+                        "matched": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "where": {
+                                    "type": "string",
+                                    // A Section header — "For the sauce" — is
+                                    // searched with the rest of the recipe but
+                                    // is neither an ingredient nor a step, so
+                                    // it answers as itself rather than being
+                                    // mislabelled as one.
+                                    "enum": [
+                                        "title", "tag", "ingredient", "step",
+                                        "section", "note", "attempt"
+                                    ],
+                                },
+                                "line": { "type": "string" },
+                                // Which step this is, counted as the recipe
+                                // page counts them — over the Steps alone,
+                                // Sections taking no number — so a result can
+                                // say "step 4" and mean the step so numbered.
+                                // Null for every other kind of match.
+                                "step_number": { "type": ["integer", "null"] },
+                            },
+                            "required": ["where", "line", "step_number"],
+                            "additionalProperties": false,
+                        },
+                    },
+                    "required": [
+                        "lineage_id", "branch_id", "title", "language",
+                        "language_fallback", "main_photo", "yield", "matched"
+                    ],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["query", "recipes"],
+        "additionalProperties": false,
+    })
+}
+
 /// The shape a Recipe is served in: the Branch as it stands and its whole
 /// chain of Versions, oldest first — created by `create_recipe`, read back
 /// by `get_recipe`.
@@ -1402,21 +1513,28 @@ fn thread_schema() -> Value {
 /// Yield, Prep/Cook Time, Note and Source. A Reading is never part of this:
 /// it is Kamosu's guess about a line, not the line (ADR 0021), and has no
 /// slot here.
+/// A Yield: one amount and what it is an amount of. Written once here because
+/// a recipe's own content and a shelf entry must not be able to disagree about
+/// its shape.
+fn yield_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "amount": { "type": "string" },
+            // Named `noun`, not `unit`: CONTEXT.md's Yield ("4 servings",
+            // "24 cookies") is a different concept from its Unit glossary
+            // entry (grams, cups, spoons — a closed, convertible list).
+            "noun": { "type": "string" },
+        },
+        "required": ["amount", "noun"],
+        "additionalProperties": false,
+    })
+}
+
 fn recipe_content_properties() -> Value {
     json!({
         "title": { "type": "string" },
-        "yield": {
-            "type": ["object", "null"],
-            "properties": {
-                "amount": { "type": "string" },
-                // Named `noun`, not `unit`: CONTEXT.md's Yield ("4 servings",
-                // "24 cookies") is a different concept from its Unit glossary
-                // entry (grams, cups, spoons — a closed, convertible list).
-                "noun": { "type": "string" },
-            },
-            "required": ["amount", "noun"],
-            "additionalProperties": false,
-        },
+        "yield": yield_schema(),
         "prep_time_minutes": {
             "type": ["integer", "null"],
             "description": "Whole minutes of active preparation.",

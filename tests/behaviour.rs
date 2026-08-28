@@ -6103,3 +6103,555 @@ async fn a_section_heading_never_pairs_with_an_ingredient_line() {
         "a heading and an ingredient are never the same line: {rows:#?}"
     );
 }
+
+// --- One shelf and word search (issue #62) -----------------------------------
+
+/// Put one recipe on a Kitchen's shelf and answer its Branch id.
+fn shelve_recipe(app: &support::TestApp, key: &str, kitchen: &str, recipe: Value) -> String {
+    let mut input = recipe;
+    input["kitchen_id"] = json!(kitchen);
+    let (status, created) = app.post_op("create_recipe", Some(key), &input.to_string());
+    assert_eq!(status, 200, "{created}");
+    created["result"]["branch_id"]
+        .as_str()
+        .expect("a Branch id")
+        .to_string()
+}
+
+/// The same, for the many recipes here that need nothing but a title — which
+/// is all a recipe ever needs (#6).
+fn shelve(app: &support::TestApp, key: &str, kitchen: &str, title: &str) -> String {
+    shelve_recipe(app, key, kitchen, json!({ "title": title }))
+}
+
+/// Search the shelf and answer the entries, failing loudly on any error the
+/// Door reported rather than quietly reading `null` as "nothing found".
+fn shelf(app: &support::TestApp, key: &str, input: Value) -> Vec<Value> {
+    let (status, answer) = app.post_op("search_recipes", Some(key), &input.to_string());
+    assert_eq!(status, 200, "{answer}");
+    answer["result"]["recipes"]
+        .as_array()
+        .expect("recipes")
+        .clone()
+}
+
+fn titles(entries: &[Value]) -> Vec<&str> {
+    entries
+        .iter()
+        .map(|entry| entry["title"].as_str().unwrap())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shelf_is_alphabetical_and_carries_no_kitchen_anywhere_on_it() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    for title in ["Sukiyaki Udon", "Airfried Cauliflower", "Miso Soup"] {
+        shelve(&app, &key, &kitchen_id, title);
+    }
+
+    let entries = shelf(&app, &key, json!({}));
+    assert_eq!(
+        titles(&entries),
+        ["Airfried Cauliflower", "Miso Soup", "Sukiyaki Udon"],
+        "the shelf is alphabetical, so the thumb can learn where a recipe sits"
+    );
+
+    // No Kitchen name and no Kitchen id: a card cannot print a fence that is
+    // not there (ADR 0027), and the surest way is to never send one.
+    let entry = entries[0].as_object().unwrap();
+    assert!(
+        !entry.keys().any(|key| key.contains("kitchen")),
+        "a shelf entry names no Kitchen: {entry:#?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_lineage_held_by_two_kitchens_is_one_card_and_a_filter_picks_a_branch() {
+    let app = support::spawn_app();
+    let (_person, key, home) = person_with_kitchen(&app, "Aurélien");
+    let (_, second) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "Chez Marc" }).to_string(),
+    );
+    let other = second["result"]["id"].as_str().unwrap().to_string();
+
+    let branch = shelve(&app, &key, &home, "Katsu Curry");
+
+    // Editing it on behalf of the second Kitchen is a Copy: one Lineage, two
+    // Branches, both on this Person's shelf.
+    let (status, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch,
+            "kitchen_id": other,
+            "title": "Katsu Curry",
+            "note": "less sauce",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(copied["result"]["copied"], json!(true), "{copied}");
+    let copied_branch = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let everything = shelf(&app, &key, json!({}));
+    assert_eq!(
+        titles(&everything),
+        ["Katsu Curry"],
+        "one card per Lineage, however many Kitchens hold a Branch of it"
+    );
+
+    // Filtered to one Kitchen, the card opens that Kitchen's Branch.
+    let here = shelf(&app, &key, json!({ "kitchen_id": home }));
+    assert_eq!(here.len(), 1, "{here:#?}");
+    assert_eq!(here[0]["branch_id"], json!(branch));
+
+    let there = shelf(&app, &key, json!({ "kitchen_id": other }));
+    assert_eq!(there.len(), 1, "{there:#?}");
+    assert_eq!(there[0]["branch_id"], json!(copied_branch));
+
+    // Nothing was remembered: asking again with no filter is the whole shelf.
+    // A filter that persists is a mode, and a mode you forgot you set is the
+    // Kitchen switcher wearing a hat.
+    assert_eq!(shelf(&app, &key, json!({})).len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_in_another_language_is_shown_and_marked_rather_than_hidden() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+
+    shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({ "title": "Îles Flottantes", "language": "fr" }),
+    );
+    shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({ "title": "Miso Soup", "language": "en" }),
+    );
+
+    let entries = shelf(&app, &key, json!({}));
+    assert_eq!(
+        titles(&entries),
+        ["Îles Flottantes", "Miso Soup"],
+        "a Language preference never hides a recipe from its owner (ADR 0006)"
+    );
+    assert_eq!(entries[0]["language_fallback"], json!(true));
+    assert_eq!(entries[0]["language"], json!("fr"));
+    assert_eq!(
+        entries[1]["language_fallback"],
+        json!(false),
+        "there is nothing to mark when the reader got the Language they asked for"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lineage_with_a_branch_in_the_reading_language_opens_that_one_unmarked() {
+    let app = support::spawn_app();
+    let (_person, key, home) = person_with_kitchen(&app, "Aurélien");
+    let (_, second) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "Chez Marc" }).to_string(),
+    );
+    let other = second["result"]["id"].as_str().unwrap().to_string();
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+
+    // The Lineage starts in French; a second Branch of it is in English.
+    let french = shelve_recipe(
+        &app,
+        &key,
+        &home,
+        json!({ "title": "Purée de Pommes de Terre", "language": "fr" }),
+    );
+    let (_, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": french,
+            "kitchen_id": other,
+            "title": "Purée de Pommes de Terre",
+            "note": "the same, mine",
+        })
+        .to_string(),
+    );
+    let english_branch = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET language = 'en' WHERE id = ?1",
+                rusqlite::params![english_branch],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .unwrap();
+
+    let entries = shelf(&app, &key, json!({}));
+    assert_eq!(entries.len(), 1, "still one card per Lineage: {entries:#?}");
+    assert_eq!(
+        entries[0]["branch_id"],
+        json!(english_branch),
+        "the card opens the Branch written in the reader's own Language"
+    );
+    assert_eq!(entries[0]["language_fallback"], json!(false));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_exact_title_wins_and_every_result_quotes_the_line_that_matched() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    shelve(&app, &key, &kitchen_id, "Chocolate");
+    shelve(&app, &key, &kitchen_id, "Chocolate Chip Cookies");
+    shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({
+            "title": "Chilli con carne",
+            "ingredients": [{ "kind": "ingredient", "text": "50 g dark chocolate" }],
+        }),
+    );
+    shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({
+            "title": "Braised Beef",
+            "steps": [
+                { "kind": "step", "text": "Brown the beef." },
+                { "kind": "step", "text": "Stir in a square of chocolate." },
+            ],
+        }),
+    );
+    shelve(&app, &key, &kitchen_id, "Miso Soup");
+
+    let found = shelf(&app, &key, json!({ "query": "chocolate" }));
+    assert_eq!(
+        titles(&found),
+        [
+            "Chocolate",
+            "Chocolate Chip Cookies",
+            "Chilli con carne",
+            "Braised Beef"
+        ],
+        "the exact title wins, because most searching is navigation (ADR 0027)"
+    );
+
+    // Every one of them can say what matched — the case where trust in search
+    // is won or lost.
+    assert_eq!(found[0]["matched"]["where"], json!("title"));
+    assert_eq!(found[2]["matched"]["where"], json!("ingredient"));
+    assert_eq!(
+        found[2]["matched"]["line"],
+        json!("50 g dark chocolate"),
+        "the quoted line is what makes a surprising result legible"
+    );
+    assert_eq!(found[3]["matched"]["where"], json!("step"));
+    assert_eq!(
+        found[3]["matched"]["step_number"],
+        json!(2),
+        "which step it was, counted as the recipe page counts them"
+    );
+
+    // And the unsearched shelf marks nothing as matched.
+    let everything = shelf(&app, &key, json!({}));
+    assert!(
+        everything.iter().all(|entry| entry["matched"].is_null()),
+        "{everything:#?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_accent_left_off_still_finds_the_recipe() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({ "title": "Gâteau Au Chocolat", "language": "fr" }),
+    );
+
+    let found = shelf(&app, &key, json!({ "query": "gateau" }));
+    assert_eq!(
+        titles(&found),
+        ["Gâteau Au Chocolat"],
+        "refusing this over an accent buried three presses deep is a search that looks broken"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn search_reaches_this_persons_own_attempts_and_nobody_elses() {
+    let app = support::spawn_app();
+    let (_aurelien, mine_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let camille = app.core.create_person("Camille").expect("person");
+    let camille_key = app
+        .core
+        .mint_access_key(&camille, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&mine_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&camille_key),
+        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
+    );
+
+    let branch = shelve(&app, &mine_key, &kitchen_id, "Miso Soup");
+
+    // Camille cooks it and writes her own diary line about it.
+    let (_, attempt) = app.post_op(
+        "start_attempt",
+        Some(&camille_key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    app.post_op(
+        "edit_attempt",
+        Some(&camille_key),
+        &json!({
+            "attempt_id": attempt["result"]["id"].as_str().unwrap(),
+            "note": "burnt it again, honestly",
+        })
+        .to_string(),
+    );
+
+    let hers = shelf(&app, &camille_key, json!({ "query": "burnt" }));
+    assert_eq!(titles(&hers), ["Miso Soup"]);
+    assert_eq!(hers[0]["matched"]["where"], json!("attempt"));
+    assert_eq!(
+        hers[0]["matched"]["line"],
+        json!("burnt it again, honestly")
+    );
+
+    assert!(
+        shelf(&app, &mine_key, json!({ "query": "burnt" })).is_empty(),
+        "a Kitchen-mate's diary is hers to show you, not the index's"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn my_recipes_means_created_branched_or_cooked() {
+    let app = support::spawn_app();
+    let (_aurelien, mine_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let camille = app.core.create_person("Camille").expect("person");
+    let camille_key = app
+        .core
+        .mint_access_key(&camille, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&mine_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&camille_key),
+        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
+    );
+
+    let cooked = shelve(&app, &mine_key, &kitchen_id, "Miso Soup");
+    shelve(&app, &mine_key, &kitchen_id, "Katsu Curry");
+
+    // Camille sees the whole shelf, and none of it is hers yet.
+    assert_eq!(shelf(&app, &camille_key, json!({})).len(), 2);
+    assert!(
+        shelf(&app, &camille_key, json!({ "mine": true })).is_empty(),
+        "she has neither written nor cooked any of it"
+    );
+
+    // Cooking one is the whole of joining it to her own history — no
+    // curating, at exactly the moment she would want it.
+    app.post_op(
+        "start_attempt",
+        Some(&camille_key),
+        &json!({ "branch_id": cooked }).to_string(),
+    );
+    assert_eq!(
+        titles(&shelf(&app, &camille_key, json!({ "mine": true }))),
+        ["Miso Soup"]
+    );
+
+    // And it stays the whole shelf for Aurélien, who wrote both.
+    assert_eq!(shelf(&app, &mine_key, json!({ "mine": true })).len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nothing_found_answers_no_entries_and_the_query_it_was_asked() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    shelve(&app, &key, &kitchen_id, "Miso Soup");
+
+    let (status, answer) = app.post_op(
+        "search_recipes",
+        Some(&key),
+        &json!({ "query": "osso buco" }).to_string(),
+    );
+    assert_eq!(status, 200, "{answer}");
+    assert_eq!(
+        answer["result"]["recipes"],
+        json!([]),
+        "nothing found is an ordinary answer, not an error"
+    );
+    assert_eq!(
+        answer["result"]["query"],
+        json!("osso buco"),
+        "the screen names the query from the answer, not from its own field"
+    );
+
+    // A shelf asked for nothing in particular says so, rather than echoing an
+    // empty string the screen would then have to explain.
+    let (_, all) = app.post_op("search_recipes", Some(&key), &json!({}).to_string());
+    assert_eq!(all["result"]["query"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shelf_holds_only_what_this_persons_kitchens_hold() {
+    let app = support::spawn_app();
+    let (_aurelien, mine_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_stranger, stranger_key, _their_kitchen) = person_with_kitchen(&app, "Marc");
+
+    shelve(&app, &mine_key, &kitchen_id, "Miso Soup");
+
+    assert!(
+        shelf(&app, &stranger_key, json!({})).is_empty(),
+        "everything on a shelf is held by a Kitchen you belong to (ADR 0026)"
+    );
+
+    // And asking about a Kitchen you do not cook in is refused outright rather
+    // than answered with an empty shelf.
+    let (status, refused) = app.post_op(
+        "search_recipes",
+        Some(&stranger_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_is_numbered_as_the_recipe_page_numbers_it_and_a_section_is_neither() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({
+            "title": "Katsu Curry",
+            "steps": [
+                { "kind": "section", "text": "For the sauce" },
+                { "kind": "step", "text": "Soften the onion." },
+                { "kind": "section", "text": "To finish" },
+                { "kind": "step", "text": "Fry the katsu until amber." },
+            ],
+        }),
+    );
+
+    // The recipe page counts Steps alone, Sections taking no number — so this
+    // is step 2, not the fourth entry in the array. Answering the position
+    // would have every Section silently shift the number that follows it.
+    let found = shelf(&app, &key, json!({ "query": "amber" }));
+    assert_eq!(found[0]["matched"]["where"], json!("step"));
+    assert_eq!(found[0]["matched"]["step_number"], json!(2));
+
+    // A Section header is searched with the rest of the recipe, and answers as
+    // what it is rather than being called a step it is not.
+    let heading = shelf(&app, &key, json!({ "query": "to finish" }));
+    assert_eq!(heading[0]["matched"]["where"], json!("section"));
+    assert_eq!(heading[0]["matched"]["line"], json!("To finish"));
+    assert_eq!(heading[0]["matched"]["step_number"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_word_only_the_other_language_uses_still_finds_the_recipe() {
+    let app = support::spawn_app();
+    let (_person, key, home) = person_with_kitchen(&app, "Aurélien");
+    let (_, second) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "Chez Marc" }).to_string(),
+    );
+    let other = second["result"]["id"].as_str().unwrap().to_string();
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+
+    // One Lineage, two Branches: the English one is what the card opens, and
+    // the French one is where the word *chocolat* actually is.
+    let english = shelve_recipe(
+        &app,
+        &key,
+        &home,
+        json!({
+            "title": "Chocolate Mousse",
+            "language": "en",
+            "ingredients": [{ "kind": "ingredient", "text": "200 g dark chocolate" }],
+        }),
+    );
+    let (_, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "kitchen_id": other,
+            "title": "Mousse au chocolat",
+            "ingredients": [{ "kind": "ingredient", "text": "200 g de chocolat noir" }],
+        })
+        .to_string(),
+    );
+    let french_branch = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET language = 'fr' WHERE id = ?1",
+                rusqlite::params![french_branch],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .unwrap();
+
+    // A Translation is a Branch of the same Lineage (ADR 0006), and it is that
+    // multilingual model that makes the match (ADR 0027) — so the French words
+    // find the recipe even though the card opens the English rendering.
+    let found = shelf(&app, &key, json!({ "query": "chocolat noir" }));
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert_eq!(
+        found[0]["branch_id"],
+        json!(english),
+        "the card still opens the Branch written in the reader's own Language"
+    );
+    assert_eq!(found[0]["title"], json!("Chocolate Mousse"));
+    assert_eq!(
+        found[0]["matched"]["line"],
+        json!("200 g de chocolat noir"),
+        "and it quotes the line that actually matched, in the words it is written in"
+    );
+}

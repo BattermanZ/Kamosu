@@ -156,6 +156,9 @@ src/design_tokens.rs embeds and serves the generated stylesheet, fonts and icons
 src/interface.rs    embeds and serves the built Svelte app; owns the fallback
 tests/parity.rs     both Doors materialise every Operation — drift breaks the build
 tests/behaviour.rs  behaviour through real Doors against a real database file
+tests/*_corpus.rs   the same, against the real 86-recipe Crouton export —
+                    #[ignore]d, since samples/crouton/ is personal and gitignored:
+                    run with `cargo test --test <name> -- --ignored`
 ui/                 the Svelte app; ui/src/app.css is the design tokens' source
 docs/svelte/        Svelte's documentation for models, pinned (read this first)
 ```

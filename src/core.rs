@@ -5,7 +5,7 @@
 //! Authorisation lives here, beneath both Doors, keyed on a Credential. A
 //! permission check written inside a Door is a bug.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use argon2::{
@@ -2221,6 +2221,187 @@ impl Core {
         Ok(copy)
     }
 
+    /// The shelf, and searching it — one Operation either way (ADR 0027).
+    ///
+    /// With no `query` this answers the whole shelf: everything the Kitchens
+    /// this Person cooks in hold, merged, alphabetical, **one entry per
+    /// Lineage**. With a `query` it answers the same shelf narrowed to what
+    /// matched, an exact title first, every entry carrying the line that
+    /// matched so a surprising result can explain itself.
+    ///
+    /// One Operation rather than two is not tidiness. The Catalogue cannot
+    /// change shape per instance (ADR 0029), and Meaning Search arrives later
+    /// as a second way of finding entries here — not as a second Operation an
+    /// agent would have to know to look for.
+    ///
+    /// **No Kitchen name is returned**, by construction rather than by
+    /// convention: a card cannot print a fence that is not there (ADR 0027),
+    /// and the surest way to keep it off the card is to never send it.
+    ///
+    /// Both filters are the caller's to pass on each request and are held
+    /// nowhere: a filter that persists is a mode, and a mode you forgot you
+    /// set is the Kitchen switcher wearing a hat.
+    ///
+    /// This reads every visible recipe and matches in Rust rather than asking
+    /// SQLite. That is honest for a library of this size — the real one is 86
+    /// recipes — and it is what keeps the fold below the same fold the rest of
+    /// Kamosu uses. The index that replaces it arrives with Meaning Search,
+    /// which is rebuildable from the recipes and therefore free to change.
+    pub fn search_recipes(
+        &self,
+        person_id: &str,
+        query: Option<&str>,
+        kitchen_id: Option<&str>,
+        mine: bool,
+    ) -> Result<Value, OpError> {
+        let query = query.map(str::trim).filter(|q| !q.is_empty());
+        let needle = query.map(folded_for_search);
+
+        self.db().with_conn(|conn| {
+            if let Some(kitchen_id) = kitchen_id {
+                ensure_member(conn, kitchen_id, person_id)?;
+            }
+            let reading_language = reading_language_of(conn, person_id)?;
+
+            // Every Branch held by a Kitchen this Person cooks in. That is the
+            // whole shelf and the only boundary on it (ADR 0026), which is why
+            // there is no permission question left to ask further down.
+            let mut statement = conn
+                .prepare(
+                    "SELECT DISTINCT branches.id, branches.lineage_id, branches.language, \
+                            branches.head_version_id \
+                       FROM branches \
+                       JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
+                      WHERE kitchen_members.person_id = ?1 \
+                        AND (?2 IS NULL OR branches.kitchen_id = ?2) \
+                      ORDER BY branches.created_at ASC, branches.id ASC",
+                )
+                .map_err(|e| OpError::internal(format!("cannot read the shelf: {e}")))?;
+            let held: Vec<ShelfBranch> = statement
+                .query_map(params![person_id, kitchen_id], |row| {
+                    Ok(ShelfBranch {
+                        branch_id: row.get(0)?,
+                        lineage_id: row.get(1)?,
+                        language: row.get(2)?,
+                        head_version_id: row.get(3)?,
+                    })
+                })
+                .map_err(|e| OpError::internal(format!("cannot read the shelf: {e}")))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read the shelf: {e}")))?;
+
+            // One entry per Lineage, and every Branch of it kept: which Branch
+            // the entry *opens* is one question, and which Branches a search
+            // *reads* is another.
+            //
+            // The card opens the Branch written in the reader's own Language;
+            // where the Lineage has none, the oldest Branch answers and the
+            // entry says it fell back — a Language preference must never hide
+            // a recipe from its owner (ADR 0006). Filtered to one Kitchen this
+            // is that Kitchen's Branch alone, because no other was selected.
+            let mut lineages: Vec<String> = Vec::new();
+            let mut branches: HashMap<String, Vec<ShelfBranch>> = HashMap::new();
+            for branch in held {
+                let lineage_id = branch.lineage_id.clone();
+                let of_lineage = branches.entry(lineage_id.clone()).or_insert_with(|| {
+                    lineages.push(lineage_id);
+                    Vec::new()
+                });
+                // The Branch that opens the card is kept first, so choosing it
+                // is this one comparison rather than a second pass.
+                if branch.language == reading_language
+                    && of_lineage
+                        .first()
+                        .is_some_and(|first| first.language != reading_language)
+                {
+                    of_lineage.insert(0, branch);
+                } else {
+                    of_lineage.push(branch);
+                }
+            }
+
+            let mut entries: Vec<(u8, String, Value)> = Vec::new();
+            for lineage_id in lineages {
+                // *My recipes* is a history, not an ownership: created,
+                // branched or cooked. The first two are one fact — this
+                // Person's Hand on a Version of this Lineage — and the third
+                // is an Attempt of their own (ADR 0027).
+                if mine && !written_or_cooked_by(conn, &lineage_id, person_id)? {
+                    continue;
+                }
+
+                let of_lineage = &branches[&lineage_id];
+                let shown = &of_lineage[0];
+                let content = version_content(conn, &shown.head_version_id)?;
+                let title = content["title"].as_str().unwrap_or_default().to_string();
+
+                let matched = match &needle {
+                    None => None,
+                    Some(needle) => {
+                        // Searched across **every** Branch of this Lineage, not
+                        // only the one the card opens. A Translation is a Branch
+                        // of the same Lineage (ADR 0006), and it is that
+                        // multilingual model that makes the match: type
+                        // *chocolat* and the recipe whose English rendering you
+                        // are shown must still be found. The best rung any
+                        // Branch reaches is the one the entry carries.
+                        let mut best: Option<(u8, Value)> = None;
+                        for branch in of_lineage {
+                            let read = if branch.branch_id == shown.branch_id {
+                                content.clone()
+                            } else {
+                                version_content(conn, &branch.head_version_id)?
+                            };
+                            let branch_title = read["title"].as_str().unwrap_or_default();
+                            let found =
+                                match_recipe(conn, branch, person_id, &read, branch_title, needle)?;
+                            if let Some(found) = found
+                                && best.as_ref().is_none_or(|(rank, _)| found.0 < *rank)
+                            {
+                                best = Some(found);
+                            }
+                        }
+                        match best {
+                            Some(matched) => Some(matched),
+                            // Nothing in this recipe carries the words, so it
+                            // is not on this answer at all.
+                            None => continue,
+                        }
+                    }
+                };
+                let rank = matched.as_ref().map_or(0, |(rank, _)| *rank);
+
+                entries.push((
+                    rank,
+                    folded_for_search(&title),
+                    json!({
+                        "lineage_id": lineage_id,
+                        "branch_id": shown.branch_id,
+                        "title": title,
+                        "language": shown.language,
+                        // Whether this entry is being read in a Language the
+                        // reader did not ask for — the mark, and the whole of
+                        // the mark. There is nothing to say when it is false.
+                        "language_fallback": shown.language != reading_language,
+                        "main_photo": content["main_photo"].clone(),
+                        "yield": content["yield"].clone(),
+                        "matched": matched.map(|(_, matched)| matched),
+                    }),
+                ));
+            }
+
+            // Alphabetical is the shelf's whole order, and within one rank it
+            // stays the order of a search's results too: a list that reorders
+            // itself between visits cannot be learned by the thumb.
+            entries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+            Ok(json!({
+                "query": query,
+                "recipes": entries.into_iter().map(|(_, _, entry)| entry).collect::<Vec<_>>(),
+            }))
+        })
+    }
+
     /// Read a Recipe: the Branch as it stands and its whole chain of Versions,
     /// oldest first — the Thread's raw material.
     pub fn get_recipe(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
@@ -3978,6 +4159,161 @@ fn tag_summary(
         "language": shown.map(|(language, _)| language.as_str()),
         "names": names,
     }))
+}
+
+/// The fold two spellings of one word share **for the purpose of finding it**
+/// — [`folded_word`]'s canonical caseless fold, and then combining marks
+/// dropped, so *gateau* typed in a hurry finds *Gâteau*.
+///
+/// It is deliberately a second, looser rule, and the two are not
+/// interchangeable. [`folded_word`] answers *is this the same word* — the
+/// question a Tag and a Food are held unique by — and there *é* and *e* are
+/// genuinely different words. This one answers *did the cook mean this*, where
+/// refusing a match over an accent the phone keyboard buried three presses deep
+/// is a search that looks broken. Nothing is stored in this form; it exists
+/// only for the length of one comparison.
+///
+/// Public so the corpus test can assert the real shelf's order against *this*
+/// rule rather than against a copy of it that would go stale the moment the
+/// rule changed.
+pub fn folded_for_search(text: &str) -> String {
+    use unicode_normalization::char::is_combining_mark;
+    folded_word(text)
+        .chars()
+        .filter(|c| !is_combining_mark(*c))
+        .collect()
+}
+
+/// One Branch as the shelf holds it while it works out which Lineage it belongs
+/// to and which of its Branches the card opens. Nothing here reaches the
+/// answer: a shelf entry names no Kitchen and no head Version.
+struct ShelfBranch {
+    branch_id: String,
+    lineage_id: String,
+    language: String,
+    head_version_id: String,
+}
+
+/// Whether this Person created, branched or cooked this Lineage — the three
+/// things *My recipes* means, and all three already stored (ADR 0027).
+/// Created and branched are one fact: their Hand is on a Version of it.
+fn written_or_cooked_by(
+    conn: &rusqlite::Connection,
+    lineage_id: &str,
+    person_id: &str,
+) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM branch_versions \
+                          JOIN branches ON branches.id = branch_versions.branch_id \
+                         WHERE branches.lineage_id = ?1 AND branch_versions.hand_id = ?2) \
+             OR EXISTS (SELECT 1 FROM attempts \
+                         WHERE attempts.lineage_id = ?1 AND attempts.person_id = ?2)",
+        params![lineage_id, person_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read what this Person has cooked: {e}")))
+}
+
+/// What in one recipe carries the words searched for, and the line to quote for
+/// it — a result that cannot explain itself is noise (ADR 0027).
+///
+/// The order below is the ranking, and its first rung is the one the whole
+/// design rests on: **an exact title wins**, because most searching is
+/// navigation — you know the recipe's name and you are typing it to get there.
+/// After that, the more of the recipe a match had to reach into, the further
+/// down it sits.
+///
+/// The last rung reaches this Person's own Attempts and nobody else's. A
+/// Kitchen-mate's *burnt it again, honestly* turning up when you search *burnt*
+/// is a different act from her showing you.
+fn match_recipe(
+    conn: &rusqlite::Connection,
+    branch: &ShelfBranch,
+    person_id: &str,
+    content: &Value,
+    title: &str,
+    needle: &str,
+) -> Result<Option<(u8, Value)>, OpError> {
+    let carries = |text: &str| folded_for_search(text).contains(needle);
+    let quote = |rank: u8, where_: &str, line: &str, step_number: Option<usize>| {
+        Some((
+            rank,
+            json!({ "where": where_, "line": line, "step_number": step_number }),
+        ))
+    };
+
+    if folded_for_search(title) == needle {
+        return Ok(quote(0, "title", title, None));
+    }
+    if carries(title) {
+        return Ok(quote(1, "title", title, None));
+    }
+
+    for tag in tags_of_branch(conn, &branch.branch_id, person_id)? {
+        if let Some(name) = tag["name"].as_str()
+            && carries(name)
+        {
+            return Ok(quote(2, "tag", name, None));
+        }
+    }
+
+    // A Section header — "For the sauce" — is a line of the recipe like any
+    // other and is searched with the rest, but it is not an ingredient and not
+    // a step, so it is answered as what it is rather than mislabelled as one.
+    //
+    // A Step's number is counted the way the recipe page counts it: over the
+    // Steps alone, Sections taking none. Handing back the position in the array
+    // instead would have a Section header silently shift every "Step 6" that
+    // follows it by one, and a result that points at the wrong step is worse
+    // than one that points nowhere.
+    for (kind, rank, where_) in [("ingredients", 3, "ingredient"), ("steps", 4, "step")] {
+        if let Some(lines) = content[kind].as_array() {
+            let mut number = 0;
+            for line in lines {
+                let section = line["kind"].as_str() == Some("section");
+                if !section {
+                    number += 1;
+                }
+                if let Some(text) = line["text"].as_str()
+                    && carries(text)
+                {
+                    return Ok(if section {
+                        quote(rank, "section", text, None)
+                    } else {
+                        quote(rank, where_, text, (kind == "steps").then_some(number))
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(note) = content["note"].as_str()
+        && carries(note)
+    {
+        return Ok(quote(5, "note", note, None));
+    }
+
+    let attempts =
+        |e: rusqlite::Error| OpError::internal(format!("cannot read this Person's Attempts: {e}"));
+    let mut statement = conn
+        .prepare(
+            "SELECT note FROM attempts \
+              WHERE lineage_id = ?1 AND person_id = ?2 AND note IS NOT NULL \
+              ORDER BY created_at DESC",
+        )
+        .map_err(attempts)?;
+    let notes: Vec<String> = statement
+        .query_map(params![branch.lineage_id, person_id], |row| row.get(0))
+        .map_err(attempts)?
+        .collect::<Result<_, _>>()
+        .map_err(attempts)?;
+    for note in &notes {
+        if carries(note) {
+            return Ok(quote(6, "attempt", note, None));
+        }
+    }
+
+    Ok(None)
 }
 
 /// The Tags one recipe carries, as its reader sees them.

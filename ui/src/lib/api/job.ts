@@ -9,7 +9,38 @@
  * states included, comes from the generated declarations.
  */
 
+import type { GetJobOutput, KamosuClient } from './catalogue';
+
 /** What asking for a Job answers, immediately, whatever the Job is. */
 export interface JobAsk {
 	job_id: string;
+}
+
+/** The states a Job never leaves once it reaches one. */
+const ENDED = ['completed', 'failed', 'cancelled'] as const;
+
+/**
+ * Wait for one Job to reach an end state, by asking `get_job` — the ordinary
+ * Operation, at the ordinary Door. There is no push channel and no second way
+ * in: a Job's row is the truth about it, and polling that row is how every
+ * caller reads one, an agent at the MCP door included (ADR 0032).
+ *
+ * A Job that failed is raised as the error it is, so a caller writes one happy
+ * path rather than checking a status by hand and forgetting the other two.
+ */
+export async function waitForJob(
+	kamosu: KamosuClient,
+	jobId: string,
+	{ every = 400, giveUpAfter = 120_000 } = {}
+): Promise<GetJobOutput> {
+	const until = Date.now() + giveUpAfter;
+	for (;;) {
+		const job = await kamosu.getJob({ job_id: jobId });
+		if ((ENDED as readonly string[]).includes(job.status)) {
+			if (job.status === 'completed') return job;
+			throw new Error(job.error ?? `the job ${job.status}`);
+		}
+		if (Date.now() > until) throw new Error('the job is still running');
+		await new Promise((wake) => setTimeout(wake, every));
+	}
 }

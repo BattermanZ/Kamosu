@@ -679,6 +679,18 @@ pub fn sweep_photographs(
     core.sweep_photographs()
 }
 
+pub fn search_recipes(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let query = input.get("query").and_then(Value::as_str);
+    let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
+    let mine = input.get("mine").and_then(Value::as_bool).unwrap_or(false);
+    let caller = caller_of(invocation)?;
+    core.search_recipes(&caller.person_id, query, kitchen_id, mine)
+}
+
 pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")
