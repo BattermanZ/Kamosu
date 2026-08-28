@@ -507,15 +507,79 @@ pub fn save_recipe_version(
         .ok_or_else(|| {
             OpError::bad_request(
                 "save_recipe_version takes { branch_id, title, name?, change_note?, \
-             kitchen_id?, yield?, prep_time_minutes?, cook_time_minutes?, note?, source?, \
-             ingredients?, steps? }",
+             kitchen_id?, translates_version_id?, yield?, prep_time_minutes?, \
+             cook_time_minutes?, note?, source?, ingredients?, steps? }",
             )
         })?;
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
     let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
+    let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.save_recipe_version(caller, branch_id, &input, name, change_note, kitchen_id)
+    core.save_recipe_version(
+        caller,
+        branch_id,
+        &input,
+        name,
+        change_note,
+        kitchen_id,
+        translates_version_id,
+    )
+}
+
+/// Start a Translation: an ordinary Branch of the same Lineage in another
+/// Language, whose first Version records what it renders (#56, ADR 0006).
+pub fn start_translation(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "start_translation takes { branch_id, language, title, \
+                 translates_version_id?, name?, change_note?, kitchen_id?, yield?, \
+                 prep_time_minutes?, cook_time_minutes?, note?, source?, ingredients?, steps? }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let language = input
+        .get("language")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let name = input.get("name").and_then(Value::as_str);
+    let change_note = input.get("change_note").and_then(Value::as_str);
+    let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
+    let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.start_translation(
+        caller,
+        branch_id,
+        language,
+        &input,
+        name,
+        change_note,
+        kitchen_id,
+        translates_version_id,
+    )
+}
+
+/// Say what Language a recipe is written in — the only thing that acts on a
+/// save's `language_offer`, and it makes a Version (#56, ADR 0006).
+pub fn set_recipe_language(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "set_recipe_language takes { branch_id, language }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let language = input
+        .get("language")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.set_recipe_language(caller, branch_id, language)
 }
 
 /// Import: land a batch of candidates already read from an outside source

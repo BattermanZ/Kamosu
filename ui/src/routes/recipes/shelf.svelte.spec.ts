@@ -100,6 +100,7 @@ describe('the recipes screen', () => {
 				origin_address: null,
 				head_version_id: 'v_new',
 				versions: [],
+				translation: null,
 				tags: [],
 				related_recipes: []
 			}
@@ -233,6 +234,29 @@ describe('the recipes screen', () => {
 		expect(screen.getByText('fr')).toBeInTheDocument();
 		expect(screen.getByText('In French')).toBeInTheDocument();
 		expect(screen.queryByText('In English')).not.toBeInTheDocument();
+	});
+
+	it('marks nothing on a recipe whose Language is unknown', async () => {
+		renderScreen(Recipes, {
+			list_kitchens: { kitchens: [kitchen] },
+			search_recipes: {
+				query: null,
+				recipes: [
+					entry({
+						title: 'Sukiyaki Udon',
+						language: 'unknown',
+						language_fallback: false
+					})
+				]
+			}
+		});
+
+		// A recipe honestly written in two Languages is not in a Language its
+		// reader failed to ask for — it is in no single one. So it shows to
+		// everybody exactly as it is: no badge, no nag (ADR 0006).
+		expect(await screen.findByText('Sukiyaki Udon')).toBeInTheDocument();
+		expect(screen.queryByText('unknown')).not.toBeInTheDocument();
+		expect(screen.queryByText(/^In /)).not.toBeInTheDocument();
 	});
 
 	it('names no Kitchen on a card, and offers a Kitchen filter only where there are several', async () => {

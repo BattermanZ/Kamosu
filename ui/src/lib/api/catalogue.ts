@@ -364,7 +364,7 @@ export type CreateRecipeInput = {
 		text: string;
 	}[];
 	kitchen_id: string;
-	language?: "en" | "fr" | "es";
+	language?: "en" | "fr" | "es" | "unknown";
 	main_photo?: string | null;
 	note?: string | null;
 	prep_time_minutes?: number | null;
@@ -407,6 +407,11 @@ export type CreateRecipeOutput = {
 			name: string;
 		}[];
 	}[];
+	translation: {
+		source_branch_id: string | null;
+		translates_version_id: string;
+		versions_behind: number | null;
+	} | null;
 	versions: {
 		change_note: string | null;
 		content: {
@@ -435,6 +440,7 @@ export type CreateRecipeOutput = {
 		};
 		created_at: string;
 		hand_id: string;
+		language: string | null;
 		name: string | null;
 		parent_version_id: string | null;
 		readings: ({
@@ -443,6 +449,7 @@ export type CreateRecipeOutput = {
 			unit: string | null;
 		} | null)[];
 		sequence: number;
+		translates_version_id: string | null;
 		version_id: string;
 	}[];
 };
@@ -471,6 +478,7 @@ export type SaveRecipeVersionInput = {
 		text: string;
 	}[];
 	title: string;
+	translates_version_id?: string;
 	yield?: {
 		amount: string;
 		noun: string;
@@ -481,9 +489,126 @@ export type SaveRecipeVersionOutput = {
 	branch_id: string;
 	collapsed: boolean;
 	copied: boolean;
+	language: string;
+	language_offer: string | null;
 	parent_version_id: string | null;
 	sequence: number;
+	translates_version_id: string | null;
 	version_id: string;
+};
+
+/** Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
+export type StartTranslationInput = {
+	branch_id: string;
+	change_note?: string;
+	cook_time_minutes?: number | null;
+	ingredients?: {
+		kind: "section" | "ingredient";
+		text: string;
+	}[];
+	kitchen_id?: string;
+	language: "en" | "fr" | "es";
+	main_photo?: string | null;
+	name?: string;
+	note?: string | null;
+	prep_time_minutes?: number | null;
+	source?: {
+		link: string | null;
+		text: string;
+	} | null;
+	steps?: {
+		kind: "section" | "step";
+		photo: string | null;
+		text: string;
+	}[];
+	title: string;
+	translates_version_id?: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+};
+/** What start_translation answers. */
+export type StartTranslationOutput = {
+	branch_id: string;
+	hand_id: string;
+	head_version_id: string;
+	kitchen_id: string;
+	language: string;
+	lineage_id: string;
+	origin_address: string | null;
+	related_recipes: {
+		branch_id: string | null;
+		lineage_id: string;
+		title: string;
+	}[];
+	tags: {
+		id: string;
+		kitchen_id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+	}[];
+	translation: {
+		source_branch_id: string | null;
+		translates_version_id: string;
+		versions_behind: number | null;
+	} | null;
+	versions: {
+		change_note: string | null;
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		created_at: string;
+		hand_id: string;
+		language: string | null;
+		name: string | null;
+		parent_version_id: string | null;
+		readings: ({
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+		sequence: number;
+		translates_version_id: string | null;
+		version_id: string;
+	}[];
+};
+
+/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
+export type SetRecipeLanguageInput = {
+	branch_id: string;
+	language: "en" | "fr" | "es" | "unknown";
+};
+/** What set_recipe_language answers. */
+export type SetRecipeLanguageOutput = {
+	branch_id: string;
+	language: string;
+	sequence: number | null;
 };
 
 /** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
@@ -495,7 +620,7 @@ export type ImportInput = {
 			kind: "section" | "ingredient";
 			text: string;
 		}[];
-		language?: "en" | "fr" | "es";
+		language?: "en" | "fr" | "es" | "unknown";
 		main_photo?: string | null;
 		note?: string | null;
 		prep_time_minutes?: number | null;
@@ -646,6 +771,11 @@ export type GetRecipeOutput = {
 			name: string;
 		}[];
 	}[];
+	translation: {
+		source_branch_id: string | null;
+		translates_version_id: string;
+		versions_behind: number | null;
+	} | null;
 	versions: {
 		change_note: string | null;
 		content: {
@@ -674,6 +804,7 @@ export type GetRecipeOutput = {
 		};
 		created_at: string;
 		hand_id: string;
+		language: string | null;
 		name: string | null;
 		parent_version_id: string | null;
 		readings: ({
@@ -682,6 +813,7 @@ export type GetRecipeOutput = {
 			unit: string | null;
 		} | null)[];
 		sequence: number;
+		translates_version_id: string | null;
 		version_id: string;
 	}[];
 };
@@ -716,6 +848,11 @@ export type GetThreadOutput = {
 		head_version_id: string;
 		kitchen_id: string;
 		language: string;
+		translation: {
+			source_branch_id: string | null;
+			translates_version_id: string;
+			versions_behind: number | null;
+		} | null;
 	}[];
 	lineage_id: string;
 	versions: {
@@ -723,9 +860,11 @@ export type GetThreadOutput = {
 		change_note: string | null;
 		created_at: string;
 		hand_id: string;
+		language: string | null;
 		name: string | null;
 		parent_version_id: string | null;
 		sequence: number;
+		translates_version_id: string | null;
 		version_id: string;
 	}[];
 };
@@ -1369,6 +1508,18 @@ export interface Operations {
 	save_recipe_version: {
 		input: SaveRecipeVersionInput;
 		output: SaveRecipeVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	start_translation: {
+		input: StartTranslationInput;
+		output: StartTranslationOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_recipe_language: {
+		input: SetRecipeLanguageInput;
+		output: SetRecipeLanguageOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -2926,10 +3077,12 @@ export const CATALOGUE = [
 					"type": "string"
 				},
 				"language": {
+					"description": "The Language this recipe is written in. Left out, it is detected from the recipe's own text, falling back to the writer's Reading Language where there is too little text to tell. `unknown` says the recipe is honestly more than one Language.",
 					"enum": [
 						"en",
 						"fr",
-						"es"
+						"es",
+						"unknown"
 					]
 				},
 				"main_photo": {
@@ -3137,6 +3290,38 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"translation": {
+					"additionalProperties": false,
+					"properties": {
+						"source_branch_id": {
+							"description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"translates_version_id": {
+							"description": "The Version of the source this recipe's newest Version renders.",
+							"type": "string"
+						},
+						"versions_behind": {
+							"description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+							"type": [
+								"integer",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"translates_version_id",
+						"source_branch_id",
+						"versions_behind"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"versions": {
 					"items": {
 						"additionalProperties": false,
@@ -3291,6 +3476,12 @@ export const CATALOGUE = [
 							"hand_id": {
 								"type": "string"
 							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"name": {
 								"type": [
 									"string",
@@ -3341,6 +3532,12 @@ export const CATALOGUE = [
 							"sequence": {
 								"type": "integer"
 							},
+							"translates_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"version_id": {
 								"type": "string"
 							}
@@ -3354,7 +3551,9 @@ export const CATALOGUE = [
 							"change_note",
 							"created_at",
 							"content",
-							"readings"
+							"readings",
+							"translates_version_id",
+							"language"
 						],
 						"type": "object"
 					},
@@ -3370,6 +3569,7 @@ export const CATALOGUE = [
 				"origin_address",
 				"head_version_id",
 				"versions",
+				"translation",
 				"tags",
 				"related_recipes"
 			],
@@ -3498,6 +3698,10 @@ export const CATALOGUE = [
 				"title": {
 					"type": "string"
 				},
+				"translates_version_id": {
+					"description": "For a Translation, the Version of the source this save now renders — how bringing a Translation up to date is said. Left out, whatever the Version being replaced pointed at is carried forward, so editing a Translation's wording never claims it has caught up.",
+					"type": "string"
+				},
 				"yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -3537,6 +3741,17 @@ export const CATALOGUE = [
 					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
 					"type": "boolean"
 				},
+				"language": {
+					"description": "The Language this recipe still carries. A save never changes it.",
+					"type": "string"
+				},
+				"language_offer": {
+					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"parent_version_id": {
 					"type": [
 						"string",
@@ -3545,6 +3760,13 @@ export const CATALOGUE = [
 				},
 				"sequence": {
 					"type": "integer"
+				},
+				"translates_version_id": {
+					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+					"type": [
+						"string",
+						"null"
+					]
 				},
 				"version_id": {
 					"type": "string"
@@ -3556,7 +3778,616 @@ export const CATALOGUE = [
 				"parent_version_id",
 				"sequence",
 				"collapsed",
-				"copied"
+				"copied",
+				"language",
+				"language_offer",
+				"translates_version_id"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "start_translation",
+		"summary": "Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"description": "The recipe being translated.",
+					"type": "string"
+				},
+				"change_note": {
+					"type": "string"
+				},
+				"cook_time_minutes": {
+					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"ingredient"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchen_id": {
+					"description": "Which of your own Kitchens holds the Translation. Defaults to the one holding the recipe translated.",
+					"type": "string"
+				},
+				"language": {
+					"description": "The Language this rendering is written in — necessarily a different one from the recipe it translates. Never `unknown`: a recipe that is honestly more than one Language can neither be a Translation nor have one.",
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"main_photo": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"prep_time_minutes": {
+					"description": "Whole minutes of active preparation.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"step"
+								]
+							},
+							"photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text",
+							"photo"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"title": {
+					"type": "string"
+				},
+				"translates_version_id": {
+					"description": "Which Version of the source this renders. Defaults to where the source stands now.",
+					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"language",
+				"title"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"hand_id": {
+					"type": "string"
+				},
+				"head_version_id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"origin_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"related_recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kitchen_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kitchen_id",
+							"name",
+							"language",
+							"names"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"translation": {
+					"additionalProperties": false,
+					"properties": {
+						"source_branch_id": {
+							"description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"translates_version_id": {
+							"description": "The Version of the source this recipe's newest Version renders.",
+							"type": "string"
+						},
+						"versions_behind": {
+							"description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+							"type": [
+								"integer",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"translates_version_id",
+						"source_branch_id",
+						"versions_behind"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"versions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"content": {
+								"additionalProperties": false,
+								"properties": {
+									"cook_time_minutes": {
+										"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"ingredients": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"ingredient"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"main_photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"prep_time_minutes": {
+										"description": "Whole minutes of active preparation.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"source": {
+										"additionalProperties": false,
+										"properties": {
+											"link": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"text",
+											"link"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"step"
+													]
+												},
+												"photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"photo"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"title": {
+										"type": "string"
+									},
+									"yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"title",
+									"yield",
+									"prep_time_minutes",
+									"cook_time_minutes",
+									"note",
+									"main_photo",
+									"source",
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parent_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"readings": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"target": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"unit": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"amount",
+										"unit",
+										"target"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"type": "array"
+							},
+							"sequence": {
+								"type": "integer"
+							},
+							"translates_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"sequence",
+							"version_id",
+							"parent_version_id",
+							"hand_id",
+							"name",
+							"change_note",
+							"created_at",
+							"content",
+							"readings",
+							"translates_version_id",
+							"language"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"branch_id",
+				"lineage_id",
+				"kitchen_id",
+				"hand_id",
+				"language",
+				"origin_address",
+				"head_version_id",
+				"versions",
+				"translation",
+				"tags",
+				"related_recipes"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_recipe_language",
+		"summary": "Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"language": {
+					"enum": [
+						"en",
+						"fr",
+						"es",
+						"unknown"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"language"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": "string"
+				},
+				"sequence": {
+					"description": "The sequence of the Version this change made, or null when the recipe was already in that Language and nothing changed.",
+					"type": [
+						"integer",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"language",
+				"sequence"
 			],
 			"type": "object"
 		}
@@ -3607,10 +4438,12 @@ export const CATALOGUE = [
 								"type": "array"
 							},
 							"language": {
+								"description": "The Language this recipe is written in. Left out, it is detected from the recipe's own text, falling back to the writer's Reading Language where there is too little text to tell. `unknown` says the recipe is honestly more than one Language.",
 								"enum": [
 									"en",
 									"fr",
-									"es"
+									"es",
+									"unknown"
 								]
 							},
 							"main_photo": {
@@ -4302,6 +5135,38 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"translation": {
+					"additionalProperties": false,
+					"properties": {
+						"source_branch_id": {
+							"description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"translates_version_id": {
+							"description": "The Version of the source this recipe's newest Version renders.",
+							"type": "string"
+						},
+						"versions_behind": {
+							"description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+							"type": [
+								"integer",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"translates_version_id",
+						"source_branch_id",
+						"versions_behind"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"versions": {
 					"items": {
 						"additionalProperties": false,
@@ -4456,6 +5321,12 @@ export const CATALOGUE = [
 							"hand_id": {
 								"type": "string"
 							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"name": {
 								"type": [
 									"string",
@@ -4506,6 +5377,12 @@ export const CATALOGUE = [
 							"sequence": {
 								"type": "integer"
 							},
+							"translates_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"version_id": {
 								"type": "string"
 							}
@@ -4519,7 +5396,9 @@ export const CATALOGUE = [
 							"change_note",
 							"created_at",
 							"content",
-							"readings"
+							"readings",
+							"translates_version_id",
+							"language"
 						],
 						"type": "object"
 					},
@@ -4535,6 +5414,7 @@ export const CATALOGUE = [
 				"origin_address",
 				"head_version_id",
 				"versions",
+				"translation",
 				"tags",
 				"related_recipes"
 			],
@@ -4674,6 +5554,38 @@ export const CATALOGUE = [
 							},
 							"language": {
 								"type": "string"
+							},
+							"translation": {
+								"additionalProperties": false,
+								"properties": {
+									"source_branch_id": {
+										"description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"translates_version_id": {
+										"description": "The Version of the source this recipe's newest Version renders.",
+										"type": "string"
+									},
+									"versions_behind": {
+										"description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+										"type": [
+											"integer",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"translates_version_id",
+									"source_branch_id",
+									"versions_behind"
+								],
+								"type": [
+									"object",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -4681,7 +5593,8 @@ export const CATALOGUE = [
 							"kitchen_id",
 							"hand_id",
 							"language",
-							"head_version_id"
+							"head_version_id",
+							"translation"
 						],
 						"type": "object"
 					},
@@ -4709,6 +5622,12 @@ export const CATALOGUE = [
 							"hand_id": {
 								"type": "string"
 							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"name": {
 								"type": [
 									"string",
@@ -4724,6 +5643,12 @@ export const CATALOGUE = [
 							"sequence": {
 								"type": "integer"
 							},
+							"translates_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"version_id": {
 								"type": "string"
 							}
@@ -4736,7 +5661,9 @@ export const CATALOGUE = [
 							"hand_id",
 							"name",
 							"change_note",
-							"created_at"
+							"created_at",
+							"translates_version_id",
+							"language"
 						],
 						"type": "object"
 					},
@@ -6890,6 +7817,8 @@ export const METHOD_NAMES = {
 	set_related_recipe: 'setRelatedRecipe',
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
+	start_translation: 'startTranslation',
+	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
 	import_web_link: 'importWebLink',
 	rename_version: 'renameVersion',
@@ -6978,6 +7907,10 @@ export interface KamosuClient {
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
 	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
+	/** Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
+	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
+	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
+	setRecipeLanguage(input: SetRecipeLanguageInput): Promise<Answer<'set_recipe_language'>>;
 	/** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 	import(input: ImportInput): Promise<Answer<'import'>>;
 	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */

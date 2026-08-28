@@ -45,6 +45,10 @@ fn arguments_for(name: &str) -> Value {
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
         "create_recipe" => json!({ "kitchen_id": "k_parity", "title": "Parity Recipe" }),
         "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
+        "start_translation" => {
+            json!({ "branch_id": "b_parity", "language": "fr", "title": "Recette Parité" })
+        }
+        "set_recipe_language" => json!({ "branch_id": "b_parity", "language": "fr" }),
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" => json!({ "branch_id": "b_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
@@ -100,6 +104,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "sweep_photographs"
             | "create_recipe"
             | "save_recipe_version"
+            | "start_translation"
+            | "set_recipe_language"
             | "import"
             | "import_web_link"
             | "rename_version"
@@ -219,6 +225,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "sweep_photographs"
                 | "create_recipe"
                 | "save_recipe_version"
+                | "start_translation"
+                | "set_recipe_language"
                 | "import"
                 | "import_web_link"
                 | "rename_version"

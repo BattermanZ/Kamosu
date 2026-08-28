@@ -27,6 +27,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "0.1.25"
 url = "2.5.8"
 webp = "0.3.1"
+whatlang = "0.18.0"
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can

@@ -6590,12 +6590,6 @@ async fn a_step_is_numbered_as_the_recipe_page_numbers_it_and_a_section_is_neith
 async fn a_word_only_the_other_language_uses_still_finds_the_recipe() {
     let app = support::spawn_app();
     let (_person, key, home) = person_with_kitchen(&app, "Aurélien");
-    let (_, second) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        &json!({ "name": "Chez Marc" }).to_string(),
-    );
-    let other = second["result"]["id"].as_str().unwrap().to_string();
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -6614,29 +6608,18 @@ async fn a_word_only_the_other_language_uses_still_finds_the_recipe() {
             "ingredients": [{ "kind": "ingredient", "text": "200 g dark chocolate" }],
         }),
     );
-    let (_, copied) = app.post_op(
-        "save_recipe_version",
+    let (status, translated) = app.post_op(
+        "start_translation",
         Some(&key),
         &json!({
             "branch_id": english,
-            "kitchen_id": other,
+            "language": "fr",
             "title": "Mousse au chocolat",
             "ingredients": [{ "kind": "ingredient", "text": "200 g de chocolat noir" }],
         })
         .to_string(),
     );
-    let french_branch = copied["result"]["branch_id"].as_str().unwrap().to_string();
-    app.core
-        .db()
-        .with_conn(|conn| {
-            conn.execute(
-                "UPDATE branches SET language = 'fr' WHERE id = ?1",
-                rusqlite::params![french_branch],
-            )
-            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
-            Ok(())
-        })
-        .unwrap();
+    assert_eq!(status, 200, "{translated}");
 
     // A Translation is a Branch of the same Lineage (ADR 0006), and it is that
     // multilingual model that makes the match (ADR 0027) — so the French words
@@ -6654,4 +6637,701 @@ async fn a_word_only_the_other_language_uses_still_finds_the_recipe() {
         json!("200 g de chocolat noir"),
         "and it quotes the line that actually matched, in the words it is written in"
     );
+}
+
+// ── Translations (#56, ADR 0006) ──────────────────────────────────────────────
+//
+// A Translation is a Branch of the same Lineage carrying its own Language.
+// There is no Translation table, no translation flag and no separate screen —
+// what follows exercises ordinary Branches, ordinary Versions and ordinary
+// saves, and everything that makes one a Translation is read back off columns
+// two Operations write.
+
+/// A French rendering of an English recipe, written where the corpus's own
+/// French recipes are written: real sentences, since a Language read off two
+/// words would be a Language read off nothing.
+fn french_mousse() -> Value {
+    json!({
+        "title": "Mousse au chocolat",
+        "ingredients": [
+            { "kind": "ingredient", "text": "200 g de chocolat noir à pâtisser" },
+            { "kind": "ingredient", "text": "6 œufs frais, blancs et jaunes séparés" },
+            { "kind": "ingredient", "text": "Une pincée de sel fin" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Faites fondre le chocolat au bain-marie très doucement." },
+            { "kind": "step", "text": "Montez les blancs en neige bien ferme avec la pincée de sel." },
+            { "kind": "step", "text": "Incorporez délicatement les blancs au chocolat fondu." },
+        ],
+    })
+}
+
+fn english_mousse() -> Value {
+    json!({
+        "title": "Chocolate Mousse",
+        "ingredients": [
+            { "kind": "ingredient", "text": "200 g of dark chocolate for baking" },
+            { "kind": "ingredient", "text": "6 fresh eggs, whites and yolks separated" },
+            { "kind": "ingredient", "text": "A generous pinch of fine salt" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Melt the chocolate over a pan of barely simmering water." },
+            { "kind": "step", "text": "Whisk the whites to stiff peaks with the pinch of salt." },
+            { "kind": "step", "text": "Fold the whites gently into the melted chocolate." },
+        ],
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_is_an_ordinary_branch_of_the_same_lineage_in_another_language() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+
+    let (_, source) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": english }).to_string(),
+    );
+    let source_lineage = source["result"]["lineage_id"].as_str().unwrap().to_string();
+    let source_head = source["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        source["result"]["translation"],
+        json!(null),
+        "the original is the Branch that translates nothing — computed, never declared"
+    );
+
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (status, translated) = app.post_op("start_translation", Some(&key), &input.to_string());
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"].as_str().unwrap();
+
+    // The same Lineage. Not a related recipe, not a second recipe: the same
+    // recipe written differently, so its Attempts, ratings and history are
+    // one recipe's (ADR 0005).
+    assert_eq!(translated["result"]["lineage_id"], json!(source_lineage));
+    assert_ne!(json!(french), json!(english));
+    assert_eq!(translated["result"]["language"], json!("fr"));
+
+    // Each Version records the Version of the source it translates.
+    assert_eq!(
+        translated["result"]["translation"]["translates_version_id"],
+        json!(source_head)
+    );
+    assert_eq!(
+        translated["result"]["translation"]["source_branch_id"],
+        json!(english)
+    );
+    assert_eq!(
+        translated["result"]["translation"]["versions_behind"],
+        json!(0),
+        "written against the source as it stands, so it starts up to date"
+    );
+    assert_eq!(
+        translated["result"]["versions"][0]["translates_version_id"],
+        json!(source_head),
+        "on the Version itself, so the record travels with it"
+    );
+
+    // Its chain starts fresh rather than carrying the source's — the one thing
+    // that separates a Translation from a Copy.
+    assert_eq!(
+        translated["result"]["versions"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        translated["result"]["versions"][0]["parent_version_id"],
+        json!(null)
+    );
+
+    // And on the Thread it is simply another Branch of this Lineage.
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": english }).to_string(),
+    );
+    let branches = thread["result"]["branches"].as_array().unwrap();
+    assert_eq!(branches.len(), 2, "{branches:#?}");
+    let translation = branches
+        .iter()
+        .find(|branch| branch["branch_id"] == json!(french))
+        .expect("the Translation is on the Thread");
+    assert_eq!(translation["language"], json!("fr"));
+    assert_eq!(
+        translation["translation"]["translates_version_id"],
+        json!(source_head)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn how_far_behind_a_translation_has_fallen_is_exact_and_moves_as_the_source_moves() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (_, translated) = app.post_op("start_translation", Some(&key), &input.to_string());
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let behind = |branch: &str| -> Value {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        read["result"]["translation"]["versions_behind"].clone()
+    };
+    assert_eq!(behind(&french), json!(0));
+
+    // The English moves on twice. Nobody marks the French as stale; the fact
+    // simply becomes true, because it is counted rather than recorded.
+    for extra in ["Rest the mousse overnight.", "Serve with a spoon of cream."] {
+        backdate_branch_head(&app, &english);
+        let mut edit = english_mousse();
+        edit["branch_id"] = json!(english);
+        edit["steps"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({ "kind": "step", "text": extra }));
+        let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edit.to_string());
+        assert_eq!(status, 200, "{saved}");
+    }
+    assert_eq!(behind(&french), json!(2));
+
+    // Editing the French wording does not claim it has caught up: the pointer
+    // carries forward from the Version being replaced.
+    backdate_branch_head(&app, &french);
+    let mut reword = french_mousse();
+    reword["branch_id"] = json!(french);
+    reword["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "step", "text": "Réservez au frais deux heures." }));
+    let (status, reworded) = app.post_op("save_recipe_version", Some(&key), &reword.to_string());
+    assert_eq!(status, 200, "{reworded}");
+    assert_eq!(behind(&french), json!(2), "still two behind: {reworded}");
+
+    // Bringing it up to date is saying which Version it now renders.
+    let (_, source) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": english }).to_string(),
+    );
+    let head_now = source["result"]["head_version_id"].as_str().unwrap();
+    backdate_branch_head(&app, &french);
+    let mut caught_up = french_mousse();
+    caught_up["branch_id"] = json!(french);
+    caught_up["translates_version_id"] = json!(head_now);
+    caught_up["steps"].as_array_mut().unwrap().extend([
+        json!({ "kind": "step", "text": "Laissez reposer la mousse toute une nuit." }),
+        json!({ "kind": "step", "text": "Servez avec une cuillerée de crème." }),
+    ]);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &caught_up.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["translates_version_id"], json!(head_now));
+    assert_eq!(behind(&french), json!(0));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_with() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+
+    // Written in French by a cook whose Reading Language is English: the
+    // recipe's own text decides, not the account's preference.
+    let french = shelve_recipe(&app, &key, &kitchen, french_mousse());
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": french }).to_string(),
+    );
+    assert_eq!(read["result"]["language"], json!("fr"));
+
+    // A recipe that is nothing but a title has no text to read a Language out
+    // of — three of the real 86 are exactly this — so the writer's own
+    // Language answers rather than a guess.
+    let bare = shelve(&app, &key, &kitchen, "Dan Dan Noodles");
+    let (_, bare_read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": bare }).to_string(),
+    );
+    assert_eq!(bare_read["result"]["language"], json!("en"));
+
+    // And a Language stated outright is never second-guessed.
+    let mut stated = french_mousse();
+    stated["language"] = json!("es");
+    let spanish = shelve_recipe(&app, &key, &kitchen, stated);
+    let (_, spanish_read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": spanish }).to_string(),
+    );
+    assert_eq!(spanish_read["result"]["language"], json!("es"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_language_that_disagrees_with_the_text_is_offered_and_never_taken() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let mut mislabelled = french_mousse();
+    mislabelled["language"] = json!("en");
+    let branch = shelve_recipe(&app, &key, &kitchen, mislabelled);
+
+    // The save reads the text, disagrees, and says so — and changes nothing.
+    backdate_branch_head(&app, &branch);
+    let mut edit = french_mousse();
+    edit["branch_id"] = json!(branch);
+    edit["ingredients"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "ingredient", "text": "Un peu de sucre glace pour finir" }));
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edit.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["language_offer"], json!("fr"));
+    assert_eq!(
+        saved["result"]["language"],
+        json!("en"),
+        "offered, not taken: a Language is never changed without the cook saying so"
+    );
+
+    // Saying so is its own Operation, and it makes a Version — a label
+    // alterable without a trace would be a hole in an append-only history.
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let versions_before = before["result"]["versions"].as_array().unwrap().len();
+
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": branch, "language": "fr" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    assert_eq!(set["result"]["language"], json!("fr"));
+
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    assert_eq!(after["result"]["language"], json!("fr"));
+    let versions = after["result"]["versions"].as_array().unwrap();
+    assert_eq!(
+        versions.len(),
+        versions_before + 1,
+        "changing a Language makes a Version"
+    );
+    assert_eq!(
+        versions.last().unwrap()["language"],
+        json!("fr"),
+        "and the Version says which Language it left the recipe in"
+    );
+
+    // Saved again, the text and the label now agree, so nothing is offered.
+    backdate_branch_head(&app, &branch);
+    let mut again = french_mousse();
+    again["branch_id"] = json!(branch);
+    again["ingredients"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "ingredient", "text": "Un peu de sucre glace, si vous voulez" }));
+    let (_, quiet) = app.post_op("save_recipe_version", Some(&key), &again.to_string());
+    assert_eq!(quiet["result"]["language_offer"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unknown_is_permanent_and_unremarkable_no_prompt_no_badge_no_nag() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+
+    // The real corpus's *Sukiyaki Udon*: an English title over a French recipe.
+    // No detector can be right about it, so the cook says so instead.
+    let bilingual = json!({
+        "title": "Sukiyaki Udon",
+        "ingredients": [
+            { "kind": "section", "text": "Pour la sauce" },
+            { "kind": "ingredient", "text": "2 portions of udon noodles" },
+            { "kind": "ingredient", "text": "3 c.s. de sauce soja" },
+            { "kind": "ingredient", "text": "1 c.s. de sucre" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Préchauffez l'huile dans une poêle." },
+            { "kind": "step", "text": "Add the beef and cook it until browned." },
+            { "kind": "step", "text": "Versez la sauce soja et le sucre dans la poêle." },
+        ],
+    });
+    let branch = shelve_recipe(&app, &key, &kitchen, bilingual.clone());
+
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": branch, "language": "unknown" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    assert_eq!(set["result"]["language"], json!("unknown"));
+
+    // No prompt. Saving it again offers nothing, however the detector reads it.
+    backdate_branch_head(&app, &branch);
+    let mut edit = bilingual.clone();
+    edit["branch_id"] = json!(branch);
+    edit["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "step", "text": "Servez dans des bols bien chauds." }));
+    let (_, saved) = app.post_op("save_recipe_version", Some(&key), &edit.to_string());
+    assert_eq!(saved["result"]["language"], json!("unknown"));
+    assert_eq!(
+        saved["result"]["language_offer"],
+        json!(null),
+        "a recipe honestly written in two Languages is never nagged"
+    );
+
+    // No badge, and no hiding: it shows to an English reader unmarked.
+    let entries = shelf(&app, &key, json!({}));
+    let entry = entries
+        .iter()
+        .find(|entry| entry["title"] == json!("Sukiyaki Udon"))
+        .expect("shown to a reader whose Language it is not in");
+    assert_eq!(entry["language"], json!("unknown"));
+    assert_eq!(
+        entry["language_fallback"],
+        json!(false),
+        "it is not in a Language the reader failed to ask for; it is in no single Language"
+    );
+
+    // It can neither be a Translation nor have one.
+    let mut attempt = french_mousse();
+    attempt["branch_id"] = json!(branch);
+    attempt["language"] = json!("fr");
+    let (status, refused) = app.post_op("start_translation", Some(&key), &attempt.to_string());
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("bad_request"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_that_is_translated_cannot_then_be_called_unknown() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (_, translated) = app.post_op("start_translation", Some(&key), &input.to_string());
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Both ends of the pointer: a Translation renders one source text, and a
+    // recipe honestly written in two Languages is no such text.
+    for branch in [&english, &french] {
+        let (status, refused) = app.post_op(
+            "set_recipe_language",
+            Some(&key),
+            &json!({ "branch_id": branch, "language": "unknown" }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+    }
+
+    // And a Translation is in a *different* Language from what it renders.
+    let mut same = english_mousse();
+    same["branch_id"] = json!(english);
+    same["language"] = json!("en");
+    let (status, refused) = app.post_op("start_translation", Some(&key), &same.to_string());
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_agent_translating_writes_under_the_persons_credential_and_the_kitchens_hand() {
+    let app = support::spawn_app();
+    let (person, _key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    // The agent holds an Access Key of Aurélien's — a Credential naming him,
+    // never one of its own (ADR 0006: a scribe, not an author).
+    let agent_key = app
+        .core
+        .mint_access_key(&person, "translation agent", false)
+        .unwrap()
+        .secret;
+
+    let english = shelve_recipe(&app, &agent_key, &kitchen, english_mousse());
+    let (_, source) = app.post_op(
+        "get_recipe",
+        Some(&agent_key),
+        &json!({ "branch_id": english }).to_string(),
+    );
+    let kitchen_hand = source["result"]["hand_id"].as_str().unwrap().to_string();
+
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (status, translated) =
+        app.post_op("start_translation", Some(&agent_key), &input.to_string());
+    assert_eq!(status, 200, "{translated}");
+
+    // The Hand on the Branch is the Person's Kitchen's — the Translation lands
+    // on his own shelf, not somewhere an agent owns.
+    assert_eq!(translated["result"]["hand_id"], json!(kitchen_hand));
+    assert_eq!(translated["result"]["kitchen_id"], json!(kitchen));
+    // And the Hand on the Version is the Person himself.
+    assert_eq!(
+        translated["result"]["versions"][0]["hand_id"],
+        json!(person),
+        "the author is the Person; the agent only held the pen"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shelf_shows_one_card_per_lineage_in_the_readers_language_and_marks_a_fallback() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "fr", "reading_measures": "metric" }).to_string(),
+    );
+
+    // One recipe with a French Translation, and one with none.
+    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (_, translated) = app.post_op("start_translation", Some(&key), &input.to_string());
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let english_only = shelve_recipe(
+        &app,
+        &key,
+        &kitchen,
+        json!({
+            "title": "Yogurt Flatbread",
+            "steps": [
+                { "kind": "step", "text": "Stir the yoghurt into the flour until it comes together." },
+                { "kind": "step", "text": "Rest the dough for half an hour under a cloth." },
+            ],
+        }),
+    );
+
+    let entries = shelf(&app, &key, json!({}));
+    assert_eq!(entries.len(), 2, "one card per Lineage: {entries:#?}");
+
+    let mousse = entries
+        .iter()
+        .find(|entry| entry["branch_id"] == json!(french))
+        .expect("the card opens the Branch written in the reader's own Language");
+    assert_eq!(mousse["title"], json!("Mousse au chocolat"));
+    assert_eq!(mousse["language_fallback"], json!(false));
+
+    // No French rendering exists, so the recipe is shown anyway and marked —
+    // a preference never hides a recipe from its owner.
+    let flatbread = entries
+        .iter()
+        .find(|entry| entry["branch_id"] == json!(english_only))
+        .expect("shown, not hidden");
+    assert_eq!(flatbread["language"], json!("en"));
+    assert_eq!(flatbread["language_fallback"], json!(true));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_version_a_language_change_makes_leaves_the_chain_walkable() {
+    // A Language change appends the head content again under a new sequence.
+    // That is the same Version occurring twice on one Branch — allowed, and
+    // told apart by `sequence` — but `branch_point` walks parent chains and
+    // insists they are contiguous, so this is the shape most likely to have
+    // been broken by making the change a Version at all.
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+
+    let (_, second) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "The Other Kitchen" }).to_string(),
+    );
+    let second_kitchen = second["result"]["id"].as_str().unwrap().to_string();
+
+    // Saved on behalf of a Kitchen that does not hold this Branch: a Copy, and
+    // so two Branches of one Lineage to find a Branch Point between.
+    let mut copy = english_mousse();
+    copy["branch_id"] = json!(english);
+    copy["kitchen_id"] = json!(second_kitchen);
+    copy["title"] = json!("Chocolate Mousse, the other way");
+    let (status, copied) = app.post_op("save_recipe_version", Some(&key), &copy.to_string());
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(copied["result"]["copied"], json!(true));
+    let theirs = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, before) = app.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": english, "branch_b_id": theirs }).to_string(),
+    );
+    assert_eq!(status, 200, "{before}");
+    let shared = before["result"]["version_id"].as_str().unwrap().to_string();
+
+    // Now say the original is French. The chain grows a repeated Version.
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": english, "language": "fr" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+
+    let (status, after) = app.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": english, "branch_b_id": theirs }).to_string(),
+    );
+    assert_eq!(status, 200, "{after}");
+    assert_eq!(
+        after["result"]["version_id"],
+        json!(shared),
+        "where they diverged is a fact about the words, and no word changed"
+    );
+
+    let (status, divergence) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": theirs, "other_branch_id": english }).to_string(),
+    );
+    assert_eq!(status, 200, "{divergence}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rapid_re_save_never_collapses_away_the_version_a_translation_renders() {
+    // Found by live acceptance, not by these tests, because every other test
+    // here backdates the head to step outside the collapse window. A collapse
+    // *replaces* the Version at the head sequence; do that to a Version some
+    // Translation says it renders and the pointer is left naming text that no
+    // longer occurs anywhere.
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (_, translated) = app.post_op("start_translation", Some(&key), &input.to_string());
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let rendered = translated["result"]["translation"]["translates_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Immediately — same Hand, well inside the collapse window.
+    let mut edit = english_mousse();
+    edit["branch_id"] = json!(english);
+    edit["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "step", "text": "Rest the mousse overnight in the fridge." }));
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edit.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(
+        saved["result"]["collapsed"],
+        json!(false),
+        "the collapse window closes once somebody translates you"
+    );
+    assert_eq!(saved["result"]["sequence"], json!(2));
+
+    // The Translation still knows what it renders, and is honestly one behind
+    // rather than unable to say.
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": french }).to_string(),
+    );
+    assert_eq!(
+        read["result"]["translation"]["translates_version_id"],
+        json!(rendered)
+    );
+    assert_eq!(
+        read["result"]["translation"]["source_branch_id"],
+        json!(english),
+        "the Version it renders is still on the source Branch"
+    );
+    assert_eq!(read["result"]["translation"]["versions_behind"], json!(1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saying_what_language_a_recipe_is_in_does_not_make_its_translations_stale() {
+    // Changing a Language appends the head content again, unchanged. That is a
+    // second occurrence of one Version id on one Branch — so staleness has to
+    // be counted from the newest occurrence, or a relabel would put every
+    // Translation permanently and unrecoverably one Version behind.
+    let app = support::spawn_app();
+    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let mut mislabelled = english_mousse();
+    mislabelled["language"] = json!("es");
+    let english = shelve_recipe(&app, &key, &kitchen, mislabelled);
+
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (_, translated) = app.post_op("start_translation", Some(&key), &input.to_string());
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let behind = |branch: &str| -> Value {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        read["result"]["translation"]["versions_behind"].clone()
+    };
+    assert_eq!(behind(&french), json!(0));
+
+    let (status, set) = app.post_op(
+        "set_recipe_language",
+        Some(&key),
+        &json!({ "branch_id": english, "language": "en" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    assert_eq!(
+        behind(&french),
+        json!(0),
+        "no word of the recipe changed, so the Translation has not fallen behind anything"
+    );
+
+    // And a real edit after the relabel is still counted.
+    backdate_branch_head(&app, &english);
+    let mut edit = english_mousse();
+    edit["branch_id"] = json!(english);
+    edit["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "step", "text": "Rest the mousse overnight in the fridge." }));
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edit.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(behind(&french), json!(1));
 }

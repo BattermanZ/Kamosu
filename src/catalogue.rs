@@ -576,11 +576,86 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "type": "boolean",
                         "description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
                     },
+                    "language": {
+                        "type": "string",
+                        "description": "The Language this recipe still carries. A save never changes it.",
+                    },
+                    "language_offer": {
+                        "type": ["string", "null"],
+                        "description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+                    },
+                    "translates_version_id": {
+                        "type": ["string", "null"],
+                        "description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+                    },
                 },
-                "required": ["branch_id", "version_id", "parent_version_id", "sequence", "collapsed", "copied"],
+                "required": [
+                    "branch_id", "version_id", "parent_version_id", "sequence", "collapsed",
+                    "copied", "language", "language_offer", "translates_version_id"
+                ],
                 "additionalProperties": false,
             }),
             handler: crate::operations::save_recipe_version,
+        },
+        Operation {
+            name: "start_translation",
+            summary: "Translate a recipe: start an ordinary Branch of the same \
+                      Lineage in another Language, whose first Version records \
+                      which Version of the source it renders. There is no \
+                      Translation object — what this makes is a Branch, and \
+                      every Operation from here on is the ordinary one. Its \
+                      chain starts fresh rather than carrying the source's, \
+                      which is what separates it from a Copy: different words \
+                      rendering the same dish, with a history of their own. An \
+                      agent translating calls this under the Person's own \
+                      Credential and is a scribe, not an author.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: start_translation_input_schema(),
+            output_schema: recipe_schema(),
+            handler: crate::operations::start_translation,
+        },
+        Operation {
+            name: "set_recipe_language",
+            summary: "Say what Language a recipe is written in. The only thing \
+                      that acts on a save's language offer — Kamosu detects and \
+                      offers, and never changes a Language without the cook \
+                      saying so. Changing it makes a Version, so the change \
+                      leaves a trace in the recipe's own history. Setting it to \
+                      `unknown` says the recipe is honestly more than one \
+                      Language: from then on it is offered nothing, marked \
+                      nothing, and shown to every reader whatever they read in.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "language": { "enum": ["en", "fr", "es", "unknown"] },
+                },
+                "required": ["branch_id", "language"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "language": { "type": "string" },
+                    "sequence": {
+                        "type": ["integer", "null"],
+                        "description": "The sequence of the Version this change made, or null when the recipe was already in that Language and nothing changed.",
+                    },
+                },
+                "required": ["branch_id", "language", "sequence"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::set_recipe_language,
         },
         Operation {
             name: "import",
@@ -1424,14 +1499,18 @@ fn recipe_schema() -> Value {
                         "created_at": { "type": "string" },
                         "content": recipe_content_schema(),
                         "readings": reading_list_schema(),
+                        "translates_version_id": { "type": ["string", "null"] },
+                        "language": { "type": ["string", "null"] },
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
-                        "name", "change_note", "created_at", "content", "readings"
+                        "name", "change_note", "created_at", "content", "readings",
+                        "translates_version_id", "language"
                     ],
                     "additionalProperties": false,
                 },
             },
+            "translation": translation_schema(),
             // The Tags this Kitchen files the recipe under, as it stands now.
             // Outside `versions` on purpose: filing is not recipe content and
             // is named by no fingerprint (ADR 0035).
@@ -1440,8 +1519,36 @@ fn recipe_schema() -> Value {
         },
         "required": [
             "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
-            "origin_address", "head_version_id", "versions", "tags", "related_recipes"
+            "origin_address", "head_version_id", "versions", "translation",
+            "tags", "related_recipes"
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// How a recipe stands as a Translation, or null — which the overwhelming
+/// majority of recipes are. Nothing here is stored as a fact of its own: the
+/// original is simply the Branch that translates nothing, and how far behind
+/// this one has fallen is counted off the source Branch as it stands right now
+/// (ADR 0006).
+fn translation_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "translates_version_id": {
+                "type": "string",
+                "description": "The Version of the source this recipe's newest Version renders.",
+            },
+            "source_branch_id": {
+                "type": ["string", "null"],
+                "description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+            },
+            "versions_behind": {
+                "type": ["integer", "null"],
+                "description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+            },
+        },
+        "required": ["translates_version_id", "source_branch_id", "versions_behind"],
         "additionalProperties": false,
     })
 }
@@ -1462,10 +1569,13 @@ fn thread_version_schema() -> Value {
             "name": { "type": ["string", "null"] },
             "change_note": { "type": ["string", "null"] },
             "created_at": { "type": "string" },
+            "translates_version_id": { "type": ["string", "null"] },
+            "language": { "type": ["string", "null"] },
         },
         "required": [
             "branch_id", "sequence", "version_id", "parent_version_id",
             "hand_id", "name", "change_note", "created_at",
+            "translates_version_id", "language",
         ],
         "additionalProperties": false,
     })
@@ -1482,8 +1592,11 @@ fn thread_branch_schema() -> Value {
             "hand_id": { "type": "string" },
             "language": { "type": "string" },
             "head_version_id": { "type": "string" },
+            "translation": translation_schema(),
         },
-        "required": ["branch_id", "kitchen_id", "hand_id", "language", "head_version_id"],
+        "required": [
+            "branch_id", "kitchen_id", "hand_id", "language", "head_version_id", "translation"
+        ],
         "additionalProperties": false,
     })
 }
@@ -1729,7 +1842,14 @@ fn create_recipe_input_schema() -> Value {
     map.insert("kitchen_id".to_string(), json!({ "type": "string" }));
     map.insert(
         "language".to_string(),
-        json!({ "enum": ["en", "fr", "es"] }),
+        json!({
+            "enum": ["en", "fr", "es", "unknown"],
+            "description": "The Language this recipe is written in. Left out, it \
+                             is detected from the recipe's own text, falling back \
+                             to the writer's Reading Language where there is too \
+                             little text to tell. `unknown` says the recipe is \
+                             honestly more than one Language.",
+        }),
     );
     json!({
         "type": "object",
@@ -1752,10 +1872,70 @@ fn save_recipe_version_input_schema() -> Value {
     map.insert("name".to_string(), json!({ "type": "string" }));
     map.insert("change_note".to_string(), json!({ "type": "string" }));
     map.insert("kitchen_id".to_string(), json!({ "type": "string" }));
+    map.insert(
+        "translates_version_id".to_string(),
+        json!({
+            "type": "string",
+            "description": "For a Translation, the Version of the source this save \
+                             now renders — how bringing a Translation up to date is \
+                             said. Left out, whatever the Version being replaced \
+                             pointed at is carried forward, so editing a \
+                             Translation's wording never claims it has caught up.",
+        }),
+    );
     json!({
         "type": "object",
         "properties": properties,
         "required": ["branch_id", "title"],
+        "additionalProperties": false,
+    })
+}
+
+/// `start_translation`'s input: the recipe as it now reads in the new Language,
+/// the Branch it is a rendering of, and — optionally — which Version of that
+/// Branch it renders, defaulting to wherever the source stands now.
+fn start_translation_input_schema() -> Value {
+    let mut properties = recipe_content_properties();
+    let map = properties.as_object_mut().expect("object schema");
+    map.insert(
+        "branch_id".to_string(),
+        json!({
+            "type": "string",
+            "description": "The recipe being translated.",
+        }),
+    );
+    map.insert(
+        "language".to_string(),
+        json!({
+            "enum": ["en", "fr", "es"],
+            "description": "The Language this rendering is written in — necessarily \
+                             a different one from the recipe it translates. Never \
+                             `unknown`: a recipe that is honestly more than one \
+                             Language can neither be a Translation nor have one.",
+        }),
+    );
+    map.insert(
+        "translates_version_id".to_string(),
+        json!({
+            "type": "string",
+            "description": "Which Version of the source this renders. Defaults to \
+                             where the source stands now.",
+        }),
+    );
+    map.insert("name".to_string(), json!({ "type": "string" }));
+    map.insert("change_note".to_string(), json!({ "type": "string" }));
+    map.insert(
+        "kitchen_id".to_string(),
+        json!({
+            "type": "string",
+            "description": "Which of your own Kitchens holds the Translation. \
+                             Defaults to the one holding the recipe translated.",
+        }),
+    );
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": ["branch_id", "language", "title"],
         "additionalProperties": false,
     })
 }
@@ -1781,7 +1961,14 @@ fn import_input_schema() -> Value {
     );
     map.insert(
         "language".to_string(),
-        json!({ "enum": ["en", "fr", "es"] }),
+        json!({
+            "enum": ["en", "fr", "es", "unknown"],
+            "description": "The Language this recipe is written in. Left out, it \
+                             is detected from the recipe's own text, falling back \
+                             to the writer's Reading Language where there is too \
+                             little text to tell. `unknown` says the recipe is \
+                             honestly more than one Language.",
+        }),
     );
     json!({
         "type": "object",

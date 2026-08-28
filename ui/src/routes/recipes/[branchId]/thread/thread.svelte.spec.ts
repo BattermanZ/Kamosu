@@ -26,7 +26,8 @@ describe('the Thread screen', () => {
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
 						language: 'en',
-						head_version_id: 'v_2'
+						head_version_id: 'v_2',
+						translation: null
 					}
 				],
 				versions: [
@@ -38,7 +39,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Imported from mykoreankitchen.com',
-						created_at: '2026-03-03T00:00:00Z'
+						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_mine',
@@ -48,7 +51,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: 'Hotter second fry',
 						change_note: null,
-						created_at: '2026-03-14T00:00:00Z'
+						created_at: '2026-03-14T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					}
 				],
 				attempts: [
@@ -88,14 +93,16 @@ describe('the Thread screen', () => {
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
 						language: 'en',
-						head_version_id: 'v_3'
+						head_version_id: 'v_3',
+						translation: null
 					},
 					{
 						branch_id: 'b_marc',
 						kitchen_id: 'k_2',
 						hand_id: 'h_marc',
 						language: 'en',
-						head_version_id: 'v_4'
+						head_version_id: 'v_4',
+						translation: null
 					}
 				],
 				versions: [
@@ -107,7 +114,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z'
+						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_marc',
@@ -117,7 +126,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z'
+						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_mine',
@@ -127,7 +138,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Hotter second fry',
-						created_at: '2026-08-09T00:00:00Z'
+						created_at: '2026-08-09T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_marc',
@@ -137,7 +150,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_marc',
 						name: null,
 						change_note: 'Air fryer',
-						created_at: '2026-06-02T00:00:00Z'
+						created_at: '2026-06-02T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					}
 				],
 				attempts: []
@@ -164,21 +179,24 @@ describe('the Thread screen', () => {
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
 						language: 'en',
-						head_version_id: 'v_2'
+						head_version_id: 'v_2',
+						translation: null
 					},
 					{
 						branch_id: 'b_marc',
 						kitchen_id: 'k_2',
 						hand_id: 'h_marc',
 						language: 'en',
-						head_version_id: 'm_2'
+						head_version_id: 'm_2',
+						translation: null
 					},
 					{
 						branch_id: 'b_camille',
 						kitchen_id: 'k_3',
 						hand_id: 'h_camille',
 						language: 'fr',
-						head_version_id: 'c_1'
+						head_version_id: 'c_1',
+						translation: null
 					}
 				],
 				versions: [
@@ -190,7 +208,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z'
+						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_marc',
@@ -200,7 +220,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z'
+						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_camille',
@@ -210,7 +232,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z'
+						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_mine',
@@ -220,7 +244,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Hotter second fry',
-						created_at: '2026-08-09T00:00:00Z'
+						created_at: '2026-08-09T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_marc',
@@ -230,7 +256,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_marc',
 						name: null,
 						change_note: 'Air fryer',
-						created_at: '2026-06-02T00:00:00Z'
+						created_at: '2026-06-02T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_camille',
@@ -240,7 +268,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_marc',
 						name: null,
 						change_note: 'Air fryer',
-						created_at: '2026-06-02T00:00:00Z'
+						created_at: '2026-06-02T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_marc',
@@ -250,7 +280,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_marc',
 						name: 'Kid-friendly',
 						change_note: null,
-						created_at: '2026-08-10T00:00:00Z'
+						created_at: '2026-08-10T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					},
 					{
 						branch_id: 'b_camille',
@@ -260,7 +292,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_camille',
 						name: null,
 						change_note: 'Translated into French',
-						created_at: '2026-08-12T00:00:00Z'
+						created_at: '2026-08-12T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					}
 				],
 				attempts: []
@@ -292,7 +326,8 @@ describe('the Thread screen', () => {
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
 						language: 'en',
-						head_version_id: 'v_1'
+						head_version_id: 'v_1',
+						translation: null
 					}
 				],
 				versions: [
@@ -304,7 +339,9 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						name: null,
 						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z'
+						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en'
 					}
 				],
 				attempts: []
@@ -317,6 +354,7 @@ describe('the Thread screen', () => {
 				language: 'en',
 				origin_address: null,
 				head_version_id: 'v_1',
+				translation: null,
 				versions: [
 					{
 						sequence: 1,
@@ -326,6 +364,8 @@ describe('the Thread screen', () => {
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
+						translates_version_id: null,
+						language: 'en',
 						content: {
 							title: 'Korean Fried Chicken',
 							yield: null,
@@ -381,7 +421,9 @@ describe('the Thread screen', () => {
 			hand_id: 'h_aurelien',
 			name: null,
 			change_note: null,
-			created_at: `2026-08-1${n}T00:00:00Z`
+			created_at: `2026-08-1${n}T00:00:00Z`,
+			translates_version_id: null,
+			language: 'en'
 		}));
 
 		renderThread('b_mine', {
@@ -393,7 +435,8 @@ describe('the Thread screen', () => {
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
 						language: 'en',
-						head_version_id: 'v_4'
+						head_version_id: 'v_4',
+						translation: null
 					}
 				],
 				versions,

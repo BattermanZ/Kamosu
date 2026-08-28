@@ -181,6 +181,7 @@ function forked(extra: Answers = {}) {
 			language: 'en',
 			origin_address: null,
 			head_version_id: 'v_mine',
+			translation: null,
 			versions: [
 				{
 					sequence: 1,
@@ -190,6 +191,8 @@ function forked(extra: Answers = {}) {
 					name: null,
 					change_note: null,
 					created_at: '2026-08-09T00:00:00Z',
+					translates_version_id: null,
+					language: 'en',
 					content: divergence().mine.content,
 					readings: MY_INGREDIENTS.map(() => null)
 				}
@@ -205,14 +208,16 @@ function forked(extra: Answers = {}) {
 					kitchen_id: 'k_mine',
 					hand_id: 'h_mine',
 					language: 'en',
-					head_version_id: 'v_mine'
+					head_version_id: 'v_mine',
+					translation: null
 				},
 				{
 					branch_id: 'theirs',
 					kitchen_id: 'k_theirs',
 					hand_id: 'h_theirs',
 					language: 'en',
-					head_version_id: 'v_theirs'
+					head_version_id: 'v_theirs',
+					translation: null
 				}
 			],
 			versions: [],
@@ -308,7 +313,10 @@ describe('a Divergence', () => {
 					parent_version_id: 'v_mine',
 					sequence: 2,
 					copied: false,
-					collapsed: false
+					collapsed: false,
+					language: 'en',
+					language_offer: null,
+					translates_version_id: null
 				}
 			})
 		);
@@ -395,7 +403,8 @@ describe('a Divergence', () => {
 						kitchen_id: `k_${id}`,
 						hand_id: `h_${id}`,
 						language: 'en',
-						head_version_id: `v_${id}`
+						head_version_id: `v_${id}`,
+						translation: null
 					})),
 					versions: [],
 					attempts: []
@@ -452,7 +461,8 @@ describe('a Divergence', () => {
 							kitchen_id: 'k_mine',
 							hand_id: 'h_mine',
 							language: 'en',
-							head_version_id: 'v_mine'
+							head_version_id: 'v_mine',
+							translation: null
 						}
 					],
 					versions: [],

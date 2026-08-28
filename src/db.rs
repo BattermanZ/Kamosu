@@ -502,6 +502,40 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE photographs ADD COLUMN unreferenced_since TEXT;
         "#,
     },
+    Migration {
+        version: 18,
+        description: "a Translation's Versions: what each translates, and in which Language (#56, ADR 0006)",
+        sql: r#"
+        -- Which Version of the source Branch this Version renders. Null on an
+        -- ordinary recipe — the original is simply the Branch that translates
+        -- nothing, computed rather than declared (ADR 0006). Set on every
+        -- Version of a Translation, and carried forward by an ordinary edit,
+        -- so how far behind a Translation has fallen is arithmetic over
+        -- current facts: the source Branch has moved this many Versions past
+        -- the one this points at. It sits on the occurrence rather than on the
+        -- Branch precisely so that arithmetic is exact at every point in the
+        -- history, and so it travels in a Bundle with the Version it belongs
+        -- to.
+        ALTER TABLE branch_versions ADD COLUMN translates_version_id TEXT REFERENCES versions(id);
+
+        -- The Language the Branch stood in when this Version was written.
+        -- Duplicated from `branches.language` on purpose: changing a Language
+        -- makes a Version (ADR 0006), and a Version that recorded no Language
+        -- would leave that change indistinguishable from a save that did
+        -- nothing — a label alterable without a trace, which is the hole the
+        -- rule exists to close.
+        ALTER TABLE branch_versions ADD COLUMN language TEXT;
+
+        -- Every Version already written stood in its Branch's Language: there
+        -- has been no way to change one until now, so this is the truth and
+        -- not a guess.
+        UPDATE branch_versions
+           SET language = (SELECT language FROM branches WHERE branches.id = branch_versions.branch_id);
+
+        CREATE INDEX branch_versions_by_translated_version
+            ON branch_versions(translates_version_id) WHERE translates_version_id IS NOT NULL;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 use crate::catalogue::{self, JobLane, Kind, Permission};
 use crate::db::Db;
 use crate::jobs::{self, JobProgress, JobRecord};
+use crate::language::LANGUAGES;
 use crate::photographs;
 
 /// What went wrong with an Operation, in words a caller can act on. The Doors map
@@ -1393,16 +1394,7 @@ impl Core {
                     |row| row.get(0),
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
-            let language = match language {
-                Some(language) => required_text(language, "language")?.to_string(),
-                None => conn
-                    .query_row(
-                        "SELECT reading_language FROM people WHERE id = ?1",
-                        params![caller.person_id],
-                        |row| row.get(0),
-                    )
-                    .map_err(|e| OpError::internal(format!("cannot read reading Language: {e}")))?,
-            };
+            let language = language_for_new_branch(conn, &caller.person_id, language, &content)?;
 
             insert_new_lineage_and_branch(
                 conn,
@@ -1570,18 +1562,15 @@ impl Core {
                 None => {
                     let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
                     let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
-                    let language = match candidate.get("language").and_then(Value::as_str) {
-                        Some(language) => required_text(language, "language")?.to_string(),
-                        None => conn
-                            .query_row(
-                                "SELECT reading_language FROM people WHERE id = ?1",
-                                params![caller.person_id],
-                                |row| row.get(0),
-                            )
-                            .map_err(|e| {
-                                OpError::internal(format!("cannot read reading Language: {e}"))
-                            })?,
-                    };
+                    // An imported recipe has no Language to disagree with, so
+                    // detection simply sets one (ADR 0025) — the same rule a
+                    // recipe typed in by hand follows, through the same code.
+                    let language = language_for_new_branch(
+                        conn,
+                        &caller.person_id,
+                        candidate.get("language").and_then(Value::as_str),
+                        &content,
+                    )?;
 
                     insert_new_lineage_and_branch(
                         conn,
@@ -1653,6 +1642,14 @@ impl Core {
     /// Branch: a brand new Branch of the same Lineage, held by that Kitchen,
     /// carrying the whole chain behind it, starting at the Version being
     /// changed. The Branch being edited is never touched by a Copy.
+    ///
+    /// Two things about Language happen here, and neither of them writes one
+    /// (ADR 0006). The save reads the new text and, where it disagrees with
+    /// the Language the Branch carries, answers `language_offer` — a
+    /// suggestion for the cook, never a change. And `translates_version_id`
+    /// carries forward from the Version being replaced unless this save names
+    /// a new one, so editing a Translation's wording never quietly claims it
+    /// has caught up with its source.
     #[allow(clippy::too_many_arguments)]
     pub fn save_recipe_version(
         &self,
@@ -1662,6 +1659,7 @@ impl Core {
         name: Option<&str>,
         change_note: Option<&str>,
         kitchen_id: Option<&str>,
+        translates_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
         let version_id = fingerprint_content(&content);
@@ -1702,19 +1700,20 @@ impl Core {
             };
             ensure_member(conn, &target_kitchen_id, &caller.person_id)?;
 
-            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content): (
+            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content, head_translates): (
                 i64,
                 String,
                 String,
                 Option<String>,
                 bool,
                 String,
+                Option<String>,
             ) = conn
                 .query_row(
                     "SELECT branch_versions.sequence, branch_versions.version_id, \
                             branch_versions.hand_id, branch_versions.parent_version_id, \
                             (julianday('now') - julianday(branch_versions.created_at)) * 86400.0 <= ?2, \
-                            versions.content \
+                            versions.content, branch_versions.translates_version_id \
                        FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
                       WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence DESC LIMIT 1",
                     params![branch_id, COLLAPSE_WINDOW_SECONDS as f64],
@@ -1726,10 +1725,29 @@ impl Core {
                             row.get(3)?,
                             row.get(4)?,
                             row.get(5)?,
+                            row.get(6)?,
                         ))
                     },
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Branch head: {e}")))?;
+
+            // What this save renders of its source: the Version named here, or
+            // — for the ordinary edit that names none — whatever the Version
+            // being replaced already pointed at. An ordinary recipe points at
+            // nothing and stays pointing at nothing.
+            let translates_version_id = match translates_version_id {
+                Some(named) => {
+                    let named = required_text(named, "translates_version_id")?;
+                    Some(translated_source_version(conn, &lineage_id, branch_id, named)?)
+                }
+                None => head_translates.clone(),
+            };
+
+            // The Language the new text reads as, where it disagrees with the
+            // one the Branch carries. Computed before the identical-content
+            // shortcut below so that re-saving unchanged text still answers
+            // it: the offer is about the recipe, not about this save.
+            let offer = language_offer(&language, &content);
 
             if version_id == head_version_id {
                 // Identical content: the fingerprint already names this state,
@@ -1742,6 +1760,9 @@ impl Core {
                     "sequence": head_sequence,
                     "collapsed": false,
                     "copied": false,
+                    "language": language,
+                    "language_offer": offer,
+                    "translates_version_id": head_translates,
                 }));
             }
 
@@ -1796,8 +1817,8 @@ impl Core {
                 // change notes, nothing truncated.
                 conn.execute(
                     "INSERT INTO branch_versions \
-                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at) \
-                     SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at \
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language) \
+                     SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language \
                        FROM branch_versions WHERE branch_id = ?2",
                     params![new_branch_id, branch_id],
                 )
@@ -1805,8 +1826,8 @@ impl Core {
 
                 conn.execute(
                     "INSERT INTO branch_versions \
-                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, translates_version_id, language) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         new_branch_id,
                         head_sequence + 1,
@@ -1815,7 +1836,9 @@ impl Core {
                         caller.person_id,
                         name,
                         change_note,
-                        caller.access_key_id
+                        caller.access_key_id,
+                        translates_version_id,
+                        language
                     ],
                 )
                 .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
@@ -1827,14 +1850,30 @@ impl Core {
                     "sequence": head_sequence + 1,
                     "collapsed": false,
                     "copied": true,
+                    "language": language,
+                    "language_offer": offer,
+                    "translates_version_id": translates_version_id,
                 }));
             }
 
-            let collapse = within_window && head_hand_id == caller.person_id;
+            // A collapse *replaces* the Version at the head sequence rather
+            // than appending after it — which is exactly right for a rapid
+            // re-save nobody else has seen, and exactly wrong once a
+            // Translation of this recipe says it renders that Version. The
+            // pointer would be left naming text that no longer occurs
+            // anywhere, and how far behind the Translation had fallen would
+            // stop being answerable at all (ADR 0006). So the collapse window
+            // closes the moment somebody translates you: the save appends, and
+            // the Translation goes honestly one Version behind instead of
+            // silently losing its footing.
+            let collapse = within_window
+                && head_hand_id == caller.person_id
+                && !version_is_translated(conn, &lineage_id, branch_id, &head_version_id)?;
             if collapse {
                 conn.execute(
                     "UPDATE branch_versions SET version_id = ?1, hand_id = ?2, name = ?3, \
                             change_note = ?4, access_key_id = ?5, \
+                            translates_version_id = ?8, language = ?9, \
                             created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
                      WHERE branch_id = ?6 AND sequence = ?7",
                     params![
@@ -1844,15 +1883,17 @@ impl Core {
                         change_note,
                         caller.access_key_id,
                         branch_id,
-                        head_sequence
+                        head_sequence,
+                        translates_version_id,
+                        language
                     ],
                 )
                 .map_err(|e| OpError::internal(format!("cannot collapse Version: {e}")))?;
             } else {
                 conn.execute(
                     "INSERT INTO branch_versions \
-                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, translates_version_id, language) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
                         branch_id,
                         head_sequence + 1,
@@ -1861,7 +1902,9 @@ impl Core {
                         caller.person_id,
                         name,
                         change_note,
-                        caller.access_key_id
+                        caller.access_key_id,
+                        translates_version_id,
+                        language
                     ],
                 )
                 .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
@@ -1879,6 +1922,279 @@ impl Core {
                 "sequence": if collapse { head_sequence } else { head_sequence + 1 },
                 "collapsed": collapse,
                 "copied": false,
+                "language": language,
+                "language_offer": offer,
+                "translates_version_id": translates_version_id,
+            }))
+        })
+    }
+
+    /// Start a Translation: a new Branch of the same Lineage in a different
+    /// Language, whose first Version records which Version of the source it
+    /// renders (ADR 0006).
+    ///
+    /// **There is no Translation object.** What this makes is an ordinary
+    /// Branch — the same row, the same chain, the same Operations from here
+    /// on. It is a Translation only in the sense that its Language differs
+    /// from the Branch it grew out of and its Versions point at what they
+    /// translate, both of which are facts read off ordinary columns rather
+    /// than a flag anyone maintains.
+    ///
+    /// The chain starts fresh at sequence 1 with no parent, which is what
+    /// separates this from a Copy: a Copy is the same words continuing, so it
+    /// carries the whole chain behind it, whereas a Translation is different
+    /// words rendering the same dish and has a history of its own from its
+    /// first line.
+    ///
+    /// An agent asked to translate calls exactly this, under the Person's own
+    /// Credential: the Hand on the Branch is that Person's Kitchen's, the Hand
+    /// on the Version is the Person's, and the Access Key is recorded locally
+    /// and travels nowhere (ADR 0015). A scribe, not an author.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_translation(
+        &self,
+        caller: &Caller,
+        source_branch_id: &str,
+        language: &str,
+        input: &Value,
+        name: Option<&str>,
+        change_note: Option<&str>,
+        kitchen_id: Option<&str>,
+        translates_version_id: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let language = supported_branch_language(required_text(language, "language")?)?.to_string();
+        let content = parse_recipe_content(input)?;
+        let version_id = fingerprint_content(&content);
+        let content_text = canonical_json(&content);
+        let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
+
+        self.db().with_conn(|conn| {
+            let (source_kitchen_id, lineage_id, source_language, source_head): (
+                String,
+                String,
+                String,
+                String,
+            ) = conn
+                .query_row(
+                    "SELECT kitchen_id, lineage_id, language, head_version_id \
+                       FROM branches WHERE id = ?1",
+                    params![source_branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &source_kitchen_id, &caller.person_id)?;
+
+            // Unknown can neither be a Translation nor have one (ADR 0006). A
+            // recipe that is honestly two Languages has no single source text
+            // to render, and nothing to render it into.
+            if crate::language::is_stated_unknown(&source_language) {
+                return Err(OpError::bad_request(
+                    "a recipe whose Language is unknown cannot have a Translation: \
+                     it is honestly more than one Language already",
+                ));
+            }
+            if crate::language::is_stated_unknown(&language) {
+                return Err(OpError::bad_request(
+                    "a Translation is written in a Language, not in unknown",
+                ));
+            }
+            if language == source_language {
+                return Err(OpError::bad_request(format!(
+                    "a Translation is in a different Language from the recipe it \
+                     translates, and this one is already in {source_language}"
+                )));
+            }
+
+            // Which of the caller's own Kitchens holds the Translation — the
+            // same rule a save follows, so translating a recipe your own
+            // Kitchen holds keeps it on that shelf and never has to be said.
+            let target_kitchen_id = match kitchen_id {
+                Some(id) => id.to_string(),
+                None => source_kitchen_id.clone(),
+            };
+            ensure_member(conn, &target_kitchen_id, &caller.person_id)?;
+
+            // `branch_id` names a Branch that does not exist yet, so the
+            // "on some Branch other than this one" half of the check is
+            // trivially satisfied here — what it is really asking is that the
+            // Version belongs to this Lineage at all. The same call from a
+            // save, where the Branch does exist, is where the exclusion earns
+            // its keep.
+            let translates = match translates_version_id {
+                Some(named) => translated_source_version(
+                    conn,
+                    &lineage_id,
+                    &branch_id,
+                    required_text(named, "translates_version_id")?,
+                )?,
+                None => source_head,
+            };
+
+            let kitchen_hand_id: String = conn
+                .query_row(
+                    "SELECT hand_id FROM kitchens WHERE id = ?1",
+                    params![target_kitchen_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
+
+            conn.execute(
+                "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
+                params![version_id, content_text],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
+            conn.execute(
+                "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    branch_id,
+                    lineage_id,
+                    target_kitchen_id,
+                    kitchen_hand_id,
+                    language,
+                    version_id
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
+            conn.execute(
+                "INSERT INTO branch_versions \
+                 (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, translates_version_id, language) \
+                 VALUES (?1, 1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    branch_id,
+                    version_id,
+                    caller.person_id,
+                    name,
+                    change_note,
+                    caller.access_key_id,
+                    translates,
+                    language
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
+            Ok(())
+        })?;
+
+        self.get_recipe(&caller.person_id, &branch_id)
+    }
+
+    /// Say what Language a recipe is written in — the *never changed without
+    /// the cook saying so* half of ADR 0006's rule, and the only thing that
+    /// acts on a save's `language_offer`.
+    ///
+    /// **Changing a Language makes a Version.** Once recipes travel between
+    /// instances, a label alterable without a trace would be a hole in an
+    /// otherwise append-only history, so this appends an occurrence of the
+    /// current head content carrying the new Language rather than editing the
+    /// Branch quietly. The content is unchanged, so the fingerprint is the
+    /// same one — the same Version occurring twice on one Branch, which the
+    /// chain has always allowed and which `sequence` tells apart.
+    ///
+    /// Setting **Unknown** is how a cook says a recipe is honestly more than
+    /// one Language. From then on it is offered nothing, marked nothing, and
+    /// shown to every reader whatever they read in.
+    pub fn set_recipe_language(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        language: &str,
+    ) -> Result<Value, OpError> {
+        let language = supported_branch_language(required_text(language, "language")?)?.to_string();
+        self.db().with_conn(|conn| {
+            let (kitchen_id, lineage_id, current, head_version_id): (
+                String,
+                String,
+                String,
+                String,
+            ) = conn
+                .query_row(
+                    "SELECT kitchen_id, lineage_id, language, head_version_id \
+                       FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &kitchen_id, &caller.person_id)?;
+
+            if language == current {
+                // Already what it says: nothing changed, so no Version. Saying
+                // a recipe is in the Language it is already in is not an edit.
+                return Ok(json!({
+                    "branch_id": branch_id,
+                    "language": current,
+                    "sequence": Value::Null,
+                }));
+            }
+
+            // A Translation renders one source text, and a recipe that is
+            // honestly two Languages renders none — so calling one Unknown
+            // would leave a pointer with nothing on the end of it (ADR 0006).
+            if crate::language::is_stated_unknown(&language)
+                && translation_source(conn, branch_id)?.is_some()
+            {
+                return Err(OpError::bad_request(
+                    "this recipe is a Translation, so it is written in the Language \
+                     it was translated into, not in unknown",
+                ));
+            }
+            if crate::language::is_stated_unknown(&language)
+                && has_translations(conn, &lineage_id, branch_id)?
+            {
+                return Err(OpError::bad_request(
+                    "this recipe has a Translation, so it is the single Language \
+                     that Translation renders, not unknown",
+                ));
+            }
+
+            let (head_sequence, head_translates): (i64, Option<String>) = conn
+                .query_row(
+                    "SELECT sequence, translates_version_id FROM branch_versions \
+                      WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Branch head: {e}")))?;
+
+            // The new occurrence carries the head's own content unchanged — no
+            // word of the recipe changed, only what it is said to be written
+            // in — so its `version_id` and its `parent_version_id` are both
+            // the head Version. That is not a loop: `parent_version_id` names
+            // the Version this occurrence *follows on this Branch*, and what
+            // it follows is text identical to its own. It is exactly the
+            // invariant `ordered_chain` checks — each row's parent is the
+            // previous row's Version — and the schema has always allowed one
+            // Version id to occur more than once on one Branch, told apart by
+            // `sequence`.
+            conn.execute(
+                "INSERT INTO branch_versions \
+                 (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, translates_version_id, language) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    branch_id,
+                    head_sequence + 1,
+                    head_version_id,
+                    head_version_id,
+                    caller.person_id,
+                    caller.access_key_id,
+                    head_translates,
+                    language
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record the Language change: {e}")))?;
+            conn.execute(
+                "UPDATE branches SET language = ?1 WHERE id = ?2",
+                params![language, branch_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot set the Language: {e}")))?;
+
+            Ok(json!({
+                "branch_id": branch_id,
+                "language": language,
+                "sequence": head_sequence + 1,
             }))
         })
     }
@@ -2382,7 +2698,14 @@ impl Core {
                         // Whether this entry is being read in a Language the
                         // reader did not ask for — the mark, and the whole of
                         // the mark. There is nothing to say when it is false.
-                        "language_fallback": shown.language != reading_language,
+                        //
+                        // An **Unknown** recipe is never marked: it is honestly
+                        // more than one Language, so it is not in any Language
+                        // the reader failed to ask for. It shows to everyone
+                        // exactly as it is, which is the whole of what Unknown
+                        // buys — no prompt, no badge, no nag (ADR 0006).
+                        "language_fallback": shown.language != reading_language
+                            && !crate::language::is_stated_unknown(&shown.language),
                         "main_photo": content["main_photo"].clone(),
                         "yield": content["yield"].clone(),
                         "matched": matched.map(|(_, matched)| matched),
@@ -2439,7 +2762,8 @@ impl Core {
                     "SELECT branch_versions.sequence, branch_versions.version_id, \
                             branch_versions.parent_version_id, branch_versions.hand_id, \
                             branch_versions.name, branch_versions.change_note, \
-                            branch_versions.created_at, versions.content \
+                            branch_versions.created_at, versions.content, \
+                            branch_versions.translates_version_id, branch_versions.language \
                        FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
                       WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence ASC",
                 )
@@ -2456,6 +2780,11 @@ impl Core {
                         "change_note": row.get::<_, Option<String>>(5)?,
                         "created_at": row.get::<_, String>(6)?,
                         "content": serde_json::from_str::<Value>(&content).unwrap_or(Value::Null),
+                        // What this Version renders, and the Language it stood
+                        // in when it was written — both on the occurrence, so
+                        // the history is exact at every point in it (ADR 0006).
+                        "translates_version_id": row.get::<_, Option<String>>(8)?,
+                        "language": row.get::<_, Option<String>>(9)?,
                     }))
                 })
                 .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?
@@ -2486,6 +2815,12 @@ impl Core {
                 "origin_address": origin_address,
                 "head_version_id": head_version_id,
                 "versions": versions,
+                // How this recipe stands as a Translation, or null — which is
+                // what the overwhelming majority of recipes are. Computed, not
+                // stored: the original is the Branch that translates nothing,
+                // and how far behind this one has fallen is arithmetic over
+                // the source Branch as it stands right now (ADR 0006).
+                "translation": translation_of_branch(conn, &lineage_id, branch_id)?,
                 // Beside the Versions rather than inside any of them: a Tag is
                 // how this Kitchen files the recipe, not part of what the
                 // recipe is, so it belongs to the Branch as it stands now and
@@ -2531,7 +2866,7 @@ impl Core {
                       ORDER BY branches.created_at ASC, branches.id ASC",
                 )
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
-            let branches: Vec<Value> = statement
+            let mut branches: Vec<Value> = statement
                 .query_map(params![lineage_id, person_id], |row| {
                     Ok(json!({
                         "branch_id": row.get::<_, String>(0)?,
@@ -2545,6 +2880,17 @@ impl Core {
                 .collect::<Result<_, _>>()
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
 
+            // Which of these Branches are Translations, and how far behind
+            // each has fallen — the Thread is where a divergence and a
+            // Translation are told apart, and both are Branches (ADR 0006).
+            for branch in &mut branches {
+                let this_branch_id = branch["branch_id"]
+                    .as_str()
+                    .expect("branch_id is always a string")
+                    .to_string();
+                branch["translation"] = translation_of_branch(conn, &lineage_id, &this_branch_id)?;
+            }
+
             let mut versions: Vec<Value> = Vec::new();
             let mut visible_version_ids: HashSet<String> = HashSet::new();
             for branch in &branches {
@@ -2554,7 +2900,7 @@ impl Core {
                 let mut vstmt = conn
                     .prepare(
                         "SELECT sequence, version_id, parent_version_id, hand_id, name, \
-                                change_note, created_at \
+                                change_note, created_at, translates_version_id, language \
                            FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence ASC",
                     )
                     .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
@@ -2569,6 +2915,8 @@ impl Core {
                             "name": row.get::<_, Option<String>>(4)?,
                             "change_note": row.get::<_, Option<String>>(5)?,
                             "created_at": row.get::<_, String>(6)?,
+                            "translates_version_id": row.get::<_, Option<String>>(7)?,
+                            "language": row.get::<_, Option<String>>(8)?,
                         }))
                     })
                     .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?
@@ -3839,6 +4187,209 @@ enum ImportOutcome {
     },
 }
 
+/// The Language a Branch that has none yet starts in: the one stated outright,
+/// or — with none stated — what the recipe's own text reads as, or, where there
+/// is too little text to tell, the writer's own Reading Language (ADR 0006).
+///
+/// This is the *set when blank* half of the rule and the only place detection
+/// ever writes. `create_recipe` and a freshly-seen Import candidate share it
+/// because they are the same moment: a recipe arriving with no Language yet,
+/// and so nothing for detection to disagree with (ADR 0025).
+///
+/// Falling back to the Reading Language rather than to Unknown is deliberate:
+/// Unknown means "honestly more than one Language", which is a statement about
+/// the recipe, and a recipe that is nothing but a title has made no such
+/// statement. The cook's own Language is the better guess, and the next save
+/// that has real text in it will offer to correct it.
+fn language_for_new_branch(
+    conn: &Connection,
+    person_id: &str,
+    stated: Option<&str>,
+    content: &Value,
+) -> Result<String, OpError> {
+    if let Some(stated) = stated {
+        return Ok(supported_branch_language(required_text(stated, "language")?)?.to_string());
+    }
+    if let Some(detected) = crate::language::detect_content(content) {
+        return Ok(detected.to_string());
+    }
+    reading_language_of(conn, person_id)
+}
+
+/// The Language this save's text reads as, where that disagrees with the
+/// Language the Branch already carries — the *offered when it disagrees* half
+/// of the rule (ADR 0006). Never written anywhere: it rides out on the save's
+/// answer, and only [`Core::set_recipe_language`] can act on it.
+///
+/// Silent about a Branch whose Language is Unknown, which is the whole of what
+/// Unknown buys: a recipe honestly written in two Languages is never nagged,
+/// because no detector can be right about it.
+fn language_offer(branch_language: &str, content: &Value) -> Option<&'static str> {
+    if crate::language::is_stated_unknown(branch_language) {
+        return None;
+    }
+    crate::language::detect_content(content).filter(|detected| *detected != branch_language)
+}
+
+/// Check that a Version being claimed as the source of a Translation really is
+/// one: a Version of this Lineage, on some Branch other than the translating
+/// one. Answers it back so the caller stores what was checked rather than what
+/// was asked for.
+///
+/// A Translation of its own text is the one shape worth refusing outright —
+/// it would make staleness self-referential, and "how far behind itself has it
+/// fallen" is not a question.
+fn translated_source_version(
+    conn: &Connection,
+    lineage_id: &str,
+    translating_branch_id: &str,
+    version_id: &str,
+) -> Result<String, OpError> {
+    let occurs: bool = conn
+        .query_row(
+            "SELECT EXISTS ( \
+                SELECT 1 FROM branch_versions \
+                  JOIN branches ON branches.id = branch_versions.branch_id \
+                 WHERE branch_versions.version_id = ?1 \
+                   AND branches.lineage_id = ?2 \
+                   AND branch_versions.branch_id <> ?3 )",
+            params![version_id, lineage_id, translating_branch_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the source Version: {e}")))?;
+    if !occurs {
+        return Err(OpError::bad_request(
+            "translates_version_id must name a Version of another Branch of this recipe",
+        ));
+    }
+    Ok(version_id.to_string())
+}
+
+/// What this Branch's newest Version translates, if anything — the whole of
+/// how "is this a Translation" is answered (ADR 0006). The original is the
+/// Branch that translates nothing; nobody declares which one that is.
+fn translation_source(conn: &Connection, branch_id: &str) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT translates_version_id FROM branch_versions \
+          WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
+        params![branch_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read what this Version translates: {e}")))
+    .map(Option::flatten)
+}
+
+/// Whether some other Branch of this Lineage says it renders this exact
+/// Version — the question a collapse has to ask before replacing it.
+fn version_is_translated(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM branch_versions \
+              JOIN branches ON branches.id = branch_versions.branch_id \
+             WHERE branch_versions.translates_version_id = ?1 \
+               AND branches.lineage_id = ?2 \
+               AND branch_versions.branch_id <> ?3 )",
+        params![version_id, lineage_id, branch_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot look for Translations of this Version: {e}")))
+}
+
+/// Whether any other Branch of this Lineage renders a Version of this one.
+fn has_translations(conn: &Connection, lineage_id: &str, branch_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM branch_versions AS translation \
+              JOIN branches ON branches.id = translation.branch_id \
+              JOIN branch_versions AS source \
+                ON source.version_id = translation.translates_version_id \
+             WHERE branches.lineage_id = ?1 \
+               AND translation.branch_id <> ?2 \
+               AND source.branch_id = ?2 )",
+        params![lineage_id, branch_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot look for Translations: {e}")))
+}
+
+/// How this Branch stands as a Translation: what its newest Version renders,
+/// which Branch that Version is on, and how many Versions that Branch has
+/// moved on since — the exact staleness ADR 0006 promised, computed from
+/// current facts rather than marked by anyone.
+///
+/// Null for the great majority of recipes, which translate nothing.
+fn translation_of_branch(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+) -> Result<Value, OpError> {
+    let Some(translates_version_id) = translation_source(conn, branch_id)? else {
+        return Ok(Value::Null);
+    };
+
+    // The source Branch, and where in its chain the translated Version sits.
+    // The **oldest Branch** holding it, so a Version that later converged onto
+    // a second Branch is still measured against the one it was translated from
+    // — but that Branch's **newest** occurrence of it.
+    //
+    // Newest matters, and it is the whole of what makes staleness honest. One
+    // Version id may occur more than once on one Branch: saying what Language
+    // a recipe is written in appends its current content again, unchanged
+    // (ADR 0006), and so does a save that reverts to exact earlier text.
+    // Counting from the oldest occurrence would make every such recipe one
+    // Version behind for ever, with nothing a cook could do about it — the
+    // pointer already names the newest text, so re-pointing would resolve to
+    // the old occurrence again. Counting from the newest asks the only
+    // question worth asking: since this text was last what the recipe said,
+    // how much has been written?
+    let found: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT branch_versions.branch_id, branch_versions.sequence \
+               FROM branch_versions \
+               JOIN branches ON branches.id = branch_versions.branch_id \
+              WHERE branch_versions.version_id = ?1 \
+                AND branches.lineage_id = ?2 \
+                AND branch_versions.branch_id <> ?3 \
+              ORDER BY branches.created_at ASC, branch_versions.sequence DESC LIMIT 1",
+            params![translates_version_id, lineage_id, branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the source Branch: {e}")))?;
+
+    // The source Branch can be absent on an instance that received the
+    // Translation alone. The pointer is still the truth about what was
+    // translated; how far behind it has fallen is simply unanswerable here,
+    // and saying so beats inventing a zero.
+    let Some((source_branch_id, source_sequence)) = found else {
+        return Ok(json!({
+            "translates_version_id": translates_version_id,
+            "source_branch_id": Value::Null,
+            "versions_behind": Value::Null,
+        }));
+    };
+
+    let versions_behind: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM branch_versions WHERE branch_id = ?1 AND sequence > ?2",
+            params![source_branch_id, source_sequence],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot measure the Translation: {e}")))?;
+
+    Ok(json!({
+        "translates_version_id": translates_version_id,
+        "source_branch_id": source_branch_id,
+        "versions_behind": versions_behind,
+    }))
+}
+
 /// Mint a brand-new Lineage, a Branch of it in `kitchen_id`, and its first
 /// Version — the one sequence `create_recipe` and a freshly-seen Import
 /// candidate both start from (ADR 0004): the Kitchen's own Hand on the
@@ -3878,9 +4429,15 @@ fn insert_new_lineage_and_branch(
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
     conn.execute(
         "INSERT INTO branch_versions \
-         (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id) \
-         VALUES (?1, 1, ?2, NULL, ?3, ?4)",
-        params![branch_id, version_id, writer_person_id, access_key_id],
+         (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id, language) \
+         VALUES (?1, 1, ?2, NULL, ?3, ?4, ?5)",
+        params![
+            branch_id,
+            version_id,
+            writer_person_id,
+            access_key_id,
+            language
+        ],
     )
     .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
     Ok(())
@@ -4018,10 +4575,9 @@ fn kitchen_summary(
     }))
 }
 
-/// The Languages Kamosu is written in. A Tag may be named in any of them and
-/// need be named in only one.
-const LANGUAGES: [&str; 3] = ["en", "fr", "es"];
-
+/// One of the Languages Kamosu is written in — the guard on anything named per
+/// Language. A Tag or a Food may be named in any of them and need be named in
+/// only one.
 fn supported_language(language: &str) -> Result<&str, OpError> {
     if LANGUAGES.contains(&language) {
         Ok(language)
@@ -4029,6 +4585,22 @@ fn supported_language(language: &str) -> Result<&str, OpError> {
         Err(OpError::bad_request(format!(
             "language must be one of {}",
             LANGUAGES.join(", ")
+        )))
+    }
+}
+
+/// The Languages a **Branch** may carry: the three Kamosu is written in, plus
+/// **Unknown** for a recipe that is honestly more than one (ADR 0006). Wider
+/// than [`supported_language`], which guards a Tag's or a Food's name — a word
+/// in no language at all is a mistake, whereas a recipe in no single one is a
+/// real and ordinary recipe.
+fn supported_branch_language(language: &str) -> Result<&str, OpError> {
+    if crate::language::BRANCH_LANGUAGES.contains(&language) {
+        Ok(language)
+    } else {
+        Err(OpError::bad_request(format!(
+            "language must be one of {}",
+            crate::language::BRANCH_LANGUAGES.join(", ")
         )))
     }
 }

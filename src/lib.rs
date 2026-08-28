@@ -15,6 +15,7 @@ pub mod design_tokens;
 pub mod http_min;
 pub mod interface;
 pub mod jobs;
+pub mod language;
 pub mod mcp_door;
 pub mod operations;
 pub mod pairing;
