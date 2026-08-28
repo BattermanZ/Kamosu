@@ -18,7 +18,7 @@ use rusqlite::params;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::catalogue::{self, Kind, Permission};
+use crate::catalogue::{self, JobLane, Kind, Permission};
 use crate::db::Db;
 use crate::jobs::{self, JobProgress, JobRecord};
 use crate::photographs;
@@ -251,24 +251,32 @@ impl Core {
 
         match op.kind {
             Kind::Immediate => (op.handler)(self, &invocation, input),
-            Kind::Job => self.ask_job(op.name, &invocation, input),
+            Kind::Job => self.ask_job(op.name, op.job_lane, &invocation, input),
         }
     }
 
     /// Accept slow work and answer at once with an id. The work itself runs in a
-    /// lane: members never wait behind strangers (ADR 0032). A full line refuses
-    /// rather than grows — the caller is told busy, try again in a moment.
+    /// lane: members never wait behind strangers (ADR 0032), except a Job whose
+    /// own Catalogue entry declares `JobLane::AlwaysSingle` — the risk there is
+    /// the outbound fetch itself, not who asked for it, so it never scales past
+    /// one in flight regardless of who is signed in. A full line refuses rather
+    /// than grows — the caller is told busy, try again in a moment.
     fn ask_job(
         &self,
         operation_name: &str,
+        job_lane: JobLane,
         invocation: &Invocation,
         input: Value,
     ) -> Result<Value, OpError> {
         let job_id = jobs::record(self, operation_name, invocation, input)?;
-        let lane = if invocation.caller.is_some() {
-            &self.lanes.member
-        } else {
-            &self.lanes.stranger
+        let lane = match job_lane {
+            // The single depth-one lane, reused rather than duplicated — it
+            // is a stranger's lane only in the sense that it was built for
+            // "no more than one at a time"; an `AlwaysSingle` Job lands here
+            // even with a signed-in Person asking (ADR 0032's #70 exception).
+            JobLane::AlwaysSingle => &self.lanes.stranger,
+            JobLane::ByCaller if invocation.caller.is_some() => &self.lanes.member,
+            JobLane::ByCaller => &self.lanes.stranger,
         };
         if lane.try_send(job_id.clone()).is_err() {
             // Refused outright: the row must not linger as work nobody carries.

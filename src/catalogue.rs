@@ -37,6 +37,25 @@ pub enum Kind {
     Job,
 }
 
+/// Which lane carries a Job (ADR 0032). Every Job but one shares the lane its
+/// own caller would land in anyway — a Person's lane, or the single depth-one
+/// lane when nobody is signed in — because lane assignment is ordinarily a
+/// property of *who asked*, never of *what was asked*.
+///
+/// `AlwaysSingle` is the one deliberate exception: work whose risk lives in
+/// the outbound fetch itself, not in who asked for it. A recipe's own page can
+/// carry text telling an agent to fetch another URL (ADR 0033), so a signed-in
+/// Person's web-link import is bounded exactly as a stranger's Sheet is —
+/// never more than one fetch in flight at a time, instance-wide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobLane {
+    /// The ordinary rule: the Person's lane, or the stranger lane with nobody
+    /// signed in. Ignored on an Immediate Operation.
+    ByCaller,
+    /// Always the single depth-one lane, regardless of who asked.
+    AlwaysSingle,
+}
+
 /// One thing Kamosu can be asked to do, defined exactly once.
 pub struct Operation {
     /// The Operation's name, used verbatim by both Doors (`/api/op/<name>`,
@@ -59,6 +78,10 @@ pub struct Operation {
     /// Key can mint no Key, change no password and mint no Invite, so a leaked
     /// Key cannot become an account (ADR 0031).
     pub session_only: bool,
+    /// Which lane carries this Operation's Job. Meaningless on an Immediate
+    /// Operation, but declared on every entry so nothing here reads as an
+    /// oversight rather than a choice.
+    pub job_lane: JobLane,
     /// JSON Schema describing the input envelope.
     pub input_schema: Value,
     /// JSON Schema describing the output envelope. For a Job, this describes
@@ -87,6 +110,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
@@ -106,6 +130,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "reading_language": { "type": "string" }, "reading_measures": { "type": "string" } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             handler: crate::operations::set_reading_preferences,
@@ -117,6 +142,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             handler: crate::operations::rename_person,
@@ -128,6 +154,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "is_operator": { "type": "boolean", "default": false } }, "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "link": { "type": "string" } }, "required": ["link"], "additionalProperties": false }),
             handler: crate::operations::mint_invite,
@@ -139,6 +166,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "disabled": { "type": "boolean" } }, "required": ["disabled"], "additionalProperties": false }),
             handler: crate::operations::disable_account,
@@ -150,6 +178,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
             handler: crate::operations::delete_account,
@@ -161,6 +190,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "link": { "type": "string"} }, "required": ["link"], "additionalProperties": false }),
             handler: crate::operations::mint_recovery_link,
@@ -172,6 +202,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({ "type": "object", "properties": { "sessions": { "type": "array", "items": { "type": "object", "properties": { "id": {"type":"string"}, "name": {"type":"string"}, "created_at": {"type":"string"}, "last_used_at": {"type":["string","null"]}, "revoked": {"type":"boolean"} }, "required":["id","name","created_at","last_used_at","revoked"], "additionalProperties": false } } }, "required":["sessions"], "additionalProperties": false }),
             handler: crate::operations::list_sessions,
@@ -183,6 +214,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" } }, "required": ["session_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
             handler: crate::operations::revoke_session,
@@ -194,6 +226,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: true,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -223,6 +256,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
@@ -256,6 +290,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "access_key_id": { "type": "string" } }, "required": ["access_key_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "revoked": { "type": "boolean" } }, "required": ["revoked"], "additionalProperties": false }),
             handler: crate::operations::revoke_access_key,
@@ -268,6 +303,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: kitchen_schema(),
             handler: crate::operations::create_kitchen,
@@ -279,6 +315,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
@@ -295,6 +332,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["kitchen_id", "name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             handler: crate::operations::rename_kitchen,
@@ -307,6 +345,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "nickname": { "type": ["string", "null"] } }, "required": ["kitchen_id", "nickname"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "nickname": { "type": ["string", "null"] } }, "required": ["nickname"], "additionalProperties": false }),
             handler: crate::operations::set_kitchen_nickname,
@@ -319,6 +358,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" } }, "required": ["invite_id", "secret"], "additionalProperties": false }),
             handler: crate::operations::invite_to_kitchen,
@@ -331,6 +371,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
             output_schema: kitchen_schema(),
             handler: crate::operations::accept_kitchen_invite,
@@ -343,6 +384,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "person_id": { "type": "string" } }, "required": ["kitchen_id", "person_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "removed": { "type": "boolean" } }, "required": ["removed"], "additionalProperties": false }),
             handler: crate::operations::remove_kitchen_member,
@@ -355,6 +397,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
             handler: crate::operations::delete_kitchen,
@@ -368,6 +411,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["kitchen_id", "language", "name"], "additionalProperties": false }),
             output_schema: tag_schema(),
             handler: crate::operations::create_tag,
@@ -380,6 +424,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
@@ -398,6 +443,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["tag_id", "language", "name"], "additionalProperties": false }),
             output_schema: tag_schema(),
             handler: crate::operations::rename_tag,
@@ -411,6 +457,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "keep_tag_id": { "type": "string" }, "merge_tag_id": { "type": "string" } }, "required": ["keep_tag_id", "merge_tag_id"], "additionalProperties": false }),
             output_schema: tag_schema(),
             handler: crate::operations::merge_tags,
@@ -423,6 +470,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "tag_id": { "type": "string" } }, "required": ["tag_id"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
             handler: crate::operations::delete_tag,
@@ -436,6 +484,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "tag_id": { "type": "string" }, "carried": { "type": "boolean" } }, "required": ["branch_id", "tag_id", "carried"], "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
@@ -454,6 +503,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -480,6 +530,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: create_recipe_input_schema(),
             output_schema: recipe_schema(),
             handler: crate::operations::create_recipe,
@@ -499,6 +550,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: save_recipe_version_input_schema(),
             output_schema: json!({
                 "type": "object",
@@ -531,9 +583,43 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Job,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: import_input_schema(),
             output_schema: import_report_schema(),
             handler: crate::operations::import,
+        },
+        Operation {
+            name: "import_web_link",
+            summary: "Bring in a recipe straight from a URL, as a Job. Reads \
+                      the page's schema.org JSON-LD (#70) — no per-site \
+                      scraping, no LLM fallback — and lands it in your Home \
+                      Kitchen through the same ledger `import` uses, keyed by \
+                      the page's own address. Fetching is bound to public \
+                      addresses at the dialled address and at every redirect \
+                      (ADR 0033), and — because a page's own text can tell an \
+                      agent to fetch another URL — always takes the single \
+                      depth-one lane, never more than one fetch in flight \
+                      regardless of who is signed in.",
+            permission: Permission::Person,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::AlwaysSingle,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The recipe page's address. Fetched \
+                                         through the guarded client; only \
+                                         http:// and https:// are accepted.",
+                    },
+                },
+                "required": ["url"],
+                "additionalProperties": false,
+            }),
+            output_schema: import_report_schema(),
+            handler: crate::operations::import_web_link,
         },
         Operation {
             name: "rename_version",
@@ -546,6 +632,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -574,6 +661,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -601,6 +689,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": { "branch_id": { "type": "string" } },
@@ -624,6 +713,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -659,6 +749,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": { "branch_id": { "type": "string" } },
@@ -679,6 +770,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -705,6 +797,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": { "attempt_id": { "type": "string" } },
@@ -724,6 +817,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -747,6 +841,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": { "attempt_id": { "type": "string" } },
@@ -771,6 +866,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": { "lineage_id": { "type": "string" } },
@@ -793,6 +889,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
@@ -810,6 +907,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" } }, "required": ["food_id"], "additionalProperties": false }),
             output_schema: food_schema(),
             handler: crate::operations::get_food,
@@ -823,6 +921,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["food_id", "language", "name"], "additionalProperties": false }),
             output_schema: food_schema(),
             handler: crate::operations::set_food_name,
@@ -835,6 +934,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] } }, "required": ["food_id", "language"], "additionalProperties": false }),
             output_schema: food_schema(),
             handler: crate::operations::remove_food_name,
@@ -848,6 +948,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -871,6 +972,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": { "job_id": { "type": "string" } },
@@ -888,6 +990,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: true,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
                 "properties": { "job_id": { "type": "string" } },
@@ -911,6 +1014,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             kind: Kind::Immediate,
             write: false,
             session_only: false,
+            job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
             output_schema: json!({
                 "type": "object",
@@ -949,6 +1053,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         kind: Kind::Job,
         write: true,
         session_only: false,
+        job_lane: JobLane::ByCaller,
         input_schema: json!({
             "type": "object",
             "properties": {

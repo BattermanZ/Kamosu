@@ -4723,3 +4723,448 @@ fn an_older_binary_against_a_newer_database_refuses_loudly() {
         "the refusal must say what it met and why it stopped: {message}"
     );
 }
+
+// --- The web link importer (issue #70) ---------------------------------------
+//
+// The seventeen catalogued JSON-LD shapes themselves are exhaustively unit
+// tested against the pure extractor in `src/web_import.rs`, with no server
+// involved. These tests exercise the other half: the real `import_web_link`
+// Operation, through a real fetch, against a real local HTTP server standing
+// in for "the internet" (only possible in this test binary, via the
+// `test-jobs`-gated escape hatch `web_import::allow_loopback_fetches_for_tests`
+// — production's guard denies loopback unconditionally, ADR 0033). The whole
+// section is behind the same feature gate as the escape hatch itself, so a
+// plain `cargo build`/`cargo clippy` (no `test-jobs`) never needs it to exist.
+#[cfg(feature = "test-jobs")]
+mod web_link_importer {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    /// Serve one recipe page (and, optionally, one photo) on an ephemeral loopback
+    /// port. Returns the page's own URL.
+    fn spawn_recipe_server(html: impl FnOnce(&str) -> String, photo: Option<Vec<u8>>) -> String {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+        let addr = listener.local_addr().expect("local addr");
+        let base = format!("http://{addr}");
+        let html = Arc::new(html(&base));
+
+        let mut router = axum::Router::new().route(
+            "/recipe",
+            axum::routing::get(move || {
+                let html = html.clone();
+                async move { axum::response::Html((*html).clone()) }
+            }),
+        );
+        if let Some(photo_bytes) = photo {
+            let photo_bytes = Arc::new(photo_bytes);
+            router = router.route(
+                "/photo.jpg",
+                axum::routing::get(move || {
+                    let bytes = photo_bytes.clone();
+                    async move { ([("content-type", "image/jpeg")], (*bytes).clone()) }
+                }),
+            );
+        }
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("test recipe server");
+        });
+        format!("{base}/recipe")
+    }
+
+    /// Serve several named pages at once, one per `(name, html)` pair, each
+    /// reachable at `/pages/<name>` off the returned base URL — for driving
+    /// one shape per call through the real Operation without standing up a
+    /// server per shape.
+    fn spawn_pages_server(pages: &[(&str, String)]) -> String {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+        let addr = listener.local_addr().expect("local addr");
+        let base = format!("http://{addr}");
+
+        let pages: std::collections::HashMap<String, Arc<String>> = pages
+            .iter()
+            .map(|(name, html)| (name.to_string(), Arc::new(html.clone())))
+            .collect();
+        let pages = Arc::new(pages);
+        let router = axum::Router::new().route(
+            "/pages/{name}",
+            axum::routing::get(
+                move |axum::extract::Path(name): axum::extract::Path<String>| {
+                    let pages = pages.clone();
+                    async move {
+                        match pages.get(&name) {
+                            Some(html) => axum::response::Html((**html).clone()).into_response(),
+                            None => axum::http::StatusCode::NOT_FOUND.into_response(),
+                        }
+                    }
+                },
+            ),
+        );
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("test pages server");
+        });
+        base
+    }
+
+    /// A real, freshly encoded picture, exactly as `tests/photographs.rs` builds
+    /// one — generated rather than hand-typed, so the fixture cannot be wrong the
+    /// way a hand-typed byte literal could.
+    fn make_test_jpeg() -> Vec<u8> {
+        let image = image::RgbImage::from_fn(20, 20, |x, y| {
+            image::Rgb([(x * 10) as u8, (y * 10) as u8, 128])
+        });
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Jpeg,
+            )
+            .expect("encodes");
+        bytes
+    }
+
+    /// Ask `import_web_link` and wait for its Job to finish, handing back the
+    /// Report — the same shape `import` itself answers, since both land through
+    /// `Core::import`.
+    fn import_web_link_and_wait(app: &support::TestApp, key: &str, url: &str) -> Value {
+        let (status, ask) = app.post_op(
+            "import_web_link",
+            Some(key),
+            &json!({ "url": url }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+        let finished = wait_terminal(app, Some(key), job_id);
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn importing_a_web_link_lands_the_recipe_with_its_photo_and_matches_on_reimport() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+
+        let photo = make_test_jpeg();
+        let url = spawn_recipe_server(
+            |base| {
+                format!(
+                    r#"<html><head><script type="application/ld+json">{{
+                        "@context": "https://schema.org",
+                        "@graph": [
+                            {{"@type": "WebSite", "name": "Not the recipe"}},
+                            {{
+                                "@type": "Recipe",
+                                "name": "Sectioned Cookies",
+                                "recipeIngredient": ["120g butter", "75g sugar"],
+                                "recipeInstructions": [
+                                    {{"@type": "HowToSection", "name": "The dough", "itemListElement": [
+                                        {{"@type": "HowToStep", "text": "Mix"}},
+                                        {{"@type": "HowToStep", "text": "Bake"}}
+                                    ]}}
+                                ],
+                                "prepTime": "PT20M",
+                                "cookTime": "PT12M",
+                                "recipeYield": "24 cookies",
+                                "image": "{base}/photo.jpg",
+                                "author": {{"@type": "Person", "name": "Jane Cook"}},
+                                "nutrition": {{"@type": "NutritionInformation", "calories": "150 calories"}}
+                            }}
+                        ]
+                    }}</script></head><body></body></html>"#
+                )
+            },
+            Some(photo),
+        );
+
+        let report = import_web_link_and_wait(&app, &key, &url);
+        assert_eq!(report["source_kind"], json!("web"));
+        let arrived = report["arrived"].as_array().unwrap();
+        assert_eq!(arrived.len(), 1, "{report}");
+        assert_eq!(arrived[0]["status"], json!("created"));
+        assert_eq!(arrived[0]["title"], json!("Sectioned Cookies"));
+        let branch_id = arrived[0]["branch_id"].as_str().unwrap().to_string();
+
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        let content = &recipe["result"]["versions"][0]["content"];
+        assert_eq!(content["prep_time_minutes"], json!(20));
+        assert_eq!(content["cook_time_minutes"], json!(12));
+        assert_eq!(content["yield"]["amount"], json!("24"));
+        assert_eq!(content["yield"]["noun"], json!("cookies"));
+        assert_eq!(content["source"]["text"], json!("Jane Cook"));
+        assert_eq!(content["source"]["link"], json!(url));
+        let ingredients = content["ingredients"].as_array().unwrap();
+        assert_eq!(ingredients.len(), 2);
+        let steps = content["steps"].as_array().unwrap();
+        assert_eq!(steps[0]["kind"], json!("section"));
+        assert_eq!(steps[0]["text"], json!("The dough"));
+        assert_eq!(steps[1]["kind"], json!("step"));
+        assert_eq!(steps[1]["text"], json!("Mix"));
+        assert_eq!(steps[2]["text"], json!("Bake"));
+
+        // The photo the page named really did arrive, remade and readable back.
+        let photo_id = content["main_photo"].as_str().expect("a stored photo id");
+        let (photo_status, _, bytes) =
+            app.get_bytes(&format!("/api/photographs/{photo_id}"), Some(&key));
+        assert_eq!(photo_status, 200);
+        assert!(!bytes.is_empty());
+
+        // The page's own address is the ledger's foreign id: re-importing the
+        // same page matches instead of doubling the library (#68, ADR 0025) — the
+        // same Branch comes back "unchanged" rather than a second Lineage.
+        let second = import_web_link_and_wait(&app, &key, &url);
+        let second_arrived = second["arrived"].as_array().unwrap();
+        assert_eq!(second_arrived.len(), 1, "{second}");
+        assert_eq!(second_arrived[0]["status"], json!("unchanged"));
+        assert_eq!(second_arrived[0]["branch_id"], json!(branch_id));
+        assert!(second["offered"].as_array().unwrap().is_empty(), "{second}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_page_with_no_structured_data_still_lands_as_a_bare_title_and_source() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+
+        let url = spawn_recipe_server(
+            |_base| {
+                "<html><head><title>Just a blog post</title></head><body>no recipe here</body></html>"
+                    .to_string()
+            },
+            None,
+        );
+
+        let report = import_web_link_and_wait(&app, &key, &url);
+        let arrived = report["arrived"].as_array().unwrap();
+        assert_eq!(arrived.len(), 1, "{report}");
+        assert_eq!(arrived[0]["status"], json!("created"));
+        assert_eq!(arrived[0]["title"], json!("Just a blog post"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_favicon_named_image_is_dropped_rather_than_stored_as_the_photo() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+
+        let url = spawn_recipe_server(
+            |base| {
+                format!(
+                    r#"<html><head><script type="application/ld+json">
+                    {{"@type": "Recipe", "name": "No Real Photo", "image": "{base}/favicon.ico"}}
+                    </script></head><body></body></html>"#
+                )
+            },
+            None,
+        );
+
+        let report = import_web_link_and_wait(&app, &key, &url);
+        let branch_id = report["arrived"][0]["branch_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let (_, recipe) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(
+            recipe["result"]["versions"][0]["content"]["main_photo"],
+            Value::Null
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fetching_a_web_link_that_redirects_to_a_private_address_is_refused() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+
+        let router = axum::Router::new().route(
+            "/start",
+            axum::routing::get(|| async {
+                axum::response::Redirect::temporary("http://10.0.0.1/private")
+            }),
+        );
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("redirecting test server");
+        });
+
+        let (status, ask) = app.post_op(
+            "import_web_link",
+            Some(&key),
+            &json!({ "url": format!("http://{addr}/start") }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+        let finished = wait_terminal(&app, Some(&key), job_id);
+        assert_eq!(
+            finished["status"],
+            json!("failed"),
+            "a redirect into a private address must fail the Job: {finished}"
+        );
+    }
+
+    /// Every one of the seventeen catalogued JSON-LD shapes, driven through
+    /// the real `import_web_link` Operation rather than the pure extractor —
+    /// the shapes already exercised by the tests above (`@graph` nesting,
+    /// `HowToSection`, image-as-string, yield-as-text, author-object, ISO
+    /// durations, the no-Recipe fallback, favicon-dropping, both redirect
+    /// cases) are not repeated here; this covers the rest, so all seventeen
+    /// are proven end to end at least once, not only against the pure
+    /// extractor in `src/web_import.rs`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_remaining_catalogued_shape_lands_through_the_real_operation() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+
+        let ld = |json: &str| -> String {
+            format!(
+                "<html><head><script type=\"application/ld+json\">{json}</script></head><body></body></html>"
+            )
+        };
+
+        let pages: Vec<(&str, String)> = vec![
+            (
+                "type-as-array",
+                ld(r#"{"@type":["Recipe","NewsArticle"],"name":"Array Typed"}"#),
+            ),
+            (
+                "top-level-array",
+                ld(r#"[{"@type":"WebSite"},{"@type":"Recipe","name":"From Array"}]"#),
+            ),
+            (
+                "malformed-block-then-valid",
+                "<html><head>\
+                 <script type=\"application/ld+json\">{ not json </script>\
+                 <script type=\"application/ld+json\">{\"@type\":\"Recipe\",\"name\":\"Survivor\"}</script>\
+                 </head><body></body></html>"
+                    .to_string(),
+            ),
+            (
+                "instructions-as-howtostep-array",
+                ld(r#"{"@type":"Recipe","name":"Steps","recipeInstructions":[
+                    {"@type":"HowToStep","text":"Mix"},{"@type":"HowToStep","text":"Bake"}
+                ]}"#),
+            ),
+            (
+                "instructions-as-single-string",
+                ld(r#"{"@type":"Recipe","name":"One Line","recipeInstructions":"Mix everything and bake."}"#),
+            ),
+            (
+                "image-as-object",
+                ld(r#"{"@type":"Recipe","name":"Pic Object","image":{"@type":"ImageObject","url":"https://example.invalid/dish.jpg"}}"#),
+            ),
+            (
+                "image-as-array",
+                ld(r#"{"@type":"Recipe","name":"Pic Array","image":["https://example.invalid/one.jpg","https://example.invalid/two.jpg"]}"#),
+            ),
+            (
+                "yield-as-array",
+                ld(r#"{"@type":"Recipe","name":"Yield Array","recipeYield":["4 servings","4"]}"#),
+            ),
+            (
+                "yield-as-number",
+                ld(r#"{"@type":"Recipe","name":"Yield Number","recipeYield":6}"#),
+            ),
+            (
+                "category-as-array",
+                ld(r#"{"@type":"Recipe","name":"Category Array","recipeCategory":["Dessert","Snack"]}"#),
+            ),
+        ];
+        let expected_titles: Vec<&str> = pages
+            .iter()
+            .map(|(name, _)| match *name {
+                "type-as-array" => "Array Typed",
+                "top-level-array" => "From Array",
+                "malformed-block-then-valid" => "Survivor",
+                "instructions-as-howtostep-array" => "Steps",
+                "instructions-as-single-string" => "One Line",
+                "image-as-object" => "Pic Object",
+                "image-as-array" => "Pic Array",
+                "yield-as-array" => "Yield Array",
+                "yield-as-number" => "Yield Number",
+                "category-as-array" => "Category Array",
+                other => panic!("no expected title for {other}"),
+            })
+            .collect();
+        let names: Vec<&str> = pages.iter().map(|(name, _)| *name).collect();
+
+        let base = spawn_pages_server(&pages);
+
+        for (name, expected_title) in names.iter().zip(expected_titles.iter()) {
+            let url = format!("{base}/pages/{name}");
+            let report = import_web_link_and_wait(&app, &key, &url);
+            let arrived = report["arrived"].as_array().unwrap();
+            assert_eq!(arrived.len(), 1, "shape '{name}': {report}");
+            assert_eq!(
+                arrived[0]["title"],
+                json!(*expected_title),
+                "shape '{name}' did not land with the expected title: {report}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_read_only_access_key_may_not_import_a_web_link() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let read_only_key = app
+            .core
+            .mint_access_key(&person, "read only", true)
+            .unwrap()
+            .secret;
+
+        let (status, refused) = app.post_op(
+            "import_web_link",
+            Some(&read_only_key),
+            &json!({ "url": "https://example.com/recipe" }).to_string(),
+        );
+        assert_eq!(status, 401, "{refused}");
+        assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+    }
+}

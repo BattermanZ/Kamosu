@@ -530,6 +530,35 @@ export type ImportOutput = {
 	}[];
 };
 
+/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+export type ImportWebLinkInput = {
+	url: string;
+};
+/** What import_web_link eventually produces, read back through `get_job`. */
+export type ImportWebLinkOutput = {
+	arrived: {
+		branch_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		status: "created" | "unchanged";
+		title: string;
+	}[];
+	import_id: string;
+	kitchen_id: string;
+	offered: {
+		branch_id: string;
+		candidate_version_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		title: string;
+	}[];
+	source_kind: string;
+	unreadable: {
+		foreign_id: string | null;
+		reason: string;
+	}[];
+};
+
 /** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
 export type RenameVersionInput = {
 	branch_id: string;
@@ -1094,6 +1123,12 @@ export interface Operations {
 	import: {
 		input: ImportInput;
 		output: ImportOutput;
+		kind: 'job';
+		permission: 'person';
+	};
+	import_web_link: {
+		input: ImportWebLinkInput;
+		output: ImportWebLinkOutput;
 		kind: 'job';
 		permission: 'person';
 	};
@@ -3485,6 +3520,136 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "import_web_link",
+		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"url": {
+					"description": "The recipe page's address. Fetched through the guarded client; only http:// and https:// are accepted.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"url"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"arrived": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"status": {
+								"enum": [
+									"created",
+									"unchanged"
+								]
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"status",
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"import_id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"offered": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"candidate_version_id": {
+								"description": "The Version this candidate's content became, held but not yet on the Branch.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"lineage_id",
+							"branch_id",
+							"title",
+							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"source_kind": {
+					"type": "string"
+				},
+				"unreadable": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"foreign_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"reason": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"import_id",
+				"kitchen_id",
+				"source_kind",
+				"arrived",
+				"offered",
+				"unreadable"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "rename_version",
 		"summary": "Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own.",
 		"permission": "person",
@@ -5286,6 +5451,7 @@ export const METHOD_NAMES = {
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
 	import: 'import',
+	import_web_link: 'importWebLink',
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
 	get_recipe: 'getRecipe',
@@ -5368,6 +5534,8 @@ export interface KamosuClient {
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
 	/** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 	import(input: ImportInput): Promise<Answer<'import'>>;
+	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
 	/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */

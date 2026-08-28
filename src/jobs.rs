@@ -2,11 +2,18 @@
 //!
 //! Asking for a Job records it in the database — the truth about the work, its
 //! progress and its result or failure reason (ADR 0003) — and hands it to a
-//! **lane**. There are exactly two lanes, and which one carries a job depends on
-//! who asked, never on what was asked (ADR 0032): members have their own lane,
-//! and everything a stranger can cause runs in one depth-one lane behind a short
-//! bounded line. When the line is full the ask is refused with *busy*, so the
-//! worst a stranger can inflict is latency on other strangers — never collapse.
+//! **lane**. There are exactly two lanes, and ordinarily which one carries a
+//! job depends on who asked, never on what was asked (ADR 0032): members have
+//! their own lane, and everything a stranger can cause runs in one depth-one
+//! lane behind a short bounded line. When the line is full the ask is refused
+//! with *busy*, so the worst a stranger can inflict is latency on other
+//! strangers — never collapse.
+//!
+//! One kind of Job breaks that rule on purpose: the Catalogue may declare a Job
+//! `JobLane::AlwaysSingle` when its risk lives in the outbound fetch itself
+//! rather than in who asked for it (the web-link importer, #70 — a page's own
+//! text can tell an agent to fetch another URL, ADR 0033). Such a Job always
+//! takes the single depth-one lane, member or not.
 //!
 //! A streaming progress mechanism, if one ever exists, may decorate this but is
 //! never instead of it: the row in this table is where watching slow work reads.

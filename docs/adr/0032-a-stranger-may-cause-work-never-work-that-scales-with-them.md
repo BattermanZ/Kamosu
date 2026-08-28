@@ -4,6 +4,8 @@ A **Share Link** is handed to people outside the house and freely passed on ([AD
 
 **Work asked for by someone holding no Credential runs in its own single lane** — one at a time, behind a short waiting line, and when the line is full the page says *busy, try in a moment* rather than the queue growing. Members have their own lane and never wait behind strangers.
 
+**One kind of Job breaks that rule on purpose, added in [#70](https://github.com/BattermanZ/Kamosu/issues/70):** the web link importer always takes the single lane, member or not. Its risk is not *who* asked — a signed-in Person did — but the outbound fetch itself: a recipe page's own text can tell an agent to fetch another URL ([ADR 0033](./0033-kamosu-assumes-the-proxy-did-nothing-but-carry-the-bytes.md)), so the asker's Credential says nothing about how trustworthy the address being fetched is. The lane is therefore a property of *the kind of work* here, not only of *who has no Credential* — the general rule stands for everything else, and a future Job earns the same exception only by the same argument: its own risk lives in an outbound fetch, not in its caller.
+
 **And a Sheet is remembered.** A Version is frozen the moment it is written, so the same Version at the same page size and serving count renders byte-identical output forever. It is rendered once and kept, the same habit [ADR 0017](./0017-a-photograph-is-known-by-its-contents.md) applies to a **Display Copy**.
 
 ## Why
@@ -25,4 +27,4 @@ A **Share Link** is handed to people outside the house and freely passed on ([AD
 
 - **A stranger can make another stranger wait.** If someone points a script at your Share Link, your mother's print spins for a few seconds. Nothing falls over and the household is unaffected — but it is not nothing, and it is named in [ADR 0034](./0034-kamosu-names-what-it-does-not-defend.md) rather than papered over.
 - **Kept Sheets are derived files and must be sweepable**, like Display Copies: a Version they belong to can be superseded and they are regenerable, so they may be deleted at any time without loss.
-- **The lane applies to every unauthenticated Job**, present and future — it is a property of *having no Credential*, not a property of Sheets. Anything later added to the Share Link page inherits it without a new decision.
+- **The lane applies to every unauthenticated Job**, present and future — it is a property of *having no Credential*, not a property of Sheets. Anything later added to the Share Link page inherits it without a new decision. The web link importer (#70) is the one named exception, and it is a Job's own Catalogue entry that says so (`JobLane::AlwaysSingle`), never a Door deciding case by case.

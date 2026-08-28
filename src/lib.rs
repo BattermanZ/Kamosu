@@ -19,6 +19,7 @@ pub mod mcp_door;
 pub mod operations;
 pub mod photographs;
 pub mod web_door;
+pub mod web_import;
 
 pub use core::{ErrorKind, OpError};
 

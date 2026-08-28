@@ -535,6 +535,83 @@ pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Valu
     core.import(caller, source_kind, candidates, invocation.job.as_ref())
 }
 
+/// Import a recipe straight from a web link (#70): fetch the page through the
+/// guarded client (ADR 0033), read its schema.org JSON-LD, and land the one
+/// candidate through the same ledgered machinery every importer shares
+/// (`import`, #68, ADR 0025). The page's own address — after redirects — is
+/// both the ledger's foreign id and the Version's Source link, so re-running
+/// the import on the same page matches instead of doubling the library.
+pub fn import_web_link(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let url = input
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("import_web_link takes { url }"))?;
+    let caller = caller_of(invocation)?;
+    let progress = invocation.job.as_ref();
+
+    if let Some(progress) = progress {
+        progress.report(0, None, "reading the page".to_string());
+    }
+    let (html, effective_url) = crate::web_import::fetch_page(url)?;
+    let parsed = crate::web_import::extract_recipe(&html, &effective_url);
+
+    // A photo that failed to fetch, decode or remake never fails the recipe
+    // (#212's rule for an uploaded picture, applied the same way to one
+    // arriving by URL): the recipe still lands, simply without a photo.
+    let main_photo = parsed.image_url.as_deref().and_then(|image_url| {
+        if let Some(progress) = progress {
+            progress.report(0, None, "fetching the photo".to_string());
+        }
+        let bytes = crate::web_import::fetch_photo(image_url).ok()?;
+        let stored = core.store_photograph(&bytes).ok()?;
+        stored
+            .get("photograph_id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
+
+    let ingredients: Vec<Value> = parsed
+        .ingredients
+        .iter()
+        .map(|text| json!({ "kind": "ingredient", "text": text }))
+        .collect();
+    let steps: Vec<Value> = parsed
+        .steps
+        .iter()
+        .map(|step| match step {
+            crate::web_import::StepEntry::Section(text) => {
+                json!({ "kind": "section", "text": text, "photo": null })
+            }
+            crate::web_import::StepEntry::Step(text) => {
+                json!({ "kind": "step", "text": text, "photo": null })
+            }
+        })
+        .collect();
+    let recipe_yield = parsed
+        .yield_amount_noun
+        .as_ref()
+        .map(|(amount, noun)| json!({ "amount": amount, "noun": noun }));
+
+    let candidate = json!({
+        "foreign_id": effective_url,
+        "title": parsed.title,
+        "yield": recipe_yield,
+        "prep_time_minutes": parsed.prep_time_minutes,
+        "cook_time_minutes": parsed.cook_time_minutes,
+        "note": Value::Null,
+        "main_photo": main_photo,
+        "source": { "text": parsed.source_text, "link": effective_url },
+        "ingredients": ingredients,
+        "steps": steps,
+    });
+
+    core.import(caller, "web", &[candidate], progress)
+}
+
 pub fn rename_version(
     core: &Core,
     invocation: &Invocation,
