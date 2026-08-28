@@ -1,0 +1,31 @@
+/* DIRECTION C — the lever under your thumb, the Ghost on its own slab. */
+
+.c-lever { position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; max-width: 480px; margin: 0 auto;
+  display: flex; background: var(--ground); border-top: 1px solid var(--rule);
+  padding-bottom: env(safe-area-inset-bottom); }
+.c-lever button { flex: 1; text-align: center; padding: 10px 6px 11px; color: var(--ink-2);
+  border-top: 2px solid transparent; }
+.c-lever button span { display: block; font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.c-lever button em { display: block; font-style: normal; font-size: 10.5px; letter-spacing: .12em;
+  text-transform: uppercase; opacity: .7; margin-top: 1px; }
+.c-lever button.on { color: var(--accent); border-top-color: var(--accent); background: var(--card); }
+
+/* a changed line stays a line — a rule in the margin and nothing else */
+.c-diff { position: relative; padding-left: 11px; }
+.c-diff::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; background: var(--accent); }
+li.step.c-diff::before { top: 14px; bottom: 14px; }
+.c-body { flex: 1; }
+.c-diff.is-open { background: var(--card); }
+.c-diff.is-took::before { width: 4px; }
+
+/* the Ghost: off the column, on a slab, and named */
+li.c-ghostwrap { list-style: none; padding: 6px 0 6px 26px; border-bottom: 1px solid var(--rule); }
+.c-slab { background: var(--ground-2); border-left: 2px solid var(--support); padding: 9px 12px; }
+.c-slab-k { display: block; font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--support); }
+.c-slab-t { margin: 3px 0 0; font-size: 15px; line-height: 1.45; color: var(--ink-2);
+  text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: rgba(184,71,75,.5); }
+.c-slab-step { font-size: 14.5px; }
+li.c-ghostwrap.is-took .c-slab { border-left-color: var(--accent); background: rgba(29,43,76,.07); }
+li.c-ghostwrap.is-took .c-slab-k::after { content: ' · carried across'; }
+.c-slab .peek { background: var(--card); }

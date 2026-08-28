@@ -1,0 +1,110 @@
+/* PROTOTYPE — the shared clothes. Kamosu's real tokens (ui/src/app.css), copied
+   flat so this page needs no build step. Every direction wears exactly this, so
+   the only thing being judged is how the SWITCH and the GHOST read. */
+
+:root {
+  --ground: #f4efe3;
+  --ground-2: #ece5d5;
+  --card: #fffdf8;
+  --ink: #1a1a1c;
+  --ink-2: #5c5a55;
+  --rule: #ded5c2;
+  --accent: #1d2b4c;   /* ai, indigo — mine, and the one thing you tap */
+  --on-accent: #f4efe3;
+  --support: #b8474b;  /* beni — Marc's */
+  --support-2: #7d8b5c;
+
+  --gutter: 20px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: 'Zen Kaku Gothic New', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; cursor: pointer; background: none; border: 0; color: inherit; text-align: left; }
+
+.wrap { max-width: 480px; margin: 0 auto; padding-bottom: 180px; position: relative; }
+
+/* ---- the recipe, as it already looks everywhere else in Kamosu ---------- */
+
+.hero { height: 200px; background: var(--ground-2); position: relative; display: grid; place-items: center; }
+.hero span { font-family: 'Zen Old Mincho', serif; font-size: 27px; color: var(--accent); opacity: .5; }
+
+.sheet { background: var(--ground); position: relative; }
+.pad { padding: 0 var(--gutter); }
+
+.eyebrow { font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; color: var(--ink-2); margin: 0; }
+h1.title { font-family: 'Zen Old Mincho', serif; font-size: 27px; font-weight: 600; line-height: 1.16;
+  letter-spacing: -.012em; margin: 6px 0 0; }
+
+.meta { display: flex; gap: 24px; margin: 16px 0 0; }
+.meta div { display: flex; flex-direction: column; }
+.meta b { font-family: 'Zen Old Mincho', serif; font-size: 21px; font-weight: 600; line-height: 1.1; }
+.meta span { font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; color: var(--ink-2); }
+
+h2.h { font-family: 'Zen Old Mincho', serif; font-size: 10.5px; font-weight: 600; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--accent); margin: 32px var(--gutter) 8px;
+  display: flex; justify-content: space-between; align-items: baseline; }
+h2.h em { font-style: normal; font-size: 10.5px; color: var(--ink-2); letter-spacing: .06em; text-transform: none; }
+
+ul.ings, ol.steps { list-style: none; margin: 0; padding: 0; }
+
+li.ing { padding: 9px 0; border-bottom: 1px solid var(--rule); }
+li.ing .line { font-size: 17px; line-height: 1.4; display: block; }
+li.ing .read { font-size: 12.5px; color: var(--ink-2); display: block; margin-top: 1px; }
+li.sec { font-family: 'Zen Old Mincho', serif; font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--ink-2); padding: 18px 0 5px; border-bottom: 1px solid var(--rule); }
+
+li.step { display: flex; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+li.step .n { font-family: 'Zen Old Mincho', serif; font-size: 17px; font-weight: 600; color: var(--accent);
+  flex: none; width: 20px; padding-top: 2px; }
+li.step p { margin: 0; font-size: 16px; line-height: 1.55; }
+
+.note { margin: 20px var(--gutter) 0; background: var(--card); border: 1px solid var(--rule); padding: 14px;
+  font-size: 15px; line-height: 1.6; }
+
+.cta { display: block; width: calc(100% - var(--gutter) * 2); margin: 24px var(--gutter) 0; background: var(--accent);
+  color: var(--on-accent); padding: 15px; font-family: 'Zen Old Mincho', serif; font-size: 16px; text-align: center; }
+.cta.quiet { background: none; color: var(--accent); border: 1px solid var(--rule); margin-top: 8px; }
+
+.foot { margin: 28px var(--gutter) 0; font-size: 12.5px; color: #8e8676; line-height: 1.8; }
+.foot b { color: var(--ink-2); }
+
+/* ---- the offer, unfolded in place. Same in all three: what differs is how
+        you get here and how the line above it reads at rest. ------------- */
+
+.peek { margin: 10px 0 4px; background: var(--card); border: 1px solid var(--rule); padding: 12px 13px; }
+.peek-k { margin: 0; font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; color: var(--ink-2); }
+.peek-t { margin: 5px 0 0; font-size: 15px; line-height: 1.5; }
+.take { display: block; width: 100%; margin-top: 11px; background: var(--accent); color: var(--on-accent);
+  padding: 10px; text-align: center; font-size: 14px; }
+.take.off { background: none; color: var(--ink-2); border: 1px solid var(--rule); }
+.locked { margin: 9px 0 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+/* ---- the unsaved tray, and saving ------------------------------------- */
+
+.tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; max-width: 480px; margin: 0 auto;
+  background: var(--accent); color: var(--on-accent); padding: 13px var(--gutter) max(15px, env(safe-area-inset-bottom)); }
+body[data-variant='c'] .tray { bottom: 62px; }
+.tray p { margin: 0 0 9px; font-size: 13.5px; line-height: 1.45; }
+.tray-row { display: flex; gap: 8px; }
+.tray-row button { flex: 1; text-align: center; padding: 10px; font-size: 14px;
+  background: var(--on-accent); color: var(--accent); }
+.tray-row button.quiet { background: none; color: var(--on-accent); border: 1px solid rgba(244,239,227,.4); }
+
+.scrim { position: fixed; inset: 0; background: rgba(19,28,51,.42); z-index: 60; }
+.modal { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; max-width: 480px; margin: 0 auto;
+  background: var(--ground); padding: 20px var(--gutter) max(20px, env(safe-area-inset-bottom));
+  max-height: 78vh; overflow-y: auto; }
+.modal h3 { font-family: 'Zen Old Mincho', serif; font-size: 19px; margin: 0; }
+.modal label { display: block; margin: 16px 0 5px; font-size: 10.5px; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--ink-2); }
+.modal textarea { width: 100%; font: inherit; font-size: 15px; padding: 11px; background: var(--card);
+  border: 1px solid var(--rule); border-radius: 2px; color: inherit; resize: vertical; }
+.modal .hint { font-size: 12.5px; color: var(--ink-2); line-height: 1.6; margin: 9px 0 0; }

@@ -1,0 +1,55 @@
+/* DIRECTION B — two rooms. The page itself changes when you cross over. */
+
+body[data-variant='b'][data-side='theirs'] { --ground: #eeeae2; --ground-2: #e3ded4; --rule: #d8d1c4;
+  --card: #faf8f4; --whose: var(--support); }
+body[data-variant='b'][data-side='mine'] { --whose: var(--accent); }
+body[data-variant='b'] { background: var(--ground); transition: background .25s ease; }
+body[data-variant='b'] .sheet, body[data-variant='b'] .wrap { background: var(--ground); }
+
+/* the threshold */
+/* The band is the room's name. Its bottom edge is a noren — a split curtain you
+   pass under — cut into the band itself so it never sits over the page. */
+.b-thresh { position: sticky; top: 0; z-index: 20; background: var(--whose); color: var(--on-accent);
+  display: flex; align-items: stretch; padding-bottom: 8px;
+  -webkit-mask-image: linear-gradient(#000 0 0), repeating-linear-gradient(90deg, #000 0 26px, transparent 26px 32px);
+  -webkit-mask-size: 100% calc(100% - 8px), 100% 8px;
+  -webkit-mask-position: 0 0, 0 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-image: linear-gradient(#000 0 0), repeating-linear-gradient(90deg, #000 0 26px, transparent 26px 32px);
+  mask-size: 100% calc(100% - 8px), 100% 8px;
+  mask-position: 0 0, 0 100%;
+  mask-repeat: no-repeat; }
+
+body[data-variant='b'] .sheet { padding-top: 10px; }
+.b-here { padding: 11px var(--gutter); flex: 1; min-width: 0; }
+.b-here-k { margin: 0; font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; opacity: .62; }
+.b-here-t { margin: 1px 0 0; font-family: 'Zen Old Mincho', serif; font-size: 17px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-cross { padding: 11px var(--gutter) 11px 14px; text-align: right; border-left: 1px solid rgba(244,239,227,.28);
+  color: inherit; max-width: 58%; }
+.b-cross-k { display: block; font-size: 10.5px; letter-spacing: .15em; text-transform: uppercase; opacity: .62; }
+.b-cross-t { display: block; font-family: 'Zen Old Mincho', serif; font-size: 17px; line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b-cross-t em { font-style: normal; opacity: .75; }
+
+/* the whole sheet carries a spine in the colour of the room */
+body[data-variant='b'] .pad { border-left: 2px solid var(--whose); }
+
+/* a marked line: a dot in the margin, and not one word until asked */
+.b-row { position: relative; padding-left: 15px; }
+.b-row::before { content: ''; position: absolute; left: 0; top: 17px; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--accent); }
+body[data-variant='b'][data-side='theirs'] .b-diff::before { background: var(--support); }
+li.step.b-row::before { top: 22px; }
+.b-body { flex: 1; }
+
+/* the Ghost — struck through, dimmed, dot hollow: a line that is really there,
+   in another recipe */
+.b-ghost::before { background: none; border: 1.5px solid var(--support); }
+body[data-variant='b'][data-side='theirs'] .b-ghost::before { border-color: var(--accent); }
+.b-ghost .line, .b-ghost p { text-decoration: line-through; text-decoration-thickness: 1px;
+  text-decoration-color: rgba(92,90,85,.55); color: var(--ink-2); opacity: .78; }
+li.b-ghost .read { display: none; }
+
+.b-row.is-open { background: var(--card); }
+.b-row.is-took::before { background: var(--accent); box-shadow: 0 0 0 3px rgba(29,43,76,.16); }

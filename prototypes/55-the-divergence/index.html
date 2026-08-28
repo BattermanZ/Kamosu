@@ -1,0 +1,58 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. Kamosu issue #55.
+  Three directions for THE SWITCH between two whole recipes, and HOW A GHOST
+  READS, switchable with ?v=a|b|c&side=mine|theirs and the floating bar.
+  ADR 0014 already chose the switch-and-Ghosts shape; only its reading is here.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Kamosu — the divergence prototype (#55)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@400;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="noren.css">
+  <link rel="stylesheet" href="a.css">
+  <link rel="stylesheet" href="b.css">
+  <link rel="stylesheet" href="c.css">
+  <style>
+    /* Shell and scaffolding only — never part of a design being judged. */
+    #bar {
+      position: fixed; z-index: 9999; left: 50%; top: 8px;
+      transform: translateX(-50%); display: flex; align-items: center; gap: 2px;
+      background: #101014; color: #fff; border: 1px solid #3a3a44; border-radius: 999px;
+      padding: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.45); font: 500 13px/1 ui-sans-serif, system-ui, sans-serif;
+      opacity: .93; max-width: calc(100vw - 16px); flex-wrap: wrap; justify-content: center;
+    }
+    #bar button { font: inherit; background: none; border: 0; color: #fff; cursor: pointer;
+      padding: 8px 11px; border-radius: 999px; }
+    #bar button:hover { background: #2a2a33; }
+    #bar .lbl { padding: 0 10px; white-space: nowrap; letter-spacing: .01em; }
+    @media (max-width: 620px) { #bar .lbl em { display: none; } #bar button { padding: 8px 8px; } }
+    #bar .lbl b { font-weight: 700; }
+    #bar .lbl em { font-style: normal; }
+    #bar .sep { width: 1px; align-self: stretch; background: #3a3a44; margin: 3px 4px; }
+    #bar .scr[aria-current="true"] { background: #fff; color: #101014; }
+
+    .pairpanel { position: fixed; left: 50%; transform: translateX(-50%); bottom: 0; z-index: 61;
+      width: min(480px, 100%); max-height: 82vh; overflow-y: auto; background: #101014; color: #e8e8ee;
+      padding: 16px 18px calc(18px + env(safe-area-inset-bottom));
+      font: 400 13px/1.55 ui-sans-serif, system-ui, sans-serif; }
+    .pairpanel-h { margin: 0 0 14px; color: #a0a0b0; font-size: 12px; line-height: 1.6; }
+    .pairpanel h4 { margin: 14px 0 6px; font-size: 11px; letter-spacing: .15em; text-transform: uppercase; color: #7f7f92; }
+    .pairpanel ul { list-style: none; margin: 0; padding: 0; }
+    .pairpanel li { border-top: 1px solid #2a2a33; padding: 8px 0; }
+    .pairpanel li b { display: block; color: #8fd6a6; font-size: 12px; }
+    .pairpanel li span { display: block; color: #d2d2dc; }
+    .pairpanel li i { color: #6f6f80; }
+    .pairpanel li em { display: block; color: #7f7f92; font-size: 11.5px; font-style: normal; margin-top: 3px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="bar" role="group" aria-label="Prototype variant switcher"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

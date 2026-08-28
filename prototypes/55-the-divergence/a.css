@@ -1,0 +1,29 @@
+/* DIRECTION A — two tabs, captions on everything. */
+
+.a-switch { position: sticky; top: 0; z-index: 20; background: var(--ground);
+  border-bottom: 1px solid var(--rule); padding: 10px var(--gutter); }
+.a-seg { display: flex; border: 1px solid var(--accent); border-radius: 2px; overflow: hidden; }
+.a-seg button { flex: 1; text-align: center; padding: 9px 0; font-size: 14px; color: var(--accent); }
+.a-seg button.on { background: var(--accent); color: var(--on-accent); }
+
+/* A marked line: a hairline in the margin, and the caption does the talking. */
+.a-row { position: relative; padding-left: 11px; }
+.a-row::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 2px; background: var(--accent); }
+.a-ghost::before { background: var(--support); }
+li.step.a-row { padding-left: 11px; }
+.a-body { flex: 1; }
+
+.a-capt { display: block; margin-top: 3px; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--accent); }
+.a-ghost .a-capt { color: var(--support); }
+
+/* The Ghost itself: struck through, and dimmed enough that it plainly isn't
+   part of the list you would shop from. */
+.a-ghost .line, .a-ghost p { text-decoration: line-through; text-decoration-thickness: 1px;
+  text-decoration-color: rgba(184,71,75,.6); color: var(--ink-2); }
+li.a-ghost .read { display: none; }
+.a-ghost .n { color: var(--support); opacity: .5; }
+
+.a-row.is-open { background: var(--card); }
+.a-row.is-took { background: rgba(29,43,76,.06); }
+.a-row.is-took .a-capt::after { content: ' · carried across'; }
