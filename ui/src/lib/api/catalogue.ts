@@ -434,7 +434,7 @@ export type CreateRecipeOutput = {
 	}[];
 };
 
-/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
+/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. */
 export type SaveRecipeVersionInput = {
 	branch_id: string;
 	change_note?: string;
@@ -443,6 +443,7 @@ export type SaveRecipeVersionInput = {
 		kind: "section" | "ingredient";
 		text: string;
 	}[];
+	kitchen_id?: string;
 	main_photo?: string | null;
 	name?: string;
 	note?: string | null;
@@ -464,7 +465,9 @@ export type SaveRecipeVersionInput = {
 };
 /** What save_recipe_version answers. */
 export type SaveRecipeVersionOutput = {
+	branch_id: string;
 	collapsed: boolean;
+	copied: boolean;
 	parent_version_id: string | null;
 	sequence: number;
 	version_id: string;
@@ -2783,7 +2786,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one.",
+		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -2823,6 +2826,9 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"kitchen_id": {
+					"type": "string"
 				},
 				"main_photo": {
 					"type": [
@@ -2929,7 +2935,14 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
 				"collapsed": {
+					"type": "boolean"
+				},
+				"copied": {
+					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
 					"type": "boolean"
 				},
 				"parent_version_id": {
@@ -2946,10 +2959,12 @@ export const CATALOGUE = [
 				}
 			},
 			"required": [
+				"branch_id",
 				"version_id",
 				"parent_version_id",
 				"sequence",
-				"collapsed"
+				"collapsed",
+				"copied"
 			],
 			"type": "object"
 		}
@@ -4191,7 +4206,7 @@ export interface KamosuClient {
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. */
+	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;

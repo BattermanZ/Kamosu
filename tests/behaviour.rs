@@ -967,7 +967,7 @@ async fn rapid_re_saves_collapse_and_history_stays_append_only() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn only_a_kitchen_member_may_touch_its_branches() {
+async fn only_a_kitchen_member_may_create_or_read_its_recipes() {
     let app = support::spawn_app();
     let (_owner, owner_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
     let stranger = app.core.create_person("Marc").expect("person");
@@ -997,13 +997,272 @@ async fn only_a_kitchen_member_may_touch_its_branches() {
         &json!({ "branch_id": branch_id }).to_string(),
     );
     assert_eq!(status, 401);
+}
 
-    let (status, _) = app.post_op(
-        "save_recipe_version",
-        Some(&stranger_key),
-        &json!({ "branch_id": branch_id, "title": "Soupe froide" }).to_string(),
+// --- Copy (issue #54) ---------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editing_a_recipe_your_kitchen_holds_writes_an_ordinary_version() {
+    // The unremarkable case, stated as its own acceptance criterion: a save
+    // by a member of the Branch's own Kitchen is never a Copy.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
     );
-    assert_eq!(status, 401);
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    backdate_branch_head(&app, &branch_id);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Soupe au pistou" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["copied"], json!(false));
+    assert_eq!(
+        saved["result"]["branch_id"],
+        json!(branch_id),
+        "an ordinary edit stays on the same Branch"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
+    let app = support::spawn_app();
+    let (owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
+    // Marc's only Kitchen is the Home Kitchen create_person gives him — so
+    // the default (no kitchen_id said) lands the Copy there.
+    let copier = app.core.create_person("Marc").expect("person");
+    let copier_key = app
+        .core
+        .mint_access_key(&copier, "browser", false)
+        .unwrap()
+        .secret;
+    let copier_kitchen: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT home_kitchen_id FROM people WHERE id = ?1",
+                rusqlite::params![copier],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&owner_key),
+        &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
+    );
+    let source_branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let lineage_id = created["result"]["lineage_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let first_version = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    backdate_branch_head(&app, &source_branch_id);
+    let (_, edited) = app.post_op(
+        "save_recipe_version",
+        Some(&owner_key),
+        &json!({ "branch_id": source_branch_id, "title": "Soupe au pistou" }).to_string(),
+    );
+    let source_head = edited["result"]["version_id"].as_str().unwrap().to_string();
+
+    // Marc's Kitchen has never held this Branch. Changing it is a Copy: it
+    // starts Marc's own Branch of the same Lineage, at the Version he
+    // changed, rather than writing onto Aurélien's.
+    let (status, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&copier_key),
+        &json!({ "branch_id": source_branch_id, "title": "Soupe au pistou, sans ail" }).to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(copied["result"]["copied"], json!(true));
+    let new_branch_id = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_ne!(
+        new_branch_id, source_branch_id,
+        "a Copy carries your Kitchen's Hand and a fresh Branch id"
+    );
+    assert_eq!(
+        copied["result"]["parent_version_id"],
+        json!(source_head),
+        "starts at the Version being changed"
+    );
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&copier_key),
+        &json!({ "branch_id": new_branch_id }).to_string(),
+    );
+    let recipe = &read_back["result"];
+    assert_eq!(recipe["lineage_id"], json!(lineage_id), "the same Lineage");
+    assert_eq!(
+        recipe["kitchen_id"],
+        json!(copier_kitchen),
+        "held by your Kitchen"
+    );
+
+    let copier_kitchen_hand: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT hand_id FROM kitchens WHERE id = ?1",
+                rusqlite::params![copier_kitchen],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(
+        recipe["hand_id"],
+        json!(copier_kitchen_hand),
+        "the new Branch carries your Kitchen's Hand"
+    );
+
+    let versions = recipe["versions"].as_array().unwrap();
+    assert_eq!(
+        versions.len(),
+        3,
+        "the whole chain behind it, nothing truncated"
+    );
+    assert_eq!(
+        versions[0]["version_id"],
+        json!(first_version),
+        "the copied chain reaches the first Version"
+    );
+    assert_eq!(
+        versions[0]["hand_id"],
+        json!(owner),
+        "original authorship is carried across exactly as it was"
+    );
+    assert_eq!(versions[1]["version_id"], json!(source_head));
+    assert_eq!(versions[1]["hand_id"], json!(owner));
+    assert_eq!(versions[2]["hand_id"], json!(copier));
+    assert_eq!(
+        versions[2]["content"]["title"],
+        json!("Soupe au pistou, sans ail")
+    );
+
+    // The source Branch, in Aurélien's Kitchen, is left exactly as it was.
+    let (_, source_read) = app.post_op(
+        "get_recipe",
+        Some(&owner_key),
+        &json!({ "branch_id": source_branch_id }).to_string(),
+    );
+    assert_eq!(
+        source_read["result"]["versions"].as_array().unwrap().len(),
+        2,
+        "a Copy never touches the Branch it started from"
+    );
+    assert_eq!(source_read["result"]["head_version_id"], json!(source_head));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saving_unchanged_content_from_another_kitchen_starts_no_copy() {
+    // Merely receiving or viewing a recipe must never create a Branch — and
+    // neither must a "save" that changes nothing, even from a Kitchen that
+    // has never held this Branch (CONTEXT.md, "Copy": "It happens at the
+    // moment of the change, never at the moment of receipt").
+    let app = support::spawn_app();
+    let (_owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_copier, copier_key, copier_kitchen) = person_with_kitchen(&app, "Marc");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&owner_key),
+        &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, unchanged) = app.post_op(
+        "save_recipe_version",
+        Some(&copier_key),
+        &json!({ "branch_id": branch_id, "title": "Soupe" }).to_string(),
+    );
+    assert_eq!(status, 200, "{unchanged}");
+    assert_eq!(unchanged["result"]["copied"], json!(false));
+    assert_eq!(unchanged["result"]["branch_id"], json!(branch_id));
+
+    let branches_in_copier_kitchen: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM branches WHERE kitchen_id = ?1",
+                rusqlite::params![copier_kitchen],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(
+        branches_in_copier_kitchen, 0,
+        "no Branch was started in the reader's Kitchen"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copy_may_be_held_by_a_kitchen_named_explicitly() {
+    // "A question only ever put to someone who cooks in more than one"
+    // (CONTEXT.md, "Home Kitchen") — the default is the Home Kitchen, but a
+    // Person cooking in several may say which one holds the Copy.
+    let app = support::spawn_app();
+    let (_owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let copier = app.core.create_person("Marc").expect("person");
+    let copier_key = app
+        .core
+        .mint_access_key(&copier, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, second_kitchen) = app.post_op(
+        "create_kitchen",
+        Some(&copier_key),
+        &json!({ "name": "Marc's Other Kitchen" }).to_string(),
+    );
+    let second_kitchen_id = second_kitchen["result"]["id"].as_str().unwrap().to_string();
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&owner_key),
+        &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
+    );
+    let source_branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&copier_key),
+        &json!({
+            "branch_id": source_branch_id,
+            "title": "Soupe, ma version",
+            "kitchen_id": second_kitchen_id,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(copied["result"]["copied"], json!(true));
+    let new_branch_id = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&copier_key),
+        &json!({ "branch_id": new_branch_id }).to_string(),
+    );
+    assert_eq!(
+        read_back["result"]["kitchen_id"],
+        json!(second_kitchen_id),
+        "held by the Kitchen named explicitly, not the Home Kitchen"
+    );
 }
 
 // --- The recipe as written (issue #43) ---------------------------------------

@@ -1422,6 +1422,16 @@ impl Core {
     /// window collapses into the Version already being shaped, rather than
     /// starting a new one (ADR 0004). Saving content identical to what is
     /// already there mints nothing.
+    ///
+    /// Changing a recipe your Kitchen did not write is a **Copy**
+    /// (CONTEXT.md, "Copy"): it happens here, at the moment of the change,
+    /// never at the moment of merely reading `branch_id`. `kitchen_id` names
+    /// which of the caller's own Kitchens this save is on behalf of — their
+    /// Home Kitchen unless they say otherwise — and a Copy is made the moment
+    /// that Kitchen turns out not to be the one that already holds this
+    /// Branch: a brand new Branch of the same Lineage, held by that Kitchen,
+    /// carrying the whole chain behind it, starting at the Version being
+    /// changed. The Branch being edited is never touched by a Copy.
     #[allow(clippy::too_many_arguments)]
     pub fn save_recipe_version(
         &self,
@@ -1430,22 +1440,46 @@ impl Core {
         input: &Value,
         name: Option<&str>,
         change_note: Option<&str>,
+        kitchen_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
         let version_id = fingerprint_content(&content);
         let content_text = canonical_json(&content);
 
         self.db().with_conn(|conn| {
-            let kitchen_id: String = conn
+            let (owning_kitchen_id, lineage_id, language): (String, String, String) = conn
                 .query_row(
-                    "SELECT kitchen_id FROM branches WHERE id = ?1",
+                    "SELECT kitchen_id, lineage_id, language FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, &caller.person_id)?;
+
+            // Which of the caller's own Kitchens this save is on behalf of.
+            // Named explicitly, or — when the caller already cooks in the
+            // Kitchen that holds this Branch — that same Kitchen, so an
+            // ordinary edit by a co-editor never needs to say so. Only a
+            // caller whose Kitchens hold none of them falls back to their
+            // Home Kitchen (CONTEXT.md, "Home Kitchen").
+            let target_kitchen_id = match kitchen_id {
+                Some(id) => id.to_string(),
+                None if is_member(conn, &owning_kitchen_id, &caller.person_id)? => {
+                    owning_kitchen_id.clone()
+                }
+                None => conn
+                    .query_row(
+                        "SELECT home_kitchen_id FROM people WHERE id = ?1",
+                        params![caller.person_id],
+                        |row| row.get::<_, Option<String>>(0),
+                    )
+                    .optional()
+                    .map_err(|e| OpError::internal(format!("cannot read Home Kitchen: {e}")))?
+                    .flatten()
+                    .ok_or_else(|| OpError::internal("this Person has no Home Kitchen"))?,
+            };
+            ensure_member(conn, &target_kitchen_id, &caller.person_id)?;
 
             let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content): (
                 i64,
@@ -1478,12 +1512,15 @@ impl Core {
 
             if version_id == head_version_id {
                 // Identical content: the fingerprint already names this state,
-                // so there is nothing new to save.
+                // so there is nothing new to save — and merely reading a
+                // recipe you cannot change must never start a Copy.
                 return Ok(json!({
+                    "branch_id": branch_id,
                     "version_id": version_id,
                     "parent_version_id": head_parent_id,
                     "sequence": head_sequence,
                     "collapsed": false,
+                    "copied": false,
                 }));
             }
 
@@ -1499,10 +1536,78 @@ impl Core {
             // onto the new Version rather than being silently lost. A line
             // that actually changed loses its Reading, which is ADR 0002's
             // "re-reading the edited line refreshes the Reading" (the
-            // refresh itself is deferred: nothing here re-parses it).
+            // refresh itself is deferred: nothing here re-parses it). This
+            // holds identically for a Copy's first save: it is starting
+            // exactly at this head.
             let head_content: Value = serde_json::from_str(&head_content)
                 .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
             carry_forward_readings(conn, &head_version_id, &head_content, &version_id, &content)?;
+
+            if target_kitchen_id != owning_kitchen_id {
+                // Copy: your Kitchen did not write this Branch, so the change
+                // starts a new one of its own — the source Branch is left
+                // exactly as it was.
+                let new_branch_id = format!("b_{}", hex::encode(random_bytes(8)));
+                let kitchen_hand_id: String = conn
+                    .query_row(
+                        "SELECT hand_id FROM kitchens WHERE id = ?1",
+                        params![target_kitchen_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
+
+                conn.execute(
+                    "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        new_branch_id,
+                        lineage_id,
+                        target_kitchen_id,
+                        kitchen_hand_id,
+                        language,
+                        version_id
+                    ],
+                )
+                .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
+
+                // The whole chain behind the Version being changed, carried
+                // across verbatim — same Versions, same Hands, same names and
+                // change notes, nothing truncated.
+                conn.execute(
+                    "INSERT INTO branch_versions \
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at) \
+                     SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at \
+                       FROM branch_versions WHERE branch_id = ?2",
+                    params![new_branch_id, branch_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot carry the chain onto the new Branch: {e}")))?;
+
+                conn.execute(
+                    "INSERT INTO branch_versions \
+                     (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        new_branch_id,
+                        head_sequence + 1,
+                        version_id,
+                        head_version_id,
+                        caller.person_id,
+                        name,
+                        change_note,
+                        caller.access_key_id
+                    ],
+                )
+                .map_err(|e| OpError::internal(format!("cannot append Version: {e}")))?;
+
+                return Ok(json!({
+                    "branch_id": new_branch_id,
+                    "version_id": version_id,
+                    "parent_version_id": head_version_id,
+                    "sequence": head_sequence + 1,
+                    "collapsed": false,
+                    "copied": true,
+                }));
+            }
 
             let collapse = within_window && head_hand_id == caller.person_id;
             if collapse {
@@ -1547,10 +1652,12 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot move Branch head: {e}")))?;
 
             Ok(json!({
+                "branch_id": branch_id,
                 "version_id": version_id,
                 "parent_version_id": if collapse { head_parent_id } else { Some(head_version_id) },
                 "sequence": if collapse { head_sequence } else { head_sequence + 1 },
                 "collapsed": collapse,
+                "copied": false,
             }))
         })
     }

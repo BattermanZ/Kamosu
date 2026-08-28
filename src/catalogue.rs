@@ -489,7 +489,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Save a new state of a Recipe onto a Branch — the whole \
                       recipe as written, replacing what was there. A rapid \
                       re-save by the same Hand collapses into the Version \
-                      already being shaped rather than starting a new one.",
+                      already being shaped rather than starting a new one. \
+                      Changing a recipe your Kitchen did not write is a \
+                      Copy: it starts a new Branch of the same Lineage, held \
+                      by your Kitchen, starting at the Version you changed and \
+                      carrying the whole chain behind it — the Branch you \
+                      changed is left untouched.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -498,12 +503,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: json!({
                 "type": "object",
                 "properties": {
+                    "branch_id": { "type": "string" },
                     "version_id": { "type": "string" },
                     "parent_version_id": { "type": ["string", "null"] },
                     "sequence": { "type": "integer" },
                     "collapsed": { "type": "boolean" },
+                    "copied": {
+                        "type": "boolean",
+                        "description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+                    },
                 },
-                "required": ["version_id", "parent_version_id", "sequence", "collapsed"],
+                "required": ["branch_id", "version_id", "parent_version_id", "sequence", "collapsed", "copied"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::save_recipe_version,
@@ -1075,12 +1085,17 @@ fn create_recipe_input_schema() -> Value {
 
 /// `save_recipe_version`'s input: the whole recipe as it now reads, replacing
 /// what was on the Branch — a title is the one field that must be there.
+/// `kitchen_id` names which of the caller's own Kitchens this save is on
+/// behalf of, for when a Copy is about to start (CONTEXT.md, "Copy") — their
+/// Home Kitchen unless they say otherwise, a question only ever put to
+/// someone who cooks in more than one.
 fn save_recipe_version_input_schema() -> Value {
     let mut properties = recipe_content_properties();
     let map = properties.as_object_mut().expect("object schema");
     map.insert("branch_id".to_string(), json!({ "type": "string" }));
     map.insert("name".to_string(), json!({ "type": "string" }));
     map.insert("change_note".to_string(), json!({ "type": "string" }));
+    map.insert("kitchen_id".to_string(), json!({ "type": "string" }));
     json!({
         "type": "object",
         "properties": properties,

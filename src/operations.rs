@@ -506,14 +506,16 @@ pub fn save_recipe_version(
         .and_then(Value::as_str)
         .ok_or_else(|| {
             OpError::bad_request(
-                "save_recipe_version takes { branch_id, title, name?, change_note?, yield?, \
-             prep_time_minutes?, cook_time_minutes?, note?, source?, ingredients?, steps? }",
+                "save_recipe_version takes { branch_id, title, name?, change_note?, \
+             kitchen_id?, yield?, prep_time_minutes?, cook_time_minutes?, note?, source?, \
+             ingredients?, steps? }",
             )
         })?;
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
+    let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.save_recipe_version(caller, branch_id, &input, name, change_note)
+    core.save_recipe_version(caller, branch_id, &input, name, change_note, kitchen_id)
 }
 
 pub fn rename_version(
