@@ -705,9 +705,33 @@ pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Resu
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("start_attempt takes { branch_id }"))?;
+        .ok_or_else(|| OpError::bad_request("start_attempt takes { branch_id, version_id? }"))?;
+    let version_id = input.get("version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.start_attempt(&caller.person_id, branch_id)
+    core.start_attempt(&caller.person_id, branch_id, version_id)
+}
+
+pub fn get_thread(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("get_thread takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.get_thread(&caller.person_id, branch_id)
+}
+
+pub fn branch_point(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "branch_point takes { branch_a_id, branch_b_id }";
+    let branch_a_id = input
+        .get("branch_a_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let branch_b_id = input
+        .get("branch_b_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.branch_point(&caller.person_id, branch_a_id, branch_b_id)
 }
 
 pub fn advance_attempt(

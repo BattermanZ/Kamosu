@@ -236,6 +236,9 @@
   .sticky {
     position: sticky;
   }
+  .inset-0 {
+    inset: var(--spacing-0);
+  }
   .inset-x-0 {
     inset-inline: var(--spacing-0);
   }
@@ -251,6 +254,12 @@
   .z-20 {
     z-index: 20;
   }
+  .z-30 {
+    z-index: 30;
+  }
+  .float-right {
+    float: right;
+  }
   .mx-auto {
     margin-inline: auto;
   }
@@ -262,6 +271,9 @@
   }
   .mt-3 {
     margin-top: var(--spacing-3);
+  }
+  .mt-4 {
+    margin-top: var(--spacing-4);
   }
   .mt-6 {
     margin-top: var(--spacing-6);
@@ -287,6 +299,9 @@
   .ml-1 {
     margin-left: var(--spacing-1);
   }
+  .ml-6 {
+    margin-left: var(--spacing-6);
+  }
   .block {
     display: block;
   }
@@ -298,6 +313,9 @@
   }
   .grid {
     display: grid;
+  }
+  .h-2 {
+    height: var(--spacing-2);
   }
   .h-4 {
     height: var(--spacing-4);
@@ -311,8 +329,14 @@
   .h-12 {
     height: var(--spacing-12);
   }
+  .max-h-\[70vh\] {
+    max-height: 70vh;
+  }
   .min-h-12 {
     min-height: var(--spacing-12);
+  }
+  .w-2 {
+    width: var(--spacing-2);
   }
   .w-4 {
     width: var(--spacing-4);
@@ -326,8 +350,14 @@
   .w-12 {
     width: var(--spacing-12);
   }
+  .w-full {
+    width: 100%;
+  }
   .max-w-2xl {
     max-width: var(--container-2xl);
+  }
+  .min-w-0 {
+    min-width: var(--spacing-0);
   }
   .flex-1 {
     flex: 1;
@@ -350,11 +380,17 @@
   .items-end {
     align-items: flex-end;
   }
+  .items-start {
+    align-items: flex-start;
+  }
   .justify-between {
     justify-content: space-between;
   }
   .justify-center {
     justify-content: center;
+  }
+  .gap-0 {
+    gap: var(--spacing-0);
   }
   .gap-1 {
     gap: var(--spacing-1);
@@ -374,6 +410,9 @@
   .overflow-x-auto {
     overflow-x: auto;
   }
+  .overflow-y-auto {
+    overflow-y: auto;
+  }
   .rounded-sm {
     border-radius: var(--radius-sm);
   }
@@ -389,9 +428,21 @@
     border-top-style: var(--tw-border-style);
     border-top-width: 1px;
   }
+  .border-t-2 {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 2px;
+  }
   .border-b {
     border-bottom-style: var(--tw-border-style);
     border-bottom-width: 1px;
+  }
+  .border-l {
+    border-left-style: var(--tw-border-style);
+    border-left-width: 1px;
+  }
+  .border-l-4 {
+    border-left-style: var(--tw-border-style);
+    border-left-width: 4px;
   }
   .border-dashed {
     --tw-border-style: dashed;
@@ -402,6 +453,12 @@
   }
   .border-rule {
     border-color: var(--color-rule);
+  }
+  .border-support {
+    border-color: var(--color-support);
+  }
+  .border-support-2 {
+    border-color: var(--color-support-2);
   }
   .bg-accent {
     background-color: var(--color-accent);
@@ -415,14 +472,29 @@
   .bg-ground-2 {
     background-color: var(--color-ground-2);
   }
+  .bg-ink\/40 {
+    background-color: color-mix(in srgb, #1a1a1c 40%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-ink) 40%, transparent);
+    }
+  }
+  .bg-rule {
+    background-color: var(--color-rule);
+  }
   .p-2 {
     padding: var(--spacing-2);
   }
   .p-3 {
     padding: var(--spacing-3);
   }
+  .p-4 {
+    padding: var(--spacing-4);
+  }
   .p-6 {
     padding: var(--spacing-6);
+  }
+  .px-1 {
+    padding-inline: var(--spacing-1);
   }
   .px-2 {
     padding-inline: var(--spacing-2);
@@ -435,6 +507,9 @@
   }
   .px-gutter {
     padding-inline: var(--spacing-gutter);
+  }
+  .py-1 {
+    padding-block: var(--spacing-1);
   }
   .py-2 {
     padding-block: var(--spacing-2);
@@ -460,8 +535,14 @@
   .pb-tabbar {
     padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom));
   }
+  .pl-3 {
+    padding-left: var(--spacing-3);
+  }
   .text-center {
     text-align: center;
+  }
+  .text-left {
+    text-align: left;
   }
   .font-display {
     font-family: var(--font-display);
@@ -474,6 +555,10 @@
   .text-body {
     font-size: var(--text-body);
     line-height: var(--tw-leading, var(--text-body--line-height));
+  }
+  .text-line {
+    font-size: var(--text-line);
+    line-height: var(--tw-leading, var(--text-line--line-height));
   }
   .text-label {
     font-size: var(--text-label);
@@ -501,6 +586,9 @@
   }
   .text-on-accent {
     color: var(--color-on-accent);
+  }
+  .text-support-2 {
+    color: var(--color-support-2);
   }
   .uppercase {
     text-transform: uppercase;

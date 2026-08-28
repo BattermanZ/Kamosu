@@ -5,6 +5,7 @@
 //! Authorisation lives here, beneath both Doors, keyed on a Credential. A
 //! permission check written inside a Door is a bug.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use argon2::{
@@ -2117,6 +2118,130 @@ impl Core {
         })
     }
 
+    /// Read the Thread: every Version of every Branch of one Lineage this
+    /// Person can see, oldest first per Branch, with every Attempt hanging
+    /// off it (CONTEXT.md, "Thread"). `branch_id` is only the entry point —
+    /// any Branch of the Lineage answers the same Thread. Forking itself is
+    /// left for the caller to read out of `parent_version_id`, or to ask
+    /// `branch_point` to compute authoritatively; this never calls it, so
+    /// the two stay independently testable.
+    pub fn get_thread(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let (lineage_id, kitchen_id): (String, String) = conn
+                .query_row(
+                    "SELECT lineage_id, kitchen_id FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+
+            // Every Branch of this Lineage held by a Kitchen this Person
+            // cooks in — never a Branch in a Kitchen they do not belong to,
+            // the same boundary a single `get_recipe` enforces.
+            let mut statement = conn
+                .prepare(
+                    "SELECT DISTINCT branches.id, branches.kitchen_id, branches.hand_id, \
+                            branches.language, branches.head_version_id \
+                       FROM branches \
+                       JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
+                      WHERE branches.lineage_id = ?1 AND kitchen_members.person_id = ?2 \
+                      ORDER BY branches.created_at ASC, branches.id ASC",
+                )
+                .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
+            let branches: Vec<Value> = statement
+                .query_map(params![lineage_id, person_id], |row| {
+                    Ok(json!({
+                        "branch_id": row.get::<_, String>(0)?,
+                        "kitchen_id": row.get::<_, String>(1)?,
+                        "hand_id": row.get::<_, String>(2)?,
+                        "language": row.get::<_, String>(3)?,
+                        "head_version_id": row.get::<_, String>(4)?,
+                    }))
+                })
+                .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
+
+            let mut versions: Vec<Value> = Vec::new();
+            let mut visible_version_ids: HashSet<String> = HashSet::new();
+            for branch in &branches {
+                let this_branch_id = branch["branch_id"]
+                    .as_str()
+                    .expect("branch_id is always a string");
+                let mut vstmt = conn
+                    .prepare(
+                        "SELECT sequence, version_id, parent_version_id, hand_id, name, \
+                                change_note, created_at \
+                           FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence ASC",
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
+                let rows: Vec<Value> = vstmt
+                    .query_map(params![this_branch_id], |row| {
+                        Ok(json!({
+                            "branch_id": this_branch_id,
+                            "sequence": row.get::<_, i64>(0)?,
+                            "version_id": row.get::<_, String>(1)?,
+                            "parent_version_id": row.get::<_, Option<String>>(2)?,
+                            "hand_id": row.get::<_, String>(3)?,
+                            "name": row.get::<_, Option<String>>(4)?,
+                            "change_note": row.get::<_, Option<String>>(5)?,
+                            "created_at": row.get::<_, String>(6)?,
+                        }))
+                    })
+                    .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
+                for row in &rows {
+                    visible_version_ids.insert(
+                        row["version_id"]
+                            .as_str()
+                            .expect("version_id is always a string")
+                            .to_string(),
+                    );
+                }
+                versions.extend(rows);
+            }
+
+            Ok(json!({
+                "lineage_id": lineage_id,
+                "branches": branches,
+                "versions": versions,
+                "attempts": attempts_for_lineage(conn, &lineage_id, &visible_version_ids)?,
+            }))
+        })
+    }
+
+    /// The Branch Point between two Branches: the last Version they share,
+    /// found by walking both chains back until they meet (CONTEXT.md,
+    /// "Branch Point") — never declared, always computed. Every valid
+    /// Branch's chain is contiguous back to a first Version with no parent;
+    /// a chain that is not, or two chains that never converge, is reported
+    /// as a damaged Bundle rather than answered with a guess.
+    pub fn branch_point(
+        &self,
+        person_id: &str,
+        branch_a_id: &str,
+        branch_b_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let chain_a = ordered_chain(conn, branch_a_id, person_id)?;
+            let chain_b = ordered_chain(conn, branch_b_id, person_id)?;
+            let ancestors_a: HashSet<&str> = chain_a.iter().map(String::as_str).collect();
+            for version_id in chain_b.iter().rev() {
+                if ancestors_a.contains(version_id.as_str()) {
+                    return Ok(json!({ "version_id": version_id }));
+                }
+            }
+            Err(OpError::internal(format!(
+                "damaged Bundle: {branch_a_id} and {branch_b_id} share no Version — \
+                 their chains never converge on the same first Version"
+            )))
+        })
+    }
+
     /// Correct a Reading on the Branch's current head Version: Kamosu's
     /// interpretation of one Ingredient Line, addressed by its position in
     /// that line's list. This never mints a Version and appears in no
@@ -2221,7 +2346,17 @@ impl Core {
     /// Version at this moment (ADR 0005) — a later edit to the recipe never
     /// turns this Attempt into a lie. "May I see this recipe" is the whole
     /// permission this needs, the same membership `get_recipe` checks.
-    pub fn start_attempt(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+    ///
+    /// `version_id`, given, cooks an older Version read back from the Thread
+    /// instead of the head — it must actually be one of this Branch's own
+    /// Versions, so an Attempt can never be pinned to content the caller
+    /// never had in front of them.
+    pub fn start_attempt(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        version_id: Option<&str>,
+    ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let (lineage_id, kitchen_id, head_version_id): (String, String, String) = conn
                 .query_row(
@@ -2234,6 +2369,26 @@ impl Core {
                 .ok_or_else(|| OpError::not_found("no such Branch"))?;
             ensure_member(conn, &kitchen_id, person_id)?;
 
+            let pinned_version_id = match version_id {
+                None => head_version_id,
+                Some(requested) => {
+                    let on_this_branch: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM branch_versions \
+                              WHERE branch_id = ?1 AND version_id = ?2",
+                            params![branch_id, requested],
+                            |row| row.get(0),
+                        )
+                        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
+                    if on_this_branch == 0 {
+                        return Err(OpError::bad_request(
+                            "version_id is not a Version of this Branch",
+                        ));
+                    }
+                    requested.to_string()
+                }
+            };
+
             if let Some(existing) = in_progress_attempt(conn, &lineage_id, person_id)? {
                 let id = existing["id"].as_str().expect("id is always a string");
                 touch_attempt(conn, id)?;
@@ -2244,7 +2399,7 @@ impl Core {
             conn.execute(
                 "INSERT INTO attempts (id, lineage_id, person_id, version_id) \
                  VALUES (?1, ?2, ?3, ?4)",
-                params![id, lineage_id, person_id, head_version_id],
+                params![id, lineage_id, person_id, pinned_version_id],
             )
             .map_err(|e| OpError::internal(format!("cannot start Attempt: {e}")))?;
             attempt_by_id(conn, &id)
@@ -2904,39 +3059,50 @@ fn attempt_state_owned_by(
 /// `resumable` is computed in SQL rather than in Rust: still In Progress
 /// and within three days of `last_action_at` (ADR 0010) — the same clock
 /// every other timestamp in Kamosu is stamped from, `strftime('now')`.
+/// The columns `attempt_row` expects, in exactly this order — shared by every
+/// query that reads an Attempt back in `attempt_schema`'s shape, so the one
+/// query reading a single Attempt and the one listing a Lineage's worth of
+/// them can never drift apart on what "resumable" means or how a Yield or
+/// ticked Ingredients are stored.
+const ATTEMPT_COLUMNS: &str = "id, lineage_id, person_id, version_id, current_step_index, \
+     ticked_ingredients, cooking_yield, note, rating, finished_at, \
+     created_at, last_action_at, \
+     CASE WHEN finished_at IS NULL \
+               AND julianday('now') - julianday(last_action_at) <= 3.0 \
+          THEN 1 ELSE 0 END AS resumable";
+
+/// One Attempt row, in `ATTEMPT_COLUMNS`' order, read into `attempt_schema`'s
+/// shape. `resumable` is computed in SQL rather than in Rust: still In
+/// Progress and within three days of `last_action_at` (ADR 0010).
+fn attempt_row(row: &rusqlite::Row) -> rusqlite::Result<Value> {
+    let ticked_ingredients: String = row.get(5)?;
+    let cooking_yield: Option<String> = row.get(6)?;
+    let resumable: i64 = row.get(12)?;
+    Ok(json!({
+        "id": row.get::<_, String>(0)?,
+        "lineage_id": row.get::<_, String>(1)?,
+        "person_id": row.get::<_, String>(2)?,
+        "version_id": row.get::<_, String>(3)?,
+        "current_step_index": row.get::<_, i64>(4)?,
+        "ticked_ingredients": serde_json::from_str::<Value>(&ticked_ingredients)
+            .unwrap_or(json!([])),
+        "cooking_yield": cooking_yield
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .unwrap_or(Value::Null),
+        "note": row.get::<_, Option<String>>(7)?,
+        "rating": row.get::<_, Option<i64>>(8)?,
+        "finished_at": row.get::<_, Option<String>>(9)?,
+        "created_at": row.get::<_, String>(10)?,
+        "last_action_at": row.get::<_, String>(11)?,
+        "resumable": resumable != 0,
+    }))
+}
+
 fn attempt_by_id(conn: &Connection, id: &str) -> Result<Value, OpError> {
     conn.query_row(
-        "SELECT id, lineage_id, person_id, version_id, current_step_index, \
-                ticked_ingredients, cooking_yield, note, rating, finished_at, \
-                created_at, last_action_at, \
-                CASE WHEN finished_at IS NULL \
-                          AND julianday('now') - julianday(last_action_at) <= 3.0 \
-                     THEN 1 ELSE 0 END AS resumable \
-           FROM attempts WHERE id = ?1",
+        &format!("SELECT {ATTEMPT_COLUMNS} FROM attempts WHERE id = ?1"),
         params![id],
-        |row| {
-            let ticked_ingredients: String = row.get(5)?;
-            let cooking_yield: Option<String> = row.get(6)?;
-            let resumable: i64 = row.get(12)?;
-            Ok(json!({
-                "id": row.get::<_, String>(0)?,
-                "lineage_id": row.get::<_, String>(1)?,
-                "person_id": row.get::<_, String>(2)?,
-                "version_id": row.get::<_, String>(3)?,
-                "current_step_index": row.get::<_, i64>(4)?,
-                "ticked_ingredients": serde_json::from_str::<Value>(&ticked_ingredients)
-                    .unwrap_or(json!([])),
-                "cooking_yield": cooking_yield
-                    .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-                    .unwrap_or(Value::Null),
-                "note": row.get::<_, Option<String>>(7)?,
-                "rating": row.get::<_, Option<i64>>(8)?,
-                "finished_at": row.get::<_, Option<String>>(9)?,
-                "created_at": row.get::<_, String>(10)?,
-                "last_action_at": row.get::<_, String>(11)?,
-                "resumable": resumable != 0,
-            }))
-        },
+        attempt_row,
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
@@ -2960,6 +3126,83 @@ fn in_progress_attempt(
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?;
     id.map(|id| attempt_by_id(conn, &id)).transpose()
+}
+
+/// Every Attempt on a Lineage whose pinned Version is one the Thread is
+/// actually showing — the same shape `attempt_by_id` reads a single one in.
+/// An Attempt pinned to a Version on a Branch this caller cannot see (a
+/// Kitchen they do not belong to) is left out rather than leaked just
+/// because it shares a Lineage id.
+fn attempts_for_lineage(
+    conn: &Connection,
+    lineage_id: &str,
+    visible_version_ids: &HashSet<String>,
+) -> Result<Vec<Value>, OpError> {
+    let mut statement = conn
+        .prepare(&format!(
+            "SELECT {ATTEMPT_COLUMNS} FROM attempts WHERE lineage_id = ?1 ORDER BY created_at ASC"
+        ))
+        .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
+    let rows: Vec<Value> = statement
+        .query_map(params![lineage_id], attempt_row)
+        .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?
+        .collect::<Result<Vec<Value>, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
+    Ok(rows
+        .into_iter()
+        .filter(|attempt| {
+            visible_version_ids.contains(
+                attempt["version_id"]
+                    .as_str()
+                    .expect("version_id is always a string"),
+            )
+        })
+        .collect())
+}
+
+/// One Branch's Versions, oldest first, verified contiguous back to a first
+/// Version with no parent. A gap anywhere in that chain — a parent that is
+/// not the previous row's own Version — means the Bundle this Branch arrived
+/// in was damaged, and `branch_point` needs to say so rather than guess.
+fn ordered_chain(
+    conn: &Connection,
+    branch_id: &str,
+    person_id: &str,
+) -> Result<Vec<String>, OpError> {
+    let kitchen_id: String = conn
+        .query_row(
+            "SELECT kitchen_id FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+        .ok_or_else(|| OpError::not_found("no such Branch"))?;
+    ensure_member(conn, &kitchen_id, person_id)?;
+
+    let mut statement = conn
+        .prepare(
+            "SELECT version_id, parent_version_id FROM branch_versions \
+              WHERE branch_id = ?1 ORDER BY sequence ASC",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
+    let rows: Vec<(String, Option<String>)> = statement
+        .query_map(params![branch_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
+
+    let mut previous: Option<&str> = None;
+    for (version_id, parent_version_id) in &rows {
+        if parent_version_id.as_deref() != previous {
+            return Err(OpError::internal(format!(
+                "damaged Bundle: Branch {branch_id} does not chain back to a first Version"
+            )));
+        }
+        previous = Some(version_id.as_str());
+    }
+
+    Ok(rows.into_iter().map(|(version_id, _)| version_id).collect())
 }
 
 /// Record that the cook just did something — starting, resuming or

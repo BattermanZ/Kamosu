@@ -4236,6 +4236,350 @@ async fn a_read_only_access_key_cannot_start_or_advance_an_attempt_but_can_read_
     assert_eq!(status, 401);
 }
 
+// --- The Thread and the Branch Point (issue #53) ------------------------------
+
+/// One Lineage, two Branches, one Person who cooks in both Kitchens the
+/// Branches live in — a Kitchen holding several Branches of one Lineage
+/// (CONTEXT.md, "Branch"), built with real Operations rather than raw SQL.
+/// The shared trunk runs four Versions deep before the fork, and each side
+/// grows two more afterwards, so the chain the Branch Point has to walk is
+/// genuinely deep rather than a two-Version toy.
+/// Returns `(person_id, key, lineage_id, branch_a, branch_b, branch_point_version_id)`.
+fn two_branches_of_one_deep_lineage(
+    app: &support::TestApp,
+) -> (String, String, String, String, String, String) {
+    let (person, key, kitchen_a) = person_with_kitchen(app, "Aurélien");
+    let kitchen_b: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT home_kitchen_id FROM people WHERE id = ?1",
+                rusqlite::params![person],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_a, "title": "Poulet Coréen v1" }).to_string(),
+    );
+    let branch_a = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let lineage_id = created["result"]["lineage_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Three more ordinary saves on the trunk before anyone forks — the "deep
+    // chain" the Branch Point walk has to cross.
+    for n in 2..=4 {
+        backdate_branch_head(app, &branch_a);
+        app.post_op(
+            "save_recipe_version",
+            Some(&key),
+            &json!({ "branch_id": branch_a, "title": format!("Poulet Coréen v{n}") }).to_string(),
+        );
+    }
+
+    let (_, at_fork) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_a }).to_string(),
+    );
+    let branch_point_version_id = at_fork["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The fork: saving into a *different* Kitchen the same Person cooks in
+    // is a Copy, exactly as an in-instance Translation would be — it starts
+    // branch_b at the Version just read, carrying the whole chain behind it.
+    backdate_branch_head(app, &branch_a);
+    let (_, forked) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_a, "kitchen_id": kitchen_b, "title": "Poulet Coréen, sans friture" })
+            .to_string(),
+    );
+    assert_eq!(forked["result"]["copied"], json!(true));
+    let branch_b = forked["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Two more saves on each side, so both Branches keep growing past the
+    // fork rather than stopping the instant they diverge.
+    for n in 1..=2 {
+        backdate_branch_head(app, &branch_a);
+        app.post_op(
+            "save_recipe_version",
+            Some(&key),
+            &json!({ "branch_id": branch_a, "title": format!("Mine, take {n}") }).to_string(),
+        );
+        backdate_branch_head(app, &branch_b);
+        app.post_op(
+            "save_recipe_version",
+            Some(&key),
+            &json!({ "branch_id": branch_b, "kitchen_id": kitchen_b, "title": format!("Sans friture, take {n}") })
+                .to_string(),
+        );
+    }
+
+    (
+        person,
+        key,
+        lineage_id,
+        branch_a,
+        branch_b,
+        branch_point_version_id,
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_thread_shows_every_branch_the_caller_can_see_and_hides_the_rest() {
+    let app = support::spawn_app();
+    let (aurelien, key, lineage_id, branch_a, branch_b, _fork_version) =
+        two_branches_of_one_deep_lineage(&app);
+
+    // An Attempt hangs off the Thread by Lineage, not by Branch (ADR 0005) —
+    // cooked from branch_a's head, pinned there regardless of branch_b.
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_a }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    let (status, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_a }).to_string(),
+    );
+    assert_eq!(status, 200, "{thread}");
+    let result = &thread["result"];
+    assert_eq!(result["lineage_id"], json!(lineage_id));
+
+    let branch_ids: Vec<&str> = result["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["branch_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        branch_ids.len(),
+        2,
+        "both Branches of the Lineage are visible to a Person who cooks in both Kitchens: {result}"
+    );
+    assert!(branch_ids.contains(&branch_a.as_str()));
+    assert!(branch_ids.contains(&branch_b.as_str()));
+
+    let versions = result["versions"].as_array().unwrap();
+    assert_eq!(
+        versions
+            .iter()
+            .filter(|v| v["branch_id"] == json!(branch_a))
+            .count(),
+        6,
+        "branch_a's whole chain — 4 shared, 2 its own"
+    );
+    assert_eq!(
+        versions
+            .iter()
+            .filter(|v| v["branch_id"] == json!(branch_b))
+            .count(),
+        7,
+        "branch_b's whole chain — 4 carried across, 1 the fork itself, 2 its own"
+    );
+
+    let attempt_ids: Vec<&str> = result["attempts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert!(
+        attempt_ids.contains(&attempt_id.as_str()),
+        "the Attempt hangs off the Thread: {result}"
+    );
+
+    // A Person who cooks in only one of the two Kitchens sees only that
+    // Branch — no Version is hidden from someone who can see it, but a
+    // Branch in a Kitchen this Person does not belong to is not this
+    // Person's to see at all.
+    let branch_a_kitchen: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT kitchen_id FROM branches WHERE id = ?1",
+                rusqlite::params![branch_a],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    let marc = app.core.create_person("Marc").expect("person");
+    let marc_key = app
+        .core
+        .mint_access_key(&marc, "browser", false)
+        .unwrap()
+        .secret;
+    let invite = app
+        .core
+        .invite_to_kitchen(&aurelien, &branch_a_kitchen)
+        .unwrap()
+        .1;
+    app.core.accept_kitchen_invite(&marc, &invite).unwrap();
+
+    let (status, marcs_view) = app.post_op(
+        "get_thread",
+        Some(&marc_key),
+        &json!({ "branch_id": branch_a }).to_string(),
+    );
+    assert_eq!(status, 200, "{marcs_view}");
+    let marcs_branch_ids: Vec<&str> = marcs_view["result"]["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["branch_id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        marcs_branch_ids,
+        vec![branch_a.as_str()],
+        "Marc cooks in branch_a's Kitchen alone, so branch_b stays invisible to him: {marcs_view}"
+    );
+
+    // A stranger to both Kitchens is refused outright.
+    let stranger = app.core.create_person("Camille").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+    let (status, _) = app.post_op(
+        "get_thread",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_a }).to_string(),
+    );
+    assert_eq!(status, 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn branch_point_is_computed_by_walking_both_chains_across_a_deep_chain() {
+    let app = support::spawn_app();
+    let (_aurelien, key, _lineage_id, branch_a, branch_b, fork_version) =
+        two_branches_of_one_deep_lineage(&app);
+
+    let (status, point) = app.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": branch_a, "branch_b_id": branch_b }).to_string(),
+    );
+    assert_eq!(status, 200, "{point}");
+    assert_eq!(
+        point["result"]["version_id"],
+        json!(fork_version),
+        "the last Version two Branches share, walked rather than declared"
+    );
+
+    // Symmetric: asking the other way round answers the same Version.
+    let (_, reversed) = app.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": branch_b, "branch_b_id": branch_a }).to_string(),
+    );
+    assert_eq!(reversed["result"]["version_id"], json!(fork_version));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_damaged_chain_is_reported_as_damage_rather_than_guessed() {
+    let app = support::spawn_app();
+    let (_aurelien, key, _lineage_id, branch_a, branch_b, _fork_version) =
+        two_branches_of_one_deep_lineage(&app);
+
+    // Sever branch_a's chain: its second Version now claims a parent that is
+    // not the row before it — a Bundle arriving broken, simulated directly,
+    // since a healthy instance never produces this on its own.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branch_versions SET parent_version_id = ( \
+                     SELECT version_id FROM branch_versions \
+                      WHERE branch_id = ?1 AND sequence = 4 \
+                 ) WHERE branch_id = ?1 AND sequence = 2",
+                rusqlite::params![branch_a],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("sever the chain");
+
+    let (status, point) = app.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": branch_a, "branch_b_id": branch_b }).to_string(),
+    );
+    assert_ne!(status, 200, "{point}");
+    assert_eq!(point["ok"], json!(false));
+    assert!(
+        point["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("damaged"),
+        "a broken chain is reported as damage, not silently accommodated: {point}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn starting_to_cook_can_pin_to_an_old_version_read_back_from_the_thread() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, first) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let first_version_id = first["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    backdate_branch_head(&app, &branch_id);
+    app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Katsu Curry, épicé" }).to_string(),
+    );
+
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "version_id": first_version_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    assert_eq!(
+        started["result"]["version_id"],
+        json!(first_version_id),
+        "cooking from a past Version pins the Attempt there, not to the head"
+    );
+    assert_eq!(started["result"]["lineage_id"], json!(lineage_id));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn start_attempt_rejects_a_version_id_that_is_not_this_branchs_own() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "version_id": "v_never_saved" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("bad_request"));
+}
+
 // --- The Import, its ledger and its Report (issue #68) -----------------------
 
 /// Ask `import` and wait for its Job to finish, handing back the Report.

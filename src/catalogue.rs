@@ -700,6 +700,56 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_recipe,
         },
         Operation {
+            name: "get_thread",
+            summary: "Read the Thread: every Version of every Branch of \
+                      one Lineage this Person can see, oldest first per \
+                      Branch, with every Attempt hanging off it. \
+                      branch_id is only the entry point — any Branch of \
+                      the Lineage answers the same Thread.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: thread_schema(),
+            handler: crate::operations::get_thread,
+        },
+        Operation {
+            name: "branch_point",
+            summary: "The last Version two Branches share, found by \
+                      walking both chains back until they meet — never \
+                      declared, always computed. A chain that does not \
+                      converge on a shared first Version answers a \
+                      damaged-Bundle error rather than a guess.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_a_id": { "type": "string" },
+                    "branch_b_id": { "type": "string" },
+                },
+                "required": ["branch_a_id", "branch_b_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "version_id": { "type": "string" } },
+                "required": ["version_id"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::branch_point,
+        },
+        Operation {
             name: "set_reading",
             summary: "Correct the Reading on one Ingredient Line of a Recipe's \
                       current state — an amount, a Unit and a target, sent \
@@ -743,8 +793,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       back the one already In Progress for this Lineage — \
                       the cooking screen is that Attempt, never a second \
                       thing beside it. Pinned by fingerprint to the \
-                      Branch's head Version at this moment. Anyone who can \
-                      see the recipe may.",
+                      Branch's head Version at this moment, or to \
+                      version_id — an older Version read back from the \
+                      Thread — when one is given. Anyone who can see the \
+                      recipe may.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -752,7 +804,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "branch_id": { "type": "string" } },
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "version_id": { "type": "string" },
+                },
                 "required": ["branch_id"],
                 "additionalProperties": false,
             }),
@@ -1233,6 +1288,66 @@ fn recipe_schema() -> Value {
             "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
             "origin_address", "head_version_id", "versions", "tags", "related_recipes"
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// One occurrence of one Version on one Branch, as the Thread shows it —
+/// deliberately lighter than a `recipe_schema` entry: no content, no
+/// Readings, since the Thread reads back names and *what changed* lines, not
+/// the recipe itself (CONTEXT.md, "Thread").
+fn thread_version_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "branch_id": { "type": "string" },
+            "sequence": { "type": "integer" },
+            "version_id": { "type": "string" },
+            "parent_version_id": { "type": ["string", "null"] },
+            "hand_id": { "type": "string" },
+            "name": { "type": ["string", "null"] },
+            "change_note": { "type": ["string", "null"] },
+            "created_at": { "type": "string" },
+        },
+        "required": [
+            "branch_id", "sequence", "version_id", "parent_version_id",
+            "hand_id", "name", "change_note", "created_at",
+        ],
+        "additionalProperties": false,
+    })
+}
+
+/// One Branch as the Thread lists it — brief, since its Versions are carried
+/// in `versions` rather than nested here.
+fn thread_branch_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "branch_id": { "type": "string" },
+            "kitchen_id": { "type": "string" },
+            "hand_id": { "type": "string" },
+            "language": { "type": "string" },
+            "head_version_id": { "type": "string" },
+        },
+        "required": ["branch_id", "kitchen_id", "hand_id", "language", "head_version_id"],
+        "additionalProperties": false,
+    })
+}
+
+/// The shape a Thread is served in — read back by `get_thread`. Every
+/// Branch of the Lineage the caller can see, every Version of each (oldest
+/// first, forking read out of `parent_version_id` or asked of
+/// `branch_point`), and every Attempt hanging off it.
+fn thread_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "lineage_id": { "type": "string" },
+            "branches": { "type": "array", "items": thread_branch_schema() },
+            "versions": { "type": "array", "items": thread_version_schema() },
+            "attempts": { "type": "array", "items": attempt_schema() },
+        },
+        "required": ["lineage_id", "branches", "versions", "attempts"],
         "additionalProperties": false,
     })
 }

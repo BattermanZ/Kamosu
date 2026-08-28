@@ -647,6 +647,60 @@ export type GetRecipeOutput = {
 	}[];
 };
 
+/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
+export type GetThreadInput = {
+	branch_id: string;
+};
+/** What get_thread answers. */
+export type GetThreadOutput = {
+	attempts: {
+		cooking_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		created_at: string;
+		current_step_index: number;
+		finished_at: string | null;
+		id: string;
+		last_action_at: string;
+		lineage_id: string;
+		note: string | null;
+		person_id: string;
+		rating: number | null;
+		resumable: boolean;
+		ticked_ingredients: number[];
+		version_id: string;
+	}[];
+	branches: {
+		branch_id: string;
+		hand_id: string;
+		head_version_id: string;
+		kitchen_id: string;
+		language: string;
+	}[];
+	lineage_id: string;
+	versions: {
+		branch_id: string;
+		change_note: string | null;
+		created_at: string;
+		hand_id: string;
+		name: string | null;
+		parent_version_id: string | null;
+		sequence: number;
+		version_id: string;
+	}[];
+};
+
+/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+export type BranchPointInput = {
+	branch_a_id: string;
+	branch_b_id: string;
+};
+/** What branch_point answers. */
+export type BranchPointOutput = {
+	version_id: string;
+};
+
 /** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
 export type SetReadingInput = {
 	amount?: string | null;
@@ -665,9 +719,10 @@ export type SetReadingOutput = {
 	} | null;
 };
 
-/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment. Anyone who can see the recipe may. */
+/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 export type StartAttemptInput = {
 	branch_id: string;
+	version_id?: string;
 };
 /** What start_attempt answers. */
 export type StartAttemptOutput = {
@@ -1147,6 +1202,18 @@ export interface Operations {
 	get_recipe: {
 		input: GetRecipeInput;
 		output: GetRecipeOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_thread: {
+		input: GetThreadInput;
+		output: GetThreadOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	branch_point: {
+		input: BranchPointInput;
+		output: BranchPointOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -4087,6 +4154,251 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "get_thread",
+		"summary": "Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempts": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"cooking_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"current_step_index": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"finished_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_action_at": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"person_id": {
+								"type": "string"
+							},
+							"rating": {
+								"maximum": 5,
+								"minimum": 1,
+								"type": [
+									"integer",
+									"null"
+								]
+							},
+							"resumable": {
+								"type": "boolean"
+							},
+							"ticked_ingredients": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"lineage_id",
+							"person_id",
+							"version_id",
+							"current_step_index",
+							"ticked_ingredients",
+							"cooking_yield",
+							"note",
+							"rating",
+							"finished_at",
+							"resumable",
+							"created_at",
+							"last_action_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"branches": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"head_version_id": {
+								"type": "string"
+							},
+							"kitchen_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"branch_id",
+							"kitchen_id",
+							"hand_id",
+							"language",
+							"head_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"versions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parent_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sequence": {
+								"type": "integer"
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"branch_id",
+							"sequence",
+							"version_id",
+							"parent_version_id",
+							"hand_id",
+							"name",
+							"change_note",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"lineage_id",
+				"branches",
+				"versions",
+				"attempts"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "branch_point",
+		"summary": "The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_a_id": {
+					"type": "string"
+				},
+				"branch_b_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_a_id",
+				"branch_b_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"version_id"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "set_reading",
 		"summary": "Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread.",
 		"permission": "person",
@@ -4174,13 +4486,16 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "start_attempt",
-		"summary": "Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment. Anyone who can see the recipe may.",
+		"summary": "Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
 				"branch_id": {
+					"type": "string"
+				},
+				"version_id": {
 					"type": "string"
 				}
 			},
@@ -5455,6 +5770,8 @@ export const METHOD_NAMES = {
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
 	get_recipe: 'getRecipe',
+	get_thread: 'getThread',
+	branch_point: 'branchPoint',
 	set_reading: 'setReading',
 	start_attempt: 'startAttempt',
 	advance_attempt: 'advanceAttempt',
@@ -5542,9 +5859,13 @@ export interface KamosuClient {
 	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;
 	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
+	/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
+	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;
+	/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
 	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
-	/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment. Anyone who can see the recipe may. */
+	/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 	startAttempt(input: StartAttemptInput): Promise<Answer<'start_attempt'>>;
 	/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
 	advanceAttempt(input: AdvanceAttemptInput): Promise<Answer<'advance_attempt'>>;
