@@ -4963,6 +4963,20 @@ mod web_link_importer {
         assert_eq!(arrived.len(), 1, "{report}");
         assert_eq!(arrived[0]["status"], json!("created"));
         assert_eq!(arrived[0]["title"], json!("Just a blog post"));
+
+        // The Source link is the page itself, not only a title with nowhere
+        // to point back to (ADR 0025's "a bare name and a link").
+        let branch_id = arrived[0]["branch_id"].as_str().unwrap();
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        assert_eq!(
+            recipe["result"]["versions"][0]["content"]["source"]["link"],
+            json!(url)
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -5044,6 +5058,17 @@ mod web_link_importer {
         );
     }
 
+    /// One shape's fixture: its page path, its HTML, the title it must land
+    /// with, and an optional deeper check against the landed recipe's full
+    /// content (`None` when the title alone is what this shape risks
+    /// getting wrong).
+    struct Shape {
+        name: &'static str,
+        html: String,
+        title: &'static str,
+        check: Option<fn(&Value)>,
+    }
+
     /// Every one of the seventeen catalogued JSON-LD shapes, driven through
     /// the real `import_web_link` Operation rather than the pure extractor —
     /// the shapes already exercised by the tests above (`@graph` nesting,
@@ -5068,84 +5093,135 @@ mod web_link_importer {
             )
         };
 
-        let pages: Vec<(&str, String)> = vec![
-            (
-                "type-as-array",
-                ld(r#"{"@type":["Recipe","NewsArticle"],"name":"Array Typed"}"#),
-            ),
-            (
-                "top-level-array",
-                ld(r#"[{"@type":"WebSite"},{"@type":"Recipe","name":"From Array"}]"#),
-            ),
-            (
-                "malformed-block-then-valid",
-                "<html><head>\
+        let shapes = vec![
+            Shape {
+                name: "type-as-array",
+                html: ld(r#"{"@type":["Recipe","NewsArticle"],"name":"Array Typed"}"#),
+                title: "Array Typed",
+                check: None,
+            },
+            Shape {
+                name: "top-level-array",
+                html: ld(r#"[{"@type":"WebSite"},{"@type":"Recipe","name":"From Array"}]"#),
+                title: "From Array",
+                check: None,
+            },
+            Shape {
+                name: "malformed-block-then-valid",
+                html: "<html><head>\
                  <script type=\"application/ld+json\">{ not json </script>\
                  <script type=\"application/ld+json\">{\"@type\":\"Recipe\",\"name\":\"Survivor\"}</script>\
                  </head><body></body></html>"
                     .to_string(),
-            ),
-            (
-                "instructions-as-howtostep-array",
-                ld(r#"{"@type":"Recipe","name":"Steps","recipeInstructions":[
+                title: "Survivor",
+                check: None,
+            },
+            Shape {
+                name: "instructions-as-howtostep-array",
+                html: ld(r#"{"@type":"Recipe","name":"Steps","recipeInstructions":[
                     {"@type":"HowToStep","text":"Mix"},{"@type":"HowToStep","text":"Bake"}
                 ]}"#),
-            ),
-            (
-                "instructions-as-single-string",
-                ld(r#"{"@type":"Recipe","name":"One Line","recipeInstructions":"Mix everything and bake."}"#),
-            ),
-            (
-                "image-as-object",
-                ld(r#"{"@type":"Recipe","name":"Pic Object","image":{"@type":"ImageObject","url":"https://example.invalid/dish.jpg"}}"#),
-            ),
-            (
-                "image-as-array",
-                ld(r#"{"@type":"Recipe","name":"Pic Array","image":["https://example.invalid/one.jpg","https://example.invalid/two.jpg"]}"#),
-            ),
-            (
-                "yield-as-array",
-                ld(r#"{"@type":"Recipe","name":"Yield Array","recipeYield":["4 servings","4"]}"#),
-            ),
-            (
-                "yield-as-number",
-                ld(r#"{"@type":"Recipe","name":"Yield Number","recipeYield":6}"#),
-            ),
-            (
-                "category-as-array",
-                ld(r#"{"@type":"Recipe","name":"Category Array","recipeCategory":["Dessert","Snack"]}"#),
-            ),
+                title: "Steps",
+                check: Some(|content| {
+                    let steps = content["steps"].as_array().unwrap();
+                    assert_eq!(steps[0]["text"], json!("Mix"), "{content}");
+                    assert_eq!(steps[1]["text"], json!("Bake"), "{content}");
+                }),
+            },
+            Shape {
+                name: "instructions-as-single-string",
+                html: ld(r#"{"@type":"Recipe","name":"One Line","recipeInstructions":"Mix everything and bake."}"#),
+                title: "One Line",
+                check: Some(|content| {
+                    let steps = content["steps"].as_array().unwrap();
+                    assert_eq!(steps.len(), 1, "{content}");
+                    assert_eq!(steps[0]["text"], json!("Mix everything and bake."));
+                }),
+            },
+            Shape {
+                // The photo fetch to a deliberately unreachable address fails
+                // and is dropped (#45's rule) — this proves the object shape
+                // parses without crashing, not that a real photo lands (the
+                // full download path is proven separately, against a real
+                // image server, in `importing_a_web_link_lands_the_recipe_with_its_photo_and_matches_on_reimport`).
+                name: "image-as-object",
+                html: ld(r#"{"@type":"Recipe","name":"Pic Object","image":{"@type":"ImageObject","url":"https://example.invalid/dish.jpg"}}"#),
+                title: "Pic Object",
+                check: Some(|content| assert_eq!(content["main_photo"], Value::Null, "{content}")),
+            },
+            Shape {
+                name: "image-as-array",
+                html: ld(r#"{"@type":"Recipe","name":"Pic Array","image":["https://example.invalid/one.jpg","https://example.invalid/two.jpg"]}"#),
+                title: "Pic Array",
+                check: Some(|content| assert_eq!(content["main_photo"], Value::Null, "{content}")),
+            },
+            Shape {
+                name: "yield-as-array",
+                html: ld(r#"{"@type":"Recipe","name":"Yield Array","recipeYield":["4 servings","4"]}"#),
+                title: "Yield Array",
+                check: Some(|content| {
+                    assert_eq!(content["yield"]["amount"], json!("4"), "{content}");
+                    assert_eq!(content["yield"]["noun"], json!("servings"), "{content}");
+                }),
+            },
+            Shape {
+                name: "yield-as-number",
+                html: ld(r#"{"@type":"Recipe","name":"Yield Number","recipeYield":6}"#),
+                title: "Yield Number",
+                check: Some(|content| {
+                    assert_eq!(content["yield"]["amount"], json!("6"), "{content}");
+                    assert_eq!(content["yield"]["noun"], json!("servings"), "{content}");
+                }),
+            },
+            Shape {
+                name: "category-as-array",
+                html: ld(r#"{"@type":"Recipe","name":"Category Array","recipeCategory":["Dessert","Snack"]}"#),
+                title: "Category Array",
+                check: None,
+            },
+            Shape {
+                // Row 17: HTML entities. Proven at the extractor level in
+                // `src/web_import.rs`'s own unit tests too, but landed through
+                // a real Operation here so all seventeen shapes are proven
+                // end to end at least once, not only against the pure
+                // extractor.
+                name: "html-entities",
+                html: ld(r#"{"@type":"Recipe","name":"Salt &amp; Pepper","recipeIngredient":["salt &amp; pepper"]}"#),
+                title: "Salt & Pepper",
+                check: Some(|content| {
+                    let ingredients = content["ingredients"].as_array().unwrap();
+                    assert_eq!(ingredients[0]["text"], json!("salt & pepper"), "{content}");
+                }),
+            },
         ];
-        let expected_titles: Vec<&str> = pages
-            .iter()
-            .map(|(name, _)| match *name {
-                "type-as-array" => "Array Typed",
-                "top-level-array" => "From Array",
-                "malformed-block-then-valid" => "Survivor",
-                "instructions-as-howtostep-array" => "Steps",
-                "instructions-as-single-string" => "One Line",
-                "image-as-object" => "Pic Object",
-                "image-as-array" => "Pic Array",
-                "yield-as-array" => "Yield Array",
-                "yield-as-number" => "Yield Number",
-                "category-as-array" => "Category Array",
-                other => panic!("no expected title for {other}"),
-            })
-            .collect();
-        let names: Vec<&str> = pages.iter().map(|(name, _)| *name).collect();
 
+        let pages: Vec<(&str, String)> = shapes
+            .iter()
+            .map(|shape| (shape.name, shape.html.clone()))
+            .collect();
         let base = spawn_pages_server(&pages);
 
-        for (name, expected_title) in names.iter().zip(expected_titles.iter()) {
-            let url = format!("{base}/pages/{name}");
+        for shape in &shapes {
+            let url = format!("{base}/pages/{}", shape.name);
             let report = import_web_link_and_wait(&app, &key, &url);
             let arrived = report["arrived"].as_array().unwrap();
-            assert_eq!(arrived.len(), 1, "shape '{name}': {report}");
+            assert_eq!(arrived.len(), 1, "shape '{}': {report}", shape.name);
             assert_eq!(
                 arrived[0]["title"],
-                json!(*expected_title),
-                "shape '{name}' did not land with the expected title: {report}"
+                json!(shape.title),
+                "shape '{}' did not land with the expected title: {report}",
+                shape.name
             );
+            if let Some(check) = shape.check {
+                let branch_id = arrived[0]["branch_id"].as_str().unwrap();
+                let (status, recipe) = app.post_op(
+                    "get_recipe",
+                    Some(&key),
+                    &json!({ "branch_id": branch_id }).to_string(),
+                );
+                assert_eq!(status, 200, "shape '{}': {recipe}", shape.name);
+                check(&recipe["result"]["versions"][0]["content"]);
+            }
         }
     }
 

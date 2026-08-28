@@ -38,7 +38,11 @@ const MAX_REDIRECTS: usize = 5;
 pub struct ParsedRecipe {
     pub title: String,
     /// Whether a Recipe node was actually found, as opposed to the
-    /// no-structured-data fallback (title and Source alone, ADR 0025).
+    /// no-structured-data fallback (title and Source alone, ADR 0025). Read
+    /// by no production caller — `import_web_link` treats both cases the
+    /// same, landing whatever was found — but kept so the fallback path
+    /// itself is directly assertable in tests, rather than inferred from
+    /// every other field happening to be empty.
     pub found_recipe: bool,
     pub yield_amount_noun: Option<(String, String)>,
     pub prep_time_minutes: Option<i64>,
@@ -160,9 +164,10 @@ fn from_recipe_node(node: &Value, hostname: &str) -> ParsedRecipe {
     let title = text_field(node, "name").unwrap_or_else(|| hostname.to_string());
     let ingredients = string_array(node.get("recipeIngredient"));
     let steps = extract_steps(node.get("recipeInstructions"));
-    let image_url = extract_image(node.get("image")).filter(|u| !looks_like_favicon(u));
-    let source_text = author_name(node.get("author"))
-        .or_else(|| publisher_name(node.get("publisher")))
+    let image_url = first_string_or_field(node.get("image"), &["url", "contentUrl"])
+        .filter(|u| !looks_like_favicon(u));
+    let source_text = first_string_or_field(node.get("author"), &["name"])
+        .or_else(|| first_string_or_field(node.get("publisher"), &["name"]))
         .unwrap_or_else(|| hostname.to_string());
 
     // Decoded once, here, at the one place every text field this function
@@ -320,30 +325,17 @@ fn is_type_named(value: &Value, name: &str) -> bool {
     }
 }
 
-/// `image` arrives as a bare string, an `ImageObject` (`url` or `contentUrl`),
-/// or an array of either — take the first usable one.
-fn extract_image(value: Option<&Value>) -> Option<String> {
+/// A value that arrives as a bare string, an object carrying one of `fields`,
+/// or an array of either — take the first usable one. One shape covers
+/// `image` (`url`/`contentUrl`), `author` and `publisher` (`name`), since
+/// schema.org lets an author and a publisher take exactly the same shapes.
+fn first_string_or_field(value: Option<&Value>, fields: &[&str]) -> Option<String> {
     match value? {
-        Value::String(url) => Some(url.trim().to_string()).filter(|u| !u.is_empty()),
-        Value::Object(_) => text_field(value?, "url").or_else(|| text_field(value?, "contentUrl")),
-        Value::Array(items) => items.iter().find_map(|item| extract_image(Some(item))),
-        _ => None,
-    }
-}
-
-fn author_name(value: Option<&Value>) -> Option<String> {
-    match value? {
-        Value::String(name) => Some(name.trim().to_string()).filter(|s| !s.is_empty()),
-        Value::Object(_) => text_field(value?, "name"),
-        Value::Array(items) => items.iter().find_map(|item| author_name(Some(item))),
-        _ => None,
-    }
-}
-
-fn publisher_name(value: Option<&Value>) -> Option<String> {
-    match value? {
-        Value::String(name) => Some(name.trim().to_string()).filter(|s| !s.is_empty()),
-        Value::Object(_) => text_field(value?, "name"),
+        Value::String(text) => Some(text.trim().to_string()).filter(|s| !s.is_empty()),
+        Value::Object(_) => fields.iter().find_map(|field| text_field(value?, field)),
+        Value::Array(items) => items
+            .iter()
+            .find_map(|item| first_string_or_field(Some(item), fields)),
         _ => None,
     }
 }

@@ -560,7 +560,7 @@ pub fn import_web_link(
     let parsed = crate::web_import::extract_recipe(&html, &effective_url);
 
     // A photo that failed to fetch, decode or remake never fails the recipe
-    // (#212's rule for an uploaded picture, applied the same way to one
+    // (#45's rule for an uploaded picture, applied the same way to one
     // arriving by URL): the recipe still lands, simply without a photo.
     let main_photo = parsed.image_url.as_deref().and_then(|image_url| {
         if let Some(progress) = progress {
