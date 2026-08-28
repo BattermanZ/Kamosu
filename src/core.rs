@@ -1999,6 +1999,235 @@ impl Core {
         })
     }
 
+    // --- Cooking it: Attempts (#57, ADR 0005, ADR 0010) ---------------------
+
+    /// Start cooking a Recipe — creates the Attempt, or hands back the one
+    /// already In Progress for this Lineage: the cooking screen *is* that
+    /// Attempt while it lives, so starting twice is the same Attempt seen
+    /// twice, never a second one. Pinned by fingerprint to the Branch's head
+    /// Version at this moment (ADR 0005) — a later edit to the recipe never
+    /// turns this Attempt into a lie. "May I see this recipe" is the whole
+    /// permission this needs, the same membership `get_recipe` checks.
+    pub fn start_attempt(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let (lineage_id, kitchen_id, head_version_id): (String, String, String) = conn
+                .query_row(
+                    "SELECT lineage_id, kitchen_id, head_version_id FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+
+            if let Some(existing) = in_progress_attempt(conn, &lineage_id, person_id)? {
+                let id = existing["id"].as_str().expect("id is always a string");
+                touch_attempt(conn, id)?;
+                return attempt_by_id(conn, id);
+            }
+
+            let id = format!("at_{}", hex::encode(random_bytes(8)));
+            conn.execute(
+                "INSERT INTO attempts (id, lineage_id, person_id, version_id) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![id, lineage_id, person_id, head_version_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot start Attempt: {e}")))?;
+            attempt_by_id(conn, &id)
+        })
+    }
+
+    /// Move an In Progress Attempt forward: which Step, which Ingredients
+    /// are ticked, and the Yield being cooked to — a fact about this
+    /// cooking, held on the Attempt and never written as a deviation
+    /// (ADR 0010). Each of the three is sent whole, the same convention
+    /// `save_recipe_version` and `set_reading` use — never a per-field
+    /// patch — and any absent one is simply left as it stood.
+    pub fn advance_attempt(
+        &self,
+        person_id: &str,
+        attempt_id: &str,
+        current_step_index: Option<i64>,
+        ticked_ingredients: Option<&[i64]>,
+        cooking_yield: Option<&Value>,
+    ) -> Result<Value, OpError> {
+        if current_step_index.is_none() && ticked_ingredients.is_none() && cooking_yield.is_none() {
+            return Err(OpError::bad_request(
+                "advance_attempt takes at least one of current_step_index, \
+                 ticked_ingredients, cooking_yield",
+            ));
+        }
+        if current_step_index.is_some_and(|index| index < 0) {
+            return Err(OpError::bad_request(
+                "current_step_index must be zero or more",
+            ));
+        }
+
+        self.db().with_conn(|conn| {
+            let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
+            if state.finished_at.is_some() {
+                return Err(OpError::bad_request("this Attempt has already finished"));
+            }
+            let version_id = state.version_id;
+
+            if let Some(index) = current_step_index {
+                let steps_len = version_field_len(conn, &version_id, "steps")?;
+                if index >= steps_len {
+                    return Err(OpError::bad_request(
+                        "current_step_index is out of range for this recipe",
+                    ));
+                }
+                conn.execute(
+                    "UPDATE attempts SET current_step_index = ?2 WHERE id = ?1",
+                    params![attempt_id, index],
+                )
+                .map_err(|e| OpError::internal(format!("cannot advance Attempt: {e}")))?;
+            }
+            if let Some(indices) = ticked_ingredients {
+                let ingredients_len = version_field_len(conn, &version_id, "ingredients")?;
+                if indices.iter().any(|&i| i < 0 || i >= ingredients_len) {
+                    return Err(OpError::bad_request(
+                        "a ticked Ingredient index is out of range for this recipe",
+                    ));
+                }
+                let stored = serde_json::to_string(indices).expect("serialisable indices");
+                conn.execute(
+                    "UPDATE attempts SET ticked_ingredients = ?2 WHERE id = ?1",
+                    params![attempt_id, stored],
+                )
+                .map_err(|e| OpError::internal(format!("cannot tick Ingredients: {e}")))?;
+            }
+            if let Some(value) = cooking_yield {
+                let stored = match value {
+                    Value::Null => None,
+                    other => Some(
+                        serde_json::to_string(&parse_yield(other)?).expect("serialisable Yield"),
+                    ),
+                };
+                conn.execute(
+                    "UPDATE attempts SET cooking_yield = ?2 WHERE id = ?1",
+                    params![attempt_id, stored],
+                )
+                .map_err(|e| OpError::internal(format!("cannot set the cooking Yield: {e}")))?;
+            }
+
+            touch_attempt(conn, attempt_id)?;
+            attempt_by_id(conn, attempt_id)
+        })
+    }
+
+    /// End an In Progress Attempt. Ending is not what makes the cooking
+    /// real — starting already did (ADR 0010) — only what stops it being
+    /// In Progress.
+    pub fn finish_attempt(&self, person_id: &str, attempt_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
+            if state.finished_at.is_some() {
+                return Err(OpError::bad_request("this Attempt has already finished"));
+            }
+            conn.execute(
+                "UPDATE attempts SET finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), \
+                                      last_action_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
+                 WHERE id = ?1",
+                params![attempt_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot finish Attempt: {e}")))?;
+            attempt_by_id(conn, attempt_id)
+        })
+    }
+
+    /// Change an Attempt's free text or its five-star rating, whether it is
+    /// still In Progress or long finished — an Attempt is freely editable
+    /// by its cook (CONTEXT.md, "Attempt"), unlike the recipe it was cooked
+    /// from. `None` leaves a field as it stood; `Some(&Value::Null)` clears
+    /// it; any other value sets it, validated.
+    pub fn edit_attempt(
+        &self,
+        person_id: &str,
+        attempt_id: &str,
+        note: Option<&Value>,
+        rating: Option<&Value>,
+    ) -> Result<Value, OpError> {
+        if note.is_none() && rating.is_none() {
+            return Err(OpError::bad_request(
+                "edit_attempt takes at least one of note, rating",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
+
+            if let Some(value) = note {
+                let stored = match value {
+                    Value::Null => None,
+                    Value::String(text) => Some(required_text(text, "note")?.to_string()),
+                    _ => return Err(OpError::bad_request("note must be a string or null")),
+                };
+                conn.execute(
+                    "UPDATE attempts SET note = ?2 WHERE id = ?1",
+                    params![attempt_id, stored],
+                )
+                .map_err(|e| OpError::internal(format!("cannot save note: {e}")))?;
+            }
+            if let Some(value) = rating {
+                let stored = match value {
+                    Value::Null => None,
+                    Value::Number(number) => Some(
+                        number
+                            .as_i64()
+                            .filter(|n| (1..=5).contains(n))
+                            .ok_or_else(|| {
+                                OpError::bad_request("rating must be a whole number from 1 to 5")
+                            })?,
+                    ),
+                    _ => {
+                        return Err(OpError::bad_request(
+                            "rating must be a whole number from 1 to 5, or null",
+                        ));
+                    }
+                };
+                conn.execute(
+                    "UPDATE attempts SET rating = ?2 WHERE id = ?1",
+                    params![attempt_id, stored],
+                )
+                .map_err(|e| OpError::internal(format!("cannot save rating: {e}")))?;
+            }
+
+            // Correcting a note or a rating mid-cook is itself an action —
+            // the resume window counts from it exactly as advancing a Step
+            // does. Once finished, resuming is never offered regardless, so
+            // there is nothing to refresh.
+            if state.finished_at.is_none() {
+                touch_attempt(conn, attempt_id)?;
+            }
+            attempt_by_id(conn, attempt_id)
+        })
+    }
+
+    /// Delete an Attempt outright — the explicit way a false start is
+    /// undone, or any cooking record put away (ADR 0010). Never
+    /// soft-deleted: this is the whole of how an Attempt leaves.
+    pub fn delete_attempt(&self, person_id: &str, attempt_id: &str) -> Result<(), OpError> {
+        self.db().with_conn(|conn| {
+            attempt_state_owned_by(conn, attempt_id, person_id)?;
+            conn.execute("DELETE FROM attempts WHERE id = ?1", params![attempt_id])
+                .map_err(|e| OpError::internal(format!("cannot delete Attempt: {e}")))?;
+            Ok(())
+        })
+    }
+
+    /// Read the caller's own In Progress Attempt for a Lineage, if any —
+    /// how two devices cooking the same dish stay in step (the last one to
+    /// call `advance_attempt` is where the cook is), and whether resuming
+    /// should still be offered. Scoped to the caller's own Attempts alone,
+    /// so this needs no membership check of its own: whoever holds one
+    /// already passed it when they started.
+    pub fn get_current_attempt(&self, person_id: &str, lineage_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            Ok(json!({ "attempt": in_progress_attempt(conn, lineage_id, person_id)? }))
+        })
+    }
+
     /// Every Food this instance knows, each shown in the reader's Reading
     /// Language and falling back to whatever name it does have (#47).
     pub fn list_foods(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
@@ -2418,6 +2647,134 @@ fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
         parsed.push(json!({ "kind": kind, "text": text, "photo": photo }));
     }
     Ok(Value::Array(parsed))
+}
+
+/// The Attempt state every write Operation on it needs before doing
+/// anything else: what it was pinned to, and whether it has already
+/// finished. Not the full read shape `attempt_by_id` answers — just enough
+/// to decide whether the caller may act at all.
+struct AttemptState {
+    version_id: String,
+    finished_at: Option<String>,
+}
+
+/// Look up an Attempt's state and prove the caller owns it — the one check
+/// `advance_attempt`, `finish_attempt`, `edit_attempt` and `delete_attempt`
+/// all open with, since an Attempt is a private diary until its cook says
+/// otherwise (ADR 0005): no Kitchen membership substitutes for it.
+fn attempt_state_owned_by(
+    conn: &Connection,
+    attempt_id: &str,
+    person_id: &str,
+) -> Result<AttemptState, OpError> {
+    let (owner_id, version_id, finished_at): (String, String, Option<String>) = conn
+        .query_row(
+            "SELECT person_id, version_id, finished_at FROM attempts WHERE id = ?1",
+            params![attempt_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
+        .ok_or_else(|| OpError::not_found("no such Attempt"))?;
+    if owner_id != person_id {
+        return Err(OpError::unauthorized(
+            "this Attempt belongs to someone else",
+        ));
+    }
+    Ok(AttemptState {
+        version_id,
+        finished_at,
+    })
+}
+
+/// Read one Attempt back in the shape `attempt_schema` declares.
+/// `resumable` is computed in SQL rather than in Rust: still In Progress
+/// and within three days of `last_action_at` (ADR 0010) — the same clock
+/// every other timestamp in Kamosu is stamped from, `strftime('now')`.
+fn attempt_by_id(conn: &Connection, id: &str) -> Result<Value, OpError> {
+    conn.query_row(
+        "SELECT id, lineage_id, person_id, version_id, current_step_index, \
+                ticked_ingredients, cooking_yield, note, rating, finished_at, \
+                created_at, last_action_at, \
+                CASE WHEN finished_at IS NULL \
+                          AND julianday('now') - julianday(last_action_at) <= 3.0 \
+                     THEN 1 ELSE 0 END AS resumable \
+           FROM attempts WHERE id = ?1",
+        params![id],
+        |row| {
+            let ticked_ingredients: String = row.get(5)?;
+            let cooking_yield: Option<String> = row.get(6)?;
+            let resumable: i64 = row.get(12)?;
+            Ok(json!({
+                "id": row.get::<_, String>(0)?,
+                "lineage_id": row.get::<_, String>(1)?,
+                "person_id": row.get::<_, String>(2)?,
+                "version_id": row.get::<_, String>(3)?,
+                "current_step_index": row.get::<_, i64>(4)?,
+                "ticked_ingredients": serde_json::from_str::<Value>(&ticked_ingredients)
+                    .unwrap_or(json!([])),
+                "cooking_yield": cooking_yield
+                    .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                    .unwrap_or(Value::Null),
+                "note": row.get::<_, Option<String>>(7)?,
+                "rating": row.get::<_, Option<i64>>(8)?,
+                "finished_at": row.get::<_, Option<String>>(9)?,
+                "created_at": row.get::<_, String>(10)?,
+                "last_action_at": row.get::<_, String>(11)?,
+                "resumable": resumable != 0,
+            }))
+        },
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
+    .ok_or_else(|| OpError::not_found("no such Attempt"))
+}
+
+/// The one Attempt a Person may have In Progress on a Lineage at a time
+/// (ADR 0010), if any.
+fn in_progress_attempt(
+    conn: &Connection,
+    lineage_id: &str,
+    person_id: &str,
+) -> Result<Option<Value>, OpError> {
+    let id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM attempts WHERE lineage_id = ?1 AND person_id = ?2 \
+             AND finished_at IS NULL",
+            params![lineage_id, person_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?;
+    id.map(|id| attempt_by_id(conn, &id)).transpose()
+}
+
+/// Record that the cook just did something — starting, resuming or
+/// advancing — so the three-day resume window (ADR 0010) counts from now.
+fn touch_attempt(conn: &Connection, id: &str) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE attempts SET last_action_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
+        params![id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot update Attempt: {e}")))?;
+    Ok(())
+}
+
+/// How many entries a Version's `"steps"` or `"ingredients"` list holds —
+/// the bound `advance_attempt` checks a Step index or a ticked Ingredient
+/// index against, read from the pinned Version rather than the recipe's
+/// current head, since an Attempt never moves off the Version it started on.
+fn version_field_len(conn: &Connection, version_id: &str, field: &str) -> Result<i64, OpError> {
+    let content: String = conn
+        .query_row(
+            "SELECT content FROM versions WHERE id = ?1",
+            params![version_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?;
+    let content: Value = serde_json::from_str(&content)
+        .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
+    Ok(content[field].as_array().map(Vec::len).unwrap_or(0) as i64)
 }
 
 /// Create a Kitchen and seat its first member in one place — the shape a

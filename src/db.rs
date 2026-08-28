@@ -401,6 +401,53 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE readings ADD COLUMN food_id TEXT REFERENCES foods(id);
         "#,
     },
+    Migration {
+        version: 15,
+        description: "the Attempt: one cooking, In Progress on the server (#57, ADR 0005, ADR 0010)",
+        sql: r#"
+        -- An Attempt: one person's record of one cooking. Belongs to a
+        -- Lineage rather than a Branch, so cooking the dish is remembered
+        -- however it later diverges (ADR 0005), and is pinned by
+        -- `version_id` to the fingerprint of the Branch's head Version at
+        -- the moment cooking started — a later edit to the recipe never
+        -- turns this Attempt into a lie.
+        --
+        -- `current_step_index`, `ticked_ingredients` (a JSON array of
+        -- indices) and `cooking_yield` (a JSON `{amount, noun}` object, or
+        -- null) are the In Progress state itself: where the cook has got
+        -- to, held on the server so one cooking follows its cook from
+        -- phone to iPad (ADR 0010). `finished_at` is null throughout that
+        -- and stamped once, deliberately or by simply stopping; an
+        -- Attempt is real and counts as a cooking from the moment it is
+        -- inserted, finished or not. `note` and `rating` are the free
+        -- text and optional five-star score CONTEXT.md's Attempt holds,
+        -- editable at any time by the cook. Never soft-deleted: a `DELETE`
+        -- is the whole of how an Attempt is undone (ADR 0010).
+        CREATE TABLE attempts (
+            id                  TEXT PRIMARY KEY,
+            lineage_id          TEXT NOT NULL REFERENCES lineages(id),
+            person_id           TEXT NOT NULL REFERENCES people(id),
+            version_id          TEXT NOT NULL REFERENCES versions(id),
+            current_step_index  INTEGER NOT NULL DEFAULT 0,
+            ticked_ingredients  TEXT NOT NULL DEFAULT '[]',
+            cooking_yield       TEXT,
+            note                TEXT,
+            rating              INTEGER,
+            finished_at         TEXT,
+            created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            last_action_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- One Person may have at most one Attempt In Progress per Lineage
+        -- (ADR 0010) — enforced here rather than merely attempted in Rust,
+        -- so "which cook do you mean" stays unaskable even under two
+        -- devices racing to start at once.
+        CREATE UNIQUE INDEX attempts_one_in_progress_per_lineage
+            ON attempts(lineage_id, person_id) WHERE finished_at IS NULL;
+
+        CREATE INDEX attempts_by_person_lineage ON attempts(person_id, lineage_id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

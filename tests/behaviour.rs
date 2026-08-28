@@ -3697,6 +3697,545 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     );
 }
 
+// --- The Attempt and In Progress (issue #57) ----------------------------------
+
+/// A Recipe with real Ingredients and Steps to advance through, in a fresh
+/// Kitchen of its own — `(key, branch_id, lineage_id)`.
+fn recipe_ready_to_cook(
+    app: &support::TestApp,
+    cook_name: &str,
+) -> (String, String, String, String) {
+    let (person, key, kitchen_id) = person_with_kitchen(app, cook_name);
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Katsu Curry",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 escalopes de poulet" },
+                { "kind": "ingredient", "text": "200 g de riz" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Paner les escalopes" },
+                { "kind": "step", "text": "Frire jusqu'à dorer" },
+                { "kind": "step", "text": "Servir avec le riz" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let lineage_id = created["result"]["lineage_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let _ = person;
+    (key, branch_id, lineage_id, kitchen_id)
+}
+
+/// Push an Attempt's `last_action_at` into the past, so the three-day
+/// resume window can be tested without a real clock to fast-forward.
+fn backdate_attempt_action(app: &support::TestApp, attempt_id: &str, days_ago: i64) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE attempts SET last_action_at = strftime('%Y-%m-%dT%H:%M:%fZ','now', ?2) \
+                 WHERE id = ?1",
+                rusqlite::params![attempt_id, format!("-{days_ago} days")],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("backdate Attempt action");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn starting_to_cook_creates_the_attempt_pinned_to_the_head_version() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let head_version_id = recipe["result"]["head_version_id"].as_str().unwrap();
+
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let attempt = &started["result"];
+    assert!(attempt["id"].as_str().unwrap().starts_with("at_"));
+    assert_eq!(attempt["lineage_id"], json!(lineage_id));
+    assert_eq!(
+        attempt["version_id"],
+        json!(head_version_id),
+        "an Attempt is pinned by fingerprint to the Version cooked"
+    );
+    assert_eq!(attempt["current_step_index"], json!(0));
+    assert_eq!(attempt["ticked_ingredients"], json!([]));
+    assert_eq!(attempt["cooking_yield"], json!(null));
+    assert_eq!(attempt["note"], json!(null));
+    assert_eq!(attempt["rating"], json!(null));
+    assert_eq!(
+        attempt["finished_at"],
+        json!(null),
+        "there is no separate 'cooking session' object — starting IS the Attempt"
+    );
+    assert_eq!(attempt["resumable"], json!(true));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn starting_twice_resumes_the_one_in_progress_attempt_rather_than_making_a_second() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+
+    let (_, first) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let first_id = first["result"]["id"].as_str().unwrap().to_string();
+
+    let (_, second) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        second["result"]["id"],
+        json!(first_id),
+        "one Person may have only one Attempt In Progress per Lineage"
+    );
+
+    let count: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM attempts", [], |r| r.get(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(count, 1, "starting twice must not insert a second row");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_devices_advancing_the_same_attempt_stay_in_step() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+
+    // Phone starts cooking and moves to step 1, ticking the first Ingredient.
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "current_step_index": 1,
+            "ticked_ingredients": [0],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+
+    // iPad picks the identical cooking up mid-stream, reading server state —
+    // it never held anything of its own to reconcile.
+    let (_, on_ipad) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    let seen = &on_ipad["result"]["attempt"];
+    assert_eq!(seen["id"], json!(attempt_id));
+    assert_eq!(seen["current_step_index"], json!(1));
+    assert_eq!(seen["ticked_ingredients"], json!([0]));
+
+    // The iPad moves it further and sets the Yield being cooked to — a fact
+    // about this afternoon, not a deviation written onto the recipe.
+    let (status, advanced_further) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "current_step_index": 2,
+            "ticked_ingredients": [0, 1],
+            "cooking_yield": { "amount": "8", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{advanced_further}");
+
+    // The phone, polling again, sees exactly what the iPad just did: the
+    // last device to move is where the cook is.
+    let (_, on_phone_again) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    let seen_again = &on_phone_again["result"]["attempt"];
+    assert_eq!(seen_again["current_step_index"], json!(2));
+    assert_eq!(seen_again["ticked_ingredients"], json!([0, 1]));
+    assert_eq!(
+        seen_again["cooking_yield"],
+        json!({ "amount": "8", "noun": "servings" })
+    );
+
+    // The recipe itself never grew an Ingredient Line nobody wrote.
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let ingredients = recipe["result"]["versions"][0]["content"]["ingredients"]
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        ingredients.len(),
+        2,
+        "the cooking Yield writes no Ingredient Line"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn advancing_refuses_a_step_or_ingredient_index_outside_the_pinned_versions_content() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    let (status, refused) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 99 }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    let (status, refused_ingredient) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "ticked_ingredients": [99] }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused_ingredient}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unfinished_attempt_may_be_deleted_to_undo_a_false_start() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    let (status, deleted) = app.post_op(
+        "delete_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(deleted["result"]["deleted"], json!(true));
+
+    let (_, current) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    assert_eq!(current["result"]["attempt"], json!(null));
+
+    // Deleting freed the one In Progress slot: starting again mints a new
+    // Attempt rather than being blocked by the one just undone.
+    let (_, restarted) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_ne!(restarted["result"]["id"], json!(attempt_id));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn finishing_ends_in_progress_and_a_finished_attempt_still_counts_and_may_be_edited() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+    assert!(finished["result"]["finished_at"].is_string());
+    assert_eq!(
+        finished["result"]["resumable"],
+        json!(false),
+        "a finished Attempt is not offered for resuming"
+    );
+
+    // No longer In Progress — the slot is free for a fresh cooking.
+    let (_, current) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    assert_eq!(current["result"]["attempt"], json!(null));
+
+    // Advancing a finished Attempt is refused...
+    let (status, refused) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 1 }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    // ...but it is still real, and still freely editable: a rating and a
+    // note attached after the fact, exactly as ADR 0010 expects.
+    let (status, edited) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "Un peu trop cuit", "rating": 4 }).to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    assert_eq!(edited["result"]["note"], json!("Un peu trop cuit"));
+    assert_eq!(edited["result"]["rating"], json!(4));
+
+    // A rating outside 1..=5 is refused.
+    let (status, bad_rating) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "rating": 6 }).to_string(),
+    );
+    assert_eq!(status, 400, "{bad_rating}");
+
+    // Still on the books, still findable directly — an Attempt is never
+    // deleted merely by finishing.
+    let exists: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM attempts WHERE id = ?1",
+                rusqlite::params![attempt_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(exists, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_the_cook_who_owns_an_attempt_may_advance_finish_edit_or_delete_it() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, kitchen_id) = recipe_ready_to_cook(&app, "Aurélien");
+    // A second Person in the same Kitchen — able to see the recipe, but the
+    // Attempt is still theirs alone until they record their own.
+    let intruder = app.core.create_person("Marc").expect("person");
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO kitchen_members (kitchen_id, person_id) VALUES (?1, ?2)",
+                rusqlite::params![kitchen_id, intruder],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .unwrap();
+    let intruder_key = app
+        .core
+        .mint_access_key(&intruder, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    let (status, _) = app.post_op(
+        "advance_attempt",
+        Some(&intruder_key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 1 }).to_string(),
+    );
+    assert_eq!(status, 401);
+    let (status, _) = app.post_op(
+        "finish_attempt",
+        Some(&intruder_key),
+        &json!({ "attempt_id": attempt_id }).to_string(),
+    );
+    assert_eq!(status, 401);
+    let (status, _) = app.post_op(
+        "edit_attempt",
+        Some(&intruder_key),
+        &json!({ "attempt_id": attempt_id, "note": "not mine to say" }).to_string(),
+    );
+    assert_eq!(status, 401);
+    let (status, _) = app.post_op(
+        "delete_attempt",
+        Some(&intruder_key),
+        &json!({ "attempt_id": attempt_id }).to_string(),
+    );
+    assert_eq!(status, 401);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn starting_to_cook_requires_being_able_to_see_the_recipe() {
+    let app = support::spawn_app();
+    let (_key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let stranger = app.core.create_person("Marc").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn resuming_is_offered_for_three_days_then_silently_stops_without_deleting_the_attempt() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    backdate_attempt_action(&app, &attempt_id, 4);
+
+    let (_, current) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    let attempt = &current["result"]["attempt"];
+    assert_eq!(
+        attempt["id"],
+        json!(attempt_id),
+        "the Attempt itself is not deleted by the window passing"
+    );
+    assert_eq!(
+        attempt["resumable"],
+        json!(false),
+        "Kamosu stops offering to resume after three days without interaction"
+    );
+
+    // A sourdough touched today never ages out: any action refreshes it.
+    app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 1 }).to_string(),
+    );
+    let (_, current_again) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    assert_eq!(current_again["result"]["attempt"]["resumable"], json!(true));
+
+    // Correcting a note mid-cook is itself an action too.
+    backdate_attempt_action(&app, &attempt_id, 4);
+    app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "note": "needs more salt" }).to_string(),
+    );
+    let (_, current_after_edit) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    assert_eq!(
+        current_after_edit["result"]["attempt"]["resumable"],
+        json!(true),
+        "editing an In Progress Attempt's note is itself a last action"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_only_access_key_cannot_start_or_advance_an_attempt_but_can_read_it() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    let person: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT person_id FROM attempts WHERE id = ?1",
+                rusqlite::params![attempt_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    let read_only_key = app
+        .core
+        .mint_access_key(&person, "read-only agent", true)
+        .unwrap()
+        .secret;
+
+    // Reading still works — an agent asked to read out the next step reads
+    // server state through an ordinary Operation.
+    let (status, read) = app.post_op(
+        "get_current_attempt",
+        Some(&read_only_key),
+        &json!({ "lineage_id": lineage_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read["result"]["attempt"]["id"], json!(attempt_id));
+
+    // Advancing, finishing and starting a fresh Attempt are all writes.
+    let (status, refused) = app.post_op(
+        "advance_attempt",
+        Some(&read_only_key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 1 }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+
+    let (status, _) = app.post_op(
+        "start_attempt",
+        Some(&read_only_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 401);
+}
+
 // --- Migrations and the Snapshot (issue #35) ---------------------------------
 
 use kamosu::db::{self, Migration};

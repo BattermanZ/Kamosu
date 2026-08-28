@@ -607,6 +607,100 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
     )
 }
 
+pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("start_attempt takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.start_attempt(&caller.person_id, branch_id)
+}
+
+pub fn advance_attempt(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "advance_attempt takes { attempt_id, current_step_index?, \
+                 ticked_ingredients?, cooking_yield? }";
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let current_step_index = input.get("current_step_index").and_then(Value::as_i64);
+    let ticked_ingredients = match input.get("ticked_ingredients") {
+        None => None,
+        Some(Value::Array(items)) => {
+            let indices = items
+                .iter()
+                .map(|item| item.as_i64().ok_or_else(|| OpError::bad_request(takes)))
+                .collect::<Result<Vec<i64>, OpError>>()?;
+            Some(indices)
+        }
+        Some(_) => return Err(OpError::bad_request(takes)),
+    };
+    let cooking_yield = input.get("cooking_yield");
+    let caller = caller_of(invocation)?;
+    core.advance_attempt(
+        &caller.person_id,
+        attempt_id,
+        current_step_index,
+        ticked_ingredients.as_deref(),
+        cooking_yield,
+    )
+}
+
+pub fn finish_attempt(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("finish_attempt takes { attempt_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.finish_attempt(&caller.person_id, attempt_id)
+}
+
+pub fn edit_attempt(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("edit_attempt takes { attempt_id, note?, rating? }"))?;
+    let note = input.get("note");
+    let rating = input.get("rating");
+    let caller = caller_of(invocation)?;
+    core.edit_attempt(&caller.person_id, attempt_id, note, rating)
+}
+
+pub fn delete_attempt(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("delete_attempt takes { attempt_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.delete_attempt(&caller.person_id, attempt_id)?;
+    Ok(json!({ "deleted": true }))
+}
+
+pub fn get_current_attempt(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let lineage_id = input
+        .get("lineage_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("get_current_attempt takes { lineage_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.get_current_attempt(&caller.person_id, lineage_id)
+}
+
 pub fn list_foods(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     if !input.as_object().is_some_and(|map| map.is_empty()) {
         return Err(OpError::bad_request("list_foods takes no input"));

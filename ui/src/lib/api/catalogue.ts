@@ -579,6 +579,145 @@ export type SetReadingOutput = {
 	} | null;
 };
 
+/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment. Anyone who can see the recipe may. */
+export type StartAttemptInput = {
+	branch_id: string;
+};
+/** What start_attempt answers. */
+export type StartAttemptOutput = {
+	cooking_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+	created_at: string;
+	current_step_index: number;
+	finished_at: string | null;
+	id: string;
+	last_action_at: string;
+	lineage_id: string;
+	note: string | null;
+	person_id: string;
+	rating: number | null;
+	resumable: boolean;
+	ticked_ingredients: number[];
+	version_id: string;
+};
+
+/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
+export type AdvanceAttemptInput = {
+	attempt_id: string;
+	cooking_yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+	current_step_index?: number;
+	ticked_ingredients?: number[];
+};
+/** What advance_attempt answers. */
+export type AdvanceAttemptOutput = {
+	cooking_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+	created_at: string;
+	current_step_index: number;
+	finished_at: string | null;
+	id: string;
+	last_action_at: string;
+	lineage_id: string;
+	note: string | null;
+	person_id: string;
+	rating: number | null;
+	resumable: boolean;
+	ticked_ingredients: number[];
+	version_id: string;
+};
+
+/** End an In Progress Attempt. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress. */
+export type FinishAttemptInput = {
+	attempt_id: string;
+};
+/** What finish_attempt answers. */
+export type FinishAttemptOutput = {
+	cooking_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+	created_at: string;
+	current_step_index: number;
+	finished_at: string | null;
+	id: string;
+	last_action_at: string;
+	lineage_id: string;
+	note: string | null;
+	person_id: string;
+	rating: number | null;
+	resumable: boolean;
+	ticked_ingredients: number[];
+	version_id: string;
+};
+
+/** Change an Attempt's free text or its five-star rating, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
+export type EditAttemptInput = {
+	attempt_id: string;
+	note?: string | null;
+	rating?: number | null;
+};
+/** What edit_attempt answers. */
+export type EditAttemptOutput = {
+	cooking_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+	created_at: string;
+	current_step_index: number;
+	finished_at: string | null;
+	id: string;
+	last_action_at: string;
+	lineage_id: string;
+	note: string | null;
+	person_id: string;
+	rating: number | null;
+	resumable: boolean;
+	ticked_ingredients: number[];
+	version_id: string;
+};
+
+/** Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
+export type DeleteAttemptInput = {
+	attempt_id: string;
+};
+/** What delete_attempt answers. */
+export type DeleteAttemptOutput = {
+	deleted: boolean;
+};
+
+/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
+export type GetCurrentAttemptInput = {
+	lineage_id: string;
+};
+/** What get_current_attempt answers. */
+export type GetCurrentAttemptOutput = {
+	attempt: {
+		cooking_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		created_at: string;
+		current_step_index: number;
+		finished_at: string | null;
+		id: string;
+		last_action_at: string;
+		lineage_id: string;
+		note: string | null;
+		person_id: string;
+		rating: number | null;
+		resumable: boolean;
+		ticked_ingredients: number[];
+		version_id: string;
+	} | null;
+};
+
 /** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
 export type ListFoodsInput = Record<string, never>;
 /** What list_foods answers. */
@@ -916,6 +1055,42 @@ export interface Operations {
 	set_reading: {
 		input: SetReadingInput;
 		output: SetReadingOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	start_attempt: {
+		input: StartAttemptInput;
+		output: StartAttemptOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	advance_attempt: {
+		input: AdvanceAttemptInput;
+		output: AdvanceAttemptOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	finish_attempt: {
+		input: FinishAttemptInput;
+		output: FinishAttemptOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	edit_attempt: {
+		input: EditAttemptInput;
+		output: EditAttemptOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	delete_attempt: {
+		input: DeleteAttemptInput;
+		output: DeleteAttemptOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_current_attempt: {
+		input: GetCurrentAttemptInput;
+		output: GetCurrentAttemptOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -3493,6 +3668,642 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "start_attempt",
+		"summary": "Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment. Anyone who can see the recipe may.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cooking_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"created_at": {
+					"type": "string"
+				},
+				"current_step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"finished_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_action_at": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"person_id": {
+					"type": "string"
+				},
+				"rating": {
+					"maximum": 5,
+					"minimum": 1,
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"resumable": {
+					"type": "boolean"
+				},
+				"ticked_ingredients": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"lineage_id",
+				"person_id",
+				"version_id",
+				"current_step_index",
+				"ticked_ingredients",
+				"cooking_yield",
+				"note",
+				"rating",
+				"finished_at",
+				"resumable",
+				"created_at",
+				"last_action_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "advance_attempt",
+		"summary": "Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"type": "string"
+				},
+				"cooking_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"current_step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"ticked_ingredients": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"attempt_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cooking_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"created_at": {
+					"type": "string"
+				},
+				"current_step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"finished_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_action_at": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"person_id": {
+					"type": "string"
+				},
+				"rating": {
+					"maximum": 5,
+					"minimum": 1,
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"resumable": {
+					"type": "boolean"
+				},
+				"ticked_ingredients": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"lineage_id",
+				"person_id",
+				"version_id",
+				"current_step_index",
+				"ticked_ingredients",
+				"cooking_yield",
+				"note",
+				"rating",
+				"finished_at",
+				"resumable",
+				"created_at",
+				"last_action_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "finish_attempt",
+		"summary": "End an In Progress Attempt. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"attempt_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cooking_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"created_at": {
+					"type": "string"
+				},
+				"current_step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"finished_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_action_at": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"person_id": {
+					"type": "string"
+				},
+				"rating": {
+					"maximum": 5,
+					"minimum": 1,
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"resumable": {
+					"type": "boolean"
+				},
+				"ticked_ingredients": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"lineage_id",
+				"person_id",
+				"version_id",
+				"current_step_index",
+				"ticked_ingredients",
+				"cooking_yield",
+				"note",
+				"rating",
+				"finished_at",
+				"resumable",
+				"created_at",
+				"last_action_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "edit_attempt",
+		"summary": "Change an Attempt's free text or its five-star rating, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"rating": {
+					"maximum": 5,
+					"minimum": 1,
+					"type": [
+						"integer",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"attempt_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cooking_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"created_at": {
+					"type": "string"
+				},
+				"current_step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"finished_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_action_at": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"person_id": {
+					"type": "string"
+				},
+				"rating": {
+					"maximum": 5,
+					"minimum": 1,
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"resumable": {
+					"type": "boolean"
+				},
+				"ticked_ingredients": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"lineage_id",
+				"person_id",
+				"version_id",
+				"current_step_index",
+				"ticked_ingredients",
+				"cooking_yield",
+				"note",
+				"rating",
+				"finished_at",
+				"resumable",
+				"created_at",
+				"last_action_at"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "delete_attempt",
+		"summary": "Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"attempt_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"deleted": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"deleted"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_current_attempt",
+		"summary": "Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"lineage_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"lineage_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt": {
+					"additionalProperties": false,
+					"properties": {
+						"cooking_yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"created_at": {
+							"type": "string"
+						},
+						"current_step_index": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"finished_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"id": {
+							"type": "string"
+						},
+						"last_action_at": {
+							"type": "string"
+						},
+						"lineage_id": {
+							"type": "string"
+						},
+						"note": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"person_id": {
+							"type": "string"
+						},
+						"rating": {
+							"maximum": 5,
+							"minimum": 1,
+							"type": [
+								"integer",
+								"null"
+							]
+						},
+						"resumable": {
+							"type": "boolean"
+						},
+						"ticked_ingredients": {
+							"items": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"type": "array"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"id",
+						"lineage_id",
+						"person_id",
+						"version_id",
+						"current_step_index",
+						"ticked_ingredients",
+						"cooking_yield",
+						"note",
+						"rating",
+						"finished_at",
+						"resumable",
+						"created_at",
+						"last_action_at"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"attempt"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "list_foods",
 		"summary": "List every Food this instance knows, each shown in the reader's Reading Language where it has a name there.",
 		"permission": "person",
@@ -4138,6 +4949,12 @@ export const METHOD_NAMES = {
 	upload_photograph: 'uploadPhotograph',
 	get_recipe: 'getRecipe',
 	set_reading: 'setReading',
+	start_attempt: 'startAttempt',
+	advance_attempt: 'advanceAttempt',
+	finish_attempt: 'finishAttempt',
+	edit_attempt: 'editAttempt',
+	delete_attempt: 'deleteAttempt',
+	get_current_attempt: 'getCurrentAttempt',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
 	set_food_name: 'setFoodName',
@@ -4216,6 +5033,18 @@ export interface KamosuClient {
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
+	/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment. Anyone who can see the recipe may. */
+	startAttempt(input: StartAttemptInput): Promise<Answer<'start_attempt'>>;
+	/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
+	advanceAttempt(input: AdvanceAttemptInput): Promise<Answer<'advance_attempt'>>;
+	/** End an In Progress Attempt. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress. */
+	finishAttempt(input: FinishAttemptInput): Promise<Answer<'finish_attempt'>>;
+	/** Change an Attempt's free text or its five-star rating, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
+	editAttempt(input: EditAttemptInput): Promise<Answer<'edit_attempt'>>;
+	/** Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
+	deleteAttempt(input: DeleteAttemptInput): Promise<Answer<'delete_attempt'>>;
+	/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
+	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;
 	/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
 	/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */

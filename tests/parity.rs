@@ -114,7 +114,13 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "get_food"
             | "set_food_name"
             | "remove_food_name"
-            | "set_food_cup_weight" => ("{}", 401),
+            | "set_food_cup_weight"
+            | "start_attempt"
+            | "advance_attempt"
+            | "finish_attempt"
+            | "edit_attempt"
+            | "delete_attempt"
+            | "get_current_attempt" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -221,6 +227,12 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "set_food_name"
                 | "remove_food_name"
                 | "set_food_cup_weight"
+                | "start_attempt"
+                | "advance_attempt"
+                | "finish_attempt"
+                | "edit_attempt"
+                | "delete_attempt"
+                | "get_current_attempt"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

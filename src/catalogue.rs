@@ -631,6 +631,144 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::set_reading,
         },
         Operation {
+            name: "start_attempt",
+            summary: "Start cooking a Recipe: creates the Attempt, or hands \
+                      back the one already In Progress for this Lineage — \
+                      the cooking screen is that Attempt, never a second \
+                      thing beside it. Pinned by fingerprint to the \
+                      Branch's head Version at this moment. Anyone who can \
+                      see the recipe may.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: attempt_schema(),
+            handler: crate::operations::start_attempt,
+        },
+        Operation {
+            name: "advance_attempt",
+            summary: "Move an In Progress Attempt forward: which Step, \
+                      which Ingredients are ticked, and the Yield being \
+                      cooked to — a fact about this cooking, never a \
+                      deviation. Any of the three, each sent whole rather \
+                      than patched.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "attempt_id": { "type": "string" },
+                    "current_step_index": { "type": "integer", "minimum": 0 },
+                    "ticked_ingredients": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0 },
+                    },
+                    "cooking_yield": attempt_yield_schema(),
+                },
+                "required": ["attempt_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: attempt_schema(),
+            handler: crate::operations::advance_attempt,
+        },
+        Operation {
+            name: "finish_attempt",
+            summary: "End an In Progress Attempt. Ending is not what makes \
+                      the cooking real — starting already did — only what \
+                      stops it being In Progress.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "attempt_id": { "type": "string" } },
+                "required": ["attempt_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: attempt_schema(),
+            handler: crate::operations::finish_attempt,
+        },
+        Operation {
+            name: "edit_attempt",
+            summary: "Change an Attempt's free text or its five-star \
+                      rating, whether it is still In Progress or long \
+                      finished — an Attempt is freely editable by its \
+                      cook, unlike the recipe it was cooked from.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "attempt_id": { "type": "string" },
+                    "note": { "type": ["string", "null"] },
+                    "rating": { "type": ["integer", "null"], "minimum": 1, "maximum": 5 },
+                },
+                "required": ["attempt_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: attempt_schema(),
+            handler: crate::operations::edit_attempt,
+        },
+        Operation {
+            name: "delete_attempt",
+            summary: "Delete an Attempt outright — the explicit way a \
+                      false start is undone, or any cooking record put \
+                      away. Never soft-deleted: this is the whole of how \
+                      an Attempt leaves.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "attempt_id": { "type": "string" } },
+                "required": ["attempt_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "deleted": { "type": "boolean" } },
+                "required": ["deleted"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::delete_attempt,
+        },
+        Operation {
+            name: "get_current_attempt",
+            summary: "Read the caller's own In Progress Attempt for a \
+                      Lineage, if any — how two devices cooking the same \
+                      dish stay in step, and whether resuming should \
+                      still be offered.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "lineage_id": { "type": "string" } },
+                "required": ["lineage_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "attempt": attempt_or_null_schema() },
+                "required": ["attempt"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::get_current_attempt,
+        },
+        Operation {
             name: "list_foods",
             summary: "List every Food this instance knows, each shown in the \
                       reader's Reading Language where it has a name there.",
@@ -1162,6 +1300,64 @@ fn food_schema() -> Value {
         "required": ["id", "name", "language", "names", "cup_weight_grams", "nutrition", "reading_count"],
         "additionalProperties": false,
     })
+}
+
+/// The Yield an Attempt is cooking to — the same `{amount, noun}` shape a
+/// recipe's own Yield takes, held on the Attempt as a fact about that
+/// afternoon rather than a deviation (ADR 0010).
+fn attempt_yield_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "amount": { "type": "string" },
+            "noun": { "type": "string" },
+        },
+        "required": ["amount", "noun"],
+        "additionalProperties": false,
+    })
+}
+
+/// The shape an Attempt is served in — created by `start_attempt`, moved by
+/// `advance_attempt`, ended by `finish_attempt`, corrected by `edit_attempt`,
+/// and read back by `get_current_attempt`. `resumable` is computed at read
+/// time: still In Progress and within three days of `last_action_at`
+/// (ADR 0010) — the Attempt itself is never deleted by the window passing.
+fn attempt_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "lineage_id": { "type": "string" },
+            "person_id": { "type": "string" },
+            "version_id": { "type": "string" },
+            "current_step_index": { "type": "integer", "minimum": 0 },
+            "ticked_ingredients": {
+                "type": "array",
+                "items": { "type": "integer", "minimum": 0 },
+            },
+            "cooking_yield": attempt_yield_schema(),
+            "note": { "type": ["string", "null"] },
+            "rating": { "type": ["integer", "null"], "minimum": 1, "maximum": 5 },
+            "finished_at": { "type": ["string", "null"] },
+            "resumable": { "type": "boolean" },
+            "created_at": { "type": "string" },
+            "last_action_at": { "type": "string" },
+        },
+        "required": [
+            "id", "lineage_id", "person_id", "version_id", "current_step_index",
+            "ticked_ingredients", "cooking_yield", "note", "rating", "finished_at",
+            "resumable", "created_at", "last_action_at",
+        ],
+        "additionalProperties": false,
+    })
+}
+
+/// `attempt_schema`, nullable — `get_current_attempt` answers no Attempt at
+/// all wherever the caller has none In Progress on that Lineage.
+fn attempt_or_null_schema() -> Value {
+    let mut schema = attempt_schema();
+    schema["type"] = json!(["object", "null"]);
+    schema
 }
 
 fn empty_input() -> Value {
