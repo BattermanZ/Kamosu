@@ -4236,6 +4236,349 @@ async fn a_read_only_access_key_cannot_start_or_advance_an_attempt_but_can_read_
     assert_eq!(status, 401);
 }
 
+// --- The Import, its ledger and its Report (issue #68) -----------------------
+
+/// Ask `import` and wait for its Job to finish, handing back the Report.
+fn import_and_wait(app: &support::TestApp, key: &str, body: &Value) -> Value {
+    let (status, ask) = app.post_op("import", Some(key), &body.to_string());
+    assert_eq!(status, 200, "{ask}");
+    let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+    let finished = wait_terminal(app, Some(key), job_id);
+    assert_eq!(finished["status"], json!("completed"), "{finished}");
+    finished["result"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_hand() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "importer", false)
+        .unwrap()
+        .secret;
+    let home_kitchen_id = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT home_kitchen_id FROM people WHERE id = ?1",
+                rusqlite::params![person],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("home kitchen");
+
+    let report = import_and_wait(
+        &app,
+        &key,
+        &json!({
+            "source_kind": "crouton",
+            "candidates": [{
+                "foreign_id": "crouton-uuid-1",
+                "title": "Katsu Curry",
+                "source": { "text": "Crouton", "link": "https://example.com/katsu" },
+                "ingredients": [{ "kind": "ingredient", "text": "2 cloves garlic" }],
+                "steps": [{ "kind": "step", "text": "Fry it.", "photo": null }],
+            }],
+        }),
+    );
+
+    assert_eq!(report["source_kind"], json!("crouton"));
+    assert_eq!(report["kitchen_id"], json!(home_kitchen_id));
+    let arrived = report["arrived"].as_array().unwrap();
+    assert_eq!(arrived.len(), 1, "{report}");
+    assert_eq!(arrived[0]["status"], json!("created"));
+    assert_eq!(arrived[0]["title"], json!("Katsu Curry"));
+    assert!(report["offered"].as_array().unwrap().is_empty());
+    assert!(report["unreadable"].as_array().unwrap().is_empty());
+    let branch_id = arrived[0]["branch_id"].as_str().unwrap().to_string();
+
+    // It landed in the Home Kitchen, the imported Person's Hand on the first
+    // Version, and carries the Source it really came from — no import mark,
+    // no provenance field, no per-line badge (ADR 0025).
+    let (status, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{recipe}");
+    assert_eq!(recipe["result"]["kitchen_id"], json!(home_kitchen_id));
+    let first_version = &recipe["result"]["versions"][0];
+    assert_eq!(first_version["hand_id"], json!(person));
+    assert_eq!(
+        first_version["content"]["source"]["link"],
+        json!("https://example.com/katsu")
+    );
+    let content_keys: Vec<&String> = first_version["content"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .collect();
+    let known = [
+        "title",
+        "yield",
+        "prep_time_minutes",
+        "cook_time_minutes",
+        "note",
+        "main_photo",
+        "source",
+        "ingredients",
+        "steps",
+    ];
+    for key in content_keys {
+        assert!(
+            known.contains(&key.as_str()),
+            "unexpected field on imported content: {key} — an import must staple nothing extra on"
+        );
+    }
+
+    // Read a second time, through the ordinary Job Operations: the Report
+    // survives the screen closing (list_jobs, get_job) rather than being a
+    // one-shot answer.
+    let (_, listed) = app.post_op("list_jobs", Some(&key), "{}");
+    let jobs = listed["result"]["jobs"].as_array().unwrap();
+    assert!(
+        jobs.iter().any(|j| j["operation"] == json!("import")),
+        "{listed}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn re_running_an_import_matches_the_ledger_instead_of_doubling_the_library() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "importer", false)
+        .unwrap()
+        .secret;
+
+    let candidate = json!({
+        "foreign_id": "crouton-uuid-2",
+        "title": "Coq au Vin",
+    });
+    let first = import_and_wait(
+        &app,
+        &key,
+        &json!({ "source_kind": "crouton", "candidates": [candidate] }),
+    );
+    let first_arrived = &first["arrived"][0];
+    assert_eq!(first_arrived["status"], json!("created"));
+    let lineage_id = first_arrived["lineage_id"].as_str().unwrap().to_string();
+
+    // Identical content, same foreign id, run again: matched and unchanged,
+    // not a second Lineage.
+    let second = import_and_wait(
+        &app,
+        &key,
+        &json!({ "source_kind": "crouton", "candidates": [candidate] }),
+    );
+    let second_arrived = &second["arrived"][0];
+    assert_eq!(second_arrived["status"], json!("unchanged"), "{second}");
+    assert_eq!(second_arrived["lineage_id"], json!(lineage_id));
+    assert!(second["offered"].as_array().unwrap().is_empty());
+
+    let (_, list) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": first_arrived["branch_id"] }).to_string(),
+    );
+    assert_eq!(
+        list["result"]["versions"].as_array().unwrap().len(),
+        1,
+        "a matched, unchanged re-run mints no second Version: {list}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_previously_seen_recipe_found_changed_is_offered_never_written_over() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "importer", false)
+        .unwrap()
+        .secret;
+
+    let first = import_and_wait(
+        &app,
+        &key,
+        &json!({
+            "source_kind": "crouton",
+            "candidates": [{ "foreign_id": "crouton-uuid-3", "title": "Tarte Tatin" }],
+        }),
+    );
+    let branch_id = first["arrived"][0]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let original_head = app.core.get_recipe(&person, &branch_id).unwrap()["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Re-run with the same foreign id but changed content: offered for
+    // review, the Branch's head left exactly where it was.
+    let second = import_and_wait(
+        &app,
+        &key,
+        &json!({
+            "source_kind": "crouton",
+            "candidates": [{ "foreign_id": "crouton-uuid-3", "title": "Tarte Tatin (revisited)" }],
+        }),
+    );
+    assert!(second["arrived"].as_array().unwrap().is_empty(), "{second}");
+    let offered = &second["offered"][0];
+    assert_eq!(offered["branch_id"], json!(branch_id));
+    assert_eq!(offered["title"], json!("Tarte Tatin (revisited)"));
+    assert!(offered["candidate_version_id"].as_str().is_some());
+
+    let after = app.core.get_recipe(&person, &branch_id).unwrap();
+    assert_eq!(
+        after["head_version_id"],
+        json!(original_head),
+        "an offered change must never be written over the Branch on its own"
+    );
+    assert_eq!(after["versions"].as_array().unwrap().len(), 1, "{after}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bare_name_and_link_arrives_and_an_unreadable_candidate_is_named_with_its_reason() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "importer", false)
+        .unwrap()
+        .secret;
+
+    let report = import_and_wait(
+        &app,
+        &key,
+        &json!({
+            "source_kind": "web_link",
+            "candidates": [
+                {
+                    "foreign_id": "https://example.com/bare",
+                    "title": "Someone's Pasta",
+                    "source": { "text": "example.com", "link": "https://example.com/bare" },
+                },
+                { "foreign_id": "https://example.com/broken", "title": "" },
+            ],
+        }),
+    );
+
+    let arrived = report["arrived"].as_array().unwrap();
+    assert_eq!(arrived.len(), 1, "{report}");
+    assert_eq!(arrived[0]["status"], json!("created"));
+    assert_eq!(arrived[0]["title"], json!("Someone's Pasta"));
+
+    let unreadable = report["unreadable"].as_array().unwrap();
+    assert_eq!(unreadable.len(), 1, "{report}");
+    assert_eq!(
+        unreadable[0]["foreign_id"],
+        json!("https://example.com/broken")
+    );
+    assert!(
+        unreadable[0]["reason"].as_str().unwrap().contains("title"),
+        "{report}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_only_access_key_may_not_import() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let read_only_key = app
+        .core
+        .mint_access_key(&person, "read only", true)
+        .unwrap()
+        .secret;
+
+    let (status, refused) = app.post_op(
+        "import",
+        Some(&read_only_key),
+        &json!({
+            "source_kind": "crouton",
+            "candidates": [{ "foreign_id": "x", "title": "Nope" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_ledger_is_deletable_whole_leaving_its_recipes_untouched() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "importer", false)
+        .unwrap()
+        .secret;
+
+    let report = import_and_wait(
+        &app,
+        &key,
+        &json!({
+            "source_kind": "crouton",
+            "candidates": [{ "foreign_id": "crouton-uuid-4", "title": "Ratatouille" }],
+        }),
+    );
+    let import_id = report["import_id"].as_str().unwrap().to_string();
+    let branch_id = report["arrived"][0]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The whole migration is finished with: the ledger goes, in no fingerprint
+    // and no Bundle to begin with, and every recipe it named is untouched.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM import_ledger WHERE import_id = ?1",
+                rusqlite::params![import_id],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            conn.execute(
+                "DELETE FROM imports WHERE id = ?1",
+                rusqlite::params![import_id],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("delete the Import whole");
+
+    let (status, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{recipe}");
+    assert_eq!(
+        recipe["result"]["versions"][0]["content"]["title"],
+        json!("Ratatouille")
+    );
+
+    // Re-importing the same foreign id after the ledger is gone starts a
+    // fresh Import and cannot know it has been seen before — matching is
+    // scoped to a live ledger, never guessed from the recipes themselves.
+    let again = import_and_wait(
+        &app,
+        &key,
+        &json!({
+            "source_kind": "crouton",
+            "candidates": [{ "foreign_id": "crouton-uuid-4", "title": "Ratatouille" }],
+        }),
+    );
+    assert_eq!(again["arrived"][0]["status"], json!("created"), "{again}");
+    assert_ne!(again["import_id"], json!(import_id));
+}
+
 // --- Migrations and the Snapshot (issue #35) ---------------------------------
 
 use kamosu::db::{self, Migration};

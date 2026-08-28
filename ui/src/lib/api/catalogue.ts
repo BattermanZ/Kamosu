@@ -6,6 +6,8 @@
 // not serve. Change the Catalogue and re-run `just client`; `just check`
 // fails if what is committed here has drifted.
 
+import type { JobAsk } from './job';
+
 /** The version of this Kamosu and whether setup has happened. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
@@ -471,6 +473,61 @@ export type SaveRecipeVersionOutput = {
 	parent_version_id: string | null;
 	sequence: number;
 	version_id: string;
+};
+
+/** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
+export type ImportInput = {
+	candidates: {
+		cook_time_minutes?: number | null;
+		foreign_id: string;
+		ingredients?: {
+			kind: "section" | "ingredient";
+			text: string;
+		}[];
+		language?: "en" | "fr" | "es";
+		main_photo?: string | null;
+		note?: string | null;
+		prep_time_minutes?: number | null;
+		source?: {
+			link: string | null;
+			text: string;
+		} | null;
+		steps?: {
+			kind: "section" | "step";
+			photo: string | null;
+			text: string;
+		}[];
+		title: string;
+		yield?: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	source_kind: string;
+};
+/** What import eventually produces, read back through `get_job`. */
+export type ImportOutput = {
+	arrived: {
+		branch_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		status: "created" | "unchanged";
+		title: string;
+	}[];
+	import_id: string;
+	kitchen_id: string;
+	offered: {
+		branch_id: string;
+		candidate_version_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		title: string;
+	}[];
+	source_kind: string;
+	unreadable: {
+		foreign_id: string | null;
+		reason: string;
+	}[];
 };
 
 /** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
@@ -1034,6 +1091,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	import: {
+		input: ImportInput;
+		output: ImportOutput;
+		kind: 'job';
+		permission: 'person';
+	};
 	rename_version: {
 		input: RenameVersionInput;
 		output: RenameVersionOutput;
@@ -1147,7 +1210,8 @@ export interface Operations {
 export type OperationName = keyof Operations;
 
 /** What asking for an Operation answers: a Job answers an id, nothing else does. */
-export type Answer<N extends OperationName> = Operations[N]['output'];
+export type Answer<N extends OperationName> =
+	Operations[N]['kind'] extends 'job' ? JobAsk : Operations[N]['output'];
 
 /**
  * The declarations themselves, verbatim. The screen-seam harness reads these
@@ -3145,6 +3209,282 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "import",
+		"summary": "Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"candidates": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"cook_time_minutes": {
+								"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+								"type": [
+									"integer",
+									"null"
+								]
+							},
+							"foreign_id": {
+								"description": "The id this recipe had in the place it came from. Held in this Import's ledger, never on the recipe, so a re-run matches instead of doubling the library (ADR 0025).",
+								"type": "string"
+							},
+							"ingredients": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"section",
+												"ingredient"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"language": {
+								"enum": [
+									"en",
+									"fr",
+									"es"
+								]
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"prep_time_minutes": {
+								"description": "Whole minutes of active preparation.",
+								"type": [
+									"integer",
+									"null"
+								]
+							},
+							"source": {
+								"additionalProperties": false,
+								"properties": {
+									"link": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"text",
+									"link"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"steps": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"section",
+												"step"
+											]
+										},
+										"photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"photo"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"title": {
+								"type": "string"
+							},
+							"yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"foreign_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"source_kind": {
+					"description": "Which outside source these candidates came from. One ledger is kept per Kitchen per source kind.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"source_kind",
+				"candidates"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"arrived": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"status": {
+								"enum": [
+									"created",
+									"unchanged"
+								]
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"status",
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"import_id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"offered": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"candidate_version_id": {
+								"description": "The Version this candidate's content became, held but not yet on the Branch.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"lineage_id",
+							"branch_id",
+							"title",
+							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"source_kind": {
+					"type": "string"
+				},
+				"unreadable": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"foreign_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"reason": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"import_id",
+				"kitchen_id",
+				"source_kind",
+				"arrived",
+				"offered",
+				"unreadable"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "rename_version",
 		"summary": "Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own.",
 		"permission": "person",
@@ -4945,6 +5285,7 @@ export const METHOD_NAMES = {
 	set_related_recipe: 'setRelatedRecipe',
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
+	import: 'import',
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
 	get_recipe: 'getRecipe',
@@ -5025,6 +5366,8 @@ export interface KamosuClient {
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
 	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
+	/** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
+	import(input: ImportInput): Promise<Answer<'import'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
 	/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */

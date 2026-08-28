@@ -518,6 +518,23 @@ pub fn save_recipe_version(
     core.save_recipe_version(caller, branch_id, &input, name, change_note, kitchen_id)
 }
 
+/// Import: land a batch of candidates already read from an outside source
+/// into the caller's Home Kitchen. Reading the source itself is each
+/// importer's own job (#69, #70); this Operation is the shared machinery
+/// they land through (#68, ADR 0025).
+pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let source_kind = input
+        .get("source_kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("import takes { source_kind, candidates }"))?;
+    let candidates = input
+        .get("candidates")
+        .and_then(Value::as_array)
+        .ok_or_else(|| OpError::bad_request("import takes { source_kind, candidates }"))?;
+    let caller = caller_of(invocation)?;
+    core.import(caller, source_kind, candidates, invocation.job.as_ref())
+}
+
 pub fn rename_version(
     core: &Core,
     invocation: &Invocation,

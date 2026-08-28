@@ -448,6 +448,38 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX attempts_by_person_lineage ON attempts(person_id, lineage_id);
         "#,
     },
+    Migration {
+        version: 16,
+        description: "the Import ledger: foreign id to Lineage, matched not doubled (#68, ADR 0025)",
+        sql: r#"
+        -- An Import: one durable channel a Kitchen brings recipes in through,
+        -- for one kind of outside source — a Crouton export, a web page, a
+        -- Bundle. Lazily created the first time that Kitchen runs an
+        -- importer of that kind, and reused by every run after: that is what
+        -- lets an importer be re-run instead of feared while its source is
+        -- still around (ADR 0025).
+        CREATE TABLE imports (
+            id          TEXT PRIMARY KEY,
+            kitchen_id  TEXT NOT NULL REFERENCES kitchens(id),
+            source_kind TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            UNIQUE (kitchen_id, source_kind)
+        );
+
+        -- The ledger itself: the foreign id an Import read, against the
+        -- Lineage and Branch it became. Held by the Import and never by the
+        -- recipe (ADR 0025) — in no fingerprint and no Bundle, and gone the
+        -- moment its Import is deleted, the recipes it named untouched.
+        CREATE TABLE import_ledger (
+            import_id  TEXT NOT NULL REFERENCES imports(id),
+            foreign_id TEXT NOT NULL,
+            lineage_id TEXT NOT NULL REFERENCES lineages(id),
+            branch_id  TEXT NOT NULL REFERENCES branches(id),
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (import_id, foreign_id)
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

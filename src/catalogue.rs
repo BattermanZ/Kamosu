@@ -519,6 +519,23 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::save_recipe_version,
         },
         Operation {
+            name: "import",
+            summary: "Bring a batch of already-read recipes into your Home \
+                      Kitchen, as a Job. Matched by foreign id against this \
+                      Kitchen's ledger for the source kind, so re-running \
+                      finds what it already made instead of doubling it; a \
+                      recipe found changed is offered for review, never \
+                      written over. Reading the outside source itself — a \
+                      file, a page, a Bundle — is each importer's own job.",
+            permission: Permission::Person,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            input_schema: import_input_schema(),
+            output_schema: import_report_schema(),
+            handler: crate::operations::import,
+        },
+        Operation {
             name: "rename_version",
             summary: "Rename a Version — the one thing about it that can \
                       change later. An absent or empty name clears it. \
@@ -1238,6 +1255,120 @@ fn save_recipe_version_input_schema() -> Value {
         "type": "object",
         "properties": properties,
         "required": ["branch_id", "title"],
+        "additionalProperties": false,
+    })
+}
+
+/// `import`'s input: a source kind naming which ledger to match against, and
+/// a batch of candidates already read from that source — each the same
+/// recipe content `create_recipe` accepts, addressed by the foreign id the
+/// source itself gave it (a Crouton UUID, a web page's own URL). Reading the
+/// source — a `.crumb`, a page, a Bundle — happens before this: `import` is
+/// the shared landing machinery every importer calls into, never the parser.
+fn import_input_schema() -> Value {
+    let mut properties = recipe_content_properties();
+    let map = properties.as_object_mut().expect("object schema");
+    map.insert(
+        "foreign_id".to_string(),
+        json!({
+            "type": "string",
+            "description": "The id this recipe had in the place it came \
+                             from. Held in this Import's ledger, never on \
+                             the recipe, so a re-run matches instead of \
+                             doubling the library (ADR 0025).",
+        }),
+    );
+    map.insert(
+        "language".to_string(),
+        json!({ "enum": ["en", "fr", "es"] }),
+    );
+    json!({
+        "type": "object",
+        "properties": {
+            "source_kind": {
+                "type": "string",
+                "description": "Which outside source these candidates came \
+                                 from. One ledger is kept per Kitchen per \
+                                 source kind.",
+            },
+            "candidates": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": ["foreign_id", "title"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["source_kind", "candidates"],
+        "additionalProperties": false,
+    })
+}
+
+/// `import`'s eventual result: the Import Report, a ledger read by a person
+/// rather than an error log (ADR 0025, CONTEXT.md "Import Report"). Every
+/// candidate lands in exactly one bucket — `arrived` covers a recipe freshly
+/// made and one already matched and found unchanged alike, told apart by
+/// `status`; `offered` is a previously-seen recipe found changed, waiting for
+/// a tap rather than written over; `unreadable` names what could not be
+/// placed at all, and why.
+fn import_report_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "import_id": { "type": "string" },
+            "kitchen_id": { "type": "string" },
+            "source_kind": { "type": "string" },
+            "arrived": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "foreign_id": { "type": "string" },
+                        "status": { "enum": ["created", "unchanged"] },
+                        "lineage_id": { "type": "string" },
+                        "branch_id": { "type": "string" },
+                        "title": { "type": "string" },
+                    },
+                    "required": ["foreign_id", "status", "lineage_id", "branch_id", "title"],
+                    "additionalProperties": false,
+                },
+            },
+            "offered": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "foreign_id": { "type": "string" },
+                        "lineage_id": { "type": "string" },
+                        "branch_id": { "type": "string" },
+                        "title": { "type": "string" },
+                        "candidate_version_id": {
+                            "type": "string",
+                            "description": "The Version this candidate's \
+                                             content became, held but not \
+                                             yet on the Branch.",
+                        },
+                    },
+                    "required": ["foreign_id", "lineage_id", "branch_id", "title", "candidate_version_id"],
+                    "additionalProperties": false,
+                },
+            },
+            "unreadable": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "foreign_id": { "type": ["string", "null"] },
+                        "reason": { "type": "string" },
+                    },
+                    "required": ["foreign_id", "reason"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["import_id", "kitchen_id", "source_kind", "arrived", "offered", "unreadable"],
         "additionalProperties": false,
     })
 }

@@ -1388,33 +1388,238 @@ impl Core {
                     .map_err(|e| OpError::internal(format!("cannot read reading Language: {e}")))?,
             };
 
-            conn.execute(
-                "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
-                params![version_id, content_text],
+            insert_new_lineage_and_branch(
+                conn,
+                &lineage_id,
+                &branch_id,
+                kitchen_id,
+                &kitchen_hand_id,
+                &language,
+                &version_id,
+                &content_text,
+                &caller.person_id,
+                caller.access_key_id.as_deref(),
             )
-            .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
-            conn.execute(
-                "INSERT INTO lineages (id) VALUES (?1)",
-                params![lineage_id],
-            )
-            .map_err(|e| OpError::internal(format!("cannot mint Lineage: {e}")))?;
-            conn.execute(
-                "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![branch_id, lineage_id, kitchen_id, kitchen_hand_id, language, version_id],
-            )
-            .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
-            conn.execute(
-                "INSERT INTO branch_versions \
-                 (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id) \
-                 VALUES (?1, 1, ?2, NULL, ?3, ?4)",
-                params![branch_id, version_id, caller.person_id, caller.access_key_id],
-            )
-            .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
-            Ok(())
         })?;
 
         self.get_recipe(&caller.person_id, &branch_id)
+    }
+
+    /// Import: land a batch of candidates already read from an outside
+    /// source into the caller's Home Kitchen, matched through that
+    /// Kitchen's ledger for this source kind rather than doubled on every
+    /// re-run (ADR 0025). Reading the source itself — a `.crumb`, a web
+    /// page, a Bundle — is each importer's own job; this is the shared
+    /// machinery every importer lands its candidates through.
+    ///
+    /// Every candidate gets a fate: newly made or found unchanged (both
+    /// `arrived`), found changed and `offered` for review rather than
+    /// written over, or `unreadable` and named with why. One candidate's
+    /// failure never stops the rest — the Report is a ledger, not an error
+    /// log that drops what it could not place.
+    pub fn import(
+        &self,
+        caller: &Caller,
+        source_kind: &str,
+        candidates: &[Value],
+        progress: Option<&JobProgress>,
+    ) -> Result<Value, OpError> {
+        let source_kind = required_text(source_kind, "source_kind")?.to_string();
+        let (kitchen_id, kitchen_hand_id) = self.db().with_conn(|conn| {
+            let kitchen_id: String = conn
+                .query_row(
+                    "SELECT home_kitchen_id FROM people WHERE id = ?1",
+                    params![caller.person_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Home Kitchen: {e}")))?;
+            let hand_id: String = conn
+                .query_row(
+                    "SELECT hand_id FROM kitchens WHERE id = ?1",
+                    params![kitchen_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
+            Ok((kitchen_id, hand_id))
+        })?;
+
+        let import_id = self
+            .db()
+            .with_conn(|conn| find_or_create_import(conn, &kitchen_id, &source_kind))?;
+
+        let total = candidates.len() as u64;
+        let mut arrived = Vec::new();
+        let mut offered = Vec::new();
+        let mut unreadable = Vec::new();
+
+        for (done, candidate) in candidates.iter().enumerate() {
+            if let Some(progress) = progress {
+                progress.report(done as u64, Some(total), format!("{done} of {total}"));
+            }
+
+            let foreign_id = match candidate.get("foreign_id").and_then(Value::as_str) {
+                Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+                _ => {
+                    unreadable.push(json!({
+                        "foreign_id": candidate.get("foreign_id").cloned().unwrap_or(Value::Null),
+                        "reason": "a foreign id is required to keep the ledger",
+                    }));
+                    continue;
+                }
+            };
+
+            match self.import_one(
+                caller,
+                &kitchen_id,
+                &kitchen_hand_id,
+                &import_id,
+                &foreign_id,
+                candidate,
+            ) {
+                Ok(ImportOutcome::Landed {
+                    lineage_id,
+                    branch_id,
+                    title,
+                    status,
+                }) => arrived.push(json!({
+                    "foreign_id": foreign_id, "status": status,
+                    "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
+                })),
+                Ok(ImportOutcome::Offered {
+                    lineage_id,
+                    branch_id,
+                    title,
+                    candidate_version_id,
+                }) => offered.push(json!({
+                    "foreign_id": foreign_id,
+                    "lineage_id": lineage_id, "branch_id": branch_id, "title": title,
+                    "candidate_version_id": candidate_version_id,
+                })),
+                Err(err) => unreadable.push(json!({
+                    "foreign_id": foreign_id,
+                    "reason": err.to_sentence(),
+                })),
+            }
+        }
+
+        if let Some(progress) = progress {
+            progress.report(total, Some(total), "finished".to_string());
+        }
+
+        Ok(json!({
+            "import_id": import_id,
+            "kitchen_id": kitchen_id,
+            "source_kind": source_kind,
+            "arrived": arrived,
+            "offered": offered,
+            "unreadable": unreadable,
+        }))
+    }
+
+    /// One candidate against the ledger: unseen becomes a new Lineage,
+    /// Branch and first Version, the importing Person's Hand on it
+    /// (CONTEXT.md, "Hand"; ADR 0025). Seen before and now identical is
+    /// `Unchanged`; seen before and now different records the candidate's
+    /// content as a Version — content-addressed, so this never collides with
+    /// or moves anything already on the Branch — and answers `Offered`
+    /// without touching `head_version_id`: the offer is never written over
+    /// the Branch on its own.
+    fn import_one(
+        &self,
+        caller: &Caller,
+        kitchen_id: &str,
+        kitchen_hand_id: &str,
+        import_id: &str,
+        foreign_id: &str,
+        candidate: &Value,
+    ) -> Result<ImportOutcome, OpError> {
+        let content = parse_recipe_content(candidate)?;
+        let title = content["title"].as_str().unwrap_or_default().to_string();
+        let version_id = fingerprint_content(&content);
+        let content_text = canonical_json(&content);
+
+        self.db().with_conn(|conn| {
+            let existing: Option<(String, String, String)> = conn
+                .query_row(
+                    "SELECT import_ledger.lineage_id, import_ledger.branch_id, branches.head_version_id \
+                       FROM import_ledger JOIN branches ON branches.id = import_ledger.branch_id \
+                      WHERE import_ledger.import_id = ?1 AND import_ledger.foreign_id = ?2",
+                    params![import_id, foreign_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))?;
+
+            match existing {
+                None => {
+                    let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
+                    let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
+                    let language = match candidate.get("language").and_then(Value::as_str) {
+                        Some(language) => required_text(language, "language")?.to_string(),
+                        None => conn
+                            .query_row(
+                                "SELECT reading_language FROM people WHERE id = ?1",
+                                params![caller.person_id],
+                                |row| row.get(0),
+                            )
+                            .map_err(|e| {
+                                OpError::internal(format!("cannot read reading Language: {e}"))
+                            })?,
+                    };
+
+                    insert_new_lineage_and_branch(
+                        conn,
+                        &lineage_id,
+                        &branch_id,
+                        kitchen_id,
+                        kitchen_hand_id,
+                        &language,
+                        &version_id,
+                        &content_text,
+                        &caller.person_id,
+                        caller.access_key_id.as_deref(),
+                    )?;
+                    conn.execute(
+                        "INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![import_id, foreign_id, lineage_id, branch_id],
+                    )
+                    .map_err(|e| {
+                        OpError::internal(format!("cannot record Import ledger entry: {e}"))
+                    })?;
+                    Ok(ImportOutcome::Landed {
+                        lineage_id,
+                        branch_id,
+                        title,
+                        status: "created",
+                    })
+                }
+                Some((lineage_id, branch_id, head_version_id)) => {
+                    if head_version_id == version_id {
+                        Ok(ImportOutcome::Landed {
+                            lineage_id,
+                            branch_id,
+                            title,
+                            status: "unchanged",
+                        })
+                    } else {
+                        conn.execute(
+                            "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
+                            params![version_id, content_text],
+                        )
+                        .map_err(|e| {
+                            OpError::internal(format!("cannot record candidate Version: {e}"))
+                        })?;
+                        Ok(ImportOutcome::Offered {
+                            lineage_id,
+                            branch_id,
+                            title,
+                            candidate_version_id: version_id,
+                        })
+                    }
+                }
+            }
+        })
     }
 
     /// Save a new state of a Recipe onto a Branch: an ordinary edit becomes an
@@ -2779,6 +2984,98 @@ fn version_field_len(conn: &Connection, version_id: &str, field: &str) -> Result
 
 /// Create a Kitchen and seat its first member in one place — the shape a
 /// Person's Home Kitchen and any Kitchen they later create both share.
+/// What became of one Import candidate against the ledger.
+enum ImportOutcome {
+    /// Newly made (`status: "created"`) or matched and found unchanged
+    /// (`status: "unchanged"`) — both `arrived`, told apart only by that tag.
+    Landed {
+        lineage_id: String,
+        branch_id: String,
+        title: String,
+        status: &'static str,
+    },
+    Offered {
+        lineage_id: String,
+        branch_id: String,
+        title: String,
+        candidate_version_id: String,
+    },
+}
+
+/// Mint a brand-new Lineage, a Branch of it in `kitchen_id`, and its first
+/// Version — the one sequence `create_recipe` and a freshly-seen Import
+/// candidate both start from (ADR 0004): the Kitchen's own Hand on the
+/// Branch, the writing Person's Hand on this first Version.
+#[allow(clippy::too_many_arguments)]
+fn insert_new_lineage_and_branch(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    kitchen_id: &str,
+    kitchen_hand_id: &str,
+    language: &str,
+    version_id: &str,
+    content_text: &str,
+    writer_person_id: &str,
+    access_key_id: Option<&str>,
+) -> Result<(), OpError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
+        params![version_id, content_text],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
+    conn.execute("INSERT INTO lineages (id) VALUES (?1)", params![lineage_id])
+        .map_err(|e| OpError::internal(format!("cannot mint Lineage: {e}")))?;
+    conn.execute(
+        "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            branch_id,
+            lineage_id,
+            kitchen_id,
+            kitchen_hand_id,
+            language,
+            version_id
+        ],
+    )
+    .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
+    conn.execute(
+        "INSERT INTO branch_versions \
+         (branch_id, sequence, version_id, parent_version_id, hand_id, access_key_id) \
+         VALUES (?1, 1, ?2, NULL, ?3, ?4)",
+        params![branch_id, version_id, writer_person_id, access_key_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
+    Ok(())
+}
+
+/// The Import a Kitchen runs candidates of one source kind through — the one
+/// already open for a re-run, or a fresh one on the first run (ADR 0025).
+fn find_or_create_import(
+    conn: &Connection,
+    kitchen_id: &str,
+    source_kind: &str,
+) -> Result<String, OpError> {
+    if let Some(id) = conn
+        .query_row(
+            "SELECT id FROM imports WHERE kitchen_id = ?1 AND source_kind = ?2",
+            params![kitchen_id, source_kind],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Import: {e}")))?
+    {
+        return Ok(id);
+    }
+    let id = format!("imp_{}", hex::encode(random_bytes(8)));
+    conn.execute(
+        "INSERT INTO imports (id, kitchen_id, source_kind) VALUES (?1, ?2, ?3)",
+        params![id, kitchen_id, source_kind],
+    )
+    .map_err(|e| OpError::internal(format!("cannot start Import: {e}")))?;
+    Ok(id)
+}
+
 fn insert_kitchen_with_member(
     conn: &rusqlite::Connection,
     kitchen_id: &str,
