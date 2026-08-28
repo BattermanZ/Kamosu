@@ -94,7 +94,7 @@ impl TestApp {
         self.wait_until_serving();
         let response = http_min::post_json(self.addr, &format!("/api/op/{name}"), bearer, body)
             .expect("web door reachable");
-        parse(response.status, &response.body)
+        parse(response.status, &response.text())
     }
 
     /// POST at the browser authentication boundary: credential minting precedes
@@ -102,7 +102,7 @@ impl TestApp {
     #[allow(dead_code)]
     pub fn post_auth(&self, path: &str, body: &str) -> (u16, Value) {
         let response = self.post_auth_response(path, body);
-        parse(response.status, &response.body)
+        parse(response.status, &response.text())
     }
 
     #[allow(dead_code)]
@@ -112,11 +112,12 @@ impl TestApp {
     }
 
     /// POST JSON-RPC to the MCP door, as an agent would.
+    #[allow(dead_code)]
     pub fn post_mcp(&self, payload: &str, bearer: Option<&str>) -> (u16, Value) {
         self.wait_until_serving();
         let response =
             http_min::post_json(self.addr, "/mcp", bearer, payload).expect("mcp door reachable");
-        parse(response.status, &response.body)
+        parse(response.status, &response.text())
     }
 
     /// GET one path — an asset or the tokens page — as a browser would.
@@ -129,8 +130,38 @@ impl TestApp {
         (
             response.status,
             response.content_type().unwrap_or_default().to_string(),
+            response.text(),
+        )
+    }
+
+    /// GET one path with a Credential and read the bytes back intact — a
+    /// Photograph or Display Copy download, never lossily decoded.
+    #[allow(dead_code)]
+    pub fn get_bytes(&self, path: &str, bearer: Option<&str>) -> (u16, String, Vec<u8>) {
+        self.wait_until_serving();
+        let response =
+            http_min::get_with_bearer(self.addr, path, bearer).expect("server reachable");
+        (
+            response.status,
+            response.content_type().unwrap_or_default().to_string(),
             response.body,
         )
+    }
+
+    /// POST raw bytes — a Photograph upload through the out-of-band route
+    /// (ADR 0001), never wrapped in a JSON envelope.
+    #[allow(dead_code)]
+    pub fn post_bytes(
+        &self,
+        path: &str,
+        bearer: Option<&str>,
+        content_type: &str,
+        body: &[u8],
+    ) -> (u16, Value) {
+        self.wait_until_serving();
+        let response = http_min::post_bytes(self.addr, path, bearer, content_type, body)
+            .expect("web door reachable");
+        parse(response.status, &response.text())
     }
 }
 

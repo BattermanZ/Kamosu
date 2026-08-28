@@ -352,6 +352,7 @@ export type CreateRecipeInput = {
 	}[];
 	kitchen_id: string;
 	language?: "en" | "fr" | "es";
+	main_photo?: string | null;
 	note?: string | null;
 	prep_time_minutes?: number | null;
 	source?: {
@@ -401,6 +402,7 @@ export type CreateRecipeOutput = {
 				kind: "section" | "ingredient";
 				text: string;
 			}[];
+			main_photo: string | null;
 			note: string | null;
 			prep_time_minutes: number | null;
 			source: {
@@ -441,6 +443,7 @@ export type SaveRecipeVersionInput = {
 		kind: "section" | "ingredient";
 		text: string;
 	}[];
+	main_photo?: string | null;
 	name?: string;
 	note?: string | null;
 	prep_time_minutes?: number | null;
@@ -476,6 +479,15 @@ export type RenameVersionInput = {
 /** What rename_version answers. */
 export type RenameVersionOutput = {
 	name: string | null;
+};
+
+/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
+export type UploadPhotographInput = {
+	data: string;
+};
+/** What upload_photograph answers. */
+export type UploadPhotographOutput = {
+	photograph_id: string;
 };
 
 /** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
@@ -514,6 +526,7 @@ export type GetRecipeOutput = {
 				kind: "section" | "ingredient";
 				text: string;
 			}[];
+			main_photo: string | null;
 			note: string | null;
 			prep_time_minutes: number | null;
 			source: {
@@ -788,6 +801,12 @@ export interface Operations {
 	rename_version: {
 		input: RenameVersionInput;
 		output: RenameVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	upload_photograph: {
+		input: UploadPhotographInput;
+		output: UploadPhotographOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -2194,6 +2213,12 @@ export const CATALOGUE = [
 						"es"
 					]
 				},
+				"main_photo": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"note": {
 					"type": [
 						"string",
@@ -2435,6 +2460,12 @@ export const CATALOGUE = [
 										},
 										"type": "array"
 									},
+									"main_photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
 									"note": {
 										"type": [
 											"string",
@@ -2528,6 +2559,7 @@ export const CATALOGUE = [
 									"prep_time_minutes",
 									"cook_time_minutes",
 									"note",
+									"main_photo",
 									"source",
 									"ingredients",
 									"steps"
@@ -2667,6 +2699,12 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"main_photo": {
+					"type": [
+						"string",
+						"null"
+					]
 				},
 				"name": {
 					"type": "string"
@@ -2837,6 +2875,37 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "upload_photograph",
+		"summary": "Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"data": {
+					"description": "The picture, base64-encoded.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"data"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"photograph_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"photograph_id"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_recipe",
 		"summary": "Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first.",
 		"permission": "person",
@@ -3001,6 +3070,12 @@ export const CATALOGUE = [
 										},
 										"type": "array"
 									},
+									"main_photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
 									"note": {
 										"type": [
 											"string",
@@ -3094,6 +3169,7 @@ export const CATALOGUE = [
 									"prep_time_minutes",
 									"cook_time_minutes",
 									"note",
+									"main_photo",
 									"source",
 									"ingredients",
 									"steps"
@@ -3487,6 +3563,7 @@ export const METHOD_NAMES = {
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
 	rename_version: 'renameVersion',
+	upload_photograph: 'uploadPhotograph',
 	get_recipe: 'getRecipe',
 	set_reading: 'setReading',
 	get_job: 'getJob',
@@ -3556,6 +3633,8 @@ export interface KamosuClient {
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
+	/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
+	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;
 	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */

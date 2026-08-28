@@ -21,6 +21,7 @@ use sha2::{Digest, Sha256};
 use crate::catalogue::{self, Kind, Permission};
 use crate::db::Db;
 use crate::jobs::{self, JobProgress, JobRecord};
+use crate::photographs;
 
 /// What went wrong with an Operation, in words a caller can act on. The Doors map
 /// these to their own transports; they never decide them.
@@ -1595,6 +1596,111 @@ impl Core {
         })
     }
 
+    /// The one data directory everything durable lives under (ADR 0028) — the
+    /// database beside it, Photographs and Display Copies below it.
+    pub fn data_dir(&self) -> std::path::PathBuf {
+        self.db().data_dir().to_path_buf()
+    }
+
+    /// Resolve a Credential for a route that carries the same ability as a
+    /// `Permission::Person` Operation, without requiring it also write
+    /// (ADR 0031's read-only Access Keys may still use it). Exists for the
+    /// out-of-band Photograph routes (ADR 0001), which never pass through
+    /// [`Core::execute`] and so must repeat its permission check themselves
+    /// rather than skip it — a Door deciding this on its own would be the
+    /// same bug `execute` exists to prevent.
+    pub fn authenticate(&self, secret: Option<&str>) -> Result<Caller, OpError> {
+        let secret = secret.filter(|s| !s.is_empty()).ok_or_else(|| {
+            OpError::unauthorized("this route requires a Credential naming a Person")
+        })?;
+        self.resolve_credential(secret)
+    }
+
+    /// The same resolution, additionally refusing a read-only Access Key — the
+    /// out-of-band equivalent of a Catalogue Operation declared `write: true`.
+    pub fn authenticate_for_write(&self, secret: Option<&str>) -> Result<Caller, OpError> {
+        let caller = self.authenticate(secret)?;
+        if caller.read_only {
+            return Err(OpError::unauthorized(
+                "this route writes, and this Credential is a read-only Access Key",
+            ));
+        }
+        Ok(caller)
+    }
+
+    /// Remake an uploaded picture and give it its identity (ADR 0017). Two
+    /// uploads of the same picture — including this one, again — answer the
+    /// same id: the write is `INSERT OR IGNORE`, never a duplicate.
+    pub fn store_photograph(&self, bytes: &[u8]) -> Result<Value, OpError> {
+        let remade = photographs::remake(bytes)?;
+        let hash = photographs::hash_bytes(&remade);
+        self.record_photograph(&hash, &remade)?;
+        Ok(json!({ "photograph_id": hash }))
+    }
+
+    /// Store a Photograph exactly as it arrived, with no remaking (ADR 0017):
+    /// one already made and travelling in a Bundle is stored byte-for-byte, so
+    /// that two instances receiving the same Bundle cannot re-encode their way
+    /// into disagreeing about what its bytes are. No Bundle-receiving
+    /// Operation exists yet to call this — it is the primitive that one will.
+    pub fn store_photograph_verbatim(&self, bytes: &[u8]) -> Result<Value, OpError> {
+        let hash = photographs::hash_bytes(bytes);
+        self.record_photograph(&hash, bytes)?;
+        Ok(json!({ "photograph_id": hash }))
+    }
+
+    /// Write a Photograph's bytes under its hash if not already present, and
+    /// record the hash — the part `store_photograph` and
+    /// `store_photograph_verbatim` share once each has decided what the bytes
+    /// to store actually are.
+    fn record_photograph(&self, hash: &str, bytes: &[u8]) -> Result<(), OpError> {
+        let path = photographs::photograph_path(&self.data_dir(), hash);
+        if !path.exists() {
+            std::fs::create_dir_all(photographs::photographs_dir(&self.data_dir())).map_err(
+                |e| OpError::internal(format!("cannot create Photographs directory: {e}")),
+            )?;
+            std::fs::write(&path, bytes)
+                .map_err(|e| OpError::internal(format!("cannot store Photograph: {e}")))?;
+        }
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO photographs (hash) VALUES (?1)",
+                params![hash],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record Photograph: {e}")))?;
+            Ok(())
+        })
+    }
+
+    /// Read a Photograph's own bytes back — the out-of-band Web Door route
+    /// asks for these directly; no Operation wraps binary output in JSON.
+    pub fn read_photograph(&self, hash: &str) -> Result<Vec<u8>, OpError> {
+        std::fs::read(photographs::photograph_path(&self.data_dir(), hash))
+            .map_err(|_| OpError::not_found("no such Photograph"))
+    }
+
+    /// Read a Display Copy, generating and caching it on first ask. Display
+    /// Copies are worked out from the Photograph and kept only for
+    /// convenience (ADR 0017), so a missing one is made rather than an error.
+    pub fn read_display_copy(
+        &self,
+        hash: &str,
+        size: photographs::DisplaySize,
+    ) -> Result<Vec<u8>, OpError> {
+        let path = photographs::display_path(&self.data_dir(), hash, size);
+        if let Ok(cached) = std::fs::read(&path) {
+            return Ok(cached);
+        }
+        let source = self.read_photograph(hash)?;
+        let copy = photographs::display_copy(&source, size.long_edge())?;
+        std::fs::create_dir_all(photographs::display_dir(&self.data_dir())).map_err(|e| {
+            OpError::internal(format!("cannot create Display Copies directory: {e}"))
+        })?;
+        std::fs::write(&path, &copy)
+            .map_err(|e| OpError::internal(format!("cannot cache Display Copy: {e}")))?;
+        Ok(copy)
+    }
+
     /// Read a Recipe: the Branch as it stands and its whole chain of Versions,
     /// oldest first — the Thread's raw material.
     pub fn get_recipe(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
@@ -1900,6 +2006,15 @@ fn parse_recipe_content(input: &Value) -> Result<Value, OpError> {
         Some(Value::String(text)) => json!(text),
         Some(_) => return Err(OpError::bad_request("note must be a string or null")),
     };
+    // The Main Photo is carried only as a reference to a Photograph already
+    // uploaded (#45, ADR 0017) — the same loose, unvalidated pointer a Step's
+    // photo already is, and part of the fingerprint below for the same reason.
+    let main_photo = match input.get("main_photo") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(photo)) if !photo.is_empty() => Some(photo.as_str()),
+        Some(Value::String(_)) => None,
+        Some(_) => return Err(OpError::bad_request("main_photo must be a string or null")),
+    };
     let source = match input.get("source") {
         None | Some(Value::Null) => Value::Null,
         Some(value) => parse_source(value)?,
@@ -1913,6 +2028,7 @@ fn parse_recipe_content(input: &Value) -> Result<Value, OpError> {
         "prep_time_minutes": prep_time_minutes,
         "cook_time_minutes": cook_time_minutes,
         "note": note,
+        "main_photo": main_photo,
         "source": source,
         "ingredients": ingredients,
         "steps": steps,
@@ -2025,8 +2141,9 @@ fn parse_line_list(value: Option<&Value>, field: &str, line_kind: &str) -> Resul
 /// The Step list: the same flat Section-and-entry shape as the Ingredient
 /// list, where a Step carries text and an optional photo — no timer or
 /// temperature field to fill in (CONTEXT.md, "Step"). The photo is carried
-/// only as a reference for now; storing the picture itself belongs to a
-/// separate Photographs ticket (#45, ADR 0017).
+/// only as a reference to a Photograph already uploaded through
+/// `upload_photograph`, unvalidated here the way any other pointer in this
+/// codebase is (ADR 0017).
 fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
     let items = match value {
         None => return Ok(json!([])),

@@ -547,6 +547,24 @@ pub fn rename_version(
     Ok(json!({ "name": stored }))
 }
 
+/// The base64 fallback for a Door that cannot carry raw bytes (ADR 0001). A
+/// browser instead calls the out-of-band `POST /api/photographs`; both reach
+/// the identical `Core::store_photograph`.
+pub fn upload_photograph(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let data = input.get("data").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("upload_photograph takes { data } — the picture, base64-encoded")
+    })?;
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+    core.store_photograph(&bytes)
+}
+
 pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")

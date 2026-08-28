@@ -6,14 +6,17 @@
 
 use std::sync::Arc;
 
+use axum::body::Bytes;
+use axum::extract::Path;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, post};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use serde_json::{Value, json};
 
 use crate::catalogue;
 use crate::core::{Core, ErrorKind, OpError};
+use crate::photographs::DisplaySize;
 
 /// Build the whole web door from the Catalogue. One route per Operation; nothing
 /// else. A permission check here would be a bug — authorisation lives in the Core.
@@ -54,6 +57,37 @@ pub fn router(core: Arc<Core>) -> Router {
                 respond(authenticate_recovery(&recovery_core, body))
             }),
         );
+    // Photographs travel out of band, authenticated with the same Credential
+    // as any Operation (ADR 0001) — raw bytes rather than a JSON envelope, so
+    // they never pass through the Catalogue's dispatch. `upload_photograph`
+    // is the base64 fallback for a Door that cannot carry raw bytes at all.
+    let upload_core = core.clone();
+    let photograph_core = core.clone();
+    let display_core = core.clone();
+    router = router
+        .route(
+            "/api/photographs",
+            post(move |headers: HeaderMap, body: Bytes| {
+                let core = upload_core.clone();
+                async move { upload_photograph(&core, &headers, &body) }
+            }),
+        )
+        .route(
+            "/api/photographs/{hash}",
+            get(move |Path(hash): Path<String>, headers: HeaderMap| {
+                let core = photograph_core.clone();
+                async move { get_photograph(&core, &headers, &hash) }
+            }),
+        )
+        .route(
+            "/api/photographs/{hash}/{size}",
+            get(
+                move |Path((hash, size)): Path<(String, String)>, headers: HeaderMap| {
+                    let core = display_core.clone();
+                    async move { get_display_copy(&core, &headers, &hash, &size) }
+                },
+            ),
+        );
     for op in catalogue::OPERATIONS.iter() {
         let core = core.clone();
         router = router.route(
@@ -65,8 +99,16 @@ pub fn router(core: Arc<Core>) -> Router {
             ),
         );
     }
-    router.with_state(())
+    router
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .with_state(())
 }
+
+/// Axum's own default body limit is 2 MB — plenty for a recipe, nowhere near
+/// enough for a camera-original photograph carried as base64 (a third larger
+/// again than its own bytes) or raw. 40 MB comfortably covers a modern phone's
+/// photo either way, with room to spare.
+const MAX_BODY_BYTES: usize = 40 * 1024 * 1024;
 
 /// Reached only when no exact route claimed the path, so the name is one the
 /// Catalogue does not declare. Naming it back is the whole of the answer.
@@ -169,6 +211,60 @@ fn call_operation(
     };
 
     core.execute(secret.as_deref(), operation_name, input)
+}
+
+/// `POST /api/photographs`: the raw bytes are the whole body — one picture
+/// per request, so no multipart envelope is needed. Answers the same
+/// `{ "ok": true, "result": { "photograph_id": ... } }` envelope as an
+/// Operation, since this is one in every way but how its bytes travel.
+fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response {
+    let secret = bearer_from_headers(headers);
+    match core
+        .authenticate_for_write(secret.as_deref())
+        .and_then(|_| core.store_photograph(body))
+    {
+        Ok(result) => respond(Ok(result)),
+        Err(err) => respond(Err(err)),
+    }
+}
+
+/// `GET /api/photographs/{hash}`: the Photograph's own bytes, WebP.
+fn get_photograph(core: &Core, headers: &HeaderMap, hash: &str) -> Response {
+    let secret = bearer_from_headers(headers);
+    match core
+        .authenticate(secret.as_deref())
+        .and_then(|_| core.read_photograph(hash))
+    {
+        Ok(bytes) => image_response(bytes),
+        Err(err) => respond(Err(err)),
+    }
+}
+
+/// `GET /api/photographs/{hash}/{size}`: a Display Copy — `card`, `page` or
+/// `print` (CONTEXT.md, "Display Copy") — generated and cached on first ask.
+fn get_display_copy(core: &Core, headers: &HeaderMap, hash: &str, size: &str) -> Response {
+    let secret = bearer_from_headers(headers);
+    let Some(size) = DisplaySize::parse(size) else {
+        return respond(Err(OpError::bad_request(
+            "a Display Copy is one of 'card', 'page' or 'print'",
+        )));
+    };
+    match core
+        .authenticate(secret.as_deref())
+        .and_then(|_| core.read_display_copy(hash, size))
+    {
+        Ok(bytes) => image_response(bytes),
+        Err(err) => respond(Err(err)),
+    }
+}
+
+fn image_response(bytes: Vec<u8>) -> Response {
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/webp")],
+        bytes,
+    )
+        .into_response()
 }
 
 fn respond(result: Result<Value, OpError>) -> Response {

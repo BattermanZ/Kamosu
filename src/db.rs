@@ -341,6 +341,21 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX related_recipes_by_lineage_b ON related_recipes(kitchen_id, lineage_b_id);
         "#,
     },
+    Migration {
+        version: 13,
+        description: "the Photograph: known by its own contents (#45, ADR 0017)",
+        sql: r#"
+        -- A Photograph: identified by the picture itself, never a name or a
+        -- place. This row only records that the hash exists; the bytes live
+        -- under /data/photographs, named by the same hash, so this table is
+        -- what makes "does this Photograph already exist" a cheap question
+        -- rather than a directory listing.
+        CREATE TABLE photographs (
+            hash       TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
@@ -411,6 +426,12 @@ impl Db {
     /// Where Kamosu's truth lives: one SQLite file under the one data directory.
     pub fn database_path(&self) -> std::path::PathBuf {
         self.data_dir.join(DATABASE_FILE)
+    }
+
+    /// The one data directory everything durable lives under (ADR 0028) — the
+    /// database beside it, Photographs and Display Copies below it.
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
     }
 }
 

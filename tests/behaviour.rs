@@ -592,8 +592,8 @@ async fn logging_in_mints_a_revocable_session_credential() {
     let login =
         json!({ "name": "Aurélien", "password": "the right password", "session_name": "laptop" });
     let logged_in = app.post_auth_response("/auth/login", &login.to_string());
-    assert_eq!(logged_in.status, 200, "{}", logged_in.body);
-    let session_id: Value = serde_json::from_str(&logged_in.body).expect("auth envelope");
+    assert_eq!(logged_in.status, 200, "{}", logged_in.text());
+    let session_id: Value = serde_json::from_str(&logged_in.text()).expect("auth envelope");
     let session_id = session_id["result"]["session_id"]
         .as_str()
         .expect("Session id");
@@ -2129,7 +2129,7 @@ async fn minting_an_access_key_shows_the_secret_once_afterwards_known_by_name_an
     let app = support::spawn_app();
     let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "first browser" });
     let created = app.post_auth_response("/auth/first-person", &create.to_string());
-    assert_eq!(created.status, 200, "{}", created.body);
+    assert_eq!(created.status, 200, "{}", created.text());
     let session_secret = created
         .headers
         .iter()
@@ -2914,7 +2914,7 @@ async fn an_operator_mints_a_one_use_invite_that_creates_a_person_and_home_kitch
         "session_name": "operator browser",
     });
     let operator = app.post_auth_response("/auth/first-person", &first.to_string());
-    assert_eq!(operator.status, 200, "{}", operator.body);
+    assert_eq!(operator.status, 200, "{}", operator.text());
     let operator_secret = operator
         .headers
         .iter()
@@ -2967,7 +2967,7 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     );
     let recovered = json!({ "link": recovery["result"]["link"], "password": "new password", "session_name": "replacement browser" });
     let recovery_session = app.post_auth_response("/auth/recover", &recovered.to_string());
-    assert_eq!(recovery_session.status, 200, "{}", recovery_session.body);
+    assert_eq!(recovery_session.status, 200, "{}", recovery_session.text());
     assert_eq!(
         app.post_auth("/auth/recover", &recovered.to_string()).0,
         401,

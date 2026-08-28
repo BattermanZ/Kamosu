@@ -9,8 +9,7 @@ use std::net::SocketAddr;
 pub struct Response {
     pub status: u16,
     pub headers: Vec<(String, String)>,
-    #[allow(dead_code)]
-    pub body: String,
+    pub body: Vec<u8>,
 }
 
 impl Response {
@@ -20,6 +19,12 @@ impl Response {
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
             .map(|(_, value)| value.as_str())
+    }
+
+    /// The body decoded lossily — enough for tests asserting on JSON or text;
+    /// never for the bytes of a picture themselves.
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.body).into_owned()
     }
 }
 
@@ -37,14 +42,37 @@ pub fn post_json(
         "POST",
         path,
         bearer,
-        Some(("Content-Type: application/json\r\n", body)),
+        Some(("application/json", body.as_bytes())),
     )
 }
 
-/// GET one resource and read one response. Binary bodies are decoded lossily —
-/// enough for tests that assert status and headers, never for bytes themselves.
+/// POST raw bytes with the given Content-Type — a Photograph upload, tested
+/// exactly as the out-of-band route (ADR 0001) receives it: no JSON envelope.
+#[allow(dead_code)]
+pub fn post_bytes(
+    addr: SocketAddr,
+    path: &str,
+    bearer: Option<&str>,
+    content_type: &str,
+    body: &[u8],
+) -> std::io::Result<Response> {
+    request(addr, "POST", path, bearer, Some((content_type, body)))
+}
+
+/// GET one resource and read one response, bytes intact.
 pub fn get(addr: SocketAddr, path: &str) -> std::io::Result<Response> {
     request(addr, "GET", path, None, None)
+}
+
+/// GET one resource with a Credential — a Photograph download is
+/// authenticated the same way an Operation is.
+#[allow(dead_code)]
+pub fn get_with_bearer(
+    addr: SocketAddr,
+    path: &str,
+    bearer: Option<&str>,
+) -> std::io::Result<Response> {
+    request(addr, "GET", path, bearer, None)
 }
 
 fn request(
@@ -52,32 +80,38 @@ fn request(
     method: &str,
     path: &str,
     bearer: Option<&str>,
-    body: Option<(&str, &str)>,
+    body: Option<(&str, &[u8])>,
 ) -> std::io::Result<Response> {
     let mut stream = std::net::TcpStream::connect(addr)?;
     stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
 
-    let mut r = format!("{method} {path} HTTP/1.1\r\nHost: {}\r\n", addr);
-    if let Some((content_header, content)) = body {
-        r.push_str(&format!(
-            "{content_header}Content-Length: {}\r\n",
+    let mut head = format!("{method} {path} HTTP/1.1\r\nHost: {}\r\n", addr);
+    if let Some((content_type, content)) = body {
+        head.push_str(&format!(
+            "Content-Type: {content_type}\r\nContent-Length: {}\r\n",
             content.len()
         ));
     }
-    r.push_str("Connection: close\r\n");
+    head.push_str("Connection: close\r\n");
     if let Some(secret) = bearer {
-        r.push_str(&format!("Authorization: Bearer {secret}\r\n"));
+        head.push_str(&format!("Authorization: Bearer {secret}\r\n"));
     }
-    r.push_str("\r\n");
+    head.push_str("\r\n");
+
+    stream.write_all(head.as_bytes())?;
     if let Some((_, content)) = body {
-        r.push_str(content);
+        stream.write_all(content)?;
     }
-    stream.write_all(r.as_bytes())?;
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw)?;
 
-    let text = String::from_utf8_lossy(&raw);
-    let status = text
+    let split_at = find_double_crlf(&raw).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "no header/body boundary")
+    })?;
+    let head_text = String::from_utf8_lossy(&raw[..split_at]);
+    let body = raw[split_at + 4..].to_vec();
+
+    let status = head_text
         .split_whitespace()
         .nth(1)
         .and_then(|s| s.parse::<u16>().ok())
@@ -87,11 +121,7 @@ fn request(
                 "unreadable HTTP status line",
             )
         })?;
-    let (head, body) = text
-        .split_once("\r\n\r\n")
-        .map(|(h, b)| (h.to_string(), b.to_string()))
-        .unwrap_or_default();
-    let headers = head
+    let headers = head_text
         .lines()
         .skip(1)
         .filter_map(|line| line.split_once(": "))
@@ -102,4 +132,8 @@ fn request(
         headers,
         body,
     })
+}
+
+fn find_double_crlf(raw: &[u8]) -> Option<usize> {
+    raw.windows(4).position(|window| window == b"\r\n\r\n")
 }

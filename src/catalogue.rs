@@ -538,6 +538,35 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::rename_version,
         },
         Operation {
+            name: "upload_photograph",
+            summary: "Upload a Photograph, base64-encoded — the fallback for a \
+                      Door that cannot carry raw bytes (ADR 0001). A browser \
+                      uses the out-of-band `POST /api/photographs` instead. \
+                      Two uploads of the same picture answer the same id.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "string",
+                        "description": "The picture, base64-encoded.",
+                    },
+                },
+                "required": ["data"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "photograph_id": { "type": "string" } },
+                "required": ["photograph_id"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::upload_photograph,
+        },
+        Operation {
             name: "get_recipe",
             summary: "Read a Recipe: the Branch as it stands and its whole \
                       chain of Versions, oldest first.",
@@ -895,6 +924,10 @@ fn recipe_content_properties() -> Value {
                              proving, marinating and chilling.",
         },
         "note": { "type": ["string", "null"] },
+        // The single Photograph that stands for the recipe wherever it is
+        // listed (CONTEXT.md, "Main Photo") — a reference only; storing the
+        // picture itself is `upload_photograph` (#45, ADR 0017).
+        "main_photo": { "type": ["string", "null"] },
         "source": {
             "type": ["object", "null"],
             "properties": {
@@ -941,7 +974,7 @@ fn recipe_content_schema() -> Value {
         "properties": recipe_content_properties(),
         "required": [
             "title", "yield", "prep_time_minutes", "cook_time_minutes",
-            "note", "source", "ingredients", "steps",
+            "note", "main_photo", "source", "ingredients", "steps",
         ],
         "additionalProperties": false,
     })
