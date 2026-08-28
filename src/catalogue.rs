@@ -620,6 +620,81 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             handler: crate::operations::set_reading,
         },
+        Operation {
+            name: "list_foods",
+            summary: "List every Food this instance knows, each shown in the \
+                      reader's Reading Language where it has a name there.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "foods": { "type": "array", "items": food_schema() } },
+                "required": ["foods"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_foods,
+        },
+        Operation {
+            name: "get_food",
+            summary: "Read one Food: its names, its Cup Weight, and how many \
+                      Readings currently point at it.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" } }, "required": ["food_id"], "additionalProperties": false }),
+            output_schema: food_schema(),
+            handler: crate::operations::get_food,
+        },
+        Operation {
+            name: "set_food_name",
+            summary: "Give a Food its name in one Language, or correct the \
+                      one it has there. Any Person may — a Food is \
+                      instance-wide, not a Kitchen's to guard.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["food_id", "language", "name"], "additionalProperties": false }),
+            output_schema: food_schema(),
+            handler: crate::operations::set_food_name,
+        },
+        Operation {
+            name: "remove_food_name",
+            summary: "Take a Food's name in one Language back off. A Food's \
+                      last remaining name may not be removed this way.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] } }, "required": ["food_id", "language"], "additionalProperties": false }),
+            output_schema: food_schema(),
+            handler: crate::operations::remove_food_name,
+        },
+        Operation {
+            name: "set_food_cup_weight",
+            summary: "Set or clear a Food's Cup Weight — the one figure \
+                      that turns a volume of it into a weight. Anyone may \
+                      correct it.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "food_id": { "type": "string" },
+                    "cup_weight_grams": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+                },
+                "required": ["food_id", "cup_weight_grams"],
+                "additionalProperties": false,
+            }),
+            output_schema: food_schema(),
+            handler: crate::operations::set_food_cup_weight,
+        },
         // Watching slow work: two ordinary Operations, so a browser polling an
         // import and an agent polling the same import use the identical shape.
         Operation {
@@ -1037,6 +1112,40 @@ fn reading_list_schema() -> Value {
     json!({
         "type": "array",
         "items": reading_schema(),
+    })
+}
+
+/// A Food as `list_foods` and `get_food` serve it: every name it has, the
+/// one to show a reader, its Cup Weight, its nutrition slot — always `null`
+/// in v1, a foundation left for the CIQUAL binding #12 deferred past v1, and
+/// never carried in a Bundle — and how many Readings currently point at it.
+/// Mirrors `tag_schema`'s reader-facing shape; a Food carries no `kitchen_id`
+/// because it is instance-wide (ADR 0022).
+fn food_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "name": { "type": ["string", "null"] },
+            "language": { "type": ["string", "null"] },
+            "names": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "language": { "type": "string" },
+                        "name": { "type": "string" },
+                    },
+                    "required": ["language", "name"],
+                    "additionalProperties": false,
+                },
+            },
+            "cup_weight_grams": { "type": ["number", "null"] },
+            "nutrition": { "type": "null" },
+            "reading_count": { "type": "integer", "minimum": 0 },
+        },
+        "required": ["id", "name", "language", "names", "cup_weight_grams", "nutrition", "reading_count"],
+        "additionalProperties": false,
     })
 }
 

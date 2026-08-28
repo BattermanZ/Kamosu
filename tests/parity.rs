@@ -48,6 +48,10 @@ fn arguments_for(name: &str) -> Value {
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" => json!({ "branch_id": "b_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
+        "get_food" => json!({ "food_id": "f_parity" }),
+        "set_food_name" => json!({ "food_id": "f_parity", "language": "en", "name": "parity" }),
+        "remove_food_name" => json!({ "food_id": "f_parity", "language": "en" }),
+        "set_food_cup_weight" => json!({ "food_id": "f_parity", "cup_weight_grams": 100 }),
         "create_tag" => json!({ "kitchen_id": "k_parity", "language": "en", "name": "parity" }),
         "list_tags" => json!({ "kitchen_id": "k_parity" }),
         "rename_tag" => json!({ "tag_id": "t_parity", "language": "en", "name": "parity" }),
@@ -105,7 +109,12 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "merge_tags"
             | "set_recipe_tag"
             | "set_related_recipe"
-            | "upload_photograph" => ("{}", 401),
+            | "upload_photograph"
+            | "list_foods"
+            | "get_food"
+            | "set_food_name"
+            | "remove_food_name"
+            | "set_food_cup_weight" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -207,6 +216,11 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "set_recipe_tag"
                 | "set_related_recipe"
                 | "upload_photograph"
+                | "list_foods"
+                | "get_food"
+                | "set_food_name"
+                | "remove_food_name"
+                | "set_food_cup_weight"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

@@ -356,6 +356,51 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 14,
+        description: "the Food: matched from a Reading's word, doubt makes a new one (#47, ADR 0022)",
+        sql: r#"
+        -- A Food: an edible thing Kamosu knows about, created automatically
+        -- from whatever word a Reading found and shared across every recipe
+        -- that uses it. Instance-wide — no kitchen_id — because matching a
+        -- Food to nutrition is the expensive part and worth doing once
+        -- (ADR 0022). `cup_weight_grams` is the one figure that turns a
+        -- volume into a weight; `nutrition` is a foundation slot for the
+        -- CIQUAL binding #12 deferred past v1 — no Operation writes it yet,
+        -- and it always reads back null. Neither ever travels in a Bundle.
+        CREATE TABLE foods (
+            id               TEXT PRIMARY KEY,
+            cup_weight_grams REAL,
+            nutrition        TEXT,
+            created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- A Food's name in one Language, at most one per Language (ADR 0006)
+        -- — flour and farine are one Food wearing two words. Unlike
+        -- tag_names, deliberately carries no unique index on the word: doubt
+        -- makes a new Food, never a merge (ADR 0022), so the same folded
+        -- word can legitimately end up naming two different Foods once a
+        -- collision has happened, or once a name has been typed onto a Food
+        -- another already answers to. That duplication is itself the
+        -- evidence a Merge Suggestion (#48) will record.
+        CREATE TABLE food_names (
+            food_id     TEXT NOT NULL REFERENCES foods(id),
+            language    TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            name_folded TEXT NOT NULL,
+            PRIMARY KEY (food_id, language)
+        );
+        CREATE INDEX food_names_by_word ON food_names(language, name_folded);
+
+        -- Which Food a Reading's target word currently resolves to —
+        -- internal bookkeeping alone. A Reading's public shape stays the
+        -- bare word (ADR 0021: "no id"), so this column is never read by
+        -- set_reading's output or carried into a Bundle. It exists so the
+        -- busiest-Food tie-break (ADR 0022) can be answered by counting
+        -- rather than re-matching.
+        ALTER TABLE readings ADD COLUMN food_id TEXT REFERENCES foods(id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

@@ -576,6 +576,100 @@ export type SetReadingOutput = {
 	} | null;
 };
 
+/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
+export type ListFoodsInput = Record<string, never>;
+/** What list_foods answers. */
+export type ListFoodsOutput = {
+	foods: {
+		cup_weight_grams: number | null;
+		id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+		nutrition: null;
+		reading_count: number;
+	}[];
+};
+
+/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */
+export type GetFoodInput = {
+	food_id: string;
+};
+/** What get_food answers. */
+export type GetFoodOutput = {
+	cup_weight_grams: number | null;
+	id: string;
+	language: string | null;
+	name: string | null;
+	names: {
+		language: string;
+		name: string;
+	}[];
+	nutrition: null;
+	reading_count: number;
+};
+
+/** Give a Food its name in one Language, or correct the one it has there. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
+export type SetFoodNameInput = {
+	food_id: string;
+	language: "en" | "fr" | "es";
+	name: string;
+};
+/** What set_food_name answers. */
+export type SetFoodNameOutput = {
+	cup_weight_grams: number | null;
+	id: string;
+	language: string | null;
+	name: string | null;
+	names: {
+		language: string;
+		name: string;
+	}[];
+	nutrition: null;
+	reading_count: number;
+};
+
+/** Take a Food's name in one Language back off. A Food's last remaining name may not be removed this way. */
+export type RemoveFoodNameInput = {
+	food_id: string;
+	language: "en" | "fr" | "es";
+};
+/** What remove_food_name answers. */
+export type RemoveFoodNameOutput = {
+	cup_weight_grams: number | null;
+	id: string;
+	language: string | null;
+	name: string | null;
+	names: {
+		language: string;
+		name: string;
+	}[];
+	nutrition: null;
+	reading_count: number;
+};
+
+/** Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it. */
+export type SetFoodCupWeightInput = {
+	cup_weight_grams: number | null;
+	food_id: string;
+};
+/** What set_food_cup_weight answers. */
+export type SetFoodCupWeightOutput = {
+	cup_weight_grams: number | null;
+	id: string;
+	language: string | null;
+	name: string | null;
+	names: {
+		language: string;
+		name: string;
+	}[];
+	nutrition: null;
+	reading_count: number;
+};
+
 /** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 export type GetJobInput = {
 	job_id: string;
@@ -819,6 +913,36 @@ export interface Operations {
 	set_reading: {
 		input: SetReadingInput;
 		output: SetReadingOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_foods: {
+		input: ListFoodsInput;
+		output: ListFoodsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_food: {
+		input: GetFoodInput;
+		output: GetFoodOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_food_name: {
+		input: SetFoodNameInput;
+		output: SetFoodNameOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_food_name: {
+		input: RemoveFoodNameInput;
+		output: RemoveFoodNameOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_food_cup_weight: {
+		input: SetFoodCupWeightInput;
+		output: SetFoodCupWeightOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -3354,6 +3478,439 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "list_foods",
+		"summary": "List every Food this instance knows, each shown in the reader's Reading Language where it has a name there.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"foods": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"cup_weight_grams": {
+								"type": [
+									"number",
+									"null"
+								]
+							},
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"nutrition": {
+								"type": "null"
+							},
+							"reading_count": {
+								"minimum": 0,
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"language",
+							"names",
+							"cup_weight_grams",
+							"nutrition",
+							"reading_count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"foods"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_food",
+		"summary": "Read one Food: its names, its Cup Weight, and how many Readings currently point at it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"food_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"food_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cup_weight_grams": {
+					"type": [
+						"number",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"language": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"names": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"language": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"language",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"nutrition": {
+					"type": "null"
+				},
+				"reading_count": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"language",
+				"names",
+				"cup_weight_grams",
+				"nutrition",
+				"reading_count"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_food_name",
+		"summary": "Give a Food its name in one Language, or correct the one it has there. Any Person may — a Food is instance-wide, not a Kitchen's to guard.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"food_id": {
+					"type": "string"
+				},
+				"language": {
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"food_id",
+				"language",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cup_weight_grams": {
+					"type": [
+						"number",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"language": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"names": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"language": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"language",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"nutrition": {
+					"type": "null"
+				},
+				"reading_count": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"language",
+				"names",
+				"cup_weight_grams",
+				"nutrition",
+				"reading_count"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_food_name",
+		"summary": "Take a Food's name in one Language back off. A Food's last remaining name may not be removed this way.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"food_id": {
+					"type": "string"
+				},
+				"language": {
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				}
+			},
+			"required": [
+				"food_id",
+				"language"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cup_weight_grams": {
+					"type": [
+						"number",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"language": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"names": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"language": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"language",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"nutrition": {
+					"type": "null"
+				},
+				"reading_count": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"language",
+				"names",
+				"cup_weight_grams",
+				"nutrition",
+				"reading_count"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_food_cup_weight",
+		"summary": "Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cup_weight_grams": {
+					"exclusiveMinimum": 0,
+					"type": [
+						"number",
+						"null"
+					]
+				},
+				"food_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"food_id",
+				"cup_weight_grams"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"cup_weight_grams": {
+					"type": [
+						"number",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"language": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"names": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"language": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"language",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"nutrition": {
+					"type": "null"
+				},
+				"reading_count": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"language",
+				"names",
+				"cup_weight_grams",
+				"nutrition",
+				"reading_count"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_job",
 		"summary": "Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
 		"permission": "public",
@@ -3566,6 +4123,11 @@ export const METHOD_NAMES = {
 	upload_photograph: 'uploadPhotograph',
 	get_recipe: 'getRecipe',
 	set_reading: 'setReading',
+	list_foods: 'listFoods',
+	get_food: 'getFood',
+	set_food_name: 'setFoodName',
+	remove_food_name: 'removeFoodName',
+	set_food_cup_weight: 'setFoodCupWeight',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	list_jobs: 'listJobs',
@@ -3639,6 +4201,16 @@ export interface KamosuClient {
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
+	/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
+	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
+	/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */
+	getFood(input: GetFoodInput): Promise<Answer<'get_food'>>;
+	/** Give a Food its name in one Language, or correct the one it has there. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
+	setFoodName(input: SetFoodNameInput): Promise<Answer<'set_food_name'>>;
+	/** Take a Food's name in one Language back off. A Food's last remaining name may not be removed this way. */
+	removeFoodName(input: RemoveFoodNameInput): Promise<Answer<'remove_food_name'>>;
+	/** Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it. */
+	setFoodCupWeight(input: SetFoodCupWeightInput): Promise<Answer<'set_food_cup_weight'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */

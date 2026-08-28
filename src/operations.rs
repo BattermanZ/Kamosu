@@ -605,6 +605,83 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
     )
 }
 
+pub fn list_foods(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request("list_foods takes no input"));
+    }
+    let caller = caller_of(invocation)?;
+    Ok(json!({ "foods": core.list_foods(&caller.person_id)? }))
+}
+
+pub fn get_food(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let food_id = input
+        .get("food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("get_food takes { food_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.get_food(&caller.person_id, food_id)
+}
+
+pub fn set_food_name(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "set_food_name takes { food_id, language, name }";
+    let food_id = input
+        .get("food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let language = input
+        .get("language")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.set_food_name(&caller.person_id, food_id, language, name)
+}
+
+pub fn remove_food_name(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "remove_food_name takes { food_id, language }";
+    let food_id = input
+        .get("food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let language = input
+        .get("language")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.remove_food_name(&caller.person_id, food_id, language)
+}
+
+pub fn set_food_cup_weight(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let food_id = input
+        .get("food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("set_food_cup_weight takes { food_id, cup_weight_grams }")
+        })?;
+    if !input
+        .get("cup_weight_grams")
+        .is_some_and(|v| v.is_number() || v.is_null())
+    {
+        return Err(OpError::bad_request(
+            "set_food_cup_weight takes { food_id, cup_weight_grams }",
+        ));
+    }
+    let cup_weight_grams = input.get("cup_weight_grams").and_then(Value::as_f64);
+    let caller = caller_of(invocation)?;
+    core.set_food_cup_weight(&caller.person_id, food_id, cup_weight_grams)
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller.as_ref().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")

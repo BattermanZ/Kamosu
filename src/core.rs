@@ -1807,6 +1807,12 @@ impl Core {
     /// per-field patch, so correcting one field means sending all three
     /// wanted. All three absent or blank clears the Reading entirely,
     /// taking the line back to fully unread.
+    ///
+    /// A non-blank `target` is matched against the instance's Foods in the
+    /// Branch's own Language, creating one where nothing answers to the word
+    /// yet (#47, ADR 0022). Which Food it resolved to is internal
+    /// bookkeeping alone — the Reading's own shape stays the bare word,
+    /// exactly as `set_reading` has always answered.
     pub fn set_reading(
         &self,
         person_id: &str,
@@ -1820,13 +1826,13 @@ impl Core {
             return Err(OpError::bad_request("line_index must be zero or more"));
         }
         self.db().with_conn(|conn| {
-            let (kitchen_id, head_version_id, content): (String, String, String) = conn
+            let (kitchen_id, language, head_version_id, content): (String, String, String, String) = conn
                 .query_row(
-                    "SELECT branches.kitchen_id, branches.head_version_id, versions.content \
+                    "SELECT branches.kitchen_id, branches.language, branches.head_version_id, versions.content \
                        FROM branches JOIN versions ON versions.id = branches.head_version_id \
                       WHERE branches.id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
@@ -1857,13 +1863,25 @@ impl Core {
                 return Ok(json!({ "line_index": line_index, "reading": Value::Null }));
             }
 
+            let food_id = target
+                .map(|word| {
+                    resolve_food_for_word(
+                        conn,
+                        &language,
+                        word,
+                        Some((head_version_id.as_str(), line_index)),
+                    )
+                })
+                .transpose()?;
+
             conn.execute(
-                "INSERT INTO readings (version_id, line_index, amount, unit, target) \
-                 VALUES (?1, ?2, ?3, ?4, ?5) \
+                "INSERT INTO readings (version_id, line_index, amount, unit, target, food_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
                  ON CONFLICT (version_id, line_index) DO UPDATE SET \
                     amount = excluded.amount, unit = excluded.unit, target = excluded.target, \
+                    food_id = excluded.food_id, \
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
-                params![head_version_id, line_index, amount, unit, target],
+                params![head_version_id, line_index, amount, unit, target, food_id],
             )
             .map_err(|e| OpError::internal(format!("cannot save Reading: {e}")))?;
 
@@ -1871,6 +1889,121 @@ impl Core {
                 "line_index": line_index,
                 "reading": { "amount": amount, "unit": unit, "target": target },
             }))
+        })
+    }
+
+    /// Every Food this instance knows, each shown in the reader's Reading
+    /// Language and falling back to whatever name it does have (#47).
+    pub fn list_foods(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
+        self.db().with_conn(|conn| {
+            let ids: Vec<String> = {
+                let mut statement = conn
+                    .prepare("SELECT id FROM foods ORDER BY created_at, id")
+                    .map_err(|e| OpError::internal(format!("cannot list Foods: {e}")))?;
+                statement
+                    .query_map([], |row| row.get(0))
+                    .map_err(|e| OpError::internal(format!("cannot list Foods: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot list Foods: {e}")))?
+            };
+            ids.iter()
+                .map(|id| food_summary(conn, id, person_id))
+                .collect()
+        })
+    }
+
+    /// Read one Food back: its names, its Cup Weight and how many Readings
+    /// currently point at it.
+    pub fn get_food(&self, person_id: &str, food_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            ensure_food_exists(conn, food_id)?;
+            food_summary(conn, food_id, person_id)
+        })
+    }
+
+    /// Give a Food its name in one Language, or correct the one it has
+    /// there. Any Person may (CONTEXT.md) — a Food is instance-wide, not a
+    /// Kitchen's to guard. Where that word already answers for a different
+    /// Food, this still attaches it here: typing a name onto a Food another
+    /// already answers to is the one deliberate way to make a duplicate name
+    /// (ADR 0022) rather than an error.
+    pub fn set_food_name(
+        &self,
+        person_id: &str,
+        food_id: &str,
+        language: &str,
+        name: &str,
+    ) -> Result<Value, OpError> {
+        let language = supported_language(language)?;
+        let name = required_text(name, "name")?.to_string();
+        self.db().with_conn(|conn| {
+            ensure_food_exists(conn, food_id)?;
+            conn.execute(
+                "INSERT INTO food_names (food_id, language, name, name_folded) \
+                 VALUES (?1, ?2, ?3, ?4) \
+                 ON CONFLICT(food_id, language) \
+                 DO UPDATE SET name = excluded.name, name_folded = excluded.name_folded",
+                params![food_id, language, name, folded_word(&name)],
+            )
+            .map_err(|e| OpError::internal(format!("cannot name Food: {e}")))?;
+            food_summary(conn, food_id, person_id)
+        })
+    }
+
+    /// Take a Food's name in one Language back off. A Food is known by its
+    /// words alone, so its last remaining name may not be removed this way —
+    /// deleting the Food nothing points at is the Operator's own power (#48).
+    pub fn remove_food_name(
+        &self,
+        person_id: &str,
+        food_id: &str,
+        language: &str,
+    ) -> Result<Value, OpError> {
+        let language = supported_language(language)?;
+        self.db().with_conn(|conn| {
+            ensure_food_exists(conn, food_id)?;
+            let name_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM food_names WHERE food_id = ?1",
+                    params![food_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot count Food names: {e}")))?;
+            if name_count <= 1 {
+                return Err(OpError::bad_request("a Food must keep at least one name"));
+            }
+            conn.execute(
+                "DELETE FROM food_names WHERE food_id = ?1 AND language = ?2",
+                params![food_id, language],
+            )
+            .map_err(|e| OpError::internal(format!("cannot remove Food name: {e}")))?;
+            food_summary(conn, food_id, person_id)
+        })
+    }
+
+    /// Set or clear a Food's Cup Weight — the one figure that turns a volume
+    /// of it into a weight. Kamosu ships none by default; anyone may correct
+    /// or add one (CONTEXT.md). `None` clears it back to "offers millilitres
+    /// instead of grams".
+    pub fn set_food_cup_weight(
+        &self,
+        person_id: &str,
+        food_id: &str,
+        cup_weight_grams: Option<f64>,
+    ) -> Result<Value, OpError> {
+        if cup_weight_grams.is_some_and(|grams| grams <= 0.0) {
+            return Err(OpError::bad_request(
+                "cup_weight_grams must be greater than zero",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            ensure_food_exists(conn, food_id)?;
+            conn.execute(
+                "UPDATE foods SET cup_weight_grams = ?2 WHERE id = ?1",
+                params![food_id, cup_weight_grams],
+            )
+            .map_err(|e| OpError::internal(format!("cannot set Cup Weight: {e}")))?;
+            food_summary(conn, food_id, person_id)
         })
     }
 }
@@ -1895,8 +2028,8 @@ fn carry_forward_readings(
             continue;
         }
         conn.execute(
-            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target) \
-             SELECT ?1, line_index, amount, unit, target FROM readings \
+            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id) \
+             SELECT ?1, line_index, amount, unit, target, food_id FROM readings \
               WHERE version_id = ?2 AND line_index = ?3",
             params![new_version_id, old_version_id, index as i64],
         )
@@ -2302,6 +2435,51 @@ fn supported_language(language: &str) -> Result<&str, OpError> {
     }
 }
 
+/// A Person's own Reading Language — the first thing consulted whenever
+/// something named per Language (a Tag, a Food) is shown back to them.
+fn reading_language_of(conn: &rusqlite::Connection, person_id: &str) -> Result<String, OpError> {
+    conn.query_row(
+        "SELECT reading_language FROM people WHERE id = ?1",
+        params![person_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read reading Language: {e}")))
+}
+
+/// Of a set of `(language, name)` pairs, the one to show a reader — their own
+/// Reading Language where it has a name there, and otherwise the fixed order
+/// of [`LANGUAGES`] rather than whatever order SQLite happened to return
+/// rows in. Shared by `tag_summary` (#51) and `food_summary` (#47), which
+/// show a per-Language name the identical way.
+fn shown_name<'a>(
+    named: &'a [(String, String)],
+    reading_language: &str,
+) -> Option<&'a (String, String)> {
+    named
+        .iter()
+        .find(|(language, _)| language == reading_language)
+        .or_else(|| {
+            LANGUAGES
+                .iter()
+                .find_map(|wanted| named.iter().find(|(language, _)| language == wanted))
+        })
+}
+
+/// The same `(language, name)` pairs laid out as `list_tags`/`list_foods`
+/// serve them: one entry per Language that has one, in [`LANGUAGES`]' fixed
+/// order.
+fn names_json(named: &[(String, String)]) -> Vec<Value> {
+    LANGUAGES
+        .iter()
+        .filter_map(|wanted| {
+            named
+                .iter()
+                .find(|(language, _)| language == wanted)
+                .map(|(language, name)| json!({ "language": language, "name": name }))
+        })
+        .collect()
+}
+
 /// Which Kitchen a Tag belongs to — and, by failing, that it exists at all.
 fn kitchen_of_tag(conn: &rusqlite::Connection, tag_id: &str) -> Result<String, OpError> {
     conn.query_row(
@@ -2372,35 +2550,9 @@ fn tag_summary(
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?;
 
-    let reading_language: String = conn
-        .query_row(
-            "SELECT reading_language FROM people WHERE id = ?1",
-            params![viewer_person_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| OpError::internal(format!("cannot read reading Language: {e}")))?;
-
-    // The reader's own Language first; failing that, the fixed order of
-    // LANGUAGES, so a Tag falls back to the same word for everyone rather than
-    // to whichever row SQLite happened to return first.
-    let shown = named
-        .iter()
-        .find(|(language, _)| *language == reading_language)
-        .or_else(|| {
-            LANGUAGES
-                .iter()
-                .find_map(|wanted| named.iter().find(|(language, _)| language == wanted))
-        });
-
-    let names: Vec<Value> = LANGUAGES
-        .iter()
-        .filter_map(|wanted| {
-            named
-                .iter()
-                .find(|(language, _)| language == wanted)
-                .map(|(language, name)| json!({ "language": language, "name": name }))
-        })
-        .collect();
+    let reading_language = reading_language_of(conn, viewer_person_id)?;
+    let shown = shown_name(&named, &reading_language);
+    let names = names_json(&named);
 
     Ok(json!({
         "id": tag_id,
@@ -2434,6 +2586,272 @@ fn tags_of_branch(
     ids.iter()
         .map(|id| tag_summary(conn, id, viewer_person_id))
         .collect()
+}
+
+/// Kamosu's whole automatic Food Match (#47, ADR 0022): given the name or
+/// names one arriving Food is known by — `(language, word)` pairs — resolve
+/// which Food this is, creating one if nothing on the instance answers.
+///
+/// `exclude`, when given, names the one Reading (`version_id`, `line_index`)
+/// this resolution is *for* — so that when `set_reading` corrects an
+/// already-read line into fresh ambiguity, the busiest-Food tie-break
+/// (ADR 0022) counts existing Readings only, not the very row about to be
+/// overwritten still carrying its old Food.
+///
+/// A Reading or Kamosu's own parser always arrives knowing exactly one name
+/// ("one rule at every door" — ADR 0022), which is what `resolve_food_for_word`
+/// reduces to below. A Bundle importing a Food from another instance arrives
+/// with one entry per Language it has a name in, and is the only situation in
+/// which more than one name arrives together — no Operation in this
+/// Catalogue does that yet, so the multi-name branches below are exercised
+/// directly by `resolve_food_for_names_makes_a_third_food_on_collision`
+/// rather than through an Operation, and will carry Bundle import's own
+/// behaviour tests once that ticket lands.
+fn resolve_food_for_names(
+    conn: &Connection,
+    names: &[(&str, &str)],
+    exclude: Option<(&str, i64)>,
+) -> Result<String, OpError> {
+    assert!(
+        !names.is_empty(),
+        "a Food always arrives known by at least one name"
+    );
+
+    // Every existing Food that any arriving name already answers to, in the
+    // same Language, deduplicated — two arriving names may hit the same Food.
+    let mut hits: Vec<String> = Vec::new();
+    for (language, word) in names {
+        let folded = folded_word(word);
+        let mut statement = conn
+            .prepare("SELECT food_id FROM food_names WHERE language = ?1 AND name_folded = ?2")
+            .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
+        let found: Vec<String> = statement
+            .query_map(params![language, folded], |row| row.get(0))
+            .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
+        for food_id in found {
+            if !hits.contains(&food_id) {
+                hits.push(food_id);
+            }
+        }
+    }
+
+    if names.len() == 1 && hits.len() >= 2 {
+        // A lone word asserts nothing about which Food is meant — welding
+        // two Foods together on that alone is the very weld ADR 0022
+        // refuses. Go with whichever the most Readings already point at.
+        return busiest_food(conn, &hits, exclude);
+    }
+
+    match hits.len() {
+        0 => create_food(conn, names),
+        1 => {
+            // The surviving Food learns every arriving name that matches
+            // nothing at all on the instance (ADR 0022) — but never
+            // overwrites a Language it already has a name in.
+            let food_id = hits.into_iter().next().unwrap();
+            let held: Vec<String> = {
+                let mut statement = conn
+                    .prepare("SELECT language FROM food_names WHERE food_id = ?1")
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+                statement
+                    .query_map(params![food_id], |row| row.get(0))
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?
+            };
+            for (language, word) in names {
+                if held.iter().any(|held_language| held_language == language) {
+                    continue;
+                }
+                conn.execute(
+                    "INSERT INTO food_names (food_id, language, name, name_folded) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![food_id, language, word, folded_word(word)],
+                )
+                .map_err(|e| OpError::internal(format!("cannot name Food: {e}")))?;
+            }
+            Ok(food_id)
+        }
+        _ => {
+            // Doubt makes a new Food, never a merge (ADR 0022): a third Food
+            // carries every name every hit Food already has, plus every
+            // arriving name for a Language none of them covers. The hit
+            // Foods themselves are untouched — nothing merged, nothing
+            // destroyed.
+            let mut carried: Vec<(String, String)> = Vec::new();
+            for food_id in &hits {
+                let mut statement = conn
+                    .prepare("SELECT language, name FROM food_names WHERE food_id = ?1")
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+                let rows: Vec<(String, String)> = statement
+                    .query_map(params![food_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+                for (language, name) in rows {
+                    if !carried
+                        .iter()
+                        .any(|(carried_language, _)| *carried_language == language)
+                    {
+                        carried.push((language, name));
+                    }
+                }
+            }
+            for (language, word) in names {
+                if !carried
+                    .iter()
+                    .any(|(carried_language, _)| carried_language == language)
+                {
+                    carried.push(((*language).to_string(), (*word).to_string()));
+                }
+            }
+            let carried_refs: Vec<(&str, &str)> = carried
+                .iter()
+                .map(|(language, name)| (language.as_str(), name.as_str()))
+                .collect();
+            create_food(conn, &carried_refs)
+        }
+    }
+}
+
+/// The lone-word reduction of [`resolve_food_for_names`] — what a Reading's
+/// `target` or Kamosu's own parser always supplies.
+fn resolve_food_for_word(
+    conn: &Connection,
+    language: &str,
+    word: &str,
+    exclude: Option<(&str, i64)>,
+) -> Result<String, OpError> {
+    resolve_food_for_names(conn, &[(language, word)], exclude)
+}
+
+/// Among Foods a lone ambiguous word hit, the one the most Readings already
+/// point at (ADR 0022) — `exclude` left out of that count, see
+/// `resolve_food_for_names`. Ties — commonly all-zero, since nothing has
+/// read either yet — resolve to whichever Food was minted first, so the
+/// same input always resolves the same way rather than to whatever order
+/// SQLite happened to return rows in.
+fn busiest_food(
+    conn: &Connection,
+    candidates: &[String],
+    exclude: Option<(&str, i64)>,
+) -> Result<String, OpError> {
+    let placeholders = candidates
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let join_condition = if exclude.is_some() {
+        "readings.food_id = foods.id \
+         AND NOT (readings.version_id = ? AND readings.line_index = ?)"
+    } else {
+        "readings.food_id = foods.id"
+    };
+    let sql = format!(
+        "SELECT foods.id FROM foods \
+         LEFT JOIN readings ON {join_condition} \
+         WHERE foods.id IN ({placeholders}) \
+         GROUP BY foods.id \
+         ORDER BY COUNT(readings.food_id) DESC, foods.created_at ASC, foods.id ASC \
+         LIMIT 1"
+    );
+    let mut bound: Vec<&dyn rusqlite::ToSql> = Vec::new();
+    if let Some((version_id, line_index)) = &exclude {
+        bound.push(version_id);
+        bound.push(line_index);
+    }
+    for candidate in candidates {
+        bound.push(candidate);
+    }
+    conn.query_row(&sql, bound.as_slice(), |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot resolve ambiguous Food: {e}")))
+}
+
+/// Mint a brand-new Food carrying exactly the given names — the "created
+/// automatically from whatever word a Reading found" half of #47.
+fn create_food(conn: &Connection, names: &[(&str, &str)]) -> Result<String, OpError> {
+    let food_id = format!("f_{}", hex::encode(random_bytes(8)));
+    conn.execute("INSERT INTO foods (id) VALUES (?1)", params![food_id])
+        .map_err(|e| OpError::internal(format!("cannot create Food: {e}")))?;
+    for (language, word) in names {
+        conn.execute(
+            "INSERT INTO food_names (food_id, language, name, name_folded) VALUES (?1, ?2, ?3, ?4)",
+            params![food_id, language, word, folded_word(word)],
+        )
+        .map_err(|e| OpError::internal(format!("cannot name Food: {e}")))?;
+    }
+    Ok(food_id)
+}
+
+/// That a Food exists at all — and, by failing, that it doesn't.
+fn ensure_food_exists(conn: &rusqlite::Connection, food_id: &str) -> Result<(), OpError> {
+    let exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM foods WHERE id = ?1",
+            params![food_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count > 0)
+        .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
+    if !exists {
+        return Err(OpError::not_found("no such Food"));
+    }
+    Ok(())
+}
+
+/// One Food as a reader sees it: every name it has, the one to show them —
+/// their Reading Language where the Food has a name there, and otherwise
+/// whatever name it does have, the same fallback `tag_summary` uses (#51) —
+/// its Cup Weight, its (always-null in v1) nutrition slot, and how many
+/// Readings currently point at it. The reading count is what lets the
+/// ADR 0022 busiest tie-break be verified through Operations rather than
+/// taken on faith, and is exactly the number an unreferenced-Food sweep
+/// would need to be zero before ever touching one (#48).
+fn food_summary(
+    conn: &rusqlite::Connection,
+    food_id: &str,
+    viewer_person_id: &str,
+) -> Result<Value, OpError> {
+    let cup_weight_grams: Option<f64> = conn
+        .query_row(
+            "SELECT cup_weight_grams FROM foods WHERE id = ?1",
+            params![food_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Food: {e}")))?;
+
+    let reading_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM readings WHERE food_id = ?1",
+            params![food_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot count a Food's Readings: {e}")))?;
+
+    let mut statement = conn
+        .prepare("SELECT language, name FROM food_names WHERE food_id = ?1")
+        .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+    let named: Vec<(String, String)> = statement
+        .query_map(params![food_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+
+    let reading_language = reading_language_of(conn, viewer_person_id)?;
+    let shown = shown_name(&named, &reading_language);
+    let names = names_json(&named);
+
+    Ok(json!({
+        "id": food_id,
+        "name": shown.map(|(_, name)| name.as_str()),
+        "language": shown.map(|(language, _)| language.as_str()),
+        "names": names,
+        "cup_weight_grams": cup_weight_grams,
+        "nutrition": Value::Null,
+        "reading_count": reading_count,
+    }))
 }
 
 /// The Kitchen, Lineage, and current title of one Branch. These are the three
@@ -2568,5 +2986,74 @@ mod tests {
         // And words that really are different stay different.
         assert_ne!(folded_word("dessert"), folded_word("desert"));
         assert_ne!(folded_word("été"), folded_word("ete"));
+    }
+
+    /// The "two hits make a third Food" half of ADR 0022 only ever fires for
+    /// an arriving Food known by more than one name — today, exclusively a
+    /// Bundle import from another instance, a ticket not yet built. No
+    /// Operation in this Catalogue can drive it, so it is checked directly
+    /// against the matcher rather than through `set_reading` or a future
+    /// Bundle-import Operation.
+    #[test]
+    fn resolve_food_for_names_makes_a_third_food_on_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::db::Db::open(dir.path()).unwrap();
+        db.with_conn(|conn| {
+            let food_a = super::create_food(conn, &[("fr", "farine")]).unwrap();
+            let food_b = super::create_food(conn, &[("en", "flour")]).unwrap();
+
+            // An arriving Food naming both farine (fr) and flour (en) hits
+            // both existing Foods by two different words — doubt makes a
+            // third carrying both rather than welding food_a and food_b
+            // together.
+            let food_c =
+                super::resolve_food_for_names(conn, &[("fr", "farine"), ("en", "flour")], None)
+                    .unwrap();
+            assert_ne!(food_c, food_a, "nothing is merged");
+            assert_ne!(food_c, food_b, "nothing is merged");
+
+            let names_of = |food_id: &str| -> Vec<(String, String)> {
+                conn.prepare("SELECT language, name FROM food_names WHERE food_id = ?1")
+                    .unwrap()
+                    .query_map(rusqlite::params![food_id], |row| {
+                        Ok((row.get(0)?, row.get(1)?))
+                    })
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap()
+            };
+
+            assert_eq!(
+                names_of(&food_a),
+                vec![("fr".to_string(), "farine".to_string())],
+                "the original Food is untouched — nothing destroyed"
+            );
+            assert_eq!(
+                names_of(&food_b),
+                vec![("en".to_string(), "flour".to_string())],
+                "the original Food is untouched — nothing destroyed"
+            );
+            let mut carried = names_of(&food_c);
+            carried.sort();
+            assert_eq!(
+                carried,
+                vec![
+                    ("en".to_string(), "flour".to_string()),
+                    ("fr".to_string(), "farine".to_string()),
+                ],
+                "the new Food carries every arriving name"
+            );
+
+            // A lone word matching the same two Foods, by contrast, never
+            // makes a fourth Food — it goes to the busiest one instead.
+            let resolved = super::resolve_food_for_word(conn, "fr", "farine", None).unwrap();
+            assert!(
+                resolved == food_a || resolved == food_c,
+                "a lone ambiguous word resolves to an existing Food, never a new one"
+            );
+
+            Ok(())
+        })
+        .unwrap();
     }
 }

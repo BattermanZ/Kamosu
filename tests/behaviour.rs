@@ -1490,6 +1490,427 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
     );
 }
 
+// --- Foods (issue #47) --------------------------------------------------------
+
+/// Create a one-line Recipe in the given Language and set that line's
+/// Reading `target` to `word` — the smallest way to make a Food arrive for a
+/// test. Returns the Branch id, for tests that go on to clear the Reading.
+///
+/// The title carries a fresh counter so reading the same word twice (to
+/// prove a Food gains a second Reading) still produces two distinct
+/// Versions — a Version is content-addressed (ADR 0004), so two Recipes
+/// with identical content share one, and Readings key on the Version rather
+/// than the Branch (ADR 0021).
+fn read_a_word(
+    app: &support::TestApp,
+    key: &str,
+    kitchen_id: &str,
+    language: &str,
+    word: &str,
+) -> String {
+    static FIXTURE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let fixture_id = FIXTURE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "language": language,
+            "title": format!("Food Match fixture {fixture_id}"),
+            "ingredients": [{ "kind": "ingredient", "text": word }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, response) = app.post_op(
+        "set_reading",
+        Some(key),
+        &json!({ "branch_id": branch_id, "line_index": 0, "target": word }).to_string(),
+    );
+    assert_eq!(status, 200, "{response}");
+    branch_id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reading_naming_an_unseen_word_creates_a_food_automatically() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, foods_before) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(
+        foods_before["result"]["foods"],
+        json!([]),
+        "nothing has been read yet"
+    );
+
+    read_a_word(&app, &key, &kitchen_id, "en", "soy sauce");
+
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let foods = listed["result"]["foods"].as_array().unwrap();
+    assert_eq!(
+        foods.len(),
+        1,
+        "the unseen word 'soy sauce' created exactly one Food"
+    );
+    assert_eq!(foods[0]["name"], json!("soy sauce"));
+    assert_eq!(foods[0]["language"], json!("en"));
+    assert_eq!(
+        foods[0]["names"],
+        json!([{ "language": "en", "name": "soy sauce" }])
+    );
+    assert_eq!(foods[0]["cup_weight_grams"], json!(null));
+    assert_eq!(
+        foods[0]["nutrition"],
+        json!(null),
+        "nutrition never travels and nothing sets it in v1"
+    );
+    assert_eq!(foods[0]["reading_count"], json!(1));
+
+    // Reading the same word again — even spelled differently — does not
+    // create a second Food.
+    read_a_word(&app, &key, &kitchen_id, "en", "Soy Sauce");
+    let (_, listed_again) = app.post_op("list_foods", Some(&key), "{}");
+    let foods_again = listed_again["result"]["foods"].as_array().unwrap();
+    assert_eq!(
+        foods_again.len(),
+        1,
+        "case folding: 'Soy Sauce' matches the existing 'soy sauce' Food"
+    );
+    assert_eq!(foods_again[0]["reading_count"], json!(2));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn matching_folds_case_and_whitespace_but_respects_language_accents_and_plurals() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Case and stray whitespace fold: "Flour" and "  flour  " are one Food.
+    read_a_word(&app, &key, &kitchen_id, "en", "Flour");
+    read_a_word(&app, &key, &kitchen_id, "en", "  flour  ");
+
+    // Accents are meaning, not noise: maïs (corn) is not mais (but) — the
+    // worked example in ADR 0022.
+    read_a_word(&app, &key, &kitchen_id, "fr", "maïs");
+    read_a_word(&app, &key, &kitchen_id, "fr", "mais");
+
+    // Plurals are meaning too, ADR 0022's own example: oeufs is not oeuf.
+    read_a_word(&app, &key, &kitchen_id, "fr", "oeuf");
+    read_a_word(&app, &key, &kitchen_id, "fr", "oeufs");
+
+    // Language must agree: English raisin (a dried grape) is not French
+    // raisin (a fresh one) — ADR 0022.
+    read_a_word(&app, &key, &kitchen_id, "en", "raisin");
+    read_a_word(&app, &key, &kitchen_id, "fr", "raisin");
+
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let foods = listed["result"]["foods"].as_array().unwrap();
+    // flour (1) + maïs/mais (2) + oeuf/oeufs (2) + raisin en/fr (2) = 7.
+    assert_eq!(foods.len(), 7, "{foods:#?}");
+
+    let flour = foods
+        .iter()
+        .find(|food| food["language"] == json!("en") && food["name"] == json!("Flour"))
+        .expect("the folded Food exists, spelled the way it was first typed");
+    assert_eq!(
+        flour["reading_count"],
+        json!(2),
+        "case and whitespace fold to the same Food"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_ambiguous_lone_word_resolves_to_the_food_the_most_readings_already_use() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Food A: read twice, so it is the busier of the two once B exists too.
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let food_a_id = listed["result"]["foods"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(listed["result"]["foods"][0]["reading_count"], json!(2));
+
+    // Food B: an unrelated Food, read once via a different English word.
+    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    let (_, listed2) = app.post_op("list_foods", Some(&key), "{}");
+    let food_b_id = listed2["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|food| food["id"] != json!(food_a_id))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Typing "farine" onto Food B directly is the one deliberate way to
+    // make a duplicate name (ADR 0022's Consequences) — both Foods now
+    // answer to "farine" in French.
+    let (status, named) = app.post_op(
+        "set_food_name",
+        Some(&key),
+        &json!({ "food_id": food_b_id, "language": "fr", "name": "farine" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    // A fresh, lone French "farine" is now ambiguous between A and B. It
+    // resolves to the busier of the two — A, with two Readings already —
+    // rather than ever creating a third Food.
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+
+    let (_, listed3) = app.post_op("list_foods", Some(&key), "{}");
+    let foods3 = listed3["result"]["foods"].as_array().unwrap();
+    assert_eq!(
+        foods3.len(),
+        2,
+        "no third Food is created for a lone ambiguous word"
+    );
+    let food_a = foods3
+        .iter()
+        .find(|food| food["id"] == json!(food_a_id))
+        .unwrap();
+    let food_b = foods3
+        .iter()
+        .find(|food| food["id"] == json!(food_b_id))
+        .unwrap();
+    assert_eq!(
+        food_a["reading_count"],
+        json!(3),
+        "the ambiguous word went to the busier Food"
+    );
+    assert_eq!(
+        food_b["reading_count"],
+        json!(1),
+        "the quieter Food gained no Reading from the ambiguous word"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn correcting_an_already_read_lines_ambiguous_target_does_not_count_its_own_stale_reading() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Food A: one Reading elsewhere, plus the line we are about to correct —
+    // two Readings in total, but only one that will still be A's once the
+    // correction below lands.
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    let correcting_branch_id = read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let food_a_id = listed["result"]["foods"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(listed["result"]["foods"][0]["reading_count"], json!(2));
+
+    // Food B: busier than Food A's *other* Reading (1), read twice.
+    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    let (_, listed2) = app.post_op("list_foods", Some(&key), "{}");
+    let food_b_id = listed2["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|food| food["id"] != json!(food_a_id))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        listed2["result"]["foods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|food| food["id"] == json!(food_b_id))
+            .unwrap()["reading_count"],
+        json!(2)
+    );
+
+    // Typing "farine" onto Food B makes it a duplicate of Food A's own name.
+    let (status, named) = app.post_op(
+        "set_food_name",
+        Some(&key),
+        &json!({ "food_id": food_b_id, "language": "fr", "name": "farine" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    // Re-submitting the very line that already reads "farine" and points at
+    // Food A is now ambiguous between A and B. A's *other* Reading (1) is
+    // quieter than B's (2), so the correction must move to B — counting the
+    // line's own about-to-be-overwritten row toward A would wrongly make it
+    // a 2-2 tie and leave it stuck on A instead.
+    let (status, corrected) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": correcting_branch_id, "line_index": 0, "target": "farine" })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{corrected}");
+
+    let (_, food_a_after) = app.post_op(
+        "get_food",
+        Some(&key),
+        &json!({ "food_id": food_a_id }).to_string(),
+    );
+    let (_, food_b_after) = app.post_op(
+        "get_food",
+        Some(&key),
+        &json!({ "food_id": food_b_id }).to_string(),
+    );
+    assert_eq!(
+        food_a_after["result"]["reading_count"],
+        json!(1),
+        "the corrected line's stale Reading is gone from Food A"
+    );
+    assert_eq!(
+        food_b_after["result"]["reading_count"],
+        json!(3),
+        "the corrected line resolved to the busier Food B, not the one it used to point at"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_food_nothing_points_at_is_kept_rather_than_swept() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = read_a_word(&app, &key, &kitchen_id, "en", "cardamom");
+
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let food_id = listed["result"]["foods"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(listed["result"]["foods"][0]["reading_count"], json!(1));
+
+    // Clear the one Reading that pointed at it.
+    let (status, cleared) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 0 }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+
+    let (status, after_clear) = app.post_op(
+        "get_food",
+        Some(&key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(
+        status, 200,
+        "the Food itself is kept, not swept, {after_clear}"
+    );
+    assert_eq!(
+        after_clear["result"]["reading_count"],
+        json!(0),
+        "nothing points at it any more"
+    );
+    assert_eq!(after_clear["result"]["name"], json!("cardamom"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_food_holds_an_optional_cup_weight_and_a_nutrition_slot_that_never_travels() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    read_a_word(&app, &key, &kitchen_id, "en", "butter");
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let food_id = listed["result"]["foods"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        listed["result"]["foods"][0]["cup_weight_grams"],
+        json!(null)
+    );
+    assert_eq!(listed["result"]["foods"][0]["nutrition"], json!(null));
+
+    let (status, updated) = app.post_op(
+        "set_food_cup_weight",
+        Some(&key),
+        &json!({ "food_id": food_id, "cup_weight_grams": 227.0 }).to_string(),
+    );
+    assert_eq!(status, 200, "{updated}");
+    assert_eq!(updated["result"]["cup_weight_grams"], json!(227.0));
+    assert_eq!(
+        updated["result"]["nutrition"],
+        json!(null),
+        "nothing in v1 ever sets nutrition — CIQUAL binding is deferred past v1 (#12)"
+    );
+
+    // A zero or negative Cup Weight is refused.
+    let (status, response) = app.post_op(
+        "set_food_cup_weight",
+        Some(&key),
+        &json!({ "food_id": food_id, "cup_weight_grams": 0 }).to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+
+    // Clearing it back to null is allowed.
+    let (status, cleared) = app.post_op(
+        "set_food_cup_weight",
+        Some(&key),
+        &json!({ "food_id": food_id, "cup_weight_grams": null }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+    assert_eq!(cleared["result"]["cup_weight_grams"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken() {
+    let app = support::spawn_app();
+    let (_owner, owner_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    read_a_word(&app, &owner_key, &kitchen_id, "fr", "farine");
+    let (_, listed) = app.post_op("list_foods", Some(&owner_key), "{}");
+    let food_id = listed["result"]["foods"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A Person who is not a member of the recipe's Kitchen may still name
+    // this Food — it is instance-wide, not a Kitchen's to guard (CONTEXT.md).
+    let stranger = app.core.create_person("Marc").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+    let (status, named) = app.post_op(
+        "set_food_name",
+        Some(&stranger_key),
+        &json!({ "food_id": food_id, "language": "en", "name": "flour" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    assert_eq!(
+        named["result"]["names"],
+        json!([
+            { "language": "en", "name": "flour" },
+            { "language": "fr", "name": "farine" },
+        ])
+    );
+
+    // Removing one of its two names is fine...
+    let (status, removed) = app.post_op(
+        "remove_food_name",
+        Some(&owner_key),
+        &json!({ "food_id": food_id, "language": "en" }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(
+        removed["result"]["names"],
+        json!([{ "language": "fr", "name": "farine" }])
+    );
+
+    // ...but its last remaining name may not be, too — a Food is known by
+    // its words alone (CONTEXT.md).
+    let (status, response) = app.post_op(
+        "remove_food_name",
+        Some(&owner_key),
+        &json!({ "food_id": food_id, "language": "fr" }).to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+}
+
 // --- Tags (issue #51) --------------------------------------------------------
 
 /// Create a Tag and hand back its id.
