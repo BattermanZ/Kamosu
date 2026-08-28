@@ -25,6 +25,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { DivergenceOutput, GetRecipeOutput } from '$lib/api/catalogue';
+	import Cover from '$lib/cover/Cover.svelte';
 	import Threshold from './Threshold.svelte';
 	import MarkedRow from './MarkedRow.svelte';
 	import {
@@ -205,6 +206,28 @@
 			<p class="border-b border-rule bg-ground-2 px-gutter py-3 text-read text-ink-2">
 				{m.divergence_too_many({ count: crowded })}
 			</p>
+		{/if}
+
+		<!--
+			What leads the recipe: its Main Photo, or — for the roughly one
+			recipe in three that has none — its Cover (#46). A Cover is not a
+			placeholder for a missing picture; it is what a recipe without one
+			wears. How this hero is framed is #81's decision; that it is one of
+			these two things is #46's.
+		-->
+		{#if recipe}
+			<div class="mb-1">
+				{#if content.main_photo}
+					<img
+						src="/api/photographs/{content.main_photo}/page"
+						alt=""
+						class="w-full object-cover"
+						style="height: var(--hero-h)"
+					/>
+				{:else}
+					<Cover lineageId={recipe.lineage_id} title={content.title} />
+				{/if}
+			</div>
 		{/if}
 
 		<div class="px-gutter pt-4">

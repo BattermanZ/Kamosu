@@ -196,6 +196,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::mint_recovery_link,
         },
         Operation {
+            name: "sweep_photographs",
+            summary: "Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({ "type": "object", "properties": { "referenced": { "type": "integer" }, "newly_unreferenced": { "type": "integer" }, "back_in_use": { "type": "integer" }, "swept": { "type": "integer" }, "swept_photograph_ids": { "type": "array", "items": { "type": "string" } } }, "required": ["referenced", "newly_unreferenced", "back_in_use", "swept", "swept_photograph_ids"], "additionalProperties": false }),
+            handler: crate::operations::sweep_photographs,
+        },
+        Operation {
             name: "list_sessions",
             summary: "List this Person's browser Sessions by device and last use.",
             permission: Permission::Person,

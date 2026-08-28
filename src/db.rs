@@ -480,6 +480,28 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 17,
+        description: "the orphan sweep's grace mark on a Photograph (#46, ADR 0017)",
+        sql: r#"
+        -- When the sweep last found this Photograph referenced by nothing, or
+        -- NULL while something still points at it.
+        --
+        -- This is not a reference count, and the distinction is the whole
+        -- point of the design. A count is written at attach and detach time,
+        -- so a missed decrement leaks a picture for ever and a missed
+        -- increment DELETES ONE STILL ON SCREEN. This column is instead
+        -- *recomputed from scratch* by every sweep: the sweep works out what
+        -- is referenced by reading the Versions, and then writes this column
+        -- to match. It records only how long the current unreferenced spell
+        -- has lasted, so a Photograph detached and re-attached inside the
+        -- grace week has the mark cleared again and survives.
+        --
+        -- Wrong values are therefore self-correcting: the next sweep
+        -- overwrites them from the truth. A count's errors accumulate.
+        ALTER TABLE photographs ADD COLUMN unreferenced_since TEXT;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

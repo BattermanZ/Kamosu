@@ -157,6 +157,12 @@ pub struct Core {
 }
 
 impl Core {
+    /// How often the orphan sweep runs by itself.
+    ///
+    /// Daily, and never on a schedule anyone has to configure: a picture worth
+    /// keeping for a week is not worth an environment variable.
+    const SWEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
     pub fn open(db: Arc<Db>) -> Core {
         // Terminal commands open a Core without Job workers; they never ask for
         // slow work. A Job asked for here would be refused as busy.
@@ -173,6 +179,7 @@ impl Core {
         let core = Core { db, lanes };
         let core = Arc::new(core);
         jobs::spawn_workers(core.clone(), receivers);
+        spawn_orphan_sweep(core.clone());
         core
     }
 
@@ -2000,6 +2007,198 @@ impl Core {
             .map_err(|_| OpError::not_found("no such Photograph"))
     }
 
+    /// How long a Photograph nothing points at is kept before the sweep takes
+    /// it. A week, so that detaching a picture and putting it back — or
+    /// editing a recipe in two sittings — never costs you the picture.
+    const ORPHAN_GRACE_DAYS: i64 = 7;
+
+    /// Every Photograph anything still points at, worked out **from scratch**.
+    ///
+    /// Two things reach a Version, and both count:
+    ///
+    /// - a Branch, at every sequence and not merely its head — a Version is
+    ///   never rewritten and the Thread lets a person open and cook from any of
+    ///   them (ADR 0005), so a picture named by an old Version is still in use;
+    /// - an Attempt, which pins the Version it is cooking from (ADR 0010) —
+    ///   that Version's pictures are on a screen in a kitchen right now.
+    ///
+    /// What does *not* count is a row left in `versions` that nothing reaches.
+    /// A collapsing save repoints `branch_versions` at a fresh Version and
+    /// leaves the one it replaced behind (ADR 0005's append-only rule applies
+    /// to what a Branch carries, not to the row store). Reading `versions`
+    /// whole would count those as live and the sweep would never take
+    /// anything — the bug this join exists to prevent.
+    ///
+    /// Recomputing this each run is what makes the sweep safe. The alternative
+    /// — a count kept as pictures are attached and detached — has one failure
+    /// mode that deletes a picture still on screen, silently and permanently.
+    ///
+    /// Takes the connection rather than reaching for one, so the sweep can do
+    /// its whole read-and-write inside a single `with_conn` — see
+    /// [`Core::sweep_photographs`] for why that matters.
+    fn referenced_photographs(
+        conn: &rusqlite::Connection,
+    ) -> Result<std::collections::HashSet<String>, OpError> {
+        let mut statement = conn
+            .prepare(
+                "SELECT versions.content FROM versions
+                 JOIN branch_versions ON branch_versions.version_id = versions.id
+                 UNION
+                 SELECT versions.content FROM versions
+                 JOIN attempts ON attempts.version_id = versions.id",
+            )
+            .map_err(|e| OpError::internal(format!("cannot read Versions: {e}")))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| OpError::internal(format!("cannot read Versions: {e}")))?;
+
+        let mut referenced = std::collections::HashSet::new();
+        for row in rows {
+            let content =
+                row.map_err(|e| OpError::internal(format!("cannot read a Version: {e}")))?;
+            // A Version whose content will not parse is a damaged row, not a
+            // licence to delete pictures. Skipping it here would treat its
+            // photographs as unreferenced, so it is a hard failure.
+            let value: Value = serde_json::from_str(&content).map_err(|e| {
+                OpError::internal(format!("a Version's content is not readable: {e}"))
+            })?;
+            if let Some(hash) = value.get("main_photo").and_then(Value::as_str) {
+                referenced.insert(hash.to_string());
+            }
+            if let Some(steps) = value.get("steps").and_then(Value::as_array) {
+                for step in steps {
+                    if let Some(hash) = step.get("photo").and_then(Value::as_str) {
+                        referenced.insert(hash.to_string());
+                    }
+                }
+            }
+        }
+        Ok(referenced)
+    }
+
+    /// The orphan sweep: take away Photographs nothing has pointed at for a
+    /// week, and their Display Copies with them (#46, ADR 0017).
+    ///
+    /// Each run recomputes what is referenced rather than trusting a tally,
+    /// then writes `unreferenced_since` to match. So the mark is a *derived*
+    /// fact that every run re-derives: a picture detached and re-attached
+    /// inside the week has its mark cleared and survives, and a mark that is
+    /// somehow wrong is corrected by the next run rather than compounding.
+    ///
+    /// Display Copies go with the Photograph because they are worked out from
+    /// it and are worth nothing without it.
+    ///
+    /// **The whole decision happens inside one `with_conn`**, which holds the
+    /// one database connection's lock for its duration and so cannot interleave
+    /// with a `save_recipe_version`. Working out what is referenced, aging the
+    /// marks and deleting the rows in separate locks would leave a window in
+    /// which a picture re-attached after the check is deleted anyway — the
+    /// exact failure this design exists to prevent, and the one failure here
+    /// that no later run can undo.
+    ///
+    /// Files are removed only once that transaction has committed, so the
+    /// bytes never go while a row that names them could still be rolled back.
+    /// A crash between the two leaves unreferenced files with no rows, which
+    /// costs disk and nothing else.
+    pub fn sweep_photographs(&self) -> Result<Value, OpError> {
+        let (referenced_count, newly_marked, cleared, swept) = self.db().with_conn(|conn| {
+            let referenced = Self::referenced_photographs(conn)?;
+
+            let known: Vec<(String, Option<String>)> = {
+                let mut statement = conn
+                    .prepare("SELECT hash, unreferenced_since FROM photographs")
+                    .map_err(|e| OpError::internal(format!("cannot list Photographs: {e}")))?;
+                let rows = statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(|e| OpError::internal(format!("cannot list Photographs: {e}")))?;
+                rows.collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot list a Photograph: {e}")))?
+            };
+
+            let mut newly_marked = 0_i64;
+            let mut cleared = 0_i64;
+            let mut swept: Vec<String> = Vec::new();
+
+            for (hash, unreferenced_since) in known {
+                if referenced.contains(&hash) {
+                    // In use. Clear any mark: the spell has ended.
+                    if unreferenced_since.is_some() {
+                        conn.execute(
+                            "UPDATE photographs SET unreferenced_since = NULL WHERE hash = ?1",
+                            params![hash],
+                        )
+                        .map_err(|e| OpError::internal(format!("cannot clear the mark: {e}")))?;
+                        cleared += 1;
+                    }
+                    continue;
+                }
+
+                match unreferenced_since {
+                    // First sweep to find it unreferenced: start the clock,
+                    // take nothing. Nothing is ever deleted on the run that
+                    // first notices it.
+                    None => {
+                        conn.execute(
+                            "UPDATE photographs
+                             SET unreferenced_since = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                             WHERE hash = ?1",
+                            params![hash],
+                        )
+                        .map_err(|e| OpError::internal(format!("cannot mark: {e}")))?;
+                        newly_marked += 1;
+                    }
+                    Some(_) => {
+                        // Old enough? Ask SQLite, so the comparison uses the
+                        // same clock and format every other timestamp does.
+                        let due: bool = conn
+                            .query_row(
+                                "SELECT unreferenced_since <= \
+                                 strftime('%Y-%m-%dT%H:%M:%fZ','now', ?2) \
+                                 FROM photographs WHERE hash = ?1",
+                                params![hash, format!("-{} days", Self::ORPHAN_GRACE_DAYS)],
+                                |row| row.get(0),
+                            )
+                            .map_err(|e| {
+                                OpError::internal(format!("cannot age a Photograph: {e}"))
+                            })?;
+                        if !due {
+                            continue;
+                        }
+                        conn.execute("DELETE FROM photographs WHERE hash = ?1", params![hash])
+                            .map_err(|e| {
+                                OpError::internal(format!("cannot forget a Photograph: {e}"))
+                            })?;
+                        swept.push(hash);
+                    }
+                }
+            }
+
+            Ok((referenced.len(), newly_marked, cleared, swept))
+        })?;
+
+        // The rows are gone and the lock is released; now the bytes. A file
+        // that will not delete is left for the next sweep to meet again.
+        for hash in &swept {
+            for size in [
+                photographs::DisplaySize::Card,
+                photographs::DisplaySize::Page,
+                photographs::DisplaySize::Print,
+            ] {
+                let _ =
+                    std::fs::remove_file(photographs::display_path(&self.data_dir(), hash, size));
+            }
+            let _ = std::fs::remove_file(photographs::photograph_path(&self.data_dir(), hash));
+        }
+
+        Ok(json!({
+            "referenced": referenced_count,
+            "newly_unreferenced": newly_marked,
+            "back_in_use": cleared,
+            "swept": swept.len(),
+            "swept_photograph_ids": swept,
+        }))
+    }
+
     /// Read a Display Copy, generating and caching it on first ask. Display
     /// Copies are worked out from the Photograph and kept only for
     /// convenience (ADR 0017), so a missing one is made rather than an error.
@@ -3115,6 +3314,37 @@ fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
         parsed.push(json!({ "kind": kind, "text": text, "photo": photo }));
     }
     Ok(Value::Array(parsed))
+}
+
+/// Run the orphan sweep on a timer for as long as the instance serves (#46).
+///
+/// Deliberately not a Job: a Job is work someone asked for and can watch, and
+/// nobody asks for this. It answers to nothing, reports to nothing, and a
+/// failed run is logged and forgotten — the next run recomputes everything
+/// from scratch anyway, so there is no state for a failure to corrupt.
+///
+/// The work itself is blocking SQLite and filesystem calls, so it goes to a
+/// blocking thread rather than stalling the runtime the Doors answer on.
+fn spawn_orphan_sweep(core: Arc<Core>) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Core::SWEEP_EVERY);
+        loop {
+            ticker.tick().await;
+            let core = core.clone();
+            let swept = tokio::task::spawn_blocking(move || core.sweep_photographs()).await;
+            match swept {
+                Ok(Ok(report)) => {
+                    tracing::info!(target: "kamosu::sweep", report = %report, "orphan sweep");
+                }
+                Ok(Err(error)) => {
+                    tracing::warn!(target: "kamosu::sweep", %error, "orphan sweep failed");
+                }
+                Err(error) => {
+                    tracing::warn!(target: "kamosu::sweep", %error, "orphan sweep panicked");
+                }
+            }
+        }
+    });
 }
 
 /// The Attempt state every write Operation on it needs before doing

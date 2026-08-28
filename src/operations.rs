@@ -661,6 +661,24 @@ pub fn upload_photograph(
     core.store_photograph(&bytes)
 }
 
+/// Ask for the orphan sweep now rather than waiting for the daily one (#46).
+///
+/// The sweep takes no arguments and reads nothing from the caller: what it
+/// deletes is decided entirely by what the Versions point at. The Operator
+/// permission is about who may cause the work, never about what it does.
+pub fn sweep_photographs(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    // The Catalogue declares an empty envelope; hold that line even if a Door
+    // somehow let something through.
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request("sweep_photographs takes no input"));
+    }
+    core.sweep_photographs()
+}
+
 pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")

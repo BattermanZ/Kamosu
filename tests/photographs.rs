@@ -370,3 +370,269 @@ async fn the_main_photo_and_a_steps_photo_are_part_of_the_versions_fingerprint()
         "attaching a Step's photo must mint a new Version too"
     );
 }
+
+// ─── The orphan sweep (#46) ──────────────────────────────────────────────────
+//
+// Pictures nothing points at are taken away on a delay, with the referenced set
+// recomputed from scratch each run rather than kept as a tally — because a
+// tally can drift into deleting a picture still on screen.
+
+/// An instance with an operator, since the sweep is an Operator's to ask for.
+fn operator(app: &support::TestApp) -> (String, String) {
+    let first = json!({
+        "name": "Aurélien",
+        "password": "a password only its person knows",
+        "session_name": "test browser"
+    });
+    let (_, created) = app.post_auth("/auth/first-person", &first.to_string());
+    let person = created["result"]["person"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let key = app
+        .core
+        .mint_access_key(&person, "agent", false)
+        .unwrap()
+        .secret;
+    (person, key)
+}
+
+/// Push a Photograph's unreferenced mark into the past, so the week-long grace
+/// can be tested without a clock to fast-forward. The one place these tests
+/// reach past Operations into the store, for the same reason the Attempt tests
+/// do it: there is no other way to make time pass.
+fn backdate_unreferenced(app: &support::TestApp, hash: &str, days_ago: i64) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let changed = conn
+                .execute(
+                    "UPDATE photographs
+                     SET unreferenced_since = strftime('%Y-%m-%dT%H:%M:%fZ','now', ?2)
+                     WHERE hash = ?1",
+                    rusqlite::params![hash, format!("-{days_ago} days")],
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            assert_eq!(changed, 1, "the Photograph must still be on record");
+            Ok(())
+        })
+        .expect("backdate the unreferenced mark");
+}
+
+/// Push a Branch's head into the past, so the next save is a new Version
+/// rather than collapsing into the one being shaped.
+fn backdate_branch_head(app: &support::TestApp, branch_id: &str) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branch_versions SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours') \
+                 WHERE branch_id = ?1 AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1)",
+                rusqlite::params![branch_id],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("backdate Branch head");
+}
+
+/// Upload a picture and attach it to a fresh recipe as its Main Photo.
+/// Answers the Photograph's id and the Branch it now hangs off.
+fn recipe_with_a_photo(app: &support::TestApp, key: &str, title: &str) -> (String, String) {
+    let (_, kitchen) = app.post_op(
+        "create_kitchen",
+        Some(key),
+        &json!({ "name": format!("{title} Kitchen") }).to_string(),
+    );
+    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
+
+    // A picture of its own size, so each test's Photograph is its own hash and
+    // two tests cannot collide on one identity.
+    let picture = make_jpeg(20 + (title.len() as u32 % 17), 20);
+    let (_, uploaded) = app.post_bytes("/api/photographs", Some(key), "image/jpeg", &picture);
+    let photo_id = uploaded["result"]["photograph_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({ "kitchen_id": kitchen_id, "title": title }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(key),
+        &json!({ "branch_id": branch_id, "title": title, "main_photo": photo_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    (photo_id, branch_id)
+}
+
+/// The criterion this ticket names in as many words. Detaching a picture starts
+/// the clock; putting it back stops it. A week later the picture is still there,
+/// because the sweep asks what is referenced *now* rather than trusting a count
+/// of comings and goings.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_detached_and_reattached_within_the_week_survives_the_sweep() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let (photo_id, branch_id) = recipe_with_a_photo(&app, &key, "Tomato Soup");
+
+    // Detach it. The save collapses into the Version being shaped, so the only
+    // Version naming the picture is gone and nothing points at it any more.
+    let (_, detached) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Tomato Soup" }).to_string(),
+    );
+    assert_eq!(
+        detached["result"]["collapsed"],
+        json!(true),
+        "this test needs the detaching save to collapse, or the picture stays referenced"
+    );
+
+    let (status, first_sweep) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(status, 200, "{first_sweep}");
+    assert_eq!(
+        first_sweep["result"]["swept"],
+        json!(0),
+        "nothing may be taken on the run that first notices it"
+    );
+    assert_eq!(first_sweep["result"]["newly_unreferenced"], json!(1));
+
+    // Put it back, well inside the week.
+    let (_, reattached) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Tomato Soup", "main_photo": photo_id })
+            .to_string(),
+    );
+    assert!(reattached["result"]["version_id"].is_string());
+
+    let (_, second_sweep) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(
+        second_sweep["result"]["back_in_use"],
+        json!(1),
+        "putting the picture back must clear the mark, not merely pause it"
+    );
+    assert_eq!(second_sweep["result"]["swept"], json!(0));
+
+    // Even a fortnight on, the picture is still there and still readable
+    // through its own route: the spell ended, so the age is irrelevant.
+    let (_, third_sweep) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(third_sweep["result"]["swept"], json!(0));
+
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{photo_id}"), Some(&key));
+    assert_eq!(status, 200, "the picture must survive the sweep");
+}
+
+/// The other half: a picture nothing has pointed at for a week does go, and its
+/// Display Copies go with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_unreferenced_for_a_week_is_swept_with_its_display_copies() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let (photo_id, branch_id) = recipe_with_a_photo(&app, &key, "Onion Soup");
+
+    // Ask for a Display Copy, so there is one on disk to be taken away too.
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{photo_id}/card"), Some(&key));
+    assert_eq!(status, 200);
+    let card = kamosu::photographs::display_path(
+        &app.core.data_dir(),
+        &photo_id,
+        kamosu::photographs::DisplaySize::Card,
+    );
+    assert!(
+        card.exists(),
+        "the Display Copy must exist before the sweep"
+    );
+
+    let (_, detached) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Onion Soup" }).to_string(),
+    );
+    assert_eq!(detached["result"]["collapsed"], json!(true));
+
+    app.post_op("sweep_photographs", Some(&key), "{}");
+    backdate_unreferenced(&app, &photo_id, 8);
+
+    let (_, swept) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(swept["result"]["swept"], json!(1), "{swept}");
+    assert_eq!(
+        swept["result"]["swept_photograph_ids"][0],
+        json!(photo_id.clone())
+    );
+
+    assert!(
+        !card.exists(),
+        "a Display Copy is worth nothing without its Photograph and must go with it"
+    );
+    assert!(
+        !kamosu::photographs::photograph_path(&app.core.data_dir(), &photo_id).exists(),
+        "the Photograph's own bytes must go too"
+    );
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{photo_id}"), Some(&key));
+    assert_eq!(status, 404, "a swept Photograph is gone, not merely hidden");
+}
+
+/// A picture an *old* Version still names is in use, even though no Branch head
+/// points at it. Versions are never rewritten and any of them can be opened and
+/// cooked from, so "referenced" means referenced by any Version at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_only_an_old_version_names_is_still_in_use() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let (photo_id, branch_id) = recipe_with_a_photo(&app, &key, "Katsu Curry");
+
+    // Put the head far enough back that the next save is a new Version rather
+    // than a collapse — so the Version naming the picture survives.
+    backdate_branch_head(&app, &branch_id);
+    let (_, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Katsu Curry" }).to_string(),
+    );
+    assert_eq!(
+        saved["result"]["collapsed"],
+        json!(false),
+        "this test needs a second Version, not a collapse"
+    );
+
+    let (_, sweep) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(
+        sweep["result"]["newly_unreferenced"],
+        json!(0),
+        "an older Version still names the picture, so nothing is unreferenced"
+    );
+    assert_eq!(sweep["result"]["referenced"], json!(1));
+
+    // And it stays: even backdating cannot age a mark that was never made.
+    let (_, again) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(again["result"]["swept"], json!(0));
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{photo_id}"), Some(&key));
+    assert_eq!(status, 200);
+}
+
+/// The sweep is an Operator's to ask for. An ordinary Person cannot cause the
+/// instance to delete pictures.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_ordinary_person_may_not_ask_for_the_sweep() {
+    let app = support::spawn_app();
+    let (_, _operator_key) = operator(&app);
+    let stranger = app.core.create_person("Marie").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+
+    // Kamosu answers 401 to a Credential that does not carry the ability, not
+    // 403: the Core refuses on the Credential, and the Door only carries it.
+    let (status, refused) = app.post_op("sweep_photographs", Some(&stranger_key), "{}");
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+}

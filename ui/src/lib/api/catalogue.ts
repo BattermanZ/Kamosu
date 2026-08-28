@@ -72,6 +72,17 @@ export type MintRecoveryLinkOutput = {
 	link: string;
 };
 
+/** Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now. */
+export type SweepPhotographsInput = Record<string, never>;
+/** What sweep_photographs answers. */
+export type SweepPhotographsOutput = {
+	back_in_use: number;
+	newly_unreferenced: number;
+	referenced: number;
+	swept: number;
+	swept_photograph_ids: string[];
+};
+
 /** List this Person's browser Sessions by device and last use. */
 export type ListSessionsInput = Record<string, never>;
 /** What list_sessions answers. */
@@ -1195,6 +1206,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'operator';
 	};
+	sweep_photographs: {
+		input: SweepPhotographsInput;
+		output: SweepPhotographsOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	list_sessions: {
 		input: ListSessionsInput;
 		output: ListSessionsOutput;
@@ -1695,6 +1712,48 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"link"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "sweep_photographs",
+		"summary": "Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"back_in_use": {
+					"type": "integer"
+				},
+				"newly_unreferenced": {
+					"type": "integer"
+				},
+				"referenced": {
+					"type": "integer"
+				},
+				"swept": {
+					"type": "integer"
+				},
+				"swept_photograph_ids": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"referenced",
+				"newly_unreferenced",
+				"back_in_use",
+				"swept",
+				"swept_photograph_ids"
 			],
 			"type": "object"
 		}
@@ -6637,6 +6696,7 @@ export const METHOD_NAMES = {
 	disable_account: 'disableAccount',
 	delete_account: 'deleteAccount',
 	mint_recovery_link: 'mintRecoveryLink',
+	sweep_photographs: 'sweepPhotographs',
 	list_sessions: 'listSessions',
 	revoke_session: 'revokeSession',
 	mint_access_key: 'mintAccessKey',
@@ -6700,6 +6760,8 @@ export interface KamosuClient {
 	deleteAccount(input: DeleteAccountInput): Promise<Answer<'delete_account'>>;
 	/** Mint a one-use recovery link for a Person who forgot their password. */
 	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
+	/** Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now. */
+	sweepPhotographs(input?: SweepPhotographsInput): Promise<Answer<'sweep_photographs'>>;
 	/** List this Person's browser Sessions by device and last use. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** End one of your browser Sessions. */
