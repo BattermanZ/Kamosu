@@ -1,0 +1,21 @@
+/* Direction B — One column, pick a Branch to follow forward. */
+
+.b-node { position: relative; display: flex; gap: 12px; width: 100%; padding: 13px 22px 15px 22px; }
+.b-node::before { content: ''; position: absolute; left: 27px; top: 0; bottom: -1px; width: 1px; background: var(--line); }
+.b-node:first-child::before { top: 14px; }
+.b-dot { position: relative; z-index: 1; margin-top: 5px; width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--paper); flex: none; }
+.b-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.b-when { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--sumi-2); }
+.b-who { font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.b-what { font-size: 13px; color: var(--sumi-2); line-height: 1.5; }
+.b-atts { display: flex; gap: 4px; margin-top: 4px; }
+
+/* B's own bet: don't hide quiet saves, just quiet them down visually */
+.b-node.is-quiet { opacity: .55; padding-top: 8px; padding-bottom: 8px; }
+.b-node.is-quiet .b-who { font-size: 14px; }
+
+.b-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 22px 18px 22px; }
+.b-chip { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid; border-radius: 999px;
+  padding: 9px 14px; font-size: 13px; }
+.b-chip.on { font-weight: 600; }

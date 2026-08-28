@@ -1,0 +1,40 @@
+/* Direction A — Lanes: a column per Branch, side by side. */
+
+.a-thread { margin-top: 18px; }
+
+.a-node { position: relative; display: flex; gap: 12px; width: 100%; padding: 13px 22px 15px 22px; }
+.a-node::before { content: ''; position: absolute; left: 27px; top: 0; bottom: -1px; width: 1px; background: var(--line); }
+.a-node:first-child::before { top: 14px; }
+.a-dot { position: relative; z-index: 1; margin-top: 5px; width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--paper); flex: none; }
+.a-dot-ghost { background: #cfc5b0 !important; }
+.a-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.a-when { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--sumi-2); }
+.a-who { font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.a-what { font-size: 13px; color: var(--sumi-2); line-height: 1.5; }
+.a-atts { display: flex; gap: 4px; margin-top: 4px; }
+
+.a-collapsed, .a-collapse-back { display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 22px 12px 22px; color: var(--sumi-2); position: relative; }
+.a-collapsed::before, .a-collapse-back::before { content: ''; position: absolute; left: 27px; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.a-expand { margin-left: auto; font-size: 12px; }
+.a-collapse-back { padding-left: 46px; font-size: 12px; }
+
+.forkmark { position: relative; margin: 0; padding: 16px 22px 16px 46px; background: var(--paper-2); }
+.forkmark::before { content: '⑂'; position: absolute; left: 20px; top: 15px; font-size: 19px; color: var(--matcha); }
+.forkmark-t { margin: 0; font-family: 'Zen Old Mincho', serif; font-size: 16px; color: var(--matcha); }
+.forkmark-s { margin: 5px 0 0; font-size: 12px; color: var(--sumi-2); line-height: 1.55; }
+
+.a-rails { display: grid; gap: 0; }
+.a-rail { border-left: 1px solid var(--line); }
+.a-rail:first-child { border-left: 0; }
+.a-rail-h { margin: 12px 0 0 20px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.a-rail .a-node { padding: 10px 12px 12px 30px; }
+.a-rail .a-node::before { left: 15px; }
+.a-rail .a-dot { width: 9px; height: 9px; }
+.a-rail .a-who { font-size: 14px; }
+.a-rail .a-what { font-size: 12px; }
+.a-rail .a-collapsed, .a-rail .a-collapse-back { padding-left: 12px; }
+.a-rail .a-collapsed::before, .a-rail .a-collapse-back::before { left: 15px; }
+
+.a-nested { border-top: 2px solid var(--line); margin-top: 4px; }

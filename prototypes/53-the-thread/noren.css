@@ -1,0 +1,58 @@
+/* PROTOTYPE — shared Noren clothes, lifted from #13's winning direction and
+   #18's thread. Every variant wears the same thing so the argument stays
+   about SHAPE, not colour. */
+
+:root {
+  --ai: #1d2b4c;        /* indigo — mine */
+  --ai-soft: #3d5480;
+  --paper: #f4efe3;     /* kinari */
+  --paper-2: #ece5d5;
+  --sumi: #1a1a1c;
+  --sumi-2: #5c5a55;
+  --line: #ddd3bf;
+  --line-2: #e3dac7;
+  --beni: #b8474b;      /* safflower — Marc's */
+  --matcha: #7d8b5c;    /* Camille's */
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--paper);
+  color: var(--sumi);
+  font-family: 'Zen Kaku Gothic New', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; cursor: pointer; background: none; border: 0; color: inherit; text-align: left; }
+
+.wrap { max-width: 480px; margin: 0 auto; padding-bottom: 140px; }
+
+.top { padding: 54px 22px 6px; }
+.wordmark { font-family: 'Zen Old Mincho', serif; font-size: 22px; font-weight: 600; }
+.eyebrow { margin: 4px 0 0; font-size: 12px; color: var(--sumi-2); }
+h1.title { font-family: 'Zen Old Mincho', serif; font-size: 26px; font-weight: 700; margin: 10px 0 0; line-height: 1.2; }
+.lede { margin: 12px 0 0; font-size: 14px; line-height: 1.6; color: var(--sumi-2); }
+
+h2.h { font-family: 'Zen Old Mincho', serif; font-size: 12px; font-weight: 600; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--ai); margin: 30px 22px 8px; }
+
+.pill { display: inline-block; font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  padding: 3px 7px; border: 1px solid currentColor; border-radius: 2px; }
+
+/* branch identity, everywhere: a coloured letter chip */
+.chip { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border-radius: 50%; font-size: 11px; font-weight: 700; color: var(--paper); flex: none; }
+
+.foot { margin: 30px 22px 0; font-size: 12px; color: #8e8676; line-height: 1.75; }
+
+/* a reusable "read a version" bottom sheet, identical across variants */
+.sheet-scrim { position: fixed; inset: 0; background: rgba(19,28,51,.4); z-index: 60; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; max-width: 480px; margin: 0 auto;
+  background: var(--paper); border-radius: 8px 8px 0 0; padding: 20px 22px max(20px, env(safe-area-inset-bottom));
+  box-shadow: 0 -12px 40px rgba(19,28,51,.28); max-height: 70vh; overflow-y: auto; }
+.sheet-close { position: absolute; right: 14px; top: 12px; font-size: 20px; color: var(--sumi-2); }
+.sheet h3 { font-family: 'Zen Old Mincho', serif; font-size: 19px; margin: 0 14px 0 0; }
+.sheet .meta { font-size: 12px; color: var(--sumi-2); margin-top: 6px; }
+.sheet .body { font-size: 15px; line-height: 1.6; margin-top: 14px; }
+.sheet .cta { display: block; width: 100%; margin-top: 18px; background: var(--ai); color: var(--paper);
+  border-radius: 2px; padding: 14px; font-family: 'Zen Old Mincho', serif; font-size: 15px; text-align: center; }

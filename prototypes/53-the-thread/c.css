@@ -1,0 +1,21 @@
+/* Direction C — One list, no graph: every Branch merged by date, tagged. */
+
+.c-thread { margin-top: 18px; }
+
+.c-row { display: flex; gap: 12px; width: 100%; padding: 12px 22px; border-bottom: 1px solid var(--line-2); }
+.c-body { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.c-when { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--sumi-2); }
+.c-who { font-family: 'Zen Old Mincho', serif; font-size: 16px; }
+.c-what { font-size: 13px; color: var(--sumi-2); line-height: 1.5; }
+
+.c-row-att { background: var(--paper-2); }
+.c-row-att .c-who { font-family: inherit; font-size: 14px; }
+
+.c-collapsed, .c-collapse-back { display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 11px 22px; border-bottom: 1px solid var(--line-2); color: var(--sumi-2); }
+.c-expand { margin-left: auto; font-size: 12px; }
+.c-collapse-back { font-size: 12px; padding-left: 22px; }
+
+.c-forkdiv { border-top: 2px solid var(--line); border-bottom: 2px solid var(--line); }
+.c-forkdiv .forkmark { background: none; padding: 12px 22px 12px 44px; }
+.c-forkdiv .forkmark-t { font-size: 14px; }
