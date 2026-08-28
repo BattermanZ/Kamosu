@@ -289,3 +289,12 @@
 @utility pb-tabbar {
   padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom));
 }
+
+/* Where anything fixed to the bottom of a screen has to sit to clear the tab
+   bar rather than be covered by it: the bar's own height and its safe-area
+   padding, without the step of air `pb-tabbar` adds. The unsaved tray on a
+   Divergence is the first of these, and it is the reason this exists — at
+   `bottom-0` the tab bar swallowed its Save button entirely. */
+@utility bottom-tabbar {
+  bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom));
+}

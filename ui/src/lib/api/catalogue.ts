@@ -426,11 +426,11 @@ export type CreateRecipeOutput = {
 		hand_id: string;
 		name: string | null;
 		parent_version_id: string | null;
-		readings: {
+		readings: ({
 			amount: string | null;
 			target: string | null;
 			unit: string | null;
-		} | null[];
+		} | null)[];
 		sequence: number;
 		version_id: string;
 	}[];
@@ -637,11 +637,11 @@ export type GetRecipeOutput = {
 		hand_id: string;
 		name: string | null;
 		parent_version_id: string | null;
-		readings: {
+		readings: ({
 			amount: string | null;
 			target: string | null;
 			unit: string | null;
-		} | null[];
+		} | null)[];
 		sequence: number;
 		version_id: string;
 	}[];
@@ -699,6 +699,158 @@ export type BranchPointInput = {
 /** What branch_point answers. */
 export type BranchPointOutput = {
 	version_id: string;
+};
+
+/** Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+export type DivergenceInput = {
+	branch_id: string;
+	other_branch_id: string;
+};
+/** What divergence answers. */
+export type DivergenceOutput = {
+	branch_point_version_id: string;
+	fields: {
+		cook_time_minutes: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		main_photo: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		note: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		prep_time_minutes: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		source: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		title: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		yield: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+	};
+	ingredients: {
+		from_branch_point: boolean;
+		kind: string;
+		mine: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+		state: "same" | "changed" | "only-mine" | "only-theirs";
+		theirs: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+	}[];
+	lineage_id: string;
+	mine: {
+		branch_id: string;
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		hand_id: string;
+		head_version_id: string;
+		kitchen_id: string;
+		kitchen_name: string;
+		language: string;
+		readings: ({
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+	};
+	steps: {
+		from_branch_point: boolean;
+		kind: string;
+		mine: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+		state: "same" | "changed" | "only-mine" | "only-theirs";
+		theirs: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+	}[];
+	theirs: {
+		branch_id: string;
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		hand_id: string;
+		head_version_id: string;
+		kitchen_id: string;
+		kitchen_name: string;
+		language: string;
+		readings: ({
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+	};
 };
 
 /** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
@@ -1214,6 +1366,12 @@ export interface Operations {
 	branch_point: {
 		input: BranchPointInput;
 		output: BranchPointOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	divergence: {
+		input: DivergenceInput;
+		output: DivergenceOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -4399,6 +4557,742 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "divergence",
+		"summary": "Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"other_branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"other_branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_point_version_id": {
+					"type": "string"
+				},
+				"fields": {
+					"additionalProperties": false,
+					"properties": {
+						"cook_time_minutes": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"main_photo": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"note": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"prep_time_minutes": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"source": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"title": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"yield": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						}
+					},
+					"required": [
+						"title",
+						"yield",
+						"prep_time_minutes",
+						"cook_time_minutes",
+						"source",
+						"note",
+						"main_photo"
+					],
+					"type": "object"
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"from_branch_point": {
+								"type": "boolean"
+							},
+							"kind": {
+								"type": "string"
+							},
+							"mine": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"state": {
+								"enum": [
+									"same",
+									"changed",
+									"only-mine",
+									"only-theirs"
+								]
+							},
+							"theirs": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"kind",
+							"state",
+							"from_branch_point",
+							"mine",
+							"theirs"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"mine": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": "string"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"hand_id": {
+							"type": "string"
+						},
+						"head_version_id": {
+							"type": "string"
+						},
+						"kitchen_id": {
+							"type": "string"
+						},
+						"kitchen_name": {
+							"type": "string"
+						},
+						"language": {
+							"type": "string"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"branch_id",
+						"kitchen_id",
+						"kitchen_name",
+						"hand_id",
+						"language",
+						"head_version_id",
+						"content",
+						"readings"
+					],
+					"type": "object"
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"from_branch_point": {
+								"type": "boolean"
+							},
+							"kind": {
+								"type": "string"
+							},
+							"mine": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"state": {
+								"enum": [
+									"same",
+									"changed",
+									"only-mine",
+									"only-theirs"
+								]
+							},
+							"theirs": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"kind",
+							"state",
+							"from_branch_point",
+							"mine",
+							"theirs"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"theirs": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": "string"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"hand_id": {
+							"type": "string"
+						},
+						"head_version_id": {
+							"type": "string"
+						},
+						"kitchen_id": {
+							"type": "string"
+						},
+						"kitchen_name": {
+							"type": "string"
+						},
+						"language": {
+							"type": "string"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"branch_id",
+						"kitchen_id",
+						"kitchen_name",
+						"hand_id",
+						"language",
+						"head_version_id",
+						"content",
+						"readings"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"lineage_id",
+				"branch_point_version_id",
+				"mine",
+				"theirs",
+				"ingredients",
+				"steps",
+				"fields"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "set_reading",
 		"summary": "Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread.",
 		"permission": "person",
@@ -5772,6 +6666,7 @@ export const METHOD_NAMES = {
 	get_recipe: 'getRecipe',
 	get_thread: 'getThread',
 	branch_point: 'branchPoint',
+	divergence: 'divergence',
 	set_reading: 'setReading',
 	start_attempt: 'startAttempt',
 	advance_attempt: 'advanceAttempt',
@@ -5863,6 +6758,8 @@ export interface KamosuClient {
 	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;
 	/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
+	/** Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
 	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
 	/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */

@@ -5588,3 +5588,518 @@ mod web_link_importer {
         assert_eq!(refused["error"]["kind"], json!("unauthorized"));
     }
 }
+
+// --- Divergence: two recipes, a switch, and Ghosts (issue #55) ---------------
+
+/// The real fixture: one Lineage, two Branches, one Branch Point.
+///
+/// Aurélien writes Korean Fried Chicken and splits it into sections. Marc, whose
+/// Kitchen has never held the Branch, changes it — which starts his own Branch of
+/// the same Lineage (a Copy, ADR 0004). He then asks Aurélien into Chez Marc, so
+/// one Person can see both Branches, which is what a Divergence needs.
+///
+/// Returns (Aurélien's key, his Branch, Marc's Branch).
+fn a_lineage_that_forked(app: &support::TestApp) -> (String, String, String) {
+    let (_, mine_key, my_kitchen) = person_with_kitchen(app, "Aurélien");
+    let (marc, marc_key, marc_kitchen) = person_with_kitchen(app, "Marc");
+
+    // The Branch Point: the recipe as both of them knew it.
+    let branch_point = json!({
+        "kitchen_id": my_kitchen,
+        "title": "Korean Fried Chicken",
+        "ingredients": [
+            { "kind": "section", "text": "Chicken" },
+            { "kind": "ingredient", "text": "1.4 kg whole chicken" },
+            { "kind": "ingredient", "text": "1 cup potato starch (or corn starch)" },
+            { "kind": "section", "text": "Sauce" },
+            { "kind": "ingredient", "text": "¼ cup honey" },
+            { "kind": "ingredient", "text": "¼ cup brown sugar" },
+            { "kind": "ingredient", "text": "2 Tbsp minced garlic" }
+        ],
+        "steps": [
+            { "kind": "step", "text": "Coat the chicken in the starch and set aside." },
+            { "kind": "step", "text": "Deep fry at 175 C until golden and crisp." }
+        ],
+    });
+    let (status, created) =
+        app.post_op("create_recipe", Some(&mine_key), &branch_point.to_string());
+    assert_eq!(status, 200, "{created}");
+    let my_branch = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Marc's Branch. He cuts the sugar, puts chilli flakes in, swaps the deep
+    // fry for an air fryer, and adds a resting step.
+    backdate_branch_head(app, &my_branch);
+    let (status, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&marc_key),
+        &json!({
+            "branch_id": my_branch,
+            "kitchen_id": marc_kitchen,
+            "title": "Korean Fried Chicken",
+            "ingredients": [
+                { "kind": "section", "text": "Chicken" },
+                { "kind": "ingredient", "text": "1.4 kg whole chicken" },
+                { "kind": "ingredient", "text": "¾ cup potato starch" },
+                { "kind": "section", "text": "Sauce" },
+                { "kind": "ingredient", "text": "¼ cup honey" },
+                { "kind": "ingredient", "text": "2 Tbsp minced garlic" },
+                { "kind": "ingredient", "text": "1 tsp gochugaru" }
+            ],
+            "steps": [
+                { "kind": "step", "text": "Coat the chicken in the starch and set aside." },
+                { "kind": "step", "text": "Spray the basket and air fry at 200 C for 18 minutes." },
+                { "kind": "step", "text": "Let it sit 5 minutes before saucing." }
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(
+        copied["result"]["copied"],
+        json!(true),
+        "Marc's change is a Copy"
+    );
+    let marc_branch = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // My own Branch moves on too, so the Branch Point is genuinely behind both
+    // of us rather than being one side's head. `2 Tbsp minced garlic` is
+    // retyped here character for character — it must produce nothing (ADR 0019).
+    backdate_branch_head(app, &my_branch);
+    let (status, mine) = app.post_op(
+        "save_recipe_version",
+        Some(&mine_key),
+        &json!({
+            "branch_id": my_branch,
+            "title": "Korean Fried Chicken",
+            "ingredients": [
+                { "kind": "section", "text": "Chicken" },
+                { "kind": "ingredient", "text": "1.4 kg whole chicken" },
+                { "kind": "ingredient", "text": "1 cup potato starch (or corn starch)" },
+                { "kind": "section", "text": "Sauce" },
+                { "kind": "ingredient", "text": "¼ cup honey" },
+                { "kind": "ingredient", "text": "¼ cup brown sugar" },
+                { "kind": "ingredient", "text": "2 Tbsp minced garlic" },
+                { "kind": "ingredient", "text": "1 Tbsp rice vinegar" }
+            ],
+            "steps": [
+                { "kind": "step", "text": "Coat the chicken in the starch and set aside." },
+                { "kind": "step", "text": "Deep fry at 190 C until golden and crisp." }
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{mine}");
+    assert_eq!(
+        mine["result"]["copied"],
+        json!(false),
+        "my own edit stays on my Branch"
+    );
+
+    // Marc asks me into his Kitchen, which is how I come to see his Branch at
+    // all — the same boundary get_recipe and get_thread enforce (ADR 0007).
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&marc_key),
+        &json!({ "kitchen_id": marc_kitchen }).to_string(),
+    );
+    let secret = invite["result"]["secret"].as_str().unwrap().to_string();
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&mine_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let _ = marc;
+
+    (mine_key, my_branch, marc_branch)
+}
+
+fn rows_of<'a>(divergence: &'a Value, list: &str) -> &'a Vec<Value> {
+    divergence["result"][list].as_array().unwrap()
+}
+
+/// The row whose text on either side is exactly this. Nothing in the answer is
+/// addressed by an id, because no line has one.
+fn row_saying<'a>(rows: &'a [Value], text: &str) -> &'a Value {
+    rows.iter()
+        .find(|row| row["mine"]["text"] == json!(text) || row["theirs"]["text"] == json!(text))
+        .unwrap_or_else(|| panic!("no row saying {text:?} in {rows:#?}"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_divergence_is_two_whole_recipes_with_the_unshared_lines_marked() {
+    let app = support::spawn_app();
+    let (key, my_branch, marc_branch) = a_lineage_that_forked(&app);
+
+    let (status, divergence) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": my_branch, "other_branch_id": marc_branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{divergence}");
+
+    // Both sides arrive whole and cookable — not a list of differences.
+    let mine = &divergence["result"]["mine"]["content"];
+    let theirs = &divergence["result"]["theirs"]["content"];
+    assert_eq!(mine["ingredients"].as_array().unwrap().len(), 8);
+    assert_eq!(theirs["ingredients"].as_array().unwrap().len(), 7);
+    assert_eq!(mine["steps"].as_array().unwrap().len(), 2);
+    assert_eq!(theirs["steps"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        divergence["result"]["theirs"]["kitchen_name"],
+        json!("Marc's Kitchen"),
+        "the switch names the Kitchen you cross into"
+    );
+
+    let ingredients = rows_of(&divergence, "ingredients");
+
+    // The words nobody touched are the same on both sides and need no reading.
+    assert_eq!(
+        row_saying(ingredients, "1.4 kg whole chicken")["state"],
+        json!("same")
+    );
+    assert_eq!(
+        row_saying(ingredients, "¼ cup honey")["state"],
+        json!("same")
+    );
+
+    // A quantity altered: paired, because both descend from one Branch Point
+    // line — not reported as one line removed and another added.
+    let starch = row_saying(ingredients, "¾ cup potato starch");
+    assert_eq!(starch["state"], json!("changed"));
+    assert_eq!(starch["from_branch_point"], json!(true));
+    assert_eq!(
+        starch["mine"]["text"],
+        json!("1 cup potato starch (or corn starch)")
+    );
+}
+
+/// ADR 0019's load-bearing claim. Select-all-delete-retype is how a line gets
+/// fixed on a phone; if it manufactured a divergence, nothing else here works.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retyping_a_line_identically_produces_no_divergence() {
+    let app = support::spawn_app();
+    let (key, my_branch, marc_branch) = a_lineage_that_forked(&app);
+
+    let (_, divergence) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": my_branch, "other_branch_id": marc_branch }).to_string(),
+    );
+    let garlic = row_saying(rows_of(&divergence, "ingredients"), "2 Tbsp minced garlic");
+    assert_eq!(
+        garlic["state"],
+        json!("same"),
+        "retyped character for character on my Branch, so there is nothing to show"
+    );
+}
+
+/// A line present on one side only is a Ghost, and it keeps the position it
+/// holds in the recipe that really has it (ADR 0014).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_only_one_side_has_is_a_ghost_in_its_own_position() {
+    let app = support::spawn_app();
+    let (key, my_branch, marc_branch) = a_lineage_that_forked(&app);
+
+    let (_, divergence) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": my_branch, "other_branch_id": marc_branch }).to_string(),
+    );
+    let ingredients = rows_of(&divergence, "ingredients");
+
+    // Marc took the brown sugar out. It was at the Branch Point, so this can be
+    // carried across as a removal rather than only read.
+    let sugar = row_saying(ingredients, "¼ cup brown sugar");
+    assert_eq!(sugar["state"], json!("only-mine"));
+    assert_eq!(sugar["from_branch_point"], json!(true));
+    assert_eq!(sugar["theirs"], json!(null));
+
+    // Marc's gochugaru is a Ghost on my recipe for exactly the reason my brown
+    // sugar is a Ghost on his: one mechanism, seen from two sides.
+    let gochugaru = row_saying(ingredients, "1 tsp gochugaru");
+    assert_eq!(gochugaru["state"], json!("only-theirs"));
+    assert_eq!(gochugaru["from_branch_point"], json!(false));
+
+    // Position: the honey is the last line both of us can still find above the
+    // sugar, so the sugar sits under the honey rather than at the end.
+    let texts: Vec<String> = ingredients
+        .iter()
+        .map(|row| {
+            row["mine"]["text"]
+                .as_str()
+                .or(row["theirs"]["text"].as_str())
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    let honey = texts.iter().position(|t| t == "¼ cup honey").unwrap();
+    let sugar_at = texts.iter().position(|t| t == "¼ cup brown sugar").unwrap();
+    assert_eq!(
+        sugar_at,
+        honey + 1,
+        "a Ghost sits where it sits over there: {texts:?}"
+    );
+}
+
+/// ADR 0019's refusal, through a real Operation: two lines that both arrived
+/// after the Branch Point and read nothing alike are shown unjoined, and
+/// nothing anywhere in the answer labels a Pairing as a guess.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_uncertain_pairing_shows_both_lines_and_never_hedges() {
+    let app = support::spawn_app();
+    let (key, my_branch, marc_branch) = a_lineage_that_forked(&app);
+
+    let (_, divergence) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": my_branch, "other_branch_id": marc_branch }).to_string(),
+    );
+    let ingredients = rows_of(&divergence, "ingredients");
+
+    // My rice vinegar and Marc's gochugaru both arrived after we parted and
+    // land in the same part of the sauce. They are not joined.
+    let vinegar = row_saying(ingredients, "1 Tbsp rice vinegar");
+    assert_eq!(vinegar["state"], json!("only-mine"));
+    assert_eq!(vinegar["theirs"], json!(null));
+    let gochugaru = row_saying(ingredients, "1 tsp gochugaru");
+    assert_eq!(gochugaru["state"], json!("only-theirs"));
+    assert_eq!(gochugaru["mine"], json!(null));
+
+    // A whole Step rewritten is the same refusal, and ADR 0019's accepted loss:
+    // the old text beside the new is more use than "Marc rewrote this".
+    let steps = rows_of(&divergence, "steps");
+    assert_eq!(
+        row_saying(steps, "Deep fry at 190 C until golden and crisp.")["state"],
+        json!("only-mine")
+    );
+    assert_eq!(
+        row_saying(
+            steps,
+            "Spray the basket and air fry at 200 C for 18 minutes."
+        )["state"],
+        json!("only-theirs")
+    );
+
+    // No confidence anywhere in the answer, on any row. A badge on some
+    // markings and not others would add a decision to every line while giving
+    // the cook nothing to decide with.
+    let whole = divergence.to_string().to_lowercase();
+    for hedge in [
+        "confidence",
+        "probably",
+        "likely",
+        "uncertain",
+        "maybe",
+        "score",
+    ] {
+        assert!(
+            !whole.contains(hedge),
+            "the answer must never hedge, found {hedge:?}"
+        );
+    }
+}
+
+/// The page is symmetric: the same lines are marked and the same Ghosts appear
+/// whichever recipe you are standing in. Nothing is knowable only from one side.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_divergence_reads_the_same_from_either_branch() {
+    let app = support::spawn_app();
+    let (key, my_branch, marc_branch) = a_lineage_that_forked(&app);
+
+    let ask = |a: &str, b: &str| {
+        let (status, answer) = app.post_op(
+            "divergence",
+            Some(&key),
+            &json!({ "branch_id": a, "other_branch_id": b }).to_string(),
+        );
+        assert_eq!(status, 200, "{answer}");
+        answer
+    };
+    let from_mine = ask(&my_branch, &marc_branch);
+    let from_theirs = ask(&marc_branch, &my_branch);
+
+    assert_eq!(
+        from_mine["result"]["branch_point_version_id"],
+        from_theirs["result"]["branch_point_version_id"],
+        "one Branch Point, computed the same way from either end"
+    );
+
+    // Every row exists on both readings with its sides swapped, so nothing is
+    // knowable only by standing in the right place. Row ORDER is deliberately
+    // not symmetric: you read your own recipe in your own order, and the other
+    // side's unshared lines are Ghosts slotted in beside it — so my rice
+    // vinegar sits where I put it, and from Marc's side it is his gochugaru
+    // that sits where he put it.
+    let swapped = |row: &Value| {
+        json!({
+            "kind": row["kind"],
+            "state": match row["state"].as_str().unwrap() {
+                "only-mine" => "only-theirs",
+                "only-theirs" => "only-mine",
+                other => other,
+            },
+            "from_branch_point": row["from_branch_point"],
+            "mine": row["theirs"],
+            "theirs": row["mine"],
+        })
+    };
+    for list in ["ingredients", "steps"] {
+        let here = rows_of(&from_mine, list);
+        let there = rows_of(&from_theirs, list);
+        assert_eq!(here.len(), there.len(), "{list}");
+        for row in here {
+            assert!(
+                there.contains(&swapped(row)),
+                "every row is readable from the other side too: {row:#?} missing from {there:#?}"
+            );
+        }
+    }
+}
+
+/// A Branch in a Kitchen you do not cook in is not yours to read, and a
+/// Divergence is no way around that (ADR 0007).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_divergence_cannot_reach_a_branch_you_could_not_otherwise_read() {
+    let app = support::spawn_app();
+    let (_, mine_key, my_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+
+    let (_, mine) = app.post_op(
+        "create_recipe",
+        Some(&mine_key),
+        &json!({ "kitchen_id": my_kitchen, "title": "Soupe" }).to_string(),
+    );
+    let my_branch = mine["result"]["branch_id"].as_str().unwrap().to_string();
+    let (_, theirs) = app.post_op(
+        "create_recipe",
+        Some(&marc_key),
+        &json!({ "kitchen_id": marc_kitchen, "title": "Soupe" }).to_string(),
+    );
+    let marc_branch = theirs["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, refused) = app.post_op(
+        "divergence",
+        Some(&mine_key),
+        &json!({ "branch_id": my_branch, "other_branch_id": marc_branch }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+}
+
+/// Two recipes that were never one recipe have no Branch Point and nothing
+/// between them to read. Kamosu says so rather than inventing a comparison.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_branches_of_different_lineages_are_not_a_divergence() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let mut branches = Vec::new();
+    for title in ["Soupe", "Katsu Curry"] {
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({ "kitchen_id": kitchen, "title": title }).to_string(),
+        );
+        branches.push(created["result"]["branch_id"].as_str().unwrap().to_string());
+    }
+
+    let (status, refused) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": branches[0], "other_branch_id": branches[1] }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("bad_request"));
+}
+
+/// There is no "take all" Operation, and no way to ask for one. The absence is
+/// the decision: taking every line one at a time is a person making a recipe,
+/// whereas one button doing it is a merge with extra steps (ADR 0014).
+#[test]
+fn the_catalogue_offers_no_way_to_take_a_whole_branch() {
+    for operation in kamosu::catalogue::OPERATIONS.iter() {
+        let name = operation.name;
+        assert!(
+            !(name.contains("merge") && name.contains("branch")),
+            "no Operation merges Branches, found {name}"
+        );
+        assert!(
+            !name.contains("take_all")
+                && !name.contains("accept_all")
+                && !name.contains("apply_all"),
+            "no Operation takes a whole Branch at once, found {name}"
+        );
+    }
+}
+
+/// Kind is part of a line's identity. A Section heading never pairs with an
+/// Ingredient Line, however alike the words happen to be — otherwise splitting
+/// a list into sections would read as rewriting the ingredients.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_section_heading_never_pairs_with_an_ingredient_line() {
+    let app = support::spawn_app();
+    let (_, mine_key, my_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+
+    // The Branch Point has neither line, so both arrive after the parting —
+    // the case where only the words are left to go on.
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&mine_key),
+        &json!({ "kitchen_id": my_kitchen, "title": "Sauce", "ingredients": [] }).to_string(),
+    );
+    let my_branch = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    backdate_branch_head(&app, &my_branch);
+    let (_, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&marc_key),
+        &json!({
+            "branch_id": my_branch,
+            "kitchen_id": marc_kitchen,
+            "title": "Sauce",
+            "ingredients": [{ "kind": "ingredient", "text": "Sauce" }],
+        })
+        .to_string(),
+    );
+    let marc_branch = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    backdate_branch_head(&app, &my_branch);
+    app.post_op(
+        "save_recipe_version",
+        Some(&mine_key),
+        &json!({
+            "branch_id": my_branch,
+            "title": "Sauce",
+            "ingredients": [{ "kind": "section", "text": "Sauce" }],
+        })
+        .to_string(),
+    );
+
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&marc_key),
+        &json!({ "kitchen_id": marc_kitchen }).to_string(),
+    );
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&mine_key),
+        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
+    );
+
+    let (status, divergence) = app.post_op(
+        "divergence",
+        Some(&mine_key),
+        &json!({ "branch_id": my_branch, "other_branch_id": marc_branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{divergence}");
+
+    // Identical text, different kinds: two rows, not one changed line.
+    let rows = rows_of(&divergence, "ingredients");
+    assert_eq!(rows.len(), 2, "{rows:#?}");
+    assert!(
+        rows.iter().all(|row| row["state"] != json!("changed")),
+        "a heading and an ingredient are never the same line: {rows:#?}"
+    );
+}

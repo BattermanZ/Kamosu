@@ -2242,6 +2242,106 @@ impl Core {
         })
     }
 
+    /// A Divergence: two Branches of one Lineage, laid over each other so a
+    /// screen can show **two whole recipes with a switch between them** rather
+    /// than a difference (ADR 0014). There is no "the difference" object here
+    /// and no summary — every row carries both sides' own words, so whichever
+    /// Branch a cook is standing in they read a complete, cookable recipe with
+    /// the handful of unshared lines marked, and the lines only the other side
+    /// has shown as Ghosts in the position they hold over there.
+    ///
+    /// Which line is which is worked out by reading both Branches against their
+    /// Branch Point (ADR 0019). No id is stapled to any line, so retyping a line
+    /// identically manufactures no divergence, and where the reading is
+    /// uncertain Kamosu declines to pair and both lines simply stand.
+    ///
+    /// `mine` throughout names the Branch given as `branch_id` — the one the
+    /// caller is standing in. The rows themselves are symmetric: crossing over
+    /// is reading the same rows from the other side, not asking again.
+    pub fn divergence(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        other_branch_id: &str,
+    ) -> Result<Value, OpError> {
+        if branch_id == other_branch_id {
+            return Err(OpError::bad_request(
+                "a Branch does not diverge from itself — name two Branches",
+            ));
+        }
+        self.db().with_conn(|conn| {
+            // `ordered_chain` checks membership of each Branch's Kitchen, so
+            // both halves of this are authorised before anything is read.
+            let chain_mine = ordered_chain(conn, branch_id, person_id)?;
+            let chain_theirs = ordered_chain(conn, other_branch_id, person_id)?;
+
+            let mine = branch_head(conn, branch_id)?;
+            let theirs = branch_head(conn, other_branch_id)?;
+            if mine.lineage_id != theirs.lineage_id {
+                return Err(OpError::bad_request(
+                    "these two Branches are not of the same Lineage — there is \
+                     nothing between them to read",
+                ));
+            }
+
+            let ancestors: HashSet<&str> = chain_mine.iter().map(String::as_str).collect();
+            let branch_point_id = chain_theirs
+                .iter()
+                .rev()
+                .find(|version_id| ancestors.contains(version_id.as_str()))
+                .ok_or_else(|| {
+                    OpError::internal(format!(
+                        "damaged Bundle: {branch_id} and {other_branch_id} share no Version — \
+                         their chains never converge on the same first Version"
+                    ))
+                })?;
+
+            let base = version_content(conn, branch_point_id)?;
+            let content_mine = version_content(conn, &mine.head_version_id)?;
+            let content_theirs = version_content(conn, &theirs.head_version_id)?;
+
+            let rows = |field: &str| -> Vec<Value> {
+                crate::pairing::read(
+                    &crate::pairing::Line::list_from(&base, field),
+                    &crate::pairing::Line::list_from(&content_mine, field),
+                    &crate::pairing::Line::list_from(&content_theirs, field),
+                )
+                .iter()
+                .map(crate::pairing::Row::to_json)
+                .collect()
+            };
+
+            // The marking covers the whole recipe, not only the two lists
+            // (ADR 0019). These are single values: same or not, with nothing to
+            // pair and nothing to get wrong. Tags are deliberately absent —
+            // what one Kitchen means by "quick" is its own business (ADR 0035).
+            let field = |name: &str| {
+                crate::pairing::compare_field(
+                    content_mine.get(name).unwrap_or(&Value::Null),
+                    content_theirs.get(name).unwrap_or(&Value::Null),
+                )
+            };
+
+            Ok(json!({
+                "lineage_id": mine.lineage_id,
+                "branch_point_version_id": branch_point_id,
+                "mine": mine.to_json(conn, &content_mine)?,
+                "theirs": theirs.to_json(conn, &content_theirs)?,
+                "ingredients": rows("ingredients"),
+                "steps": rows("steps"),
+                "fields": {
+                    "title": field("title"),
+                    "yield": field("yield"),
+                    "prep_time_minutes": field("prep_time_minutes"),
+                    "cook_time_minutes": field("cook_time_minutes"),
+                    "source": field("source"),
+                    "note": field("note"),
+                    "main_photo": field("main_photo"),
+                },
+            }))
+        })
+    }
+
     /// Correct a Reading on the Branch's current head Version: Kamosu's
     /// interpretation of one Ingredient Line, addressed by its position in
     /// that line's list. This never mints a Version and appears in no
@@ -3203,6 +3303,81 @@ fn ordered_chain(
     }
 
     Ok(rows.into_iter().map(|(version_id, _)| version_id).collect())
+}
+
+/// One Branch as a Divergence needs it: who holds it and where its head is.
+struct BranchHead {
+    branch_id: String,
+    lineage_id: String,
+    kitchen_id: String,
+    kitchen_name: String,
+    hand_id: String,
+    language: String,
+    head_version_id: String,
+}
+
+impl BranchHead {
+    /// The Branch as one side of the switch: enough to name the Kitchen you are
+    /// standing in, and the Readings for the lines it actually has. A Reading
+    /// never sits inside content (ADR 0021), so it is fetched and laid
+    /// alongside — one slot per Ingredient Line, null wherever none is recorded.
+    fn to_json(&self, conn: &Connection, content: &Value) -> Result<Value, OpError> {
+        let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
+        Ok(json!({
+            "branch_id": self.branch_id,
+            "kitchen_id": self.kitchen_id,
+            "kitchen_name": self.kitchen_name,
+            "hand_id": self.hand_id,
+            "language": self.language,
+            "head_version_id": self.head_version_id,
+            "content": content.clone(),
+            "readings": readings_for_version(conn, &self.head_version_id, line_count)?,
+        }))
+    }
+}
+
+fn branch_head(conn: &Connection, branch_id: &str) -> Result<BranchHead, OpError> {
+    conn.query_row(
+        "SELECT branches.lineage_id, branches.kitchen_id, kitchens.name, \
+                branches.hand_id, branches.language, branches.head_version_id \
+           FROM branches JOIN kitchens ON kitchens.id = branches.kitchen_id \
+          WHERE branches.id = ?1",
+        params![branch_id],
+        |row| {
+            Ok(BranchHead {
+                branch_id: branch_id.to_string(),
+                lineage_id: row.get(0)?,
+                kitchen_id: row.get(1)?,
+                kitchen_name: row.get(2)?,
+                hand_id: row.get(3)?,
+                language: row.get(4)?,
+                head_version_id: row.get(5)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+    .ok_or_else(|| OpError::not_found("no such Branch"))
+}
+
+/// One Version's stored content, as written. A Version is content-addressed and
+/// global, so this needs no Branch: two Branches that reached identical content
+/// hold the very same row.
+fn version_content(conn: &Connection, version_id: &str) -> Result<Value, OpError> {
+    let content: String = conn
+        .query_row(
+            "SELECT content FROM versions WHERE id = ?1",
+            params![version_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?
+        .ok_or_else(|| OpError::not_found("no such Version"))?;
+    serde_json::from_str(&content).map_err(|e| {
+        OpError::internal(format!(
+            "Version {version_id} holds unreadable content: {e}"
+        ))
+    })
 }
 
 /// Record that the cook just did something — starting, resuming or

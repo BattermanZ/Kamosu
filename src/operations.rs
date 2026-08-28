@@ -734,6 +734,20 @@ pub fn branch_point(core: &Core, invocation: &Invocation, input: Value) -> Resul
     core.branch_point(&caller.person_id, branch_a_id, branch_b_id)
 }
 
+pub fn divergence(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "divergence takes { branch_id, other_branch_id }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let other_branch_id = input
+        .get("other_branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.divergence(&caller.person_id, branch_id, other_branch_id)
+}
+
 pub fn advance_attempt(
     core: &Core,
     invocation: &Invocation,

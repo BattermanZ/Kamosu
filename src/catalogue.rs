@@ -750,6 +750,37 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::branch_point,
         },
         Operation {
+            name: "divergence",
+            summary: "Two Branches of one Lineage laid over each other, so a \
+                      screen can show two whole recipes with a switch between \
+                      them rather than a difference (ADR 0014). Every row \
+                      carries both sides' own words; a line only one side has \
+                      is a Ghost. Which line is which is read against the \
+                      Branch Point, never by an id stapled to a line \
+                      (ADR 0019), and an uncertain reading declines to pair \
+                      rather than claiming a connection.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    // Named from where the caller stands, not a/b: `mine`
+                    // throughout the answer is this Branch. The rows are
+                    // symmetric, so crossing to the other recipe is reading
+                    // them from the other side, not asking again.
+                    "branch_id": { "type": "string" },
+                    "other_branch_id": { "type": "string" },
+                },
+                "required": ["branch_id", "other_branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: divergence_schema(),
+            handler: crate::operations::divergence,
+        },
+        Operation {
             name: "set_reading",
             summary: "Correct the Reading on one Ingredient Line of a Recipe's \
                       current state — an amount, a Unit and a target, sent \
@@ -1422,6 +1453,126 @@ fn recipe_content_properties() -> Value {
                 "additionalProperties": false,
             },
         },
+    })
+}
+
+/// One place in two recipes laid over each other. Both sides' own words are
+/// always here — there is no summary of a change anywhere in this schema,
+/// because there is no such object as "the difference" (ADR 0014).
+fn divergence_row_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "kind": { "type": "string" },
+            // same: both sides have it and the words are identical.
+            // changed: both sides have it and the words are not.
+            // only-mine / only-theirs: one side has it — a Ghost, seen from
+            // the other. There is deliberately no confidence value anywhere:
+            // an uncertain reading declines to pair, and shows as two
+            // unjoined rows rather than one row wearing a hedge (ADR 0019).
+            "state": { "enum": ["same", "changed", "only-mine", "only-theirs"] },
+            // Whether this line was already at the Branch Point. It separates
+            // "they took this out" from "they never had it" — the same Ghost,
+            // a different sentence, and only the first can be carried across
+            // as a removal.
+            "from_branch_point": { "type": "boolean" },
+            "mine": divergence_line_schema(),
+            "theirs": divergence_line_schema(),
+        },
+        "required": ["kind", "state", "from_branch_point", "mine", "theirs"],
+        "additionalProperties": false,
+    })
+}
+
+/// One side's line at one row. `index` is where it sits in that side's own list
+/// — how its Reading is found, never how it is matched.
+fn divergence_line_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "kind": { "type": "string" },
+            "text": { "type": "string" },
+            "index": { "type": "integer" },
+        },
+        "required": ["kind", "text", "index"],
+        "additionalProperties": false,
+    })
+}
+
+/// A single value on both sides: same or not, with nothing to pair.
+fn divergence_field_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "same": { "type": "boolean" },
+            "mine": {},
+            "theirs": {},
+        },
+        "required": ["same", "mine", "theirs"],
+        "additionalProperties": false,
+    })
+}
+
+/// One Branch as one side of the switch: the Kitchen you stand in when you are
+/// reading it, its whole current content, and its Readings.
+fn divergence_branch_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "branch_id": { "type": "string" },
+            "kitchen_id": { "type": "string" },
+            "kitchen_name": { "type": "string" },
+            "hand_id": { "type": "string" },
+            "language": { "type": "string" },
+            "head_version_id": { "type": "string" },
+            "content": recipe_content_schema(),
+            "readings": reading_list_schema(),
+        },
+        "required": [
+            "branch_id", "kitchen_id", "kitchen_name", "hand_id", "language",
+            "head_version_id", "content", "readings",
+        ],
+        "additionalProperties": false,
+    })
+}
+
+fn divergence_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "lineage_id": { "type": "string" },
+            "branch_point_version_id": { "type": "string" },
+            "mine": divergence_branch_schema(),
+            "theirs": divergence_branch_schema(),
+            "ingredients": { "type": "array", "items": divergence_row_schema() },
+            "steps": { "type": "array", "items": divergence_row_schema() },
+            // Title, Yield, times, Source, Note and the Main Photo are single
+            // values. Tags are absent on purpose: they are how a Kitchen files,
+            // not what a recipe is, and marking them would put a "take theirs"
+            // offer under a difference between two filing systems (ADR 0035).
+            "fields": {
+                "type": "object",
+                "properties": {
+                    "title": divergence_field_schema(),
+                    "yield": divergence_field_schema(),
+                    "prep_time_minutes": divergence_field_schema(),
+                    "cook_time_minutes": divergence_field_schema(),
+                    "source": divergence_field_schema(),
+                    "note": divergence_field_schema(),
+                    "main_photo": divergence_field_schema(),
+                },
+                "required": [
+                    "title", "yield", "prep_time_minutes", "cook_time_minutes",
+                    "source", "note", "main_photo",
+                ],
+                "additionalProperties": false,
+            },
+        },
+        "required": [
+            "lineage_id", "branch_point_version_id", "mine", "theirs",
+            "ingredients", "steps", "fields",
+        ],
+        "additionalProperties": false,
     })
 }
 

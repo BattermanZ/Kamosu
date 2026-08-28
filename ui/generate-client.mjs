@@ -66,8 +66,16 @@ function typeOf(schema, indent) {
 				return 'number';
 			case 'null':
 				return 'null';
-			case 'array':
-				return `${typeOf(schema.items, indent)}[]`;
+			case 'array': {
+				// A union has to be parenthesised before `[]` binds to it, or an
+				// array of nullable Readings renders as `Reading | null[]` — which
+				// is a union with an array of nulls, and type-checks nothing.
+				const item = typeOf(schema.items, indent);
+				const union =
+					(Array.isArray(schema.items?.type) && schema.items.type.length > 1) ||
+					(Array.isArray(schema.items?.enum) && schema.items.enum.length > 1);
+				return union ? `(${item})[]` : `${item}[]`;
+			}
 			case 'object':
 				return objectType(schema, indent);
 			default:
