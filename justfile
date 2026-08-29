@@ -203,7 +203,7 @@ ui-test:
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
 # the build fails if what is committed has drifted from ui/.
-check: _check-tokens-fresh _check-client-fresh ui-check
+check: _check-tokens-fresh _check-client-fresh ui-format-check ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
@@ -213,6 +213,26 @@ ui-check:
     set -euo pipefail
     just _npm-deps
     cd ui && npm run --silent check
+
+# Prettier over the interface, reporting only — the other half of what
+# `cargo fmt --check` has always done for the Rust side. Layout is not a matter
+# of taste in either language; this makes that true for both. Configured in
+# ui/.prettierrc.yaml, with the generated and tool-owned files excluded in
+# ui/.prettierignore.
+ui-format-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    cd ui && npm run --silent format:check
+
+# Apply what ui-format-check reports. The Rust equivalent is `cargo fmt`, which
+# has no recipe here because nothing but the formatter ever needs to run it —
+# same for this one: reach for it when `just check` says a file has drifted.
+format:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    cd ui && npm run --silent format
 
 # ── The interface ─────────────────────────────────────────────────────────────
 
