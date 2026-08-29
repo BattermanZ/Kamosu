@@ -564,37 +564,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             session_only: false,
             job_lane: JobLane::ByCaller,
             input_schema: save_recipe_version_input_schema(),
-            output_schema: json!({
-                "type": "object",
-                "properties": {
-                    "branch_id": { "type": "string" },
-                    "version_id": { "type": "string" },
-                    "parent_version_id": { "type": ["string", "null"] },
-                    "sequence": { "type": "integer" },
-                    "collapsed": { "type": "boolean" },
-                    "copied": {
-                        "type": "boolean",
-                        "description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
-                    },
-                    "language": {
-                        "type": "string",
-                        "description": "The Language this recipe still carries. A save never changes it.",
-                    },
-                    "language_offer": {
-                        "type": ["string", "null"],
-                        "description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
-                    },
-                    "translates_version_id": {
-                        "type": ["string", "null"],
-                        "description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
-                    },
-                },
-                "required": [
-                    "branch_id", "version_id", "parent_version_id", "sequence", "collapsed",
-                    "copied", "language", "language_offer", "translates_version_id"
-                ],
-                "additionalProperties": false,
-            }),
+            output_schema: saved_version_schema(),
             handler: crate::operations::save_recipe_version,
         },
         Operation {
@@ -997,9 +967,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "finish_attempt",
-            summary: "End an In Progress Attempt. Ending is not what makes \
-                      the cooking real — starting already did — only what \
-                      stops it being In Progress.",
+            summary: "End an In Progress Attempt, taking the judgement that \
+                      lands with it: a rating, a note and Photographs, all \
+                      optional. Ending is not what makes the cooking real — \
+                      starting already did — only what stops it being In \
+                      Progress, so a cook who says nothing still cooked.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1007,7 +979,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "attempt_id": { "type": "string" } },
+                "properties": {
+                    "attempt_id": { "type": "string" },
+                    "note": { "type": ["string", "null"] },
+                    "rating": rating_schema(),
+                    "photographs": {
+                        "type": ["array", "null"],
+                        "items": { "type": "string" },
+                    },
+                },
                 "required": ["attempt_id"],
                 "additionalProperties": false,
             }),
@@ -1016,8 +996,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "edit_attempt",
-            summary: "Change an Attempt's free text or its five-star \
-                      rating, whether it is still In Progress or long \
+            summary: "Change an Attempt's free text, its rating or its \
+                      Photographs, whether it is still In Progress or long \
                       finished — an Attempt is freely editable by its \
                       cook, unlike the recipe it was cooked from.",
             permission: Permission::Person,
@@ -1030,7 +1010,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "properties": {
                     "attempt_id": { "type": "string" },
                     "note": { "type": ["string", "null"] },
-                    "rating": { "type": ["integer", "null"], "minimum": 1, "maximum": 5 },
+                    "rating": rating_schema(),
+                    "photographs": {
+                        "type": ["array", "null"],
+                        "items": { "type": "string" },
+                    },
                 },
                 "required": ["attempt_id"],
                 "additionalProperties": false,
@@ -1062,6 +1046,46 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "additionalProperties": false,
             }),
             handler: crate::operations::delete_attempt,
+        },
+        Operation {
+            name: "promote_attempt_photograph",
+            summary: "Make a picture taken while cooking the recipe's Main \
+                      Photo, or a Step's photo — so the picture you actually \
+                      took becomes the recipe's picture. This is an ordinary \
+                      edit making a Version, with everything that follows \
+                      from it: a rapid re-save folding into the Version \
+                      already being shaped, and a Copy where the Branch \
+                      belongs to another Kitchen. The Attempt keeps the \
+                      picture too; promoting is not moving.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "attempt_id": { "type": "string" },
+                    "photograph_id": {
+                        "type": "string",
+                        "description": "One of this Attempt's own Photographs. Any other Photograph is refused: this is not a second way to set the Main Photo.",
+                    },
+                    "branch_id": {
+                        "type": "string",
+                        "description": "Which Branch of the cooked Lineage to promote into. An Attempt belongs to a Lineage rather than a Branch, so this says where the picture lands.",
+                    },
+                    "step_index": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "The Step whose photo this becomes. Left out or null, the picture becomes the Main Photo.",
+                    },
+                    "change_note": { "type": ["string", "null"] },
+                },
+                "required": ["attempt_id", "photograph_id", "branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: saved_version_schema(),
+            handler: crate::operations::promote_attempt_photograph,
         },
         Operation {
             name: "get_current_attempt",
@@ -1604,12 +1628,94 @@ fn recipe_schema() -> Value {
             // is named by no fingerprint (ADR 0035).
             "tags": { "type": "array", "items": tag_schema() },
             "related_recipes": { "type": "array", "items": related_recipe_schema() },
+            // Beside the Versions, never inside one. `recipe_content_schema`
+            // — what a Version *is*, and the whole of what a fingerprint names
+            // — carries no rating, no note and no Photograph of anybody's
+            // cooking, and `a_version_carries_nothing_of_a_cooking` holds that
+            // line. This is what a Share Link page (#65) must render from: a
+            // share renders a Version, and no path leads from one back to an
+            // Attempt.
+            "cooked": cooking_record_schema(),
         },
         "required": [
             "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
             "origin_address", "head_version_id", "versions", "translation",
-            "tags", "related_recipes"
+            "tags", "related_recipes", "cooked"
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// What saving a Version answers. Shared by `save_recipe_version` and by
+/// `promote_attempt_photograph`, because promoting a picture *is* an ordinary
+/// save (#59) — a caller that can read one answer can read the other, Copy and
+/// collapse included.
+fn saved_version_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "branch_id": { "type": "string" },
+            "version_id": { "type": "string" },
+            "parent_version_id": { "type": ["string", "null"] },
+            "sequence": { "type": "integer" },
+            "collapsed": { "type": "boolean" },
+            "copied": {
+                "type": "boolean",
+                "description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+            },
+            "language": {
+                "type": "string",
+                "description": "The Language this recipe still carries. A save never changes it.",
+            },
+            "language_offer": {
+                "type": ["string", "null"],
+                "description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+            },
+            "translates_version_id": {
+                "type": ["string", "null"],
+                "description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+            },
+        },
+        "required": [
+            "branch_id", "version_id", "parent_version_id", "sequence", "collapsed",
+            "copied", "language", "language_offer", "translates_version_id"
+        ],
+        "additionalProperties": false,
+    })
+}
+
+/// How a recipe has been cooked, as the recipe screen shows it (#59).
+///
+/// There is deliberately **no average, mean or aggregate score in this shape,
+/// and no way to derive one** (ADR 0015). A rating is a word rather than a
+/// number, and what is served is one row per Person — their most recent
+/// verdict, with their name — rather than a distribution. A superseded verdict
+/// never reaches a reader at all, so it cannot permanently drag down a recipe
+/// that has since been fixed.
+fn cooking_record_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            // Every Attempt, unfinished ones included (ADR 0010): a cooking is
+            // real from the moment it starts.
+            "count": { "type": "integer", "minimum": 0 },
+            "last_cooked_at": { "type": ["string", "null"] },
+            "ratings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "person_id": { "type": "string" },
+                        "name": { "type": "string" },
+                        "rating": { "type": "string", "enum": ["again", "tweak", "no"] },
+                        "at": { "type": "string" },
+                    },
+                    "required": ["person_id", "name", "rating", "at"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["count", "last_cooked_at", "ratings"],
         "additionalProperties": false,
     })
 }
@@ -2313,18 +2419,37 @@ fn attempt_schema() -> Value {
             },
             "cooking_yield": attempt_yield_schema(),
             "note": { "type": ["string", "null"] },
-            "rating": { "type": ["integer", "null"], "minimum": 1, "maximum": 5 },
+            "rating": rating_schema(),
             "finished_at": { "type": ["string", "null"] },
             "resumable": { "type": "boolean" },
             "created_at": { "type": "string" },
             "last_action_at": { "type": "string" },
+            // The Photographs taken during this cooking, in the order they
+            // were added. They belong to the Attempt and to no Version, which
+            // is why a Share Link cannot reach them: a share renders a
+            // Version, and nothing leads from a Version back to an Attempt.
+            "photographs": { "type": "array", "items": { "type": "string" } },
         },
         "required": [
             "id", "lineage_id", "person_id", "version_id", "current_step_index",
             "ticked_ingredients", "cooking_yield", "note", "rating", "finished_at",
-            "resumable", "created_at", "last_action_at",
+            "resumable", "created_at", "last_action_at", "photographs",
         ],
         "additionalProperties": false,
+    })
+}
+
+/// What a rating is (#59): the cook's decision about next time, in one of
+/// three words, or absent.
+///
+/// Deliberately not a number. ADR 0015 refuses to average ratings, and a scale
+/// out of five invites a reader to do that arithmetic in their own head even
+/// where Kamosu never does; three words make the refusal self-evident. The
+/// scale was Aurélien's choice, recorded on #59 before this was written.
+fn rating_schema() -> Value {
+    json!({
+        "type": ["string", "null"],
+        "enum": ["again", "tweak", "no", null],
     })
 }
 

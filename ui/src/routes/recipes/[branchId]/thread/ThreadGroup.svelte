@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import { ratingLabel } from '$lib/rating';
 	import ThreadGroup from './ThreadGroup.svelte';
 	import type { ForkGroup, ThreadBranch, ThreadVersion } from './tree';
 	import type { GetThreadOutput } from '$lib/api/catalogue';
@@ -144,7 +145,7 @@
 									class="rounded-sm border border-rule px-1 text-label text-ink-2"
 									onclick={() => onOpenAttempt(attempt)}
 								>
-									🍲{#if attempt.rating}{'★'.repeat(attempt.rating)}{/if}
+									{attempt.rating ? `🍲 ${ratingLabel(attempt.rating)}` : '🍲'}
 								</button>
 							{/each}
 						</div>

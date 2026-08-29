@@ -137,7 +137,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "finish_attempt"
             | "edit_attempt"
             | "delete_attempt"
-            | "get_current_attempt" => ("{}", 401),
+            | "get_current_attempt"
+            | "promote_attempt_photograph" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -263,6 +264,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "edit_attempt"
                 | "delete_attempt"
                 | "get_current_attempt"
+                | "promote_attempt_photograph"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

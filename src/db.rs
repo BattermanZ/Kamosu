@@ -567,6 +567,53 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX merge_suggestions_by_food_b ON merge_suggestions(food_b_id);
         "#,
     },
+    Migration {
+        version: 20,
+        description: "a rating is a verdict, and an Attempt carries Photographs (#59, ADR 0015)",
+        sql: r#"
+        -- A rating is one of three verdicts about next time — again, tweak,
+        -- no — rather than a score out of five (#59). The cooking work that
+        -- shipped first (#57) stored a whole number 1..=5 because a scale had
+        -- to be picked before the question was asked; this is the answer.
+        --
+        -- Three words cannot be averaged, even informally by a reader doing
+        -- the arithmetic in their head, which is what makes ADR 0015's refusal
+        -- to average self-evident on screen instead of a rule people have to
+        -- be told. The public field keeps the name `rating`, because that is
+        -- the word the spec and every screen use for it.
+        ALTER TABLE attempts RENAME COLUMN rating TO rating_out_of_five;
+        ALTER TABLE attempts ADD COLUMN rating TEXT
+            CHECK (rating IS NULL OR rating IN ('again', 'tweak', 'no'));
+
+        -- No instance can have had a five-star rating long: the scale existed
+        -- only between #57 and this ticket. Converting anyway rather than
+        -- dropping the column and declaring the case impossible — a migration
+        -- that silently discards somebody's judgement because it was probably
+        -- not there is exactly the kind of forward-only step there is no
+        -- undoing (ADR 0030). Four and five are enthusiasm, three is the
+        -- honest middle, one and two are not again.
+        UPDATE attempts SET rating = CASE
+            WHEN rating_out_of_five >= 4 THEN 'again'
+            WHEN rating_out_of_five  = 3 THEN 'tweak'
+            WHEN rating_out_of_five <= 2 THEN 'no'
+        END WHERE rating_out_of_five IS NOT NULL;
+
+        ALTER TABLE attempts DROP COLUMN rating_out_of_five;
+
+        -- The Photographs taken during this cooking, as a JSON array of
+        -- Photograph ids, in the order they were added — stored the same way
+        -- the ticked Ingredients are, since both are a short list belonging to
+        -- one Attempt and read back whole.
+        --
+        -- They hang off the Attempt and NOT off any Version, which is the
+        -- whole of why a picture from somebody's kitchen cannot reach a Share
+        -- Link: a share renders a Version, and there is no path from a Version
+        -- to an Attempt. Promoting one to the Main Photo or to a Step's photo
+        -- is the single deliberate way a picture crosses that line, and it is
+        -- an ordinary edit making a Version (#59).
+        ALTER TABLE attempts ADD COLUMN photographs TEXT NOT NULL DEFAULT '[]';
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

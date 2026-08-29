@@ -386,6 +386,16 @@ export type CreateRecipeInput = {
 /** What create_recipe answers. */
 export type CreateRecipeOutput = {
 	branch_id: string;
+	cooked: {
+		count: number;
+		last_cooked_at: string | null;
+		ratings: {
+			at: string;
+			name: string;
+			person_id: string;
+			rating: "again" | "tweak" | "no";
+		}[];
+	};
 	hand_id: string;
 	head_version_id: string;
 	kitchen_id: string;
@@ -531,6 +541,16 @@ export type StartTranslationInput = {
 /** What start_translation answers. */
 export type StartTranslationOutput = {
 	branch_id: string;
+	cooked: {
+		count: number;
+		last_cooked_at: string | null;
+		ratings: {
+			at: string;
+			name: string;
+			person_id: string;
+			rating: "again" | "tweak" | "no";
+		}[];
+	};
 	hand_id: string;
 	head_version_id: string;
 	kitchen_id: string;
@@ -750,6 +770,16 @@ export type GetRecipeInput = {
 /** What get_recipe answers. */
 export type GetRecipeOutput = {
 	branch_id: string;
+	cooked: {
+		count: number;
+		last_cooked_at: string | null;
+		ratings: {
+			at: string;
+			name: string;
+			person_id: string;
+			rating: "again" | "tweak" | "no";
+		}[];
+	};
 	hand_id: string;
 	head_version_id: string;
 	kitchen_id: string;
@@ -837,7 +867,8 @@ export type GetThreadOutput = {
 		lineage_id: string;
 		note: string | null;
 		person_id: string;
-		rating: number | null;
+		photographs: string[];
+		rating: "again" | "tweak" | "no" | null;
 		resumable: boolean;
 		ticked_ingredients: number[];
 		version_id: string;
@@ -1068,7 +1099,8 @@ export type StartAttemptOutput = {
 	lineage_id: string;
 	note: string | null;
 	person_id: string;
-	rating: number | null;
+	photographs: string[];
+	rating: "again" | "tweak" | "no" | null;
 	resumable: boolean;
 	ticked_ingredients: number[];
 	version_id: string;
@@ -1098,15 +1130,19 @@ export type AdvanceAttemptOutput = {
 	lineage_id: string;
 	note: string | null;
 	person_id: string;
-	rating: number | null;
+	photographs: string[];
+	rating: "again" | "tweak" | "no" | null;
 	resumable: boolean;
 	ticked_ingredients: number[];
 	version_id: string;
 };
 
-/** End an In Progress Attempt. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress. */
+/** End an In Progress Attempt, taking the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked. */
 export type FinishAttemptInput = {
 	attempt_id: string;
+	note?: string | null;
+	photographs?: string[] | null;
+	rating?: "again" | "tweak" | "no" | null;
 };
 /** What finish_attempt answers. */
 export type FinishAttemptOutput = {
@@ -1122,17 +1158,19 @@ export type FinishAttemptOutput = {
 	lineage_id: string;
 	note: string | null;
 	person_id: string;
-	rating: number | null;
+	photographs: string[];
+	rating: "again" | "tweak" | "no" | null;
 	resumable: boolean;
 	ticked_ingredients: number[];
 	version_id: string;
 };
 
-/** Change an Attempt's free text or its five-star rating, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
+/** Change an Attempt's free text, its rating or its Photographs, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
 export type EditAttemptInput = {
 	attempt_id: string;
 	note?: string | null;
-	rating?: number | null;
+	photographs?: string[] | null;
+	rating?: "again" | "tweak" | "no" | null;
 };
 /** What edit_attempt answers. */
 export type EditAttemptOutput = {
@@ -1148,7 +1186,8 @@ export type EditAttemptOutput = {
 	lineage_id: string;
 	note: string | null;
 	person_id: string;
-	rating: number | null;
+	photographs: string[];
+	rating: "again" | "tweak" | "no" | null;
 	resumable: boolean;
 	ticked_ingredients: number[];
 	version_id: string;
@@ -1161,6 +1200,27 @@ export type DeleteAttemptInput = {
 /** What delete_attempt answers. */
 export type DeleteAttemptOutput = {
 	deleted: boolean;
+};
+
+/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch belongs to another Kitchen. The Attempt keeps the picture too; promoting is not moving. */
+export type PromoteAttemptPhotographInput = {
+	attempt_id: string;
+	branch_id: string;
+	change_note?: string | null;
+	photograph_id: string;
+	step_index?: number | null;
+};
+/** What promote_attempt_photograph answers. */
+export type PromoteAttemptPhotographOutput = {
+	branch_id: string;
+	collapsed: boolean;
+	copied: boolean;
+	language: string;
+	language_offer: string | null;
+	parent_version_id: string | null;
+	sequence: number;
+	translates_version_id: string | null;
+	version_id: string;
 };
 
 /** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
@@ -1182,7 +1242,8 @@ export type GetCurrentAttemptOutput = {
 		lineage_id: string;
 		note: string | null;
 		person_id: string;
-		rating: number | null;
+		photographs: string[];
+		rating: "again" | "tweak" | "no" | null;
 		resumable: boolean;
 		ticked_ingredients: number[];
 		version_id: string;
@@ -1706,6 +1767,12 @@ export interface Operations {
 	delete_attempt: {
 		input: DeleteAttemptInput;
 		output: DeleteAttemptOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	promote_attempt_photograph: {
+		input: PromoteAttemptPhotographInput;
+		output: PromoteAttemptPhotographOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -3310,6 +3377,59 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"count": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"last_cooked_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"ratings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"at": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									},
+									"rating": {
+										"enum": [
+											"again",
+											"tweak",
+											"no"
+										],
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name",
+									"rating",
+									"at"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"count",
+						"last_cooked_at",
+						"ratings"
+					],
+					"type": "object"
+				},
 				"hand_id": {
 					"type": "string"
 				},
@@ -3691,7 +3811,8 @@ export const CATALOGUE = [
 				"versions",
 				"translation",
 				"tags",
-				"related_recipes"
+				"related_recipes",
+				"cooked"
 			],
 			"type": "object"
 		}
@@ -4075,6 +4196,59 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"count": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"last_cooked_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"ratings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"at": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									},
+									"rating": {
+										"enum": [
+											"again",
+											"tweak",
+											"no"
+										],
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name",
+									"rating",
+									"at"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"count",
+						"last_cooked_at",
+						"ratings"
+					],
+					"type": "object"
+				},
 				"hand_id": {
 					"type": "string"
 				},
@@ -4456,7 +4630,8 @@ export const CATALOGUE = [
 				"versions",
 				"translation",
 				"tags",
-				"related_recipes"
+				"related_recipes",
+				"cooked"
 			],
 			"type": "object"
 		}
@@ -5155,6 +5330,59 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"count": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"last_cooked_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"ratings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"at": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									},
+									"rating": {
+										"enum": [
+											"again",
+											"tweak",
+											"no"
+										],
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name",
+									"rating",
+									"at"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"count",
+						"last_cooked_at",
+						"ratings"
+					],
+					"type": "object"
+				},
 				"hand_id": {
 					"type": "string"
 				},
@@ -5536,7 +5764,8 @@ export const CATALOGUE = [
 				"versions",
 				"translation",
 				"tags",
-				"related_recipes"
+				"related_recipes",
+				"cooked"
 			],
 			"type": "object"
 		}
@@ -5615,11 +5844,21 @@ export const CATALOGUE = [
 							"person_id": {
 								"type": "string"
 							},
+							"photographs": {
+								"items": {
+									"type": "string"
+								},
+								"type": "array"
+							},
 							"rating": {
-								"maximum": 5,
-								"minimum": 1,
+								"enum": [
+									"again",
+									"tweak",
+									"no",
+									null
+								],
 								"type": [
-									"integer",
+									"string",
 									"null"
 								]
 							},
@@ -5650,7 +5889,8 @@ export const CATALOGUE = [
 							"finished_at",
 							"resumable",
 							"created_at",
-							"last_action_at"
+							"last_action_at",
+							"photographs"
 						],
 						"type": "object"
 					},
@@ -6728,11 +6968,21 @@ export const CATALOGUE = [
 				"person_id": {
 					"type": "string"
 				},
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
 				"rating": {
-					"maximum": 5,
-					"minimum": 1,
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
 					"type": [
-						"integer",
+						"string",
 						"null"
 					]
 				},
@@ -6763,7 +7013,8 @@ export const CATALOGUE = [
 				"finished_at",
 				"resumable",
 				"created_at",
-				"last_action_at"
+				"last_action_at",
+				"photographs"
 			],
 			"type": "object"
 		}
@@ -6868,11 +7119,21 @@ export const CATALOGUE = [
 				"person_id": {
 					"type": "string"
 				},
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
 				"rating": {
-					"maximum": 5,
-					"minimum": 1,
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
 					"type": [
-						"integer",
+						"string",
 						"null"
 					]
 				},
@@ -6903,14 +7164,15 @@ export const CATALOGUE = [
 				"finished_at",
 				"resumable",
 				"created_at",
-				"last_action_at"
+				"last_action_at",
+				"photographs"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "finish_attempt",
-		"summary": "End an In Progress Attempt. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress.",
+		"summary": "End an In Progress Attempt, taking the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6918,6 +7180,33 @@ export const CATALOGUE = [
 			"properties": {
 				"attempt_id": {
 					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				},
+				"rating": {
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
+					"type": [
+						"string",
+						"null"
+					]
 				}
 			},
 			"required": [
@@ -6978,11 +7267,21 @@ export const CATALOGUE = [
 				"person_id": {
 					"type": "string"
 				},
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
 				"rating": {
-					"maximum": 5,
-					"minimum": 1,
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
 					"type": [
-						"integer",
+						"string",
 						"null"
 					]
 				},
@@ -7013,14 +7312,15 @@ export const CATALOGUE = [
 				"finished_at",
 				"resumable",
 				"created_at",
-				"last_action_at"
+				"last_action_at",
+				"photographs"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "edit_attempt",
-		"summary": "Change an Attempt's free text or its five-star rating, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from.",
+		"summary": "Change an Attempt's free text, its rating or its Photographs, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7035,11 +7335,24 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
-				"rating": {
-					"maximum": 5,
-					"minimum": 1,
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
 					"type": [
-						"integer",
+						"array",
+						"null"
+					]
+				},
+				"rating": {
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
+					"type": [
+						"string",
 						"null"
 					]
 				}
@@ -7102,11 +7415,21 @@ export const CATALOGUE = [
 				"person_id": {
 					"type": "string"
 				},
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
 				"rating": {
-					"maximum": 5,
-					"minimum": 1,
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
 					"type": [
-						"integer",
+						"string",
 						"null"
 					]
 				},
@@ -7137,7 +7460,8 @@ export const CATALOGUE = [
 				"finished_at",
 				"resumable",
 				"created_at",
-				"last_action_at"
+				"last_action_at",
+				"photographs"
 			],
 			"type": "object"
 		}
@@ -7168,6 +7492,105 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"deleted"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "promote_attempt_photograph",
+		"summary": "Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch belongs to another Kitchen. The Attempt keeps the picture too; promoting is not moving.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"type": "string"
+				},
+				"branch_id": {
+					"description": "Which Branch of the cooked Lineage to promote into. An Attempt belongs to a Lineage rather than a Branch, so this says where the picture lands.",
+					"type": "string"
+				},
+				"change_note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"photograph_id": {
+					"description": "One of this Attempt's own Photographs. Any other Photograph is refused: this is not a second way to set the Main Photo.",
+					"type": "string"
+				},
+				"step_index": {
+					"description": "The Step whose photo this becomes. Left out or null, the picture becomes the Main Photo.",
+					"minimum": 0,
+					"type": [
+						"integer",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"attempt_id",
+				"photograph_id",
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"collapsed": {
+					"type": "boolean"
+				},
+				"copied": {
+					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+					"type": "boolean"
+				},
+				"language": {
+					"description": "The Language this recipe still carries. A save never changes it.",
+					"type": "string"
+				},
+				"language_offer": {
+					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"parent_version_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				},
+				"translates_version_id": {
+					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id",
+				"parent_version_id",
+				"sequence",
+				"collapsed",
+				"copied",
+				"language",
+				"language_offer",
+				"translates_version_id"
 			],
 			"type": "object"
 		}
@@ -7245,11 +7668,21 @@ export const CATALOGUE = [
 						"person_id": {
 							"type": "string"
 						},
+						"photographs": {
+							"items": {
+								"type": "string"
+							},
+							"type": "array"
+						},
 						"rating": {
-							"maximum": 5,
-							"minimum": 1,
+							"enum": [
+								"again",
+								"tweak",
+								"no",
+								null
+							],
 							"type": [
-								"integer",
+								"string",
 								"null"
 							]
 						},
@@ -7280,7 +7713,8 @@ export const CATALOGUE = [
 						"finished_at",
 						"resumable",
 						"created_at",
-						"last_action_at"
+						"last_action_at",
+						"photographs"
 					],
 					"type": [
 						"object",
@@ -8399,6 +8833,7 @@ export const METHOD_NAMES = {
 	finish_attempt: 'finishAttempt',
 	edit_attempt: 'editAttempt',
 	delete_attempt: 'deleteAttempt',
+	promote_attempt_photograph: 'promoteAttemptPhotograph',
 	get_current_attempt: 'getCurrentAttempt',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
@@ -8504,12 +8939,14 @@ export interface KamosuClient {
 	startAttempt(input: StartAttemptInput): Promise<Answer<'start_attempt'>>;
 	/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
 	advanceAttempt(input: AdvanceAttemptInput): Promise<Answer<'advance_attempt'>>;
-	/** End an In Progress Attempt. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress. */
+	/** End an In Progress Attempt, taking the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked. */
 	finishAttempt(input: FinishAttemptInput): Promise<Answer<'finish_attempt'>>;
-	/** Change an Attempt's free text or its five-star rating, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
+	/** Change an Attempt's free text, its rating or its Photographs, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
 	editAttempt(input: EditAttemptInput): Promise<Answer<'edit_attempt'>>;
 	/** Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
 	deleteAttempt(input: DeleteAttemptInput): Promise<Answer<'delete_attempt'>>;
+	/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch belongs to another Kitchen. The Attempt keeps the picture too; promoting is not moving. */
+	promoteAttemptPhotograph(input: PromoteAttemptPhotographInput): Promise<Answer<'promote_attempt_photograph'>>;
 	/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;
 	/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */

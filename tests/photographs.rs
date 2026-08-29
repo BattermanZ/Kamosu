@@ -636,3 +636,107 @@ async fn an_ordinary_person_may_not_ask_for_the_sweep() {
     assert_eq!(status, 401, "{refused}");
     assert_eq!(refused["error"]["kind"], json!("unauthorized"));
 }
+
+/// A picture taken while cooking belongs to the Attempt and to no Version
+/// (#59), so the sweep — which works out what is referenced by reading the
+/// Versions — would take it a week later unless it also reads the Attempts.
+///
+/// This is the failure the sweep's whole design exists to prevent, wearing new
+/// clothes: a picture still on somebody's screen, deleted because no recipe
+/// happened to name it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_sweep_never_takes_a_photograph_an_attempt_still_holds() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+
+    let (_, kitchen) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        r#"{"name":"Aurélien's Kitchen"}"#,
+    );
+    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Katsu Curry",
+            "steps": [{ "kind": "step", "text": "Frire." }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // A picture that no recipe will ever name: it is only ever the cook's.
+    let picture = make_jpeg(31, 23);
+    let (_, uploaded) = app.post_bytes("/api/photographs", Some(&key), "image/jpeg", &picture);
+    let photo_id = uploaded["result"]["photograph_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "photographs": [photo_id] }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    let (_, sweep) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(
+        sweep["result"]["referenced"],
+        json!(1),
+        "an Attempt's own Photograph is referenced: {sweep}"
+    );
+    assert_eq!(sweep["result"]["newly_unreferenced"], json!(0));
+
+    // A week of sweeps changes nothing, because no mark was ever made — and
+    // backdating one cannot age a mark that does not exist.
+    backdate_unreferenced_if_marked(&app, &photo_id);
+    let (_, later) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(later["result"]["swept"], json!(0), "{later}");
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{photo_id}"), Some(&key));
+    assert_eq!(status, 200, "the cook's own picture must survive the sweep");
+
+    // Deleting the cooking record is what releases it: the Attempt was the
+    // only thing pointing at the picture, so now the ordinary grace begins.
+    let (status, deleted) = app.post_op(
+        "delete_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    let (_, released) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(
+        released["result"]["newly_unreferenced"],
+        json!(1),
+        "with the Attempt gone nothing points at the picture: {released}"
+    );
+    backdate_unreferenced(&app, &photo_id, 8);
+    let (_, swept) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(swept["result"]["swept"], json!(1), "{swept}");
+}
+
+/// `backdate_unreferenced`, but tolerant of a Photograph that carries no mark
+/// at all — which is the state this test is asserting.
+fn backdate_unreferenced_if_marked(app: &support::TestApp, hash: &str) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE photographs
+                 SET unreferenced_since = strftime('%Y-%m-%dT%H:%M:%fZ','now','-8 days')
+                 WHERE hash = ?1 AND unreferenced_since IS NOT NULL",
+                rusqlite::params![hash],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("backdate any mark");
+}

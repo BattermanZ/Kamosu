@@ -4606,19 +4606,24 @@ async fn finishing_ends_in_progress_and_a_finished_attempt_still_counts_and_may_
     let (status, edited) = app.post_op(
         "edit_attempt",
         Some(&key),
-        &json!({ "attempt_id": attempt_id, "note": "Un peu trop cuit", "rating": 4 }).to_string(),
+        &json!({ "attempt_id": attempt_id, "note": "Un peu trop cuit", "rating": "tweak" })
+            .to_string(),
     );
     assert_eq!(status, 200, "{edited}");
     assert_eq!(edited["result"]["note"], json!("Un peu trop cuit"));
-    assert_eq!(edited["result"]["rating"], json!(4));
+    assert_eq!(edited["result"]["rating"], json!("tweak"));
 
-    // A rating outside 1..=5 is refused.
-    let (status, bad_rating) = app.post_op(
-        "edit_attempt",
-        Some(&key),
-        &json!({ "attempt_id": attempt_id, "rating": 6 }).to_string(),
-    );
-    assert_eq!(status, 400, "{bad_rating}");
+    // A rating is one of three words and nothing else (#59). The five-star
+    // scale this shipped with before Aurélien chose is refused outright
+    // rather than quietly coerced.
+    for refused_rating in [json!(4), json!("delicious"), json!(true)] {
+        let (status, bad_rating) = app.post_op(
+            "edit_attempt",
+            Some(&key),
+            &json!({ "attempt_id": attempt_id, "rating": refused_rating }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused_rating} was accepted: {bad_rating}");
+    }
 
     // Still on the books, still findable directly — an Attempt is never
     // deleted merely by finishing.
@@ -4635,6 +4640,473 @@ async fn finishing_ends_in_progress_and_a_finished_attempt_still_counts_and_may_
         })
         .unwrap();
     assert_eq!(exists, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Finishing a cook (#59, ADR 0015): the judgement that lands at the end, and
+// the refusal to average it.
+// ---------------------------------------------------------------------------
+
+/// A real, freshly encoded picture, so the fixture cannot be wrong the way a
+/// hand-typed byte literal could.
+fn a_picture(seed: u8) -> String {
+    use base64::Engine;
+    let image = image::RgbImage::from_fn(24, 18, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, seed])
+    });
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Jpeg,
+        )
+        .expect("encodes");
+    base64::engine::general_purpose::STANDARD.encode(&bytes)
+}
+
+/// Upload a picture and answer its Photograph id.
+fn upload_a_picture(app: &support::TestApp, key: &str, seed: u8) -> String {
+    let (status, uploaded) = app.post_op(
+        "upload_photograph",
+        Some(key),
+        &json!({ "data": a_picture(seed) }).to_string(),
+    );
+    assert_eq!(status, 200, "{uploaded}");
+    uploaded["result"]["photograph_id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Push when a cooking *happened* into the past. Two cookings seconds apart
+/// can share a millisecond-precision timestamp, so a test about which of them
+/// is newer has to space them itself rather than hope.
+fn backdate_attempt_created(app: &support::TestApp, attempt_id: &str, days_ago: i64) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE attempts SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now', ?2) \
+                 WHERE id = ?1",
+                rusqlite::params![attempt_id, format!("-{days_ago} days")],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("backdate when the cooking happened");
+}
+
+/// When one Attempt says it happened, read straight from the store — so a test
+/// can assert a date rather than merely that some string arrived.
+fn attempt_created_at(app: &support::TestApp, attempt_id: &str) -> Value {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let at: String = conn
+                .query_row(
+                    "SELECT created_at FROM attempts WHERE id = ?1",
+                    rusqlite::params![attempt_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(json!(at))
+        })
+        .expect("read when the cooking happened")
+}
+
+/// Cook a recipe start to finish, answering the Attempt's id.
+fn cook_it(app: &support::TestApp, key: &str, branch_id: &str, finish: Value) -> String {
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let mut body = json!({ "attempt_id": attempt_id });
+    for (field, value) in finish.as_object().expect("an object of fields") {
+        body[field] = value.clone();
+    }
+    let (status, finished) = app.post_op("finish_attempt", Some(key), &body.to_string());
+    assert_eq!(status, 200, "{finished}");
+    attempt_id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn finishing_a_cook_takes_a_rating_a_note_and_photographs_and_every_one_is_optional() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+
+    // Saying nothing is finishing. A cook who puts the plate down and walks
+    // away still cooked (ADR 0010) — nothing here may become a form to fill.
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let silent_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, silent) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": silent_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{silent}");
+    assert!(silent["result"]["finished_at"].is_string());
+    assert_eq!(silent["result"]["rating"], json!(null));
+    assert_eq!(silent["result"]["note"], json!(null));
+    assert_eq!(silent["result"]["photographs"], json!([]));
+
+    // And all three at once, in the one call that ends the cooking.
+    let first = upload_a_picture(&app, &key, 10);
+    let second = upload_a_picture(&app, &key, 200);
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "rating": "again",
+            "note": "Moins de sucre la prochaine fois",
+            "photographs": [first, second],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+    assert_eq!(finished["result"]["rating"], json!("again"));
+    assert_eq!(
+        finished["result"]["note"],
+        json!("Moins de sucre la prochaine fois")
+    );
+    assert_eq!(finished["result"]["photographs"], json!([first, second]));
+
+    // A picture this instance does not hold is refused rather than stored as
+    // a name pointing at nothing.
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let third_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, refused) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": third_id, "photographs": ["not-a-photograph"] }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_photograph_can_be_promoted_to_the_main_photo_or_to_a_step() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let plated = upload_a_picture(&app, &key, 40);
+    let frying = upload_a_picture(&app, &key, 90);
+
+    let attempt_id = cook_it(
+        &app,
+        &key,
+        &branch_id,
+        json!({ "photographs": [plated, frying] }),
+    );
+
+    // Out of the collapse window first. Promoting is an ordinary save, so
+    // inside the window it would collapse into the Version being shaped — and
+    // this test is about promotion, not about collapse.
+    backdate_branch_head(&app, &branch_id);
+
+    // The Main Photo. An ordinary edit making a Version — so it answers what
+    // an ordinary save answers, and the fingerprint moved.
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let head_before = before["result"]["head_version_id"].as_str().unwrap();
+    let (status, promoted) = app.post_op(
+        "promote_attempt_photograph",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "photograph_id": plated,
+            "branch_id": branch_id,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(promoted["result"]["copied"], json!(false));
+    assert_ne!(
+        promoted["result"]["version_id"].as_str().unwrap(),
+        head_before,
+        "promoting a picture is an edit, so it names a new Version"
+    );
+
+    // A Step's photo, on the same Attempt's other picture.
+    let (status, stepped) = app.post_op(
+        "promote_attempt_photograph",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "photograph_id": frying,
+            "branch_id": branch_id,
+            "step_index": 1,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{stepped}");
+
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let content = &after["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["content"];
+    assert_eq!(content["main_photo"], json!(plated));
+    assert_eq!(content["steps"][1]["photo"], json!(frying));
+    assert_eq!(
+        content["steps"][0]["photo"],
+        json!(null),
+        "promoting onto one Step leaves the others alone"
+    );
+
+    // Promoting is not moving: the cooking record keeps its pictures.
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt = thread["result"]["attempts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["id"] == json!(attempt_id))
+        .expect("the Attempt is still on the Thread");
+    assert_eq!(attempt["photographs"], json!([plated, frying]));
+
+    // A Photograph this Attempt does not hold is refused — promotion is not a
+    // second, quieter way to set the Main Photo.
+    let stranger = upload_a_picture(&app, &key, 250);
+    let (status, refused) = app.post_op(
+        "promote_attempt_photograph",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "photograph_id": stranger,
+            "branch_id": branch_id,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_shows_cook_count_last_cooked_and_each_persons_most_recent_rating_by_name() {
+    let app = support::spawn_app();
+    let (aurelien, aurelien_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&aurelien_key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Katsu Curry",
+            "steps": [{ "kind": "step", "text": "Frire." }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (_marie, marie_key, _marie_kitchen) = person_with_kitchen(&app, "Marie");
+    let invite = app
+        .core
+        .invite_to_kitchen(&aurelien, &kitchen_id)
+        .unwrap()
+        .1;
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&marie_key),
+        &json!({ "secret": invite }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+
+    // A poor old verdict from Aurélien...
+    let poor = cook_it(&app, &aurelien_key, &branch_id, json!({ "rating": "no" }));
+    // ...then a good new one from the same Person. Only the new one shows:
+    // a superseded verdict must not drag a fixed recipe down for ever.
+    let good = cook_it(
+        &app,
+        &aurelien_key,
+        &branch_id,
+        json!({ "rating": "again" }),
+    );
+    // Marie's own, and one cooking she said nothing about at all.
+    cook_it(&app, &marie_key, &branch_id, json!({ "rating": "tweak" }));
+    let newest = cook_it(&app, &marie_key, &branch_id, json!({}));
+
+    // Two cookings seconds apart can share a millisecond-precision timestamp,
+    // so the two of Aurélien's are pushed apart deliberately: this test is
+    // about which verdict wins, and a tie would make it decide nothing.
+    backdate_attempt_created(&app, &poor, 3);
+    backdate_attempt_created(&app, &good, 2);
+
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(&aurelien_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let cooked = &read["result"]["cooked"];
+
+    assert_eq!(cooked["count"], json!(4), "every cooking counts");
+    // The newest cooking's own timestamp, not merely "some string": MIN in
+    // place of MAX must fail this.
+    assert_eq!(
+        cooked["last_cooked_at"],
+        attempt_created_at(&app, &newest),
+        "last-cooked is the newest cooking's date: {cooked}"
+    );
+
+    let ratings = cooked["ratings"].as_array().unwrap();
+    assert_eq!(
+        ratings.len(),
+        2,
+        "one row per Person, never one per cooking: {cooked}"
+    );
+    let of = |name: &str| {
+        ratings
+            .iter()
+            .find(|r| r["name"] == json!(name))
+            .unwrap_or_else(|| panic!("{name} is missing from {cooked}"))
+            .clone()
+    };
+    assert_eq!(
+        of("Aurélien")["rating"],
+        json!("again"),
+        "the newest verdict wins outright — the older one reaches nobody"
+    );
+    assert_eq!(
+        of("Marie")["rating"],
+        json!("tweak"),
+        "an unrated later cooking is silence, not a retraction"
+    );
+
+    // ADR 0015's refusal, checked as a shape rather than trusted as a rule.
+    //
+    // First the exact one: the cooking record has these three keys and no
+    // others, so an `overall`, a `mean` or a `stars` cannot be slipped in
+    // beside them without failing here. The recursive sweep below is a
+    // second, looser net over the rest of the answer — a heuristic on names,
+    // not a proof, which is why the exact assertion comes first.
+    let mut keys: Vec<&String> = cooked.as_object().unwrap().keys().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec!["count", "last_cooked_at", "ratings"],
+        "the cooking record grew a field: {cooked}"
+    );
+
+    fn no_aggregate_anywhere(value: &Value, path: &str) {
+        match value {
+            Value::Object(fields) => {
+                for (key, child) in fields {
+                    let lowered = key.to_lowercase();
+                    for forbidden in ["average", "mean", "score", "stars", "total_rating"] {
+                        assert!(
+                            !lowered.contains(forbidden),
+                            "{path}.{key} looks like an aggregate rating"
+                        );
+                    }
+                    no_aggregate_anywhere(child, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    no_aggregate_anywhere(child, &format!("{path}[{index}]"));
+                }
+            }
+            Value::Number(_) => assert!(
+                !path.ends_with("rating"),
+                "{path} is a number: a rating must stay a word, or somebody will average it"
+            ),
+            _ => {}
+        }
+    }
+    no_aggregate_anywhere(&read["result"], "recipe");
+
+    // Marie sees the same record — this is what the recipe is, not a private
+    // view of it.
+    let (_, hers) = app.post_op(
+        "get_recipe",
+        Some(&marie_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(hers["result"]["cooked"]["count"], json!(4));
+    assert_eq!(hers["result"]["cooked"]["ratings"], cooked["ratings"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_attempts_note_rating_and_photographs_are_no_part_of_any_version() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let picture = upload_a_picture(&app, &key, 77);
+    cook_it(
+        &app,
+        &key,
+        &branch_id,
+        json!({
+            "rating": "no",
+            "note": "Marie a détesté. Ne pas refaire tel quel.",
+            "photographs": [picture],
+        }),
+    );
+
+    // A Share Link renders a Version (ADR 0013/0026), so this is the property
+    // that keeps a private cooking note off a page a stranger can open: there
+    // is no path from a Version to an Attempt. #65 builds the page itself and
+    // inherits this guarantee rather than re-deciding it.
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    for version in read["result"]["versions"].as_array().unwrap() {
+        let content = version["content"].to_string();
+        assert!(
+            !content.contains("Marie a détesté"),
+            "an Attempt's note reached a Version: {content}"
+        );
+        assert!(
+            !content.contains(&picture),
+            "an Attempt's Photograph reached a Version: {content}"
+        );
+        assert!(
+            version["content"].get("rating").is_none(),
+            "a Version has no rating of its own"
+        );
+    }
+
+    // The same, at the row store: the fingerprint names recipe state alone,
+    // so no Version anywhere in the database carries any of it.
+    let leaked: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM versions WHERE content LIKE '%Marie a détesté%' \
+                 OR content LIKE '%' || ?1 || '%'",
+                rusqlite::params![picture],
+                |r| r.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(leaked, 0, "an Attempt's judgement is in no Version at all");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -7929,4 +8401,190 @@ async fn saying_what_language_a_recipe_is_in_does_not_make_its_translations_stal
     let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edit.to_string());
     assert_eq!(status, 200, "{saved}");
     assert_eq!(behind(&french), json!(1));
+}
+
+/// The bug the live pass caught: scoping the cooking record by *which Versions
+/// a Branch carries right now* loses cookings the moment somebody edits the
+/// recipe, because a collapsing save repoints `branch_versions` at a fresh
+/// Version and the Attempt is still pinned to the one it replaced.
+///
+/// A recipe that forgets it was cooked because its picture changed is exactly
+/// the systematic wrongness ADR 0010 refuses, so the boundary is the household
+/// — everyone sharing a Kitchen that holds this recipe — and membership does
+/// not move when a Version does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_collapsing_edit_never_makes_a_recipe_forget_it_was_cooked() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+
+    cook_it(&app, &key, &branch_id, json!({ "rating": "again" }));
+    cook_it(&app, &key, &branch_id, json!({}));
+
+    let cooked_before = {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        read["result"]["cooked"].clone()
+    };
+    assert_eq!(cooked_before["count"], json!(2));
+
+    // An ordinary edit, inside the collapse window, so it folds into the very
+    // Version both cookings are pinned to.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Katsu Curry",
+            "ingredients": [{ "kind": "ingredient", "text": "2 escalopes de poulet" }],
+            "steps": [{ "kind": "step", "text": "Paner les escalopes" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(
+        saved["result"]["collapsed"],
+        json!(true),
+        "this test needs the collapse it is about: {saved}"
+    );
+
+    // The state this test exists for, asserted rather than assumed: the
+    // Version both cookings are pinned to is no longer carried by the Branch
+    // at all. Any implementation that reaches Attempts through
+    // `branch_versions` now finds none — which is precisely the failure.
+    let orphaned: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM attempts \
+                  WHERE attempts.lineage_id = (SELECT lineage_id FROM branches WHERE id = ?1) \
+                    AND attempts.version_id NOT IN \
+                        (SELECT version_id FROM branch_versions WHERE branch_id = ?1)",
+                rusqlite::params![branch_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(
+        orphaned, 2,
+        "the collapse must have orphaned both cookings, or this test proves nothing"
+    );
+
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        after["result"]["cooked"], cooked_before,
+        "editing a recipe must not change how many times it has been cooked"
+    );
+}
+
+/// The Share Link guarantee, held at the Catalogue rather than at a page that
+/// does not exist yet (#65 builds it).
+///
+/// A share renders a **Version** (ADR 0013, ADR 0026). So the property that
+/// keeps a private cooking note off a page a stranger can open is that what a
+/// Version *is* — `recipe_content_schema`, the whole of what a fingerprint
+/// names — carries no rating, no note of anybody's cooking and no Attempt
+/// Photograph, and that no path leads from a Version back to an Attempt.
+///
+/// Asserting it here means #65 inherits the guarantee instead of re-deciding
+/// it, and a future field added to a Version that would carry cooking data
+/// fails this test rather than a review.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_version_carries_nothing_of_a_cooking() {
+    let catalogue = kamosu::catalogue::declarations();
+    let recipe = catalogue
+        .as_array()
+        .expect("the Catalogue is a list of declarations")
+        .iter()
+        .find(|op| op["name"] == json!("get_recipe"))
+        .expect("get_recipe is declared");
+
+    let version_content = &recipe["output_schema"]["properties"]["versions"]["items"]["properties"]
+        ["content"]["properties"];
+    let fields: Vec<&String> = version_content.as_object().unwrap().keys().collect();
+    for forbidden in ["rating", "cooked", "attempt", "attempts", "photographs"] {
+        assert!(
+            !fields.iter().any(|field| field.as_str() == forbidden),
+            "a Version declares '{forbidden}': a share would carry a private cooking. \
+             Fields: {fields:?}"
+        );
+    }
+
+    // And the cooking record sits beside the Versions rather than inside one,
+    // which is what makes the sentence above true by construction.
+    assert!(
+        recipe["output_schema"]["properties"]["cooked"].is_object(),
+        "the cooking record belongs to the recipe read, not to a Version"
+    );
+}
+
+/// Promoting is an ordinary save, so it inherits the collapse window — and a
+/// save that names nothing writes a Version's name away. Promoting a picture
+/// into a Version somebody had named must not quietly un-name it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn promoting_a_picture_keeps_the_version_its_name() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+
+    let (_, named) = app.post_op(
+        "rename_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "sequence": 1, "name": "Sunday version" }).to_string(),
+    );
+    assert_eq!(named["result"]["name"], json!("Sunday version"));
+
+    let picture = upload_a_picture(&app, &key, 123);
+    let attempt_id = cook_it(&app, &key, &branch_id, json!({ "photographs": [picture] }));
+
+    let (status, promoted) = app.post_op(
+        "promote_attempt_photograph",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "photograph_id": picture,
+            "branch_id": branch_id,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(
+        promoted["result"]["collapsed"],
+        json!(true),
+        "this test is about what a collapse does: {promoted}"
+    );
+    assert_eq!(
+        promoted["result"]["copied"],
+        json!(false),
+        "promoting inside your own Kitchen is an edit, never a Copy"
+    );
+    assert_eq!(
+        promoted["result"]["branch_id"],
+        json!(branch_id),
+        "an edit stays on the Branch it was asked for"
+    );
+
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let head = read["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        head["name"],
+        json!("Sunday version"),
+        "promoting a picture must not take a Version's name away"
+    );
+    assert_eq!(head["content"]["main_photo"], json!(picture));
 }

@@ -884,20 +884,75 @@ pub fn finish_attempt(
     let attempt_id = input
         .get("attempt_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("finish_attempt takes { attempt_id }"))?;
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "finish_attempt takes { attempt_id, note?, rating?, photographs? }",
+            )
+        })?;
     let caller = caller_of(invocation)?;
-    core.finish_attempt(&caller.person_id, attempt_id)
+    core.finish_attempt(
+        &caller.person_id,
+        attempt_id,
+        input.get("note"),
+        input.get("rating"),
+        input.get("photographs"),
+    )
 }
 
 pub fn edit_attempt(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let attempt_id = input
         .get("attempt_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("edit_attempt takes { attempt_id, note?, rating? }"))?;
+        .ok_or_else(|| {
+            OpError::bad_request("edit_attempt takes { attempt_id, note?, rating?, photographs? }")
+        })?;
     let note = input.get("note");
     let rating = input.get("rating");
+    let photographs = input.get("photographs");
     let caller = caller_of(invocation)?;
-    core.edit_attempt(&caller.person_id, attempt_id, note, rating)
+    core.edit_attempt(&caller.person_id, attempt_id, note, rating, photographs)
+}
+
+/// Make a picture taken while cooking the recipe's Main Photo or a Step's
+/// photo (#59) — an ordinary edit making a Version, never a special move.
+pub fn promote_attempt_photograph(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "promote_attempt_photograph takes { attempt_id, photograph_id, \
+                 branch_id, step_index?, change_note? }";
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let photograph_id = input
+        .get("photograph_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let step_index = match input.get("step_index") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(
+            value
+                .as_i64()
+                .filter(|index| *index >= 0)
+                .ok_or_else(|| OpError::bad_request("step_index must be zero or more"))?,
+        ),
+    };
+    let change_note = input.get("change_note").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.promote_attempt_photograph(
+        caller,
+        attempt_id,
+        photograph_id,
+        branch_id,
+        step_index,
+        change_note,
+    )
 }
 
 pub fn delete_attempt(

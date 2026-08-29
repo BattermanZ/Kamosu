@@ -102,7 +102,8 @@ describe('the recipes screen', () => {
 				versions: [],
 				translation: null,
 				tags: [],
-				related_recipes: []
+				related_recipes: [],
+				cooked: { count: 0, last_cooked_at: null, ratings: [] }
 			}
 		});
 

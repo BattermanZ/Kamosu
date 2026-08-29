@@ -66,11 +66,12 @@ describe('the Thread screen', () => {
 						ticked_ingredients: [],
 						cooking_yield: null,
 						note: 'Stayed crisp all the way through dinner.',
-						rating: 5,
+						rating: 'again' as const,
 						finished_at: '2026-03-21T00:00:00Z',
 						resumable: false,
 						created_at: '2026-03-21T00:00:00Z',
-						last_action_at: '2026-03-21T00:00:00Z'
+						last_action_at: '2026-03-21T00:00:00Z',
+						photographs: []
 					}
 				]
 			}
@@ -79,7 +80,8 @@ describe('the Thread screen', () => {
 		expect(await screen.findByText('Imported from mykoreankitchen.com')).toBeInTheDocument();
 		expect(screen.getByText('Saved with nothing written down.')).toBeInTheDocument();
 		expect(screen.getByText(/Hotter second fry/)).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: /🍲★★★★★/ })).toBeInTheDocument();
+		// A rating is the cook's verdict about next time, not a score (#59).
+		expect(screen.getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).toContain('get_thread');
 	});
 
@@ -381,7 +383,8 @@ describe('the Thread screen', () => {
 					}
 				],
 				tags: [],
-				related_recipes: []
+				related_recipes: [],
+				cooked: { count: 0, last_cooked_at: null, ratings: [] }
 			},
 			start_attempt: {
 				id: 'at_2',
@@ -396,7 +399,8 @@ describe('the Thread screen', () => {
 				finished_at: null,
 				resumable: true,
 				created_at: '2026-08-28T00:00:00Z',
-				last_action_at: '2026-08-28T00:00:00Z'
+				last_action_at: '2026-08-28T00:00:00Z',
+				photographs: []
 			}
 		});
 

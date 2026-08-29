@@ -12,6 +12,7 @@
 	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
+	import { ratingLabel } from '$lib/rating';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import ThreadGroup from './ThreadGroup.svelte';
@@ -176,7 +177,7 @@
 		{m.thread_attempt_cooked({ when: new Date(openAttempt!.created_at).toLocaleDateString() })}
 	</p>
 	{#if openAttempt!.rating}
-		<p class="text-body text-ink">{'★'.repeat(openAttempt!.rating)}</p>
+		<p class="text-body text-ink">{ratingLabel(openAttempt!.rating)}</p>
 	{/if}
 	<p class="mt-1 text-body text-ink-2">{openAttempt!.note ?? m.thread_attempt_no_note()}</p>
 {/snippet}

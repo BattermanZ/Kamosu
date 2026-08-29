@@ -198,7 +198,8 @@ function forked(extra: Answers = {}) {
 				}
 			],
 			tags: [],
-			related_recipes: []
+			related_recipes: [],
+			cooked: { count: 0, last_cooked_at: null, ratings: [] }
 		},
 		get_thread: {
 			lineage_id: 'l_1',
@@ -475,5 +476,64 @@ describe('a Divergence', () => {
 		// No threshold, because there is nowhere to cross to.
 		expect(screen.queryByText(/You are in/i)).not.toBeInTheDocument();
 		expect(screen.queryByText('1 tsp gochugaru')).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * Finishing a cook (#59) reaches the recipe as the Cooked section: how often,
+ * when last, and each Person's most recent verdict by name.
+ */
+describe('the Cooked section', () => {
+	const cooked = (extra: Partial<{ count: number; last_cooked_at: string | null }> = {}) =>
+		forked({
+			get_recipe: {
+				...(forked().get_recipe as Record<string, unknown>),
+				cooked: {
+					count: 7,
+					last_cooked_at: '2026-08-14T18:30:00Z',
+					ratings: [
+						{
+							person_id: 'p_aurelien',
+							name: 'Aurélien',
+							rating: 'again' as const,
+							at: '2026-08-14T18:30:00Z'
+						},
+						{
+							person_id: 'p_marie',
+							name: 'Marie',
+							rating: 'tweak' as const,
+							at: '2026-08-02T19:00:00Z'
+						}
+					],
+					...extra
+				}
+			}
+		} as Answers);
+
+	it('shows each Person’s own verdict beside their name, and never a score', async () => {
+		renderRecipe(cooked());
+
+		expect(await screen.findByText('Aurélien')).toBeInTheDocument();
+		expect(screen.getByText('Again')).toBeInTheDocument();
+		expect(screen.getByText('Marie')).toBeInTheDocument();
+		expect(screen.getByText('Tweak it')).toBeInTheDocument();
+
+		// ADR 0015: no average, mean or aggregate anywhere on the page — and no
+		// stars either, which is what a five-point scale would have left behind.
+		expect(screen.queryByText(/average/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/★/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/out of 5/i)).not.toBeInTheDocument();
+	});
+
+	it('says how many times and when last, counting every cooking', async () => {
+		renderRecipe(cooked());
+		expect(await screen.findByText(/Cooked 7 times/)).toBeInTheDocument();
+	});
+
+	it('says plainly that a recipe has never been cooked rather than showing an empty list', async () => {
+		renderRecipe(cooked({ count: 0, last_cooked_at: null }));
+
+		expect(await screen.findByText('Not cooked yet.')).toBeInTheDocument();
+		expect(screen.queryByText('Again')).not.toBeInTheDocument();
 	});
 });
