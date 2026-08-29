@@ -380,6 +380,7 @@ describe('the Thread screen', () => {
 							steps: [{ kind: 'step', text: 'Marinate the chicken.', photo: null }],
 						},
 						readings: [null],
+						measured: { ingredients: [null], steps: [null] },
 					},
 				],
 				tags: [],

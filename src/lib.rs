@@ -20,6 +20,7 @@ pub mod mcp_door;
 pub mod operations;
 pub mod pairing;
 pub mod photographs;
+pub mod units;
 pub mod web_door;
 pub mod web_import;
 

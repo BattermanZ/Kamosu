@@ -132,8 +132,31 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             session_only: false,
             job_lane: JobLane::ByCaller,
             input_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
-            output_schema: json!({ "type": "object", "properties": { "reading_language": { "type": "string" }, "reading_measures": { "type": "string" } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
+            // The same two enums the input takes, and the same two the getter
+            // answers with: one preference declared one way, so the generated
+            // client cannot type the same field twice over (#49).
+            output_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
             handler: crate::operations::set_reading_preferences,
+        },
+        Operation {
+            name: "get_reading_preferences",
+            summary: "The Language and measures this Person reads in. Reading \
+                      Measures live on the account rather than in a browser, \
+                      so every Door and every device reads the same recipe the \
+                      same way; the default is American, a stated convention \
+                      rather than a guess about anybody.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            // Declared as the same two enums `set_reading_preferences` accepts,
+            // because those are the only answers there are — which is what
+            // lets the generated client type them rather than calling them
+            // strings.
+            output_schema: json!({ "type": "object", "properties": { "reading_language": { "enum": ["en", "fr", "es"] }, "reading_measures": { "enum": ["us", "metric", "as_written"] } }, "required": ["reading_language", "reading_measures"], "additionalProperties": false }),
+            handler: crate::operations::get_reading_preferences,
         },
         Operation {
             name: "rename_person",
@@ -903,8 +926,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "properties": {
                     "line_index": { "type": "integer" },
                     "reading": reading_schema(),
+                    // The one subordinate line this corrected Reading now
+                    // produces for the Person who corrected it (#49), so the
+                    // screen redraws the whole row from one answer.
+                    "measured": { "type": ["string", "null"] },
                 },
-                "required": ["line_index", "reading"],
+                "required": ["line_index", "reading", "measured"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::set_reading,
@@ -1611,13 +1638,14 @@ fn recipe_schema() -> Value {
                         "created_at": { "type": "string" },
                         "content": recipe_content_schema(),
                         "readings": reading_list_schema(),
+                        "measured": measured_schema(),
                         "translates_version_id": { "type": ["string", "null"] },
                         "language": { "type": ["string", "null"] },
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
                         "name", "change_note", "created_at", "content", "readings",
-                        "translates_version_id", "language"
+                        "measured", "translates_version_id", "language"
                     ],
                     "additionalProperties": false,
                 },
@@ -1964,10 +1992,11 @@ fn divergence_branch_schema() -> Value {
             "head_version_id": { "type": "string" },
             "content": recipe_content_schema(),
             "readings": reading_list_schema(),
+            "measured": measured_schema(),
         },
         "required": [
             "branch_id", "kitchen_id", "kitchen_name", "hand_id", "language",
-            "head_version_id", "content", "readings",
+            "head_version_id", "content", "readings", "measured",
         ],
         "additionalProperties": false,
     })
@@ -2278,6 +2307,31 @@ fn reading_list_schema() -> Value {
     json!({
         "type": "array",
         "items": reading_schema(),
+    })
+}
+
+/// **The one subordinate line** under each Ingredient Line and each Step, for
+/// the Person asking — scaling and conversion in a single slot (ADR 0016, #49).
+///
+/// One slot per line, in the same order as the list it belongs to, and `null`
+/// wherever there is nothing to say: no quantity read, a quantity Kamosu could
+/// not read, a Step with no temperature in it, or — the common case — a line
+/// already in this reader's measures at the Yield as written, where a line
+/// would only repeat what is above it.
+///
+/// Rendered rather than structured, in the reader's Reading Language and
+/// always saying *about*, so an agent asked *how much flour in grams* gets the
+/// answer a cook would read (ADR 0001). It is computed, never stored: Reading
+/// Measures is a preference and changing it makes no Version.
+fn measured_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "ingredients": { "type": "array", "items": { "type": ["string", "null"] } },
+            "steps": { "type": "array", "items": { "type": ["string", "null"] } },
+        },
+        "required": ["ingredients", "steps"],
+        "additionalProperties": false,
     })
 }
 

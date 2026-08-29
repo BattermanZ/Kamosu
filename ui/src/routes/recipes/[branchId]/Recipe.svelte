@@ -40,6 +40,18 @@
 	No mark distinguishes a line Kamosu read from one it did not (ADR 0002): the
 	Reading is simply there or it is not. A badge that fires sometimes teaches
 	people it fires always.
+
+	THE SUBORDINATE LINE IS ONE SLOT (#49, ADR 0016). Scaling and conversion are
+	one act and share it with the Reading echo, so a row never carries two small
+	lines under its written one. What the slot holds, in order: the converted
+	amount where this reader needs one — `about 250 g` under `2 cups flour` for
+	a metric cook — and otherwise the echo of what Kamosu read. A reader already
+	in her own measures gets the echo, because the conversion has nothing to say
+	and a blank slot would tell her less than the echo does. Both are quiet, both
+	are visibly Kamosu's rather than the cook's, and neither is ever a badge.
+
+	A Step's slot holds the oven temperature in the other system, on the
+	conventional ladder — an addition beside the sentence, never written into it.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -133,11 +145,27 @@
 
 	const content = $derived(here?.content ?? recipe?.versions.at(-1)?.content);
 	const readings = $derived(here?.readings ?? recipe?.versions.at(-1)?.readings ?? []);
+	/**
+	 * The one subordinate line the Core worked out for THIS reader — scaling and
+	 * conversion in a single slot (#49). Computed there rather than here on
+	 * purpose: an agent at the MCP door gets the same answer this screen shows,
+	 * and the arithmetic lives in one place beneath both Doors.
+	 */
+	const measured = $derived(
+		here?.measured ?? recipe?.versions.at(-1)?.measured ?? { ingredients: [], steps: [] },
+	);
 
 	// ---- correcting a Reading --------------------------------------------
 
 	/** One slot of `readings`: what Kamosu understood of a line, or nothing. */
 	type Slot = GetRecipeOutput['versions'][number]['readings'][number];
+	/**
+	 * A line corrected here: the Reading as it now stands, and the one
+	 * subordinate line it now produces. They travel together because
+	 * `set_reading` answers with both — the conversion is the Core's, and this
+	 * screen only ever displays it.
+	 */
+	type Fixed = { reading: Slot; measured: string | null };
 
 	/** Which Ingredient Line has the corrector open, by index into the list. */
 	let correcting = $state<number | null>(null);
@@ -146,7 +174,7 @@
 	 * no Version, so there is nothing to refetch and nothing that would show up
 	 * in the Thread — the line simply reads differently from now on.
 	 */
-	let fixed = $state(new Map<number, Slot>());
+	let fixed = $state(new Map<number, Fixed>());
 
 	/**
 	 * The Reading on one line, with anything corrected here laid over it.
@@ -157,7 +185,28 @@
 	 * through the overlay there would put your correction on their line.
 	 */
 	const readingAt = (index: number): Slot =>
-		side === 'mine' && fixed.has(index) ? (fixed.get(index) ?? null) : (readings[index] ?? null);
+		side === 'mine' && fixed.has(index)
+			? (fixed.get(index)?.reading ?? null)
+			: (readings[index] ?? null);
+
+	/**
+	 * **The one line beneath an Ingredient Line**, and the whole of the rule:
+	 * the converted amount where this reader needs one, the echo of what Kamosu
+	 * read where she does not, and nothing at all where there is neither. Never
+	 * both (#49, ADR 0016).
+	 *
+	 * Like `readingAt`, the overlay is consulted only in your own recipe: the
+	 * two Branches have their own lists, so index 2 on the other side is a
+	 * different ingredient entirely.
+	 */
+	function beneathLine(index: number): string {
+		if (index < 0) return '';
+		const converted =
+			side === 'mine' && fixed.has(index)
+				? (fixed.get(index)?.measured ?? null)
+				: (measured.ingredients[index] ?? null);
+		return converted ?? reading(readingAt(index));
+	}
 
 	/**
 	 * A Reading is corrected only on your own Branch. Standing in the other
@@ -174,9 +223,9 @@
 		correcting = correcting === index ? null : index;
 	}
 
-	function corrected(index: number, reading: Slot) {
+	function corrected(index: number, reading: Slot, measuredLine: string | null) {
 		const next = new Map(fixed);
-		next.set(index, reading);
+		next.set(index, { reading, measured: measuredLine });
 		fixed = next;
 		correcting = null;
 	}
@@ -403,7 +452,7 @@
 							{branchId}
 							lineIndex={at}
 							reading={readingAt(at)}
-							onDone={(next) => corrected(at, next)}
+							onDone={(next, converted) => corrected(at, next, converted)}
 							onCancel={() => (correcting = null)}
 						/>
 					{/if}
@@ -412,14 +461,28 @@
 		{/snippet}
 
 		<!--
-			The written Line, and beneath it what Kamosu read from it — smaller,
-			subordinate, and simply absent where there is no Reading. Nothing
-			here says which of the two happened (ADR 0002).
+			The written Line, and beneath it the one subordinate line — smaller,
+			quieter, and simply absent where there is nothing to say. Nothing
+			here says whether it is a conversion or an echo, and nothing says
+			whether Kamosu read the line at all (ADR 0002).
 		-->
 		{#snippet written(text: string, at: number)}
 			<span class="block text-line">{text}</span>
-			{#if at >= 0 && reading(readingAt(at))}
-				<span class="block text-read text-ink-2">{reading(readingAt(at))}</span>
+			{#if beneathLine(at)}
+				<span class="block text-read text-ink-2">{beneathLine(at)}</span>
+			{/if}
+		{/snippet}
+
+		<!--
+			A Step's own subordinate slot: the oven temperature in this reader's
+			measures, on the conventional ladder (ADR 0016). It is an addition
+			BESIDE the sentence and is never written into it — a Step's truth is
+			its text — and it is absent from the great majority of steps, which
+			carry no temperature or already print both.
+		-->
+		{#snippet beside(at: number)}
+			{#if at >= 0 && measured.steps[at]}
+				<span class="mt-1 block text-read text-ink-2">{measured.steps[at]}</span>
 			{/if}
 		{/snippet}
 
@@ -445,7 +508,7 @@
 							{row}
 							{side}
 							{otherKitchen}
-							readingText={own ? reading(readingAt(own.index)) : ''}
+							beneath={own ? beneathLine(own.index) : ''}
 							open={open.has(key)}
 							taken={taken.get(key)}
 							onToggle={() => toggle(key)}
@@ -458,7 +521,7 @@
 									{branchId}
 									lineIndex={own.index}
 									reading={readingAt(own.index)}
-									onDone={(next) => corrected(own.index, next)}
+									onDone={(next, converted) => corrected(own.index, next, converted)}
 									onCancel={() => (correcting = null)}
 								/>
 							</li>
@@ -498,7 +561,10 @@
 					{:else if row.state === 'same'}
 						<li class="flex gap-3 border-b border-rule py-3">
 							<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">{n}</span>
-							<p class="text-body">{own?.text}</p>
+							<div class="min-w-0 flex-1">
+								<p class="text-body">{own?.text}</p>
+								{@render beside(own?.index ?? -1)}
+							</div>
 						</li>
 					{:else}
 						<MarkedRow
@@ -506,6 +572,7 @@
 							{side}
 							{otherKitchen}
 							number={n}
+							beneath={own ? (measured.steps[own.index] ?? '') : ''}
 							open={open.has(key)}
 							taken={taken.get(key)}
 							onToggle={() => toggle(key)}
@@ -525,7 +592,10 @@
 							<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
 								{number(false)}
 							</span>
-							<p class="text-body">{item.text}</p>
+							<div class="min-w-0 flex-1">
+								<p class="text-body">{item.text}</p>
+								{@render beside(index)}
+							</div>
 						</li>
 					{/if}
 				{/each}

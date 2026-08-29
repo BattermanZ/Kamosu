@@ -1541,6 +1541,10 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         json!({
             "line_index": 1,
             "reading": { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
+            // This Person reads in American measures, which is what the line
+            // is already written in — so there is nothing to say beneath it
+            // (#49, ADR 0016).
+            "measured": null,
         })
     );
 
@@ -8587,4 +8591,792 @@ async fn promoting_a_picture_keeps_the_version_its_name() {
         "promoting a picture must not take a Version's name away"
     );
     assert_eq!(head["content"]["main_photo"], json!(picture));
+}
+
+// --- Units and conversion (issue #49, ADR 0016) ------------------------------
+
+/// A recipe with one Ingredient Line per case, and a Reading laid over each —
+/// the shortest route to a real Version with real Readings on a real database.
+/// `lines` is (written line, amount, unit, target).
+fn recipe_with_readings(
+    app: &support::TestApp,
+    key: &str,
+    kitchen_id: &str,
+    title: &str,
+    lines: &[(&str, &str, &str, &str)],
+) -> String {
+    let ingredients: Vec<Value> = lines
+        .iter()
+        .map(|(text, _, _, _)| json!({ "kind": "ingredient", "text": text }))
+        .collect();
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({ "kitchen_id": kitchen_id, "title": title, "ingredients": ingredients })
+            .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    for (index, (_, amount, unit, target)) in lines.iter().enumerate() {
+        let (status, read) = app.post_op(
+            "set_reading",
+            Some(key),
+            &json!({
+                "branch_id": branch_id,
+                "line_index": index,
+                "amount": amount,
+                "unit": unit,
+                "target": target,
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+    }
+    branch_id
+}
+
+/// The one subordinate line under each Ingredient Line of a Branch's head
+/// Version, as this Credential's Person reads it.
+fn measured_ingredients(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    read["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["measured"]["ingredients"]
+        .clone()
+}
+
+/// Set how a Person measures. The Reading Language rides along because the two
+/// are one preference at the Operation.
+fn reads_in(app: &support::TestApp, key: &str, language: &str, measures: &str) {
+    let (status, set) = app.post_op(
+        "set_reading_preferences",
+        Some(key),
+        &json!({ "reading_language": language, "reading_measures": measures }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn any_written_word_is_a_unit_and_only_the_closed_set_ever_converts() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "Tofu",
+        &[
+            // Whatever the cook wrote is a Unit. A poignée is as real as a
+            // gram and simply never converts — no error, no mark, no nag.
+            ("2 poignées de farine", "2", "poignée", "farine"),
+            ("2 tbsp soy sauce", "2", "tbsp", "soy sauce"),
+        ],
+    );
+
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!([null, "about 30 ml"]),
+        "an unknown Unit offers nothing and errors at nothing; a known one converts"
+    );
+
+    // `g`, `gr`, `gramme` and `grams` are one Unit, so spelling is not a
+    // data-entry problem. Every one of them reads the same to an American.
+    reads_in(&app, &key, "en", "us");
+    for spelling in [
+        "g", "gr", "gm", "gram", "grams", "gramme", "grammes", "gramos",
+    ] {
+        let branch_id = recipe_with_readings(
+            &app,
+            &key,
+            &kitchen_id,
+            &format!("Flour in {spelling}"),
+            &[("250 g flour", "250", spelling, "flour")],
+        );
+        assert_eq!(
+            measured_ingredients(&app, &key, &branch_id),
+            json!(["about 8¾ oz"]),
+            "'{spelling}' is the same Unit as every other spelling of the gram"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_convertible_set_knows_three_languages_and_the_named_regional_spoons() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    // The same spoon in three Languages is one Unit — and ADR 0016's own
+    // worked example of the cost it accepts: three tablespoons of soy sauce
+    // read as 45 ml where an Australian author meant 60.
+    for spelling in [
+        "tbsp",
+        "tablespoons",
+        "cuillères à soupe",
+        "cuilleres a soupe",
+        "c. à s.",
+        "cucharadas",
+        "cda",
+    ] {
+        let branch_id = recipe_with_readings(
+            &app,
+            &key,
+            &kitchen_id,
+            &format!("Soy in {spelling}"),
+            &[("3 tbsp soy sauce", "3", spelling, "soy sauce")],
+        );
+        assert_eq!(
+            measured_ingredients(&app, &key, &branch_id),
+            json!(["about 45 ml"]),
+            "'{spelling}' is the tablespoon"
+        );
+    }
+
+    // The regional variants are ordinary members of the set, so a recipe that
+    // names one gets it right without anybody being asked anything.
+    let named = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "Soy, named precisely",
+        &[
+            (
+                "3 Australian tablespoons soy sauce",
+                "3",
+                "australian tablespoon",
+                "soy sauce",
+            ),
+            (
+                "3 imperial tablespoons soy sauce",
+                "3",
+                "imperial tablespoon",
+                "soy sauce",
+            ),
+        ],
+    );
+    assert_eq!(
+        measured_ingredients(&app, &key, &named),
+        json!(["about 60 ml", "about 55 ml"]),
+        "an author who named the spoon gets the spoon they named"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rounding_happens_last_and_once_and_a_cup_of_a_staple_becomes_a_weight() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "Three cups of things",
+        &[
+            // ADR 0016's own arithmetic: three cups is 710 ml, not 720. It is
+            // only 720 if the cup was rounded to 240 first — which is exactly
+            // the double-rounding "round last, once" forbids.
+            ("3 cups sliced mushrooms", "3", "cups", "sliced mushrooms"),
+            // Cross-family, off the shipped Cup Weight: 125 g a cup.
+            ("3 cups flour", "3", "cups", "flour"),
+            // ADR 0016 states this one outright: 2 tbsp butter is about 28 g
+            // from the single figure 227 — one Cup Weight answering a spoon.
+            ("2 tbsp butter", "2", "tbsp", "butter"),
+        ],
+    );
+
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["about 710 ml", "about 375 g", "about 28 g"]),
+    );
+
+    // The written lines are untouched by every one of those conversions.
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let lines: Vec<&str> = read["result"]["versions"][0]["content"]["ingredients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        lines,
+        vec!["3 cups sliced mushrooms", "3 cups flour", "2 tbsp butter"],
+        "a conversion is never a rewrite (ADR 0002)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_blank_cup_weight_offers_millilitres_and_an_override_beats_the_shipped_figure() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "Mushrooms and flour",
+        &[
+            ("1 cup sliced mushrooms", "1", "cup", "sliced mushrooms"),
+            ("1 cup flour", "1", "cup", "flour"),
+        ],
+    );
+
+    // A Food nobody has weighed is not a gap to close. It is a line that
+    // offers millilitres and says nothing at all about grams.
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["about 240 ml", "about 125 g"]),
+    );
+
+    let (_, foods) = app.post_op("list_foods", Some(&key), "{}");
+    let id_of = |word: &str| -> String {
+        foods["result"]["foods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|food| food["name"] == json!(word))
+            .unwrap_or_else(|| panic!("no Food named {word} in {foods}"))["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    // Anyone may set one, and an override always beats the shipped figure.
+    for (word, grams) in [("sliced mushrooms", 70.0), ("flour", 150.0)] {
+        let (status, set) = app.post_op(
+            "set_food_cup_weight",
+            Some(&key),
+            &json!({ "food_id": id_of(word), "cup_weight_grams": grams }).to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+    }
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["about 70 g", "about 150 g"]),
+        "a figure somebody set wins over the one Kamosu ships"
+    );
+
+    // Clearing the override takes flour back to the shipped staple figure and
+    // the mushrooms back to millilitres — nobody is ever asked to fill in a
+    // blank, and the failure mode is silence.
+    for word in ["sliced mushrooms", "flour"] {
+        app.post_op(
+            "set_food_cup_weight",
+            Some(&key),
+            &json!({ "food_id": id_of(word), "cup_weight_grams": null }).to_string(),
+        );
+    }
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["about 240 ml", "about 125 g"]),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fractions_are_used_where_the_measure_is_fractional_and_metric_stays_whole() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // An American reads a metric recipe. The cups in her drawer are marked in
+    // fractions, so that is how the line is written.
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "A metric recipe read in America",
+        &[
+            ("500 ml lait", "500", "ml", "lait"),
+            ("1 l bouillon", "1", "l", "bouillon"),
+            ("240 ml crème", "240", "ml", "crème"),
+            ("250 g farine", "250", "g", "farine"),
+        ],
+    );
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!([
+            "about 2⅛ cups",
+            "about 4¼ cups",
+            // Singular, because one cup is one cup.
+            "about 1 cup",
+            "about 8¾ oz",
+        ]),
+    );
+
+    // The same recipe to a metric reader says nothing at all: it is already in
+    // her measures at the Yield as written, so a line would only repeat what
+    // is above it.
+    reads_in(&app, &key, "fr", "metric");
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!([null, null, null, null]),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_converted_amount_says_about_in_the_readers_own_language() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "One cup of flour",
+        &[("2 cups flour", "2", "cups", "flour")],
+    );
+
+    // "About" is a fact about the number, not an apology for the food: Kamosu
+    // rounded, so it is true every time and is therefore said every time.
+    for (language, expected) in [
+        ("en", "about 250 g"),
+        ("fr", "environ 250 g"),
+        ("es", "aprox. 250 g"),
+    ] {
+        reads_in(&app, &key, language, "metric");
+        assert_eq!(
+            measured_ingredients(&app, &key, &branch_id),
+            json!([expected]),
+            "the line is read in the reader's own Reading Language"
+        );
+    }
+
+    // As written asks for no conversion at all, and gets none.
+    reads_in(&app, &key, "en", "as_written");
+    assert_eq!(measured_ingredients(&app, &key, &branch_id), json!([null]));
+
+    // Correcting a Reading answers with the line it now produces, because the
+    // moment somebody tells Kamosu it misread a line is the moment they want
+    // to see what the corrected line says.
+    reads_in(&app, &key, "en", "metric");
+    let (status, corrected) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "line_index": 0,
+            "amount": "3",
+            "unit": "cups",
+            "target": "flour",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{corrected}");
+    assert_eq!(corrected["result"]["measured"], json!("about 375 g"));
+
+    // Clearing it takes the line beneath away with it.
+    let (_, cleared) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 0 }).to_string(),
+    );
+    assert_eq!(cleared["result"]["measured"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn temperatures_convert_on_the_conventional_oven_ladder_never_arithmetically() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "An oven and some distractions",
+            "steps": [
+                // 350°F is 176.67°C by arithmetic and 180°C on the dial.
+                { "kind": "step", "text": "Preheat the oven to 350°F." },
+                // 400°F would be 205°C by arithmetic — a number no oven has.
+                { "kind": "step", "text": "Raise it to 400 degrees F." },
+                // 20 of the 39 real steps carrying a temperature print both.
+                { "kind": "step", "text": "Preheat oven to 180C/350F" },
+                { "kind": "step", "text": "350°F (175°C), fan off." },
+                // The real corpus also contains these, and neither is a
+                // temperature.
+                { "kind": "step", "text": "Turn the tray 90 degrees." },
+                { "kind": "step", "text": "Cook on gas 5 for 20 minutes." },
+                { "kind": "section", "text": "To finish" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        read["result"]["versions"][0]["measured"]["steps"],
+        json!(["about 180 °C", "about 200 °C", null, null, null, null, null,]),
+        "the ladder, not the arithmetic — and nothing where the step said both"
+    );
+
+    // The step's own text is untouched: the conversion is an addition beside
+    // the sentence and is never written into it.
+    assert_eq!(
+        read["result"]["versions"][0]["content"]["steps"][0]["text"],
+        json!("Preheat the oven to 350°F."),
+    );
+
+    // The ladder runs both ways: an American reading a French recipe.
+    reads_in(&app, &key, "en", "us");
+    let (_, celsius) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Un four français",
+            "steps": [
+                { "kind": "step", "text": "Préchauffer le four à 180 °C." },
+                { "kind": "step", "text": "Ajouter 1 c. à s. d'huile, puis enfourner à 200°C." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        celsius["result"]["versions"][0]["measured"]["steps"],
+        json!(["about 350 °F", "about 400 °F"]),
+        "a spoonful written `1 c.` is not a one-degree oven"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_already_in_your_measures_is_untouched_within_its_own_system() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Kamosu converts BETWEEN systems and never re-expresses within one. An
+    // American told her `4 tsp` is `about 1⅓ tbsp` has been handed a second way
+    // to say a thing she already owns the spoons for, and ADR 0016 wants that
+    // line absent: "a recipe already in your measures at its written Yield is
+    // untouched".
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "Already American",
+        &[
+            ("4 tsp baking powder", "4", "tsp", "baking powder"),
+            ("8 tbsp butter", "8", "tbsp", "butter"),
+            ("24 oz flour", "24", "oz", "flour"),
+        ],
+    );
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!([null, null, null]),
+    );
+
+    // The same rule the other way round: a metric cook is not told that her
+    // 1500 g is 1.5 kg, and her 250 ml is not restated in centilitres.
+    reads_in(&app, &key, "fr", "metric");
+    let metric = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "Déjà métrique",
+        &[
+            ("1500 g de farine", "1500", "g", "farine"),
+            ("250 ml de lait", "250", "ml", "lait"),
+            ("20 cl de crème", "20", "cl", "crème"),
+        ],
+    );
+    assert_eq!(
+        measured_ingredients(&app, &key, &metric),
+        json!([null, null, null]),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_metric_dial_setting_off_the_american_ladder_still_answers() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "us");
+
+    // 170 °C and 210 °C are ordinary settings on an oven sold in France and
+    // appear nowhere in the American ladder. Reading that ladder backwards
+    // leaves a hole exactly where this library lives, so the metric direction
+    // has a table of its own — and every answer is still a real dial position
+    // rather than the 338 °F or 410 °F the arithmetic would hand back.
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Un four français",
+            "steps": [
+                { "kind": "step", "text": "Préchauffer le four à 170 °C." },
+                { "kind": "step", "text": "Monter à 210 °C pour finir." },
+                { "kind": "step", "text": "Sécher les meringues à 90 °C." },
+                // Off the ladder entirely: silence beats a number nobody can set.
+                { "kind": "step", "text": "Un four à pizza monte à 450 °C." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        created["result"]["versions"][0]["measured"]["steps"],
+        json!(["about 350 °F", "about 400 °F", "about 200 °F", null]),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Shortbread",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 cups flour" },
+                { "kind": "ingredient", "text": "250 g butter" },
+                { "kind": "ingredient", "text": "2 poignées de sucre" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    for (index, amount, unit, target) in [
+        (0, "2", "cups", "flour"),
+        (1, "250", "g", "butter"),
+        (2, "2", "poignée", "sucre"),
+    ] {
+        app.post_op(
+            "set_reading",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id, "line_index": index,
+                "amount": amount, "unit": unit, "target": target,
+            })
+            .to_string(),
+        );
+    }
+
+    // Read, not cooked: the Yield is the one written, so only the cups convert.
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["about 250 g", null, null]),
+    );
+
+    // Now she is cooking it, for eight instead of four.
+    let (_, attempt) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt["result"]["id"],
+            "cooking_yield": { "amount": "8", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!([
+            // Scaled AND converted, in one line: 4 cups of flour at 125 g.
+            "about 500 g",
+            // Scaled but not converted — she already measures in grams. Same
+            // one slot, and nothing on screen says which of the two happened.
+            "about 500 g",
+            // An unrecognised Unit still scales: the quantity multiplies and
+            // the cook's own word is untouched (ADR 0016).
+            "about 4 poignée",
+        ]),
+    );
+
+    // Scaling is a fact about this cooking, not about the recipe: it makes no
+    // Version, and it is invisible to anybody else in the Kitchen.
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(read["result"]["versions"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        read["result"]["versions"][0]["content"]["ingredients"][0]["text"],
+        json!("2 cups flour"),
+        "the written line is never rewritten by scaling either",
+    );
+
+    let cook = app.core.create_person("Camille").expect("person");
+    let cook_key = app
+        .core
+        .mint_access_key(&cook, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&cook_key),
+        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
+    );
+    reads_in(&app, &cook_key, "en", "metric");
+    assert_eq!(
+        measured_ingredients(&app, &cook_key, &branch_id),
+        json!(["about 250 g", null, null]),
+        "somebody else's cooking never scales your reading of the recipe",
+    );
+
+    // Finishing puts it back: the Yield being cooked was true while it was
+    // being cooked and is not a deviation the recipe keeps.
+    app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt["result"]["id"] }).to_string(),
+    );
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["about 250 g", null, null]),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_measures_live_on_the_account_and_default_to_american() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // The default is American, stated rather than guessed at from anything
+    // about the person asking.
+    let (status, preferences) = app.post_op("get_reading_preferences", Some(&key), "{}");
+    assert_eq!(status, 200, "{preferences}");
+    assert_eq!(
+        preferences["result"],
+        json!({ "reading_language": "en", "reading_measures": "us" }),
+    );
+
+    reads_in(&app, &key, "fr", "metric");
+    let (_, changed) = app.post_op("get_reading_preferences", Some(&key), "{}");
+    assert_eq!(
+        changed["result"],
+        json!({ "reading_language": "fr", "reading_measures": "metric" }),
+    );
+
+    // Two people standing in one Kitchen read one recipe differently, because
+    // measures are a fact about a person and never about a recipe. Setting one
+    // stores nothing on the recipe and makes no Version.
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "One recipe, two readers",
+        &[("2 cups flour", "2", "cups", "flour")],
+    );
+    let versions_before = app
+        .post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        )
+        .1["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .len();
+
+    let cook = app.core.create_person("Camille").expect("person");
+    let cook_key = app
+        .core
+        .mint_access_key(&cook, "browser", false)
+        .unwrap()
+        .secret;
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&cook_key),
+        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
+    );
+
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["environ 250 g"]),
+        "the metric reader is offered grams",
+    );
+    assert_eq!(
+        measured_ingredients(&app, &cook_key, &branch_id),
+        json!([null]),
+        "the American, who wrote it in cups, is offered nothing",
+    );
+    assert_eq!(
+        app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        )
+        .1["result"]["versions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        versions_before,
+        "reading a recipe in another system makes no Version",
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_converted_line_reaches_an_agent_through_the_mcp_door_too() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+    let branch_id = recipe_with_readings(
+        &app,
+        &key,
+        &kitchen_id,
+        "How much flour in grams",
+        &[("2 cups flour", "2", "cups", "flour")],
+    );
+
+    // The conversion is computed in the Core, beneath both Doors (ADR 0001),
+    // so an agent asked *how much flour in grams* answers correctly for free.
+    let (status, answered) = app.post_mcp(
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "get_recipe",
+                "arguments": { "branch_id": branch_id },
+            },
+        })
+        .to_string(),
+        Some(&key),
+    );
+    assert_eq!(status, 200, "{answered}");
+    let structured = &answered["result"]["structuredContent"];
+    assert_eq!(
+        structured["versions"][0]["measured"]["ingredients"],
+        json!(["about 250 g"]),
+        "the MCP door grew the same answer the web door did: {answered}"
+    );
 }

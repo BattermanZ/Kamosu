@@ -23,8 +23,16 @@ export type SetReadingPreferencesInput = {
 };
 /** What set_reading_preferences answers. */
 export type SetReadingPreferencesOutput = {
-	reading_language: string;
-	reading_measures: string;
+	reading_language: "en" | "fr" | "es";
+	reading_measures: "us" | "metric" | "as_written";
+};
+
+/** The Language and measures this Person reads in. Reading Measures live on the account rather than in a browser, so every Door and every device reads the same recipe the same way; the default is American, a stated convention rather than a guess about anybody. */
+export type GetReadingPreferencesInput = Record<string, never>;
+/** What get_reading_preferences answers. */
+export type GetReadingPreferencesOutput = {
+	reading_language: "en" | "fr" | "es";
+	reading_measures: "us" | "metric" | "as_written";
 };
 
 /** Change this Person's current reminder name. */
@@ -451,6 +459,10 @@ export type CreateRecipeOutput = {
 		created_at: string;
 		hand_id: string;
 		language: string | null;
+		measured: {
+			ingredients: (string | null)[];
+			steps: (string | null)[];
+		};
 		name: string | null;
 		parent_version_id: string | null;
 		readings: ({
@@ -606,6 +618,10 @@ export type StartTranslationOutput = {
 		created_at: string;
 		hand_id: string;
 		language: string | null;
+		measured: {
+			ingredients: (string | null)[];
+			steps: (string | null)[];
+		};
 		name: string | null;
 		parent_version_id: string | null;
 		readings: ({
@@ -835,6 +851,10 @@ export type GetRecipeOutput = {
 		created_at: string;
 		hand_id: string;
 		language: string | null;
+		measured: {
+			ingredients: (string | null)[];
+			steps: (string | null)[];
+		};
 		name: string | null;
 		parent_version_id: string | null;
 		readings: ({
@@ -1002,6 +1022,10 @@ export type DivergenceOutput = {
 		kitchen_id: string;
 		kitchen_name: string;
 		language: string;
+		measured: {
+			ingredients: (string | null)[];
+			steps: (string | null)[];
+		};
 		readings: ({
 			amount: string | null;
 			target: string | null;
@@ -1054,6 +1078,10 @@ export type DivergenceOutput = {
 		kitchen_id: string;
 		kitchen_name: string;
 		language: string;
+		measured: {
+			ingredients: (string | null)[];
+			steps: (string | null)[];
+		};
 		readings: ({
 			amount: string | null;
 			target: string | null;
@@ -1073,6 +1101,7 @@ export type SetReadingInput = {
 /** What set_reading answers. */
 export type SetReadingOutput = {
 	line_index: number;
+	measured: string | null;
 	reading: {
 		amount: string | null;
 		target: string | null;
@@ -1497,6 +1526,12 @@ export interface Operations {
 	set_reading_preferences: {
 		input: SetReadingPreferencesInput;
 		output: SetReadingPreferencesOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_reading_preferences: {
+		input: GetReadingPreferencesInput;
+		output: GetReadingPreferencesOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -1927,10 +1962,53 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"reading_language": {
-					"type": "string"
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
 				},
 				"reading_measures": {
-					"type": "string"
+					"enum": [
+						"us",
+						"metric",
+						"as_written"
+					]
+				}
+			},
+			"required": [
+				"reading_language",
+				"reading_measures"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_reading_preferences",
+		"summary": "The Language and measures this Person reads in. Reading Measures live on the account rather than in a browser, so every Door and every device reads the same recipe the same way; the default is American, a stated convention rather than a guess about anybody.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"reading_language": {
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"reading_measures": {
+					"enum": [
+						"us",
+						"metric",
+						"as_written"
+					]
 				}
 			},
 			"required": [
@@ -3722,6 +3800,34 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"measured": {
+								"additionalProperties": false,
+								"properties": {
+									"ingredients": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									},
+									"steps": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -3792,6 +3898,7 @@ export const CATALOGUE = [
 							"created_at",
 							"content",
 							"readings",
+							"measured",
 							"translates_version_id",
 							"language"
 						],
@@ -4541,6 +4648,34 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"measured": {
+								"additionalProperties": false,
+								"properties": {
+									"ingredients": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									},
+									"steps": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -4611,6 +4746,7 @@ export const CATALOGUE = [
 							"created_at",
 							"content",
 							"readings",
+							"measured",
 							"translates_version_id",
 							"language"
 						],
@@ -5675,6 +5811,34 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"measured": {
+								"additionalProperties": false,
+								"properties": {
+									"ingredients": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									},
+									"steps": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -5745,6 +5909,7 @@ export const CATALOGUE = [
 							"created_at",
 							"content",
 							"readings",
+							"measured",
 							"translates_version_id",
 							"language"
 						],
@@ -6465,6 +6630,34 @@ export const CATALOGUE = [
 						"language": {
 							"type": "string"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
 						"readings": {
 							"items": {
 								"additionalProperties": false,
@@ -6509,7 +6702,8 @@ export const CATALOGUE = [
 						"language",
 						"head_version_id",
 						"content",
-						"readings"
+						"readings",
+						"measured"
 					],
 					"type": "object"
 				},
@@ -6748,6 +6942,34 @@ export const CATALOGUE = [
 						"language": {
 							"type": "string"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
 						"readings": {
 							"items": {
 								"additionalProperties": false,
@@ -6792,7 +7014,8 @@ export const CATALOGUE = [
 						"language",
 						"head_version_id",
 						"content",
-						"readings"
+						"readings",
+						"measured"
 					],
 					"type": "object"
 				}
@@ -6855,6 +7078,12 @@ export const CATALOGUE = [
 				"line_index": {
 					"type": "integer"
 				},
+				"measured": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"reading": {
 					"additionalProperties": false,
 					"properties": {
@@ -6890,7 +7119,8 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"line_index",
-				"reading"
+				"reading",
+				"measured"
 			],
 			"type": "object"
 		}
@@ -8788,6 +9018,7 @@ export const CATALOGUE = [
 export const METHOD_NAMES = {
 	instance_status: 'instanceStatus',
 	set_reading_preferences: 'setReadingPreferences',
+	get_reading_preferences: 'getReadingPreferences',
 	rename_person: 'renamePerson',
 	mint_invite: 'mintInvite',
 	disable_account: 'disableAccount',
@@ -8855,6 +9086,8 @@ export interface KamosuClient {
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
+	/** The Language and measures this Person reads in. Reading Measures live on the account rather than in a browser, so every Door and every device reads the same recipe the same way; the default is American, a stated convention rather than a guess about anybody. */
+	getReadingPreferences(input?: GetReadingPreferencesInput): Promise<Answer<'get_reading_preferences'>>;
 	/** Change this Person's current reminder name. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
 	/** Mint a one-use Invite link for a new Person. */

@@ -36,8 +36,12 @@
 		lineIndex: number;
 		/** The Reading as it stands, or null where Kamosu recorded none. */
 		reading: Slot;
-		/** The corrected Reading, handed back so the page redraws the line. */
-		onDone: (reading: Slot) => void;
+		/**
+		 * The corrected Reading and the one subordinate line it now produces,
+		 * handed back so the page redraws the whole row. The converted line is
+		 * the Core's answer rather than anything worked out here (#49).
+		 */
+		onDone: (reading: Slot, measured: string | null) => void;
 		onCancel: () => void;
 	}
 
@@ -83,7 +87,7 @@
 			// Cancelling closes the corrector, but a request already in flight
 			// still lands. Reporting it then would write a Reading onto the page
 			// that somebody had already backed out of.
-			if (!abandoned) onDone(answered.reading);
+			if (!abandoned) onDone(answered.reading, answered.measured);
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			if (abandoned) return;

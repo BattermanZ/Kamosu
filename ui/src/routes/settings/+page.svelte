@@ -19,6 +19,7 @@
 		ListSessionsOutput,
 		ListAccessKeysOutput,
 		ListKitchensOutput,
+		GetReadingPreferencesOutput,
 	} from '$lib/api/catalogue';
 
 	const kamosu = useKamosu();
@@ -50,6 +51,45 @@
 		es: () => m.language_es(),
 	};
 
+	/**
+	 * Reading Measures: how this Person measures (#49, ADR 0016).
+	 *
+	 * It lives on the ACCOUNT and not in this browser, which is the whole point
+	 * — a cook who switches to metric on her phone finds the recipe in metric on
+	 * the iPad on the worktop, and an agent at the MCP door reads it the same
+	 * way. Setting it stores nothing on any recipe and makes no Version.
+	 *
+	 * The Reading Language rides along because `set_reading_preferences` takes
+	 * the two together. What is sent back is the account's OWN language, not the
+	 * interface locale above: the two are separate settings today and quietly
+	 * overwriting one while changing the other would be a lie about what the
+	 * button did.
+	 */
+	type Measures = GetReadingPreferencesOutput['reading_measures'];
+
+	const measureNames: Record<Measures, () => string> = {
+		us: () => m.measures_us(),
+		metric: () => m.measures_metric(),
+		as_written: () => m.measures_as_written(),
+	};
+
+	let preferences = $state<GetReadingPreferencesOutput | undefined>(undefined);
+
+	async function chooseMeasures(measures: Measures) {
+		if (!preferences || preferences.reading_measures === measures) return;
+		const previous = preferences;
+		preferences = { ...previous, reading_measures: measures };
+		try {
+			await kamosu.setReadingPreferences({
+				reading_language: previous.reading_language,
+				reading_measures: measures,
+			});
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			preferences = previous;
+		}
+	}
+
 	// Sessions and Access Keys, listed together and each ending individually
 	// from any device (ADR 0031). Reached only by a Person: a stranger visiting
 	// this screen simply sees nothing here, rather than a refusal.
@@ -67,12 +107,14 @@
 
 	async function loadAccess() {
 		try {
-			const [sessionsAnswer, keysAnswer] = await Promise.all([
+			const [sessionsAnswer, keysAnswer, preferencesAnswer] = await Promise.all([
 				kamosu.listSessions(),
 				kamosu.listAccessKeys(),
+				kamosu.getReadingPreferences(),
 			]);
 			sessions = sessionsAnswer.sessions.filter((session) => !session.revoked);
 			accessKeys = keysAnswer.access_keys.filter((key) => !key.revoked);
+			preferences = preferencesAnswer;
 			signedIn = true;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -221,6 +263,30 @@
 			{/each}
 		</ul>
 	</Section>
+
+	{#if signedIn && preferences}
+		<Section heading={m.settings_measures()}>
+			<p class="mb-3 text-body text-ink-2">{m.measures_explained()}</p>
+			<ul class="flex flex-wrap gap-2">
+				{#each Object.entries(measureNames) as [measures, name] (measures)}
+					{@const choice = measures as Measures}
+					<li>
+						<button
+							type="button"
+							aria-pressed={preferences.reading_measures === choice}
+							onclick={() => chooseMeasures(choice)}
+							class="min-h-12 rounded-sm border px-4 text-body
+								{preferences.reading_measures === choice
+								? 'border-accent bg-accent text-on-accent'
+								: 'border-rule bg-card text-ink'}"
+						>
+							{name()}
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</Section>
+	{/if}
 
 	<Section heading={m.settings_instance()}>
 		<p class="text-body text-ink-2">

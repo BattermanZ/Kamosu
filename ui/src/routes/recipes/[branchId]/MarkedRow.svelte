@@ -30,8 +30,13 @@
 		otherKitchen: string;
 		/** A Step's number, or null for a Ghost step — it is not a step of this recipe. */
 		number?: number | null;
-		/** A Reading, already written out. Never shown on a Ghost: it isn't your line. */
-		readingText?: string;
+		/**
+		 * The one subordinate line under this row, already written out — the
+		 * converted amount where there is one, what Kamosu read where there is
+		 * not, and an oven temperature in the other system on a Step (#49).
+		 * One slot, never two. Never shown on a Ghost: it isn't your line.
+		 */
+		beneath?: string;
 		open: boolean;
 		taken: Taken | undefined;
 		onToggle: () => void;
@@ -51,7 +56,7 @@
 		side,
 		otherKitchen,
 		number = undefined,
-		readingText = '',
+		beneath = '',
 		open,
 		taken,
 		onToggle,
@@ -91,8 +96,8 @@
 			<span class="block {isStep ? 'text-body' : 'text-line'} {struck ? 'ghost-text' : ''}">
 				{shown}
 			</span>
-			{#if readingText && !struck && !carried}
-				<span class="block text-read text-ink-2">{readingText}</span>
+			{#if beneath && !struck && !carried}
+				<span class="block text-read text-ink-2">{beneath}</span>
 			{/if}
 			{#if carried?.replaced}
 				<span class="block text-read text-ink-2 line-through">

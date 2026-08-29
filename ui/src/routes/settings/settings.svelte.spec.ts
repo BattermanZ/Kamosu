@@ -20,6 +20,16 @@ import type { Answers } from '$lib/api/stand-in';
 const anonymous: Answers = {
 	list_sessions: { refuse: 'unauthorized' },
 	list_access_keys: { refuse: 'unauthorized' },
+	get_reading_preferences: { refuse: 'unauthorized' },
+};
+
+/**
+ * A signed-in Person who has never touched the setting: reading in English, in
+ * American measures. That is the stated default rather than a guess about
+ * anybody (#49, ADR 0016), and every signed-in screen visit asks for it.
+ */
+const readsInAmerican: Answers = {
+	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
 };
 
 describe('the settings screen', () => {
@@ -88,6 +98,7 @@ describe('the settings screen', () => {
 					},
 				],
 			},
+			...readsInAmerican,
 			list_access_keys: {
 				access_keys: [
 					{
@@ -118,11 +129,38 @@ describe('the settings screen', () => {
 		expect(kamosu.calls.map((call) => call.operation)).toContain('revoke_access_key');
 	});
 
+	it('offers Reading Measures on the account, defaulting to American', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
+			list_kitchens: { kitchens: [] },
+			set_reading_preferences: { reading_language: 'en', reading_measures: 'metric' },
+		});
+
+		// American is the default, stated plainly rather than guessed at from
+		// anything about the person (ADR 0016).
+		const american = await screen.findByRole('button', { name: 'American' });
+		expect(american).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByRole('button', { name: 'Metric' })).toHaveAttribute('aria-pressed', 'false');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Metric' }));
+
+		// It goes to the ACCOUNT, not to this browser — so the same cook reads
+		// the same recipe the same way on the iPad on the worktop. The Reading
+		// Language rides along unchanged.
+		const sent = kamosu.calls.find((call) => call.operation === 'set_reading_preferences');
+		expect(sent?.input).toEqual({ reading_language: 'en', reading_measures: 'metric' });
+		expect(screen.getByRole('button', { name: 'Metric' })).toHaveAttribute('aria-pressed', 'true');
+	});
+
 	it("shows a minted Access Key's secret once, then never again", async () => {
 		const { kamosu } = renderScreen(Settings, {
 			instance_status: { version: '0.1.0', setup_complete: true },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
 			mint_access_key: {
 				id: 'ak_new',
 				name: 'a new agent',
@@ -148,6 +186,7 @@ describe('the settings screen', () => {
 			instance_status: { version: '0.1.0', setup_complete: true },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
 			list_kitchens: {
 				kitchens: [
 					{
@@ -192,6 +231,7 @@ describe('the settings screen', () => {
 			instance_status: { version: '0.1.0', setup_complete: true },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
 			list_kitchens: { kitchens: [] },
 			create_kitchen: {
 				id: 'k_new',
@@ -220,6 +260,7 @@ describe('the settings screen', () => {
 			instance_status: { version: '0.1.0', setup_complete: true },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
 			list_kitchens: {
 				kitchens: [
 					{
@@ -250,6 +291,7 @@ describe('the settings screen', () => {
 			instance_status: { version: '0.1.0', setup_complete: true },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
 			list_kitchens: { kitchens: [] },
 			accept_kitchen_invite: {
 				id: 'k_shared',

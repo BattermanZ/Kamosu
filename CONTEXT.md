@@ -271,7 +271,7 @@ The Language a person reads Kamosu in, held on their account. Chooses which Bran
 _Avoid_: Locale, UI language, preference
 
 **Reading Measures**:
-How a person measures, held on their account beside their Reading Language — metric, US measures, or as written. Where an Ingredient Line is in the other system, or the recipe has been scaled, one line beneath it says how much that is for this reader, right now. It never replaces the written line, always says *about*, and is absent whenever it would only repeat what is already there. Setting it changes nothing that is stored and makes no Version.
+How a person measures, held on their account beside their Reading Language — metric, US measures, or as written. Where an Ingredient Line is in the other system, or the recipe has been scaled, one line beneath it says how much that is for this reader, right now. It never replaces the written line, always says *about*, and is absent whenever it would only repeat what is already there. Setting it changes nothing that is stored and makes no Version. **The default is American, a stated convention rather than a guess about anybody**: a cup is 240 ml, a tablespoon 15 ml, a teaspoon 5 ml. It reaches a Step too, where a temperature in the other system is offered beside the sentence on the conventional oven ladder — 350°F is 180°C, the number on the dial, never the 176.67 the arithmetic gives.
 _Avoid_: Units preference, locale, metric toggle, unit system
 
 ### Cooking it

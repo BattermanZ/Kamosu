@@ -49,6 +49,9 @@ const branch = (
 		steps,
 	},
 	readings: ingredients.map(() => null),
+	// Nothing to say beneath either side's lines: this reader measures the way
+	// the recipe is already written (#49).
+	measured: { ingredients: ingredients.map(() => null), steps: steps.map(() => null) },
 });
 
 const MY_INGREDIENTS = [
@@ -199,6 +202,10 @@ function forked(extra: Answers = {}) {
 					language: 'en',
 					content: divergence().mine.content,
 					readings: MY_INGREDIENTS.map(() => null),
+					measured: {
+						ingredients: MY_INGREDIENTS.map(() => null),
+						steps: MY_STEPS.map(() => null),
+					},
 				},
 			],
 			tags: [],
@@ -578,7 +585,11 @@ describe('the recipe screen', () => {
 	 * Catalogue's shape stops being checked, which is the whole point of the
 	 * stand-in.
 	 */
-	function solo(content: Record<string, unknown> = {}, readings?: Slot[]): Answers {
+	function solo(
+		content: Record<string, unknown> = {},
+		readings?: Slot[],
+		measured?: GetRecipeOutput['versions'][number]['measured'],
+	): Answers {
 		const base = divergence().mine.content;
 		const recipe: GetRecipeOutput = {
 			branch_id: 'mine',
@@ -619,6 +630,14 @@ describe('the recipe screen', () => {
 						null,
 						{ amount: '3', unit: 'tbsp', target: 'ketchup' },
 					],
+					// The one subordinate line the Core worked out for this
+					// reader (#49). Null throughout by default: an American
+					// reading a recipe already in her measures is told nothing,
+					// and the Reading echo fills the slot instead.
+					measured: measured ?? {
+						ingredients: SECTIONED.map(() => null),
+						steps: SECTIONED_STEPS.map(() => null),
+					},
 				},
 			],
 		};
@@ -655,6 +674,90 @@ describe('the recipe screen', () => {
 		expect(line.closest('li')).toBe(read.closest('li'));
 		// Subordinate means literally underneath it in the row, not beside it.
 		expect(read.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+	});
+
+	/**
+	 * The converted line, as the Core worked it out for a metric reader of a
+	 * recipe written in American measures (#49). Only the two lines that carry
+	 * a Reading can produce one; the step is the one with a temperature on it.
+	 */
+	const CONVERTED = {
+		ingredients: [null, null, null, null, 'about 45 ml'],
+		steps: [null, null, null, 'about 375 °F'],
+	};
+
+	it('gives the converted amount the subordinate slot, and the Reading fills in', async () => {
+		renderRecipe(solo({}, undefined, CONVERTED));
+
+		// Scaling and conversion get ONE slot with the Reading echo (ADR 0016),
+		// so the ketchup line says what it means for this cook rather than
+		// repeating what Kamosu understood.
+		const ketchup = await screen.findByText('3 tbsp Ketchup');
+		const row = ketchup.closest('li') as HTMLElement;
+		const beneath = Array.from(row.querySelectorAll('.text-read')).map((node) =>
+			node.textContent?.trim(),
+		);
+		expect(beneath).toEqual(['about 45 ml']);
+		expect(screen.queryByText('3 tbsp ketchup')).not.toBeInTheDocument();
+
+		// The line above is untouched: a conversion is never a rewrite.
+		expect(ketchup).toHaveClass('text-line');
+
+		// A line with a Reading and nothing to convert keeps the echo, because
+		// a blank slot would tell this cook less than the echo does.
+		const chicken = screen.getByText('1.4 kg whole chicken').closest('li') as HTMLElement;
+		expect(
+			Array.from(chicken.querySelectorAll('.text-read')).map((node) => node.textContent?.trim()),
+		).toEqual(['1400 g chicken']);
+	});
+
+	it('never puts two small lines under one written line', async () => {
+		renderRecipe(solo({}, undefined, CONVERTED));
+		await screen.findByText('3 tbsp Ketchup');
+
+		for (const line of Array.from(document.querySelectorAll('ul li'))) {
+			expect(line.querySelectorAll('.text-read').length).toBeLessThanOrEqual(1);
+		}
+	});
+
+	it('offers an oven temperature beside a Step and never inside its sentence', async () => {
+		renderRecipe(solo({}, undefined, CONVERTED));
+
+		// The ladder's answer is an addition beside the sentence: a Step's truth
+		// is its text, and nothing here rewrites it (ADR 0016).
+		const step = await screen.findByText('Deep fry at 190 C until crisp.');
+		const converted = screen.getByText('about 375 °F');
+		expect(step.closest('li')).toBe(converted.closest('li'));
+		expect(converted).toHaveClass('text-read');
+		expect(step.textContent).toBe('Deep fry at 190 C until crisp.');
+
+		// The step with no temperature is offered nothing at all.
+		const brine = screen.getByText('Brine the chicken overnight.').closest('li') as HTMLElement;
+		expect(brine.querySelector('.text-read')).toBeNull();
+	});
+
+	it('redraws the converted line the moment a Reading is corrected', async () => {
+		renderRecipe({
+			...solo({}, undefined, CONVERTED),
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: 'frying oil' },
+				measured: 'about 2⅛ cups',
+			},
+		});
+
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		await fireEvent.input(screen.getByLabelText(/What it is/i), {
+			target: { value: 'frying oil' },
+		});
+		await fireEvent.input(screen.getByLabelText(/^Amount$/i), { target: { value: '500' } });
+		await fireEvent.input(screen.getByLabelText(/^Unit$/i), { target: { value: 'ml' } });
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+
+		// The Core answered with the line the corrected Reading now produces, so
+		// the cook sees the new number rather than waiting for a refetch.
+		expect(await screen.findByText('about 2⅛ cups')).toBeInTheDocument();
+		expect(screen.queryByText('500 ml frying oil')).not.toBeInTheDocument();
 	});
 
 	it('shows a line with no Reading in full, and assumes no quantity anywhere', async () => {
@@ -720,6 +823,7 @@ describe('the recipe screen', () => {
 			set_reading: {
 				line_index: 2,
 				reading: { amount: '500', unit: 'ml', target: 'frying oil' },
+				measured: null,
 			},
 		});
 
@@ -753,7 +857,7 @@ describe('the recipe screen', () => {
 	it('clears a Reading entirely when Kamosu read nothing there', async () => {
 		const { kamosu } = renderRecipe({
 			...solo(),
-			set_reading: { line_index: 1, reading: null },
+			set_reading: { line_index: 1, reading: null, measured: null },
 		});
 
 		await fireEvent.click(await screen.findByText('1.4 kg whole chicken'));
@@ -824,6 +928,7 @@ describe('correcting a Reading beside a Divergence', () => {
 				set_reading: {
 					line_index: 0,
 					reading: { amount: '¾', unit: 'cup', target: 'potato starch' },
+					measured: null,
 				},
 			}),
 		);

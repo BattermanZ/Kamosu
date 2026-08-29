@@ -56,6 +56,15 @@ pub fn set_reading_preferences(
     Ok(json!({ "reading_language": language, "reading_measures": measures }))
 }
 
+pub fn get_reading_preferences(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.reading_preferences(&caller.person_id)
+}
+
 pub fn rename_person(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let name = input
         .get("name")

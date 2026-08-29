@@ -24,6 +24,7 @@ use crate::db::Db;
 use crate::jobs::{self, JobProgress, JobRecord};
 use crate::language::LANGUAGES;
 use crate::photographs;
+use crate::units;
 
 /// What went wrong with an Operation, in words a caller can act on. The Doors map
 /// these to their own transports; they never decide them.
@@ -590,6 +591,20 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot set reading preferences: {e}")))?;
             Ok(())
+        })
+    }
+
+    /// How this Person reads: the Language they read Kamosu in and the measures
+    /// they measure in. Held on the account rather than in a browser, so a cook
+    /// who switches to metric on her phone finds the recipe in metric on the
+    /// iPad on the worktop — and so an agent reading through the MCP door gets
+    /// the same answer the interface shows.
+    pub fn reading_preferences(&self, person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            Ok(json!({
+                "reading_language": reading_language_of(conn, person_id)?,
+                "reading_measures": reading_measures_of(conn, person_id)?,
+            }))
         })
     }
 
@@ -2821,7 +2836,13 @@ impl Core {
             // A Reading never sits inside `content` (ADR 0021), so it is
             // fetched separately here and laid alongside it: one slot per
             // Ingredient Line, null wherever no Reading has been recorded.
+            //
+            // How this Person reads is read once here rather than per Version:
+            // it is a fact about the reader, and a long-edited recipe has many
+            // Versions.
+            let reader = Reader::of(conn, person_id)?;
             for version in &mut versions {
+                let scale = cooking_scale(conn, &lineage_id, person_id, &version["content"])?;
                 let version_id = version["version_id"]
                     .as_str()
                     .expect("version_id is always a string")
@@ -2831,6 +2852,12 @@ impl Core {
                     .map(Vec::len)
                     .unwrap_or(0);
                 version["readings"] = json!(readings_for_version(conn, &version_id, line_count)?);
+                // The one subordinate line each of those Readings produces for
+                // THIS reader — scaling and conversion in one slot (ADR 0016,
+                // #49). A recipe being read rather than cooked is at the Yield
+                // as written, which is a scale of one.
+                version["measured"] =
+                    measured_for_version(conn, &version["content"], &version_id, &reader, scale)?;
             }
 
             Ok(json!({
@@ -3086,8 +3113,21 @@ impl Core {
             Ok(json!({
                 "lineage_id": mine.lineage_id,
                 "branch_point_version_id": branch_point_id,
-                "mine": mine.to_json(conn, &content_mine)?,
-                "theirs": theirs.to_json(conn, &content_theirs)?,
+                // Each side scales to its OWN written Yield: the two Branches
+                // may disagree about it, and the cook is making one number of
+                // servings either way.
+                "mine": mine.to_json(
+                    conn,
+                    &content_mine,
+                    person_id,
+                    cooking_scale(conn, &mine.lineage_id, person_id, &content_mine)?,
+                )?,
+                "theirs": theirs.to_json(
+                    conn,
+                    &content_theirs,
+                    person_id,
+                    cooking_scale(conn, &theirs.lineage_id, person_id, &content_theirs)?,
+                )?,
                 "ingredients": rows("ingredients"),
                 "steps": rows("steps"),
                 "fields": {
@@ -3132,13 +3172,13 @@ impl Core {
             return Err(OpError::bad_request("line_index must be zero or more"));
         }
         self.db().with_conn(|conn| {
-            let (kitchen_id, language, head_version_id, content): (String, String, String, String) = conn
+            let (kitchen_id, language, head_version_id, content, lineage_id): (String, String, String, String, String) = conn
                 .query_row(
-                    "SELECT branches.kitchen_id, branches.language, branches.head_version_id, versions.content \
+                    "SELECT branches.kitchen_id, branches.language, branches.head_version_id, versions.content, branches.lineage_id \
                        FROM branches JOIN versions ON versions.id = branches.head_version_id \
                       WHERE branches.id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
@@ -3166,7 +3206,13 @@ impl Core {
                     params![head_version_id, line_index],
                 )
                 .map_err(|e| OpError::internal(format!("cannot clear Reading: {e}")))?;
-                return Ok(json!({ "line_index": line_index, "reading": Value::Null }));
+                // A cleared Reading has nothing left to measure, so the line
+                // beneath goes with it.
+                return Ok(json!({
+                    "line_index": line_index,
+                    "reading": Value::Null,
+                    "measured": Value::Null,
+                }));
             }
 
             let food_id = target
@@ -3191,9 +3237,22 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot save Reading: {e}")))?;
 
+            // The corrected Reading's own subordinate line, worked out here
+            // rather than left for the next fetch — the moment somebody tells
+            // Kamosu it misread a line is the moment they want to see what the
+            // corrected line now says (#49).
+            let measured = measured_for_line(
+                conn,
+                &head_version_id,
+                line_index,
+                &Reader::of(conn, person_id)?,
+                cooking_scale(conn, &lineage_id, person_id, &content)?,
+            )?;
+
             Ok(json!({
                 "line_index": line_index,
                 "reading": { "amount": amount, "unit": unit, "target": target },
+                "measured": measured,
             }))
         })
     }
@@ -4209,6 +4268,246 @@ fn readings_for_version(
     Ok(slots)
 }
 
+/// **The one subordinate line under each Ingredient Line and Step**, worked out
+/// in the Core so both Doors get it and an agent asked *how much flour in
+/// grams* answers correctly for free (ADR 0016, ADR 0001).
+///
+/// One slot per line, in the same order, `null` wherever there is nothing to
+/// say — which is the common case. It is nothing where Kamosu read no
+/// quantity, where the quantity could not be read, and where the line is
+/// already in this reader's measures at the Yield they are reading, so a line
+/// would only repeat what is already above it.
+///
+/// `scale` is how far the Yield being cooked is from the Yield as written; a
+/// recipe being read rather than cooked is 1.0. Scaling and conversion are one
+/// act and share this one slot, so the reader never has to work out which of
+/// the two happened.
+///
+/// Nothing here is stored. Reading Measures is a preference: changing it makes
+/// no Version and writes nothing (ADR 0016).
+fn measured_for_version(
+    conn: &Connection,
+    content: &Value,
+    version_id: &str,
+    reader: &Reader,
+    scale: f64,
+) -> Result<Value, OpError> {
+    let Reader { language, measures } = reader;
+    let measures = *measures;
+
+    let no_lines = Vec::new();
+    let ingredient_lines = content["ingredients"].as_array().unwrap_or(&no_lines);
+    let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
+
+    let mut ingredients = vec![Value::Null; ingredient_lines.len()];
+    for reading in readings_to_measure(conn, version_id)? {
+        let Measurable {
+            line_index,
+            amount,
+            unit,
+            cup_weight,
+        } = reading;
+        if let Some(slot) = usize::try_from(line_index)
+            .ok()
+            .and_then(|index| ingredients.get_mut(index))
+        {
+            *slot = Measurable {
+                line_index,
+                amount,
+                unit,
+                cup_weight,
+            }
+            .worded(reader, scale);
+        }
+    }
+
+    // A Step's truth is its text, so a temperature in the other system is an
+    // addition beside the sentence and never written into it (CONTEXT.md). A
+    // step that already carries both — 20 of the 39 real steps with a
+    // temperature do — is left alone.
+    let steps: Vec<Value> = step_lines
+        .iter()
+        .map(|line| {
+            if line["kind"] != "step" {
+                return Value::Null;
+            }
+            line["text"]
+                .as_str()
+                .and_then(|text| units::step_temperature(text, measures, language))
+                .map_or(Value::Null, Value::from)
+        })
+        .collect();
+
+    Ok(json!({ "ingredients": ingredients, "steps": steps }))
+}
+
+/// Every Reading on a Version that could carry a measurement, with the
+/// effective Cup Weight of the Food it points at.
+///
+/// **Effective** is the whole point: the figure somebody set on the Food wins,
+/// and the shipped staples table answers where nobody has (ADR 0016 — "an
+/// override always beats the shipped figure"). The Food's own names are what
+/// the shipped table is searched by, with the Reading's bare target word as a
+/// fallback for a Reading that resolved to no Food at all.
+fn readings_to_measure(conn: &Connection, version_id: &str) -> Result<Vec<Measurable>, OpError> {
+    // char(31), the ASCII unit separator, joins a Food's names: it is a control
+    // character, so no name a cook could type contains one.
+    let mut statement = conn
+        .prepare(
+            "SELECT readings.line_index, readings.amount, readings.unit, readings.target, \
+                    foods.cup_weight_grams, \
+                    (SELECT group_concat(food_names.name, char(31)) FROM food_names \
+                      WHERE food_names.food_id = readings.food_id) \
+               FROM readings LEFT JOIN foods ON foods.id = readings.food_id \
+              WHERE readings.version_id = ?1",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Readings to measure: {e}")))?;
+    let rows = statement
+        .query_map(params![version_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<f64>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read Readings to measure: {e}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Readings to measure: {e}")))?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(line_index, amount, unit, target, override_weight, names)| {
+                let cup_weight = override_weight.or_else(|| {
+                    let names = names.unwrap_or_default();
+                    units::shipped_cup_weight(
+                        names
+                            .split('\u{1f}')
+                            .chain(target.as_deref())
+                            .filter(|name| !name.is_empty()),
+                    )
+                });
+                Measurable {
+                    line_index,
+                    amount,
+                    unit,
+                    cup_weight,
+                }
+            },
+        )
+        .collect())
+}
+
+/// How one Person reads: the Language they read in and the measures they
+/// measure in, fetched once and carried. Both are wanted together everywhere a
+/// subordinate line is worded, and a recipe has as many Versions as it has been
+/// edited — reading the account row inside that loop would be two queries per
+/// Version to answer a question about the reader, who does not change.
+struct Reader {
+    language: String,
+    measures: units::Measures,
+}
+
+impl Reader {
+    fn of(conn: &Connection, person_id: &str) -> Result<Self, OpError> {
+        Ok(Self {
+            language: reading_language_of(conn, person_id)?,
+            measures: units::Measures::from_stored(&reading_measures_of(conn, person_id)?),
+        })
+    }
+}
+
+/// One Reading that might carry a measurement, with the effective Cup Weight of
+/// the Food it points at.
+struct Measurable {
+    line_index: i64,
+    amount: Option<String>,
+    unit: Option<String>,
+    cup_weight: Option<f64>,
+}
+
+impl Measurable {
+    /// The one subordinate line this Reading produces for one reader, or null.
+    fn worded(&self, reader: &Reader, scale: f64) -> Value {
+        units::measured_line(
+            self.amount.as_deref(),
+            self.unit.as_deref(),
+            scale,
+            reader.measures,
+            &reader.language,
+            self.cup_weight,
+        )
+        .map_or(Value::Null, Value::from)
+    }
+}
+
+/// **How far the Yield being cooked is from the Yield as written**, or 1.0.
+///
+/// ADR 0016 says the subordinate line is "scaled to the Yield being cooked",
+/// and the Yield being cooked is a fact held on this cook's own In Progress
+/// Attempt — where the cooking screen (#61) will later set it, and where two
+/// devices cooking one dish already read it from. Nothing is asked of the
+/// reader and nothing is stored on the recipe: a cook who has told Kamosu she
+/// is making eight instead of four simply finds the amounts doubled while that
+/// cooking is open, and finds them as written again once it ends.
+///
+/// It is 1.0 for every recipe merely being read, and 1.0 whenever the two
+/// Yields cannot honestly be compared: a Yield nobody wrote, an amount that is
+/// not a number (`a dozen`), or two different nouns — four *servings* against
+/// two *loaves* is not a ratio, and inventing one would put a wrong number on a
+/// worktop.
+fn cooking_scale(
+    conn: &Connection,
+    lineage_id: &str,
+    person_id: &str,
+    content: &Value,
+) -> Result<f64, OpError> {
+    let Some(attempt) = in_progress_attempt(conn, lineage_id, person_id)? else {
+        return Ok(1.0);
+    };
+    let cooking = &attempt["cooking_yield"];
+    let written = &content["yield"];
+    let same_noun = cooking["noun"].as_str() == written["noun"].as_str();
+    let cooking_amount = cooking["amount"].as_str().and_then(units::parse_amount);
+    let written_amount = written["amount"].as_str().and_then(units::parse_amount);
+    match (same_noun, cooking_amount, written_amount) {
+        (true, Some(cooking), Some(written)) if written > 0.0 && cooking > 0.0 => {
+            Ok(cooking / written)
+        }
+        _ => Ok(1.0),
+    }
+}
+
+/// The subordinate line for ONE Ingredient Line — what `set_reading` answers
+/// with, so a corrected Reading redraws its own row without Kamosu working out
+/// every other line of the recipe to throw them away.
+fn measured_for_line(
+    conn: &Connection,
+    version_id: &str,
+    line_index: i64,
+    reader: &Reader,
+    scale: f64,
+) -> Result<Value, OpError> {
+    Ok(readings_to_measure(conn, version_id)?
+        .iter()
+        .find(|reading| reading.line_index == line_index)
+        .map_or(Value::Null, |reading| reading.worded(reader, scale)))
+}
+
+/// How this Person measures, as stored on their account. The default is
+/// American, a stated convention rather than a guess about anybody (ADR 0016).
+fn reading_measures_of(conn: &Connection, person_id: &str) -> Result<String, OpError> {
+    conn.query_row(
+        "SELECT reading_measures FROM people WHERE id = ?1",
+        params![person_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Reading Measures: {e}")))
+}
+
 /// How long a gap between saves on the same Branch, by the same Hand, still
 /// collapses into the Version already being shaped rather than starting a
 /// new one. Chosen at an hour: a save is a deliberate act, never periodic
@@ -4902,7 +5201,13 @@ impl BranchHead {
     /// standing in, and the Readings for the lines it actually has. A Reading
     /// never sits inside content (ADR 0021), so it is fetched and laid
     /// alongside — one slot per Ingredient Line, null wherever none is recorded.
-    fn to_json(&self, conn: &Connection, content: &Value) -> Result<Value, OpError> {
+    fn to_json(
+        &self,
+        conn: &Connection,
+        content: &Value,
+        person_id: &str,
+        scale: f64,
+    ) -> Result<Value, OpError> {
         let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
         Ok(json!({
             "branch_id": self.branch_id,
@@ -4913,6 +5218,16 @@ impl BranchHead {
             "head_version_id": self.head_version_id,
             "content": content.clone(),
             "readings": readings_for_version(conn, &self.head_version_id, line_count)?,
+            // Both sides of the switch carry the measured line too, so a line
+            // read while marking a Divergence says exactly what the same line
+            // says on the recipe page.
+            "measured": measured_for_version(
+                conn,
+                content,
+                &self.head_version_id,
+                &Reader::of(conn, person_id)?,
+                scale,
+            )?,
         }))
     }
 }
