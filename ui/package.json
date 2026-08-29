@@ -11,6 +11,7 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings --watch",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "lint": "eslint --max-warnings 0 .",
     "test": "vitest run",
     "test:watch": "vitest",
     "css": "tailwindcss -i ./src/app.css -o \"${CSS_OUT:-../assets/app.css}\"",
@@ -19,6 +20,7 @@
     "manifest": "node ./generate-manifest.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@inlang/paraglide-js": "^2.18.2",
     "@resvg/resvg-js": "^2.6.2",
     "@sveltejs/adapter-static": "^3.0.10",
@@ -30,6 +32,10 @@
     "@testing-library/svelte": "^5.4.2",
     "@testing-library/user-event": "^14.6.6",
     "@types/node": "^26.3.0",
+    "eslint": "^10.9.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-svelte": "^3.23.0",
+    "globals": "^17.11.0",
     "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
     "prettier-plugin-svelte": "^4.1.1",
@@ -38,6 +44,7 @@
     "svelte-check": "^4.6.0",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.68.0",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"
   },

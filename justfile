@@ -203,7 +203,7 @@ ui-test:
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
 # the build fails if what is committed has drifted from ui/.
-check: _check-tokens-fresh _check-client-fresh ui-format-check ui-check
+check: _check-tokens-fresh _check-client-fresh ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
@@ -224,6 +224,18 @@ ui-format-check:
     set -euo pipefail
     just _npm-deps
     cd ui && npm run --silent format:check
+
+# ESLint over the interface — the Svelte half of `cargo clippy`, and held to the
+# same standard: `--max-warnings 0`, so a warning fails the build exactly like
+# `-D warnings` does on the Rust side. Deliberately a narrow net, because
+# svelte-check and a strict tsconfig already catch most of it; what is left is
+# the part a type checker cannot see. Configured in ui/eslint.config.js, where
+# the two rules Kamosu turns off are explained.
+ui-lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    cd ui && npm run --silent lint
 
 # Apply what ui-format-check reports. The Rust equivalent is `cargo fmt`, which
 # has no recipe here because nothing but the formatter ever needs to run it —

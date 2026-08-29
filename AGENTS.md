@@ -79,7 +79,7 @@ Everything runs through `just` at the repo root — never a hand-rolled
 `cargo run &`, which leaks a process holding the port.
 
 ```sh
-just check      # fmt + clippy + prettier + svelte-check + the two freshness gates (below)
+just check      # fmt + clippy + prettier + eslint + svelte-check + the two freshness gates (below)
 just test       # the behaviour suite (real Operations, real SQLite) + the screen tests
 just format     # apply Prettier to ui/ — the Svelte half of `cargo fmt`
 just css        # regenerate assets/app.css and the icon PNGs from ui/ (their source)
@@ -109,6 +109,13 @@ excludes are worth knowing before you try to "fix" them: the generated files,
 because `just check` compares them byte-for-byte against a fresh regeneration,
 and `ui/src/app.css`, because Tailwind passes that file's indentation through
 into the compiled stylesheet that ships.
+
+**Lints are held to the same standard in both languages** — `cargo clippy -D
+warnings` for Rust, `eslint --max-warnings 0` for `ui/`. The ESLint net is
+deliberately narrow, because svelte-check and a strict `tsconfig` already catch
+most of what it would: what is left is the part a type checker cannot see.
+`ui/eslint.config.js` explains the two Svelte rules Kamosu turns off and what
+each was guarding — read the reasoning before turning either back on.
 
 ## Design tokens
 
