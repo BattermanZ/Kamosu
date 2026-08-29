@@ -5,6 +5,23 @@
 
 use std::io::{Read, Write};
 use std::net::SocketAddr;
+use std::time::Duration;
+
+/// How long to wait for a reply before calling the server hung.
+///
+/// Two different questions wear this name, so there are two answers. A
+/// healthcheck asks "is this process still answering at all", where seconds of
+/// silence already means no. A Photograph upload asks the server to decode a
+/// camera-original picture and re-encode it to WebP (ADR 0017) — real work on
+/// megabytes, and slower again in an unoptimised build — where a few seconds
+/// of silence means nothing is wrong at all.
+///
+/// Sharing one number between them is what made `tests/photographs_corpus.rs`
+/// unpassable on any machine: the corpus holds a 7.35 MB photograph, and the
+/// upload it asks for is honest work that simply takes longer than a
+/// healthcheck may wait.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub struct Response {
     pub status: u16,
@@ -43,6 +60,7 @@ pub fn post_json(
         path,
         bearer,
         Some(("application/json", body.as_bytes())),
+        REPLY_TIMEOUT,
     )
 }
 
@@ -56,12 +74,21 @@ pub fn post_bytes(
     content_type: &str,
     body: &[u8],
 ) -> std::io::Result<Response> {
-    request(addr, "POST", path, bearer, Some((content_type, body)))
+    // The picture path, and the one place the server does heavy work before it
+    // can answer.
+    request(
+        addr,
+        "POST",
+        path,
+        bearer,
+        Some((content_type, body)),
+        UPLOAD_TIMEOUT,
+    )
 }
 
 /// GET one resource and read one response, bytes intact.
 pub fn get(addr: SocketAddr, path: &str) -> std::io::Result<Response> {
-    request(addr, "GET", path, None, None)
+    request(addr, "GET", path, None, None, REPLY_TIMEOUT)
 }
 
 /// GET one resource with a Credential — a Photograph download is
@@ -72,7 +99,9 @@ pub fn get_with_bearer(
     path: &str,
     bearer: Option<&str>,
 ) -> std::io::Result<Response> {
-    request(addr, "GET", path, bearer, None)
+    // A Display Copy is generated on first ask (ADR 0017), so the first GET of
+    // one is the same kind of work an upload is.
+    request(addr, "GET", path, bearer, None, UPLOAD_TIMEOUT)
 }
 
 fn request(
@@ -81,9 +110,10 @@ fn request(
     path: &str,
     bearer: Option<&str>,
     body: Option<(&str, &[u8])>,
+    timeout: Duration,
 ) -> std::io::Result<Response> {
     let mut stream = std::net::TcpStream::connect(addr)?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+    stream.set_read_timeout(Some(timeout))?;
 
     let mut head = format!("{method} {path} HTTP/1.1\r\nHost: {}\r\n", addr);
     if let Some((content_type, content)) = body {

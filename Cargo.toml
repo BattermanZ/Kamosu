@@ -40,3 +40,12 @@ test-jobs = []
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
 zip = "8.6.0"
+
+# Dependencies are compiled optimised even in a debug build; Kamosu's own crate
+# is not. Re-encoding a camera-original photograph runs through `image` and
+# `webp`, and unoptimised those take twenty-two seconds for one 7 MB picture —
+# past the test client's read timeout, which is why the Photograph corpus check
+# could not pass on any machine. Optimising only the dependencies keeps our own
+# code fully debuggable and costs one slower build of libraries that then cache.
+[profile.dev.package."*"]
+opt-level = 2
