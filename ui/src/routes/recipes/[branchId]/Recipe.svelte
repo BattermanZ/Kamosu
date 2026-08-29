@@ -16,9 +16,30 @@
 	Which line is which is read against the Branch Point by the `divergence`
 	Operation (ADR 0019). Nothing here pairs anything, and no line carries an id.
 
-	The page's own layout — hero, meta row, how the lists are set — is #81's
-	decision, not this screen's. What is settled here is the switch, the Ghost,
-	and putting the marking away.
+	THE PAGE'S OWN LAYOUT was chosen by Aurélien on 29 August 2026 against three
+	full mockups drawn on real recipes, and the reasoning is on #81 rather than
+	repeated here. What it settled:
+
+	  · the hero is the photograph at 320px with the title standing ON it, over
+	    an indigo wash — near-solid at the hem, so the title is readable over a
+	    photograph whose colours nobody chose;
+	  · with no photograph the Cover leads and carries the title the same way,
+	    bare, because its dye was chosen and needs no wash (#46). Only the 10.5px
+	    Source line cannot clear the contrast bar there, so on a Cover it is set
+	    on paper beneath the hero instead;
+	  · the meta is one full-bleed ruled strip of three cells;
+	  · an Ingredient Line is a hairline-ruled row led by a small indigo square,
+	    its Reading subordinate beneath it;
+	  · a Step is a number in a narrow column, in indigo, and the step at body
+	    size;
+	  · a Section, in either list, is the quiet uppercase heading over a rule.
+
+	The Reading is also CORRECTED here, in place, on the line it belongs to (#32
+	item 193) — see `Correcting.svelte`, which owns why that makes no Version.
+
+	No mark distinguishes a line Kamosu read from one it did not (ADR 0002): the
+	Reading is simply there or it is not. A badge that fires sometimes teaches
+	people it fires always.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -29,6 +50,7 @@
 	import { ratingLabel } from '$lib/rating';
 	import Threshold from './Threshold.svelte';
 	import MarkedRow from './MarkedRow.svelte';
+	import Correcting from './Correcting.svelte';
 	import {
 		prose,
 		draftVersion,
@@ -112,6 +134,53 @@
 	const content = $derived(here?.content ?? recipe?.versions.at(-1)?.content);
 	const readings = $derived(here?.readings ?? recipe?.versions.at(-1)?.readings ?? []);
 
+	// ---- correcting a Reading --------------------------------------------
+
+	/** One slot of `readings`: what Kamosu understood of a line, or nothing. */
+	type Slot = GetRecipeOutput['versions'][number]['readings'][number];
+
+	/** Which Ingredient Line has the corrector open, by index into the list. */
+	let correcting = $state<number | null>(null);
+	/**
+	 * Readings corrected here, laid over what was fetched. `set_reading` makes
+	 * no Version, so there is nothing to refetch and nothing that would show up
+	 * in the Thread — the line simply reads differently from now on.
+	 */
+	let fixed = $state(new Map<number, Slot>());
+
+	/**
+	 * The Reading on one line, with anything corrected here laid over it.
+	 *
+	 * The overlay is consulted only while standing in your own recipe. It is
+	 * keyed by line index, and the two Branches have their own lists — so on
+	 * the other side index 2 is a different ingredient entirely, and reading
+	 * through the overlay there would put your correction on their line.
+	 */
+	const readingAt = (index: number): Slot =>
+		side === 'mine' && fixed.has(index) ? (fixed.get(index) ?? null) : (readings[index] ?? null);
+
+	/**
+	 * A Reading is corrected only on your own Branch. Standing in the other
+	 * Kitchen's recipe you are reading it, not keeping it: their Branch is
+	 * theirs and nothing on this screen writes into it (ADR 0007).
+	 *
+	 * This is the whole of the rule. A marked row reaches the corrector too,
+	 * through a second target inside its unfolded panel rather than through its
+	 * own tap — see `MarkedRow`'s `onFixReading`.
+	 */
+	const correctable = $derived(side === 'mine');
+
+	function toggleCorrector(index: number) {
+		correcting = correcting === index ? null : index;
+	}
+
+	function corrected(index: number, reading: Slot) {
+		const next = new Map(fixed);
+		next.set(index, reading);
+		fixed = next;
+		correcting = null;
+	}
+
 	const unshared = $derived(
 		divergence
 			? [...divergence.ingredients, ...divergence.steps].filter((row) => row.state !== 'same')
@@ -139,14 +208,19 @@
 			: m.divergence_field_differs({ kitchen: otherKitchen, value });
 	}
 
+	// Crossing over, and putting the marking away, both rebuild the list from a
+	// different set of rows — so an open panel would reopen on whatever line
+	// happens to land at that index. Both gestures close everything first.
 	function cross() {
 		side = side === 'mine' ? 'theirs' : 'mine';
 		open = new Set();
+		correcting = null;
 	}
 
 	function toggleMarks() {
 		marks = !marks;
 		open = new Set();
+		correcting = null;
 	}
 
 	function toggle(key: string) {
@@ -177,6 +251,10 @@
 			taken = new Map();
 			saving = false;
 			saved = 'yes';
+			// A new Version can move a line's index, and both of these are keyed
+			// by index. Neither survives the save.
+			correcting = null;
+			fixed = new Map();
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			saved = 'failed';
@@ -216,63 +294,134 @@
 			What leads the recipe: its Main Photo, or — for the roughly one
 			recipe in three that has none — its Cover (#46). A Cover is not a
 			placeholder for a missing picture; it is what a recipe without one
-			wears. How this hero is framed is #81's decision; that it is one of
-			these two things is #46's.
+			wears. That it is one of these two things is #46's; that the title
+			stands on whichever it is, is #81's.
 		-->
 		{#if recipe}
-			<div class="mb-1">
+			<div class="relative overflow-hidden">
 				{#if content.main_photo}
 					<img
 						src="/api/photographs/{content.main_photo}/page"
 						alt=""
-						class="w-full object-cover"
+						class="block w-full object-cover"
 						style="height: var(--hero-h)"
 					/>
+					<!-- The wash. A photograph's colours are nobody's choice, so
+					     the title is given ground of its own rather than hoping. -->
+					<div class="wash pointer-events-none absolute inset-x-0 bottom-0"></div>
 				{:else}
-					<Cover lineageId={recipe.lineage_id} title={content.title} />
+					<Cover lineageId={recipe.lineage_id} title={content.title} band={false} />
 				{/if}
+				<div class="absolute inset-x-0 bottom-0 px-gutter pt-8 pb-4">
+					{#if content.main_photo && content.source}
+						<p class="text-label text-on-accent uppercase">
+							{m.recipe_from_source({ source: content.source.text })}
+						</p>
+					{/if}
+					<h1 class="mt-1 font-display text-title font-semibold text-on-accent">{content.title}</h1>
+				</div>
 			</div>
 		{/if}
 
-		<div class="px-gutter pt-4">
-			{#if content.source}
-				<p class="text-label text-ink-2 uppercase">
-					{m.recipe_from_source({ source: content.source.text })}
-				</p>
-			{/if}
-			{#if markOf('source')}
-				<p class="text-read text-accent">{markOf('source')}</p>
-			{/if}
-			<h1 class="mt-1 font-display text-title font-semibold">{content.title}</h1>
-			{#if markOf('title')}
-				<p class="mt-1 text-read text-accent">{markOf('title')}</p>
-			{/if}
-			<div class="mt-4 flex gap-6">
+		<!--
+			On a Cover the hero carries the title alone: kinari over the pasta
+			shape measures 3.9:1, which the 27px title clears and 10.5px text
+			does not. So the Source is set here instead, on paper.
+		-->
+		{#if content.source && !content.main_photo}
+			<p class="px-gutter pt-3 text-label text-ink-2 uppercase">
+				{m.recipe_from_source({ source: content.source.text })}
+			</p>
+		{/if}
+		{#if markOf('source')}
+			<p class="px-gutter pt-2 text-read text-accent">{markOf('source')}</p>
+		{/if}
+		{#if markOf('title')}
+			<p class="px-gutter pt-2 text-read text-accent">{markOf('title')}</p>
+		{/if}
+
+		<!-- The meta: one full-bleed strip, three cells, hairlines between. -->
+		{#if content.prep_time_minutes !== null || content.cook_time_minutes !== null || content.yield}
+			<div class="mt-4 flex border-y border-rule">
 				{#if content.prep_time_minutes !== null}
-					<div class="flex flex-col">
-						<b class="font-display text-panel-figure font-semibold">{content.prep_time_minutes}</b>
-						<span class="text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
+					<div class="flex-1 px-2 py-3 text-center">
+						<b class="block font-display text-panel-figure font-semibold">
+							{content.prep_time_minutes}
+						</b>
+						<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
 					</div>
 				{/if}
 				{#if content.cook_time_minutes !== null}
-					<div class="flex flex-col">
-						<b class="font-display text-panel-figure font-semibold">{content.cook_time_minutes}</b>
-						<span class="text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
+					<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
+						<b class="block font-display text-panel-figure font-semibold">
+							{content.cook_time_minutes}
+						</b>
+						<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
 					</div>
 				{/if}
 				{#if content.yield}
-					<div class="flex flex-col">
-						<b class="font-display text-panel-figure font-semibold">{content.yield.amount}</b>
-						<span class="text-label text-ink-2 uppercase">{content.yield.noun}</span>
+					<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
+						<b class="block font-display text-panel-figure font-semibold">
+							{content.yield.amount}
+						</b>
+						<span class="mt-1 block text-label text-ink-2 uppercase">{content.yield.noun}</span>
 					</div>
 				{/if}
 			</div>
-			{#each ['prep_time_minutes', 'cook_time_minutes', 'yield'] as const as name (name)}
-				{#if markOf(name)}
-					<p class="mt-1 text-read text-accent">{markOf(name)}</p>
-				{/if}
-			{/each}
-		</div>
+		{/if}
+		{#each ['prep_time_minutes', 'cook_time_minutes', 'yield'] as const as name (name)}
+			{#if markOf(name)}
+				<p class="mt-1 px-gutter text-read text-accent">{markOf(name)}</p>
+			{/if}
+		{/each}
+
+		<!--
+			One Ingredient Line, marked or not — the same row either way, because
+			a list a cook shops from must keep one rhythm whether or not a second
+			Branch happens to exist. `at` is the line's index into the written
+			list, or -1 for a row with no line of its own to correct.
+		-->
+		{#snippet ingredientLine(text: string, at: number)}
+			{@const readable = correctable && at >= 0}
+			<li class="flex gap-3 border-b border-rule py-3">
+				<span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
+				<div class="min-w-0 flex-1">
+					{#if readable}
+						<button
+							type="button"
+							class="block w-full text-left"
+							aria-expanded={correcting === at}
+							onclick={() => toggleCorrector(at)}
+						>
+							{@render written(text, at)}
+						</button>
+					{:else}
+						{@render written(text, at)}
+					{/if}
+					{#if readable && correcting === at}
+						<Correcting
+							{branchId}
+							lineIndex={at}
+							reading={readingAt(at)}
+							onDone={(next) => corrected(at, next)}
+							onCancel={() => (correcting = null)}
+						/>
+					{/if}
+				</div>
+			</li>
+		{/snippet}
+
+		<!--
+			The written Line, and beneath it what Kamosu read from it — smaller,
+			subordinate, and simply absent where there is no Reading. Nothing
+			here says which of the two happened (ADR 0002).
+		-->
+		{#snippet written(text: string, at: number)}
+			<span class="block text-line">{text}</span>
+			{#if at >= 0 && reading(readingAt(at))}
+				<span class="block text-read text-ink-2">{reading(readingAt(at))}</span>
+			{/if}
+		{/snippet}
 
 		<!-- Ingredients ------------------------------------------------------ -->
 		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
@@ -284,42 +433,46 @@
 					{@const key = rowKey('ingredients', index)}
 					{@const own = side === 'mine' ? row.mine : row.theirs}
 					{#if row.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
-							{(own ?? row.mine ?? row.theirs)?.text}
+						<li class="border-b border-rule py-4 pb-1">
+							<h3 class="font-display text-label text-ink-2 uppercase">
+								{(own ?? row.mine ?? row.theirs)?.text}
+							</h3>
 						</li>
 					{:else if row.state === 'same'}
-						<li class="border-b border-rule py-2">
-							<span class="block text-line">{own?.text}</span>
-							{#if own && reading(readings[own.index])}
-								<span class="block text-read text-ink-2">{reading(readings[own.index])}</span>
-							{/if}
-						</li>
+						{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
 					{:else}
 						<MarkedRow
 							{row}
 							{side}
 							{otherKitchen}
-							readingText={own ? reading(readings[own.index]) : ''}
+							readingText={own ? reading(readingAt(own.index)) : ''}
 							open={open.has(key)}
 							taken={taken.get(key)}
 							onToggle={() => toggle(key)}
 							onCarry={(what) => carry(key, what)}
+							onFixReading={correctable && own ? () => toggleCorrector(own.index) : undefined}
 						/>
+						{#if correctable && own && correcting === own.index}
+							<li class="border-b border-rule pb-3 pl-3">
+								<Correcting
+									{branchId}
+									lineIndex={own.index}
+									reading={readingAt(own.index)}
+									onDone={(next) => corrected(own.index, next)}
+									onCancel={() => (correcting = null)}
+								/>
+							</li>
+						{/if}
 					{/if}
 				{/each}
 			{:else}
 				{#each content.ingredients as item, index (index)}
 					{#if item.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
-							{item.text}
+						<li class="border-b border-rule py-4 pb-1">
+							<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
 						</li>
 					{:else}
-						<li class="border-b border-rule py-2">
-							<span class="block text-line">{item.text}</span>
-							{#if reading(readings[index])}
-								<span class="block text-read text-ink-2">{reading(readings[index])}</span>
-							{/if}
-						</li>
+						{@render ingredientLine(item.text, index)}
 					{/if}
 				{/each}
 			{/if}
@@ -337,8 +490,10 @@
 					{@const own = side === 'mine' ? row.mine : row.theirs}
 					{@const n = number(!own)}
 					{#if row.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
-							{(own ?? row.mine ?? row.theirs)?.text}
+						<li class="border-b border-rule py-4 pb-1">
+							<h3 class="font-display text-label text-ink-2 uppercase">
+								{(own ?? row.mine ?? row.theirs)?.text}
+							</h3>
 						</li>
 					{:else if row.state === 'same'}
 						<li class="flex gap-3 border-b border-rule py-3">
@@ -362,8 +517,8 @@
 				{@const number = numbering()}
 				{#each content.steps as item, index (index)}
 					{#if item.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
-							{item.text}
+						<li class="border-b border-rule py-4 pb-1">
+							<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
 						</li>
 					{:else}
 						<li class="flex gap-3 border-b border-rule py-3">
@@ -378,7 +533,9 @@
 		</ol>
 
 		{#if content.note}
-			<div class="mt-5 mx-gutter border border-rule bg-card p-4 text-body">{content.note}</div>
+			<div class="mx-gutter mt-6 border-l-2 border-accent py-1 pl-4 text-body whitespace-pre-wrap">
+				{content.note}
+			</div>
 		{/if}
 		{#if markOf('note')}
 			<p class="mx-gutter mt-1 text-read text-accent">{markOf('note')}</p>
@@ -520,5 +677,26 @@
 	}
 	[data-side='theirs'] {
 		--whose: var(--color-support);
+	}
+
+	/* The wash under the title, in indigo rather than a neutral grey: the app's
+	   own colour, and near-solid at the hem so the title is readable over any
+	   photograph. Written with color-mix against the token so it cannot drift
+	   from the palette the way a pasted hex would.
+
+	   Its height and stops are fitted, not chosen by eye: over the worst
+	   backdrop a photograph can be — pure white — kinari must clear 3:1 at the
+	   27px title and 4.5:1 at the 10.5px Source line above it. A shorter wash
+	   left the Source at 3.5:1. Starting it higher, rather than making it
+	   darker, buys the contrast while keeping the fade as gentle at any given
+	   point as it already was. */
+	.wash {
+		height: 200px;
+		background: linear-gradient(
+			to bottom,
+			color-mix(in srgb, var(--color-accent) 0%, transparent) 0%,
+			color-mix(in srgb, var(--color-accent) 55%, transparent) 40%,
+			color-mix(in srgb, var(--color-accent) 95%, transparent) 100%
+		);
 	}
 </style>

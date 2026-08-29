@@ -12,7 +12,11 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
+import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
+
+/** One slot of a Version's `readings`: what Kamosu understood, or nothing. */
+type Slot = GetRecipeOutput['versions'][number]['readings'][number];
 
 const line = (text: string, index: number) => ({
 	kind: 'ingredient',
@@ -535,5 +539,330 @@ describe('the Cooked section', () => {
 
 		expect(await screen.findByText('Not cooked yet.')).toBeInTheDocument();
 		expect(screen.queryByText('Again')).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * The recipe screen itself (#81): the written Ingredient Line, its Reading,
+ * the Sections, correcting a Reading in place, and a recipe wearing none of
+ * the optional things.
+ *
+ * The layout was chosen by Aurélien on 29 August 2026 and the reasoning is on
+ * the issue. What is tested here is not how it looks but what ADR 0002 makes
+ * true of it: the written Line is the truth of the ingredient, a Reading is
+ * subordinate to it, a Reading may be absent, and nothing on the page marks
+ * which is which.
+ */
+describe('the recipe screen', () => {
+	const SECTIONED = [
+		{ kind: 'section' as const, text: 'Chicken' },
+		{ kind: 'ingredient' as const, text: '1.4 kg whole chicken' },
+		{ kind: 'ingredient' as const, text: 'Some cooking oil (for deep frying)' },
+		{ kind: 'section' as const, text: 'Sauce' },
+		{ kind: 'ingredient' as const, text: '3 tbsp Ketchup' },
+	];
+	const SECTIONED_STEPS = [
+		{ kind: 'section' as const, text: 'The day before', photo: null },
+		{ kind: 'step' as const, text: 'Brine the chicken overnight.', photo: null },
+		{ kind: 'section' as const, text: 'On the day', photo: null },
+		{ kind: 'step' as const, text: 'Deep fry at 190 C until crisp.', photo: null },
+	];
+
+	/**
+	 * One Branch, alone — no Divergence, which is the ordinary case. Two of the
+	 * three Ingredient Lines carry a Reading and one does not, because that
+	 * mixture is the thing ADR 0002 is about.
+	 *
+	 * Built as a real `GetRecipeOutput` rather than spread out of `forked()`
+	 * and cast: a cast here would be the one place in this file where the
+	 * Catalogue's shape stops being checked, which is the whole point of the
+	 * stand-in.
+	 */
+	function solo(content: Record<string, unknown> = {}, readings?: Slot[]): Answers {
+		const base = divergence().mine.content;
+		const recipe: GetRecipeOutput = {
+			branch_id: 'mine',
+			lineage_id: 'l_1',
+			kitchen_id: 'k_mine',
+			hand_id: 'h_mine',
+			language: 'en',
+			origin_address: null,
+			head_version_id: 'v_mine',
+			translation: null,
+			tags: [],
+			related_recipes: [],
+			cooked: { count: 0, last_cooked_at: null, ratings: [] },
+			versions: [
+				{
+					sequence: 1,
+					version_id: 'v_mine',
+					parent_version_id: null,
+					hand_id: 'h_mine',
+					name: null,
+					change_note: null,
+					created_at: '2026-08-09T00:00:00Z',
+					translates_version_id: null,
+					language: 'en',
+					content: {
+						...base,
+						ingredients: SECTIONED,
+						steps: SECTIONED_STEPS,
+						...content,
+					} as GetRecipeOutput['versions'][number]['content'],
+					// A Reading is what Kamosu understood OF the line, not a copy
+					// of it: it normalises the unit and names the Food. Sections
+					// carry none — `set_reading` refuses one on a section.
+					readings: readings ?? [
+						null,
+						{ amount: '1400', unit: 'g', target: 'chicken' },
+						null,
+						null,
+						{ amount: '3', unit: 'tbsp', target: 'ketchup' },
+					],
+				},
+			],
+		};
+		return {
+			get_recipe: recipe,
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [
+					{
+						branch_id: 'mine',
+						kitchen_id: 'k_mine',
+						hand_id: 'h_mine',
+						language: 'en',
+						head_version_id: 'v_mine',
+						translation: null,
+					},
+				],
+				versions: [],
+				attempts: [],
+			},
+		};
+	}
+
+	it('sets the written Line at full size with its Reading subordinate beneath it', async () => {
+		renderRecipe(solo());
+
+		// ADR 0002: the written line is the truth of the ingredient. The Reading
+		// is Kamosu's understanding OF it and is set beneath, smaller.
+		const line = await screen.findByText('1.4 kg whole chicken');
+		const read = screen.getByText('1400 g chicken');
+		expect(line).toBeInTheDocument();
+		expect(read).toHaveClass('text-read');
+		// One row, so the Reading belongs to that line and to no other.
+		expect(line.closest('li')).toBe(read.closest('li'));
+		// Subordinate means literally underneath it in the row, not beside it.
+		expect(read.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+	});
+
+	it('shows a line with no Reading in full, and assumes no quantity anywhere', async () => {
+		renderRecipe(solo());
+
+		// "Some cooking oil (for deep frying)" has no amount in it at all, and
+		// nothing read from it. ADR 0002: any code path that assumes a quantity
+		// exists is a bug — so the line is simply the line.
+		const line = await screen.findByText('Some cooking oil (for deep frying)');
+		expect(line).toBeInTheDocument();
+		const row = line.closest('li') as HTMLElement;
+		expect(row.querySelector('.text-read')).toBeNull();
+	});
+
+	it('puts no mark on a line Kamosu read, nor on one it did not', async () => {
+		renderRecipe(solo());
+		await screen.findByText('1.4 kg whole chicken');
+
+		// ADR 0002, and #44's own acceptance: a badge that fires sometimes
+		// teaches people it fires always. Read and unread rows differ only in
+		// whether a Reading is there to show.
+		const read = (screen.getByText('1.4 kg whole chicken') as HTMLElement).closest(
+			'li',
+		) as HTMLElement;
+		const unread = (screen.getByText('Some cooking oil (for deep frying)') as HTMLElement).closest(
+			'li',
+		) as HTMLElement;
+		expect(unread.className).toBe(read.className);
+
+		const page = document.body.textContent ?? '';
+		for (const badge of [
+			'unread',
+			'not read',
+			'unrecognised',
+			'unknown quantity',
+			'needs review',
+		]) {
+			expect(page.toLowerCase()).not.toContain(badge);
+		}
+	});
+
+	it('renders a Section in either list as a real heading, not as an ingredient', async () => {
+		renderRecipe(solo());
+
+		for (const heading of ['Chicken', 'Sauce', 'The day before', 'On the day']) {
+			expect(await screen.findByText(heading)).toBeInTheDocument();
+		}
+
+		// A Section is not a line of the list: it carries no marker, no Reading
+		// and — in the Method — no step number.
+		const sauce = (screen.getByText('Sauce') as HTMLElement).closest('li') as HTMLElement;
+		expect(sauce.querySelector('.text-read')).toBeNull();
+		// The two real steps are numbered 1 and 2; the Sections take no number.
+		const numbers = Array.from(document.querySelectorAll('ol li'))
+			.map((li) => li.querySelector('span')?.textContent?.trim())
+			.filter((text) => text && /^\d+$/.test(text));
+		expect(numbers).toEqual(['1', '2']);
+	});
+
+	it('corrects a Reading in place, through set_reading, making no Version', async () => {
+		const { kamosu } = renderRecipe({
+			...solo(),
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: 'frying oil' },
+			},
+		});
+
+		// #32 item 193: a bad Reading is a tap to fix on screen. The gesture is
+		// on the line itself, because that is what the Reading was read from.
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		const target = screen.getByLabelText(/What it is/i) as HTMLInputElement;
+		await fireEvent.input(target, { target: { value: 'frying oil' } });
+		await fireEvent.input(screen.getByLabelText(/^Amount$/i), { target: { value: '500' } });
+		await fireEvent.input(screen.getByLabelText(/^Unit$/i), { target: { value: 'ml' } });
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+
+		const sent = kamosu.calls.find((call) => call.operation === 'set_reading');
+		expect(sent?.input).toEqual({
+			branch_id: 'mine',
+			line_index: 2,
+			amount: '500',
+			unit: 'ml',
+			target: 'frying oil',
+		});
+
+		// Correcting a Reading is not an edit to the recipe: no Version is made,
+		// so it can never appear in the Thread as a change to the words.
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
+
+		// And you are still on the recipe — the correction landed under the line.
+		expect(await screen.findByText('500 ml frying oil')).toBeInTheDocument();
+		expect(screen.getByText('Some cooking oil (for deep frying)')).toBeInTheDocument();
+	});
+
+	it('clears a Reading entirely when Kamosu read nothing there', async () => {
+		const { kamosu } = renderRecipe({
+			...solo(),
+			set_reading: { line_index: 1, reading: null },
+		});
+
+		await fireEvent.click(await screen.findByText('1.4 kg whole chicken'));
+		await fireEvent.click(screen.getByRole('button', { name: /Kamosu read nothing here/i }));
+
+		// All three absent clears it: a line with no Reading is an ordinary
+		// state, not a failure.
+		expect(kamosu.calls.find((call) => call.operation === 'set_reading')?.input).toEqual({
+			branch_id: 'mine',
+			line_index: 1,
+			amount: null,
+			unit: null,
+			target: null,
+		});
+		expect(screen.queryByText('1400 g chicken')).not.toBeInTheDocument();
+		expect(screen.getByText('1.4 kg whole chicken')).toBeInTheDocument();
+	});
+
+	it('reads whole with no photo, no Yield, no times, no Note and no Source', async () => {
+		renderRecipe(
+			solo({
+				main_photo: null,
+				source: null,
+				note: null,
+				yield: null,
+				prep_time_minutes: null,
+				cook_time_minutes: null,
+			}),
+		);
+
+		// ADR 0002's degrade-gracefully rule reaches every optional field, not
+		// only the quantity: what is left is a whole, cookable recipe.
+		expect(await screen.findByText('1.4 kg whole chicken')).toBeInTheDocument();
+		expect(screen.getByText('Brine the chicken overnight.')).toBeInTheDocument();
+		expect(screen.getByRole('heading', { name: 'Korean Fried Chicken' })).toBeInTheDocument();
+
+		// Nothing is left standing empty where a field used to be.
+		expect(screen.queryByText(/min prep/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/min cook/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/^From /i)).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * Correcting a Reading where a Divergence is on the page. The gesture belongs
+ * to the recipe, not to the marking — but their Branch is theirs (ADR 0007),
+ * so it stops at the threshold.
+ */
+describe('correcting a Reading beside a Divergence', () => {
+	it('offers no corrector while you are standing in the other Kitchen’s recipe', async () => {
+		renderRecipe();
+		await screen.findByText('Maison Batterman');
+
+		// Your own list offers it on every unmarked line.
+		expect(screen.getByText('¼ cup honey').closest('button')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
+		await screen.findByText('¾ cup potato starch');
+
+		// His is a recipe you read, not one you keep. Nothing here writes into it.
+		expect(screen.getByText('¼ cup honey').closest('button')).toBeNull();
+		expect(screen.queryByRole('button', { name: /Fix what Kamosu read/i })).not.toBeInTheDocument();
+	});
+
+	it('reaches a marked line through its own panel, not through its tap', async () => {
+		const { kamosu } = renderRecipe(
+			forked({
+				set_reading: {
+					line_index: 0,
+					reading: { amount: '¾', unit: 'cup', target: 'potato starch' },
+				},
+			}),
+		);
+		await screen.findByText('Maison Batterman');
+
+		// A marked row's tap already means "show me the other side", so the
+		// corrector is a second target inside the panel that opens.
+		await fireEvent.click(screen.getByText('1 cup potato starch (or corn starch)'));
+		await fireEvent.click(screen.getByRole('button', { name: /Fix what Kamosu read/i }));
+		await fireEvent.input(screen.getByLabelText(/What it is/i), {
+			target: { value: 'potato starch' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+
+		expect(kamosu.calls.find((call) => call.operation === 'set_reading')?.input).toMatchObject({
+			branch_id: 'mine',
+			line_index: 0,
+			target: 'potato starch',
+		});
+		// Still not an edit to the recipe, marked or not.
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
+	});
+
+	it('closes an open corrector when the ground under it moves', async () => {
+		renderRecipe();
+		await screen.findByText('Maison Batterman');
+
+		await fireEvent.click(screen.getByText('¼ cup honey'));
+		expect(screen.getByText('What Kamosu read')).toBeInTheDocument();
+
+		// Both gestures rebuild the list from a different set of rows, so an
+		// open panel would reopen on whatever line lands at that index.
+		await fireEvent.click(screen.getByRole('button', { name: /Hide them/i }));
+		expect(screen.queryByText('What Kamosu read')).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /Show them/i }));
+		await fireEvent.click(await screen.findByText('¼ cup honey'));
+		expect(screen.getByText('What Kamosu read')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
+		expect(screen.queryByText('What Kamosu read')).not.toBeInTheDocument();
 	});
 });

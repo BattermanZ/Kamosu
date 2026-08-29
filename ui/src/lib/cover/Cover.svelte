@@ -35,9 +35,25 @@
 		height?: string;
 		/** The type utility for the title. A shelf card passes something smaller. */
 		titleClass?: string;
+		/**
+		 * Whether to draw the hem band carrying the title.
+		 *
+		 * The band exists so a *shelf* of Covers is readable — a Cover with no
+		 * words on it is a coloured rectangle. Leading a recipe page it has the
+		 * opposite effect: the title is set in full immediately beneath it, so
+		 * the band prints it twice (#81). A page hero passes false; a shelf
+		 * tile, and anything else showing a Cover on its own, keeps it.
+		 */
+		band?: boolean;
 	}
 
-	let { lineageId, title, height = 'var(--hero-h)', titleClass = 'text-title' }: Props = $props();
+	let {
+		lineageId,
+		title,
+		height = 'var(--hero-h)',
+		titleClass = 'text-title',
+		band = true,
+	}: Props = $props();
 
 	const cover = $derived(coverFor(lineageId));
 </script>
@@ -76,9 +92,11 @@
 		</svg>
 	</div>
 
-	<div class="relative mt-auto px-gutter py-3" style="background: {cover.band}">
-		<div class="font-display font-semibold text-on-accent {titleClass}">
-			{title}
+	{#if band}
+		<div class="relative mt-auto px-gutter py-3" style="background: {cover.band}">
+			<div class="font-display font-semibold text-on-accent {titleClass}">
+				{title}
+			</div>
 		</div>
-	</div>
+	{/if}
 </div>

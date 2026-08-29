@@ -133,8 +133,14 @@ each was guarding — read the reasoning before turning either back on.
 
 What Kamosu looks like is **one generated stylesheet**, `assets/app.css`,
 compiled from `ui/src/app.css` — Tailwind 4 theme tokens that replace Tailwind's
-palette, type scale, spacing and radii wholesale (`just css` regenerates; the
-current choice is recorded in `docs/design/2026-08-26-the-visual-identity.md`).
+palette, type scale, spacing and radii wholesale (`just css` regenerates).
+
+**`ui/src/app.css` is the current value of every token; the dated design records
+under `docs/design/` are not.** A record says what was chosen on one day and is
+never updated, so a token it names may since have moved — `--hero-h` did, when
+#81 put the recipe's title on its hero. Read the record for *why* a direction
+was taken and the stylesheet for what is true now, and when you move a token,
+say in a comment beside it which decision moved it.
 The committed output is what the binary embeds at compile time, so a cargo build
 never needs Node — but `just check` regenerates it into a temp directory and
 **fails if what is committed has drifted from `ui/`**. Never hand-edit

@@ -36,6 +36,14 @@
 		taken: Taken | undefined;
 		onToggle: () => void;
 		onCarry: (what: Taken | 'undo') => void;
+		/**
+		 * Offered inside the unfolded panel when this row is a line of YOUR
+		 * recipe — a marked row's tap already means "show me the other side", so
+		 * correcting what Kamosu read of it has to be a second target rather
+		 * than a second meaning on the first. A Ghost gets none: it is not your
+		 * line, so there is no Reading of yours to correct.
+		 */
+		onFixReading?: (() => void) | undefined;
 	}
 
 	let {
@@ -48,6 +56,7 @@
 		taken,
 		onToggle,
 		onCarry,
+		onFixReading = undefined,
 	}: Props = $props();
 
 	const seen = $derived(see(row, side));
@@ -63,14 +72,22 @@
 	const what = $derived(offer(row, taken));
 </script>
 
-<li class="border-b border-rule py-2 pl-3 {struck ? 'mark-ghost' : 'mark-diff'}">
+<li class="border-b border-rule py-3 pl-3 {struck ? 'mark-ghost' : 'mark-diff'}">
 	<button type="button" class="flex w-full gap-3 text-left" onclick={onToggle}>
 		{#if isStep}
 			<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
 				{number ?? '·'}
 			</span>
+		{:else}
+			<!--
+				The same marker an unmarked Ingredient Line carries (#81), so the
+				two kinds of row keep one rhythm and their text sits on one
+				left edge. A Ghost keeps it too: it is still a line of a list,
+				and the strike and the caption are what say whose.
+			-->
+			<span class="ingredient-marker shrink-0" aria-hidden="true"></span>
 		{/if}
-		<span class="flex-1">
+		<span class="min-w-0 flex-1">
 			<span class="block {isStep ? 'text-body' : 'text-line'} {struck ? 'ghost-text' : ''}">
 				{shown}
 			</span>
@@ -123,6 +140,22 @@
 			{:else}
 				<p class="mt-2 text-read text-ink-2">{m.divergence_nothing_to_carry()}</p>
 			{/if}
+
+			<!--
+				The Reading is corrected from wherever the line is read (#81), and
+				a marked line is still a line of the recipe. It sits under the
+				carry offer because the two are different questions: one is about
+				the other Kitchen's words, this one is about Kamosu's own.
+			-->
+			{#if onFixReading}
+				<button
+					type="button"
+					onclick={onFixReading}
+					class="mt-2 block w-full border border-rule p-2 text-center text-read text-accent"
+				>
+					{m.reading_fix()}
+				</button>
+			{/if}
 		</div>
 	{/if}
 </li>
@@ -149,6 +182,20 @@
 		background: var(--color-support);
 	}
 	:global([data-side='theirs']) .mark-ghost::before {
+		background: var(--color-accent);
+	}
+
+	/* The marker's shape is the `ingredient-marker` utility, shared with the
+	   unmarked rows so one list keeps one rhythm. Only its colour is this
+	   component's: the room you are standing in, or — on a Ghost — the other
+	   room's, because a Ghost is a line of the other recipe. */
+	.ingredient-marker {
+		background: var(--whose);
+	}
+	.mark-ghost .ingredient-marker {
+		background: var(--color-support);
+	}
+	:global([data-side='theirs']) .mark-ghost .ingredient-marker {
 		background: var(--color-accent);
 	}
 
