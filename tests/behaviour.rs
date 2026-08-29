@@ -2170,6 +2170,601 @@ async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken(
     assert_eq!(status, 400, "{response}");
 }
 
+// --- Merge Suggestions and Merge (issue #48) ---------------------------------
+
+/// The Operator, with an Access Key and their home Kitchen — the only Person
+/// who may merge a Food or delete one (CONTEXT.md, ADR 0022).
+fn operator_with_kitchen(app: &support::TestApp) -> (String, String) {
+    let first = json!({
+        "name": "Aurélien",
+        "password": "a password only its person knows",
+        "session_name": "test browser",
+    });
+    let (status, created) = app.post_auth("/auth/first-person", &first.to_string());
+    assert_eq!(status, 200, "{created}");
+    let operator_id = created["result"]["person"]["id"].as_str().unwrap();
+    let kitchen_id = created["result"]["person"]["home_kitchen_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let key = app
+        .core
+        .mint_access_key(operator_id, "agent", false)
+        .unwrap()
+        .secret;
+    (key, kitchen_id)
+}
+
+/// The id of the one Food answering to `name` in `language`.
+fn food_named(app: &support::TestApp, key: &str, language: &str, name: &str) -> String {
+    let (_, listed) = app.post_op("list_foods", Some(key), "{}");
+    let found: Vec<String> = listed["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|food| {
+            food["names"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|held| held["language"] == json!(language) && held["name"] == json!(name))
+        })
+        .map(|food| food["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(found.len(), 1, "exactly one Food is {language}:{name}");
+    found.into_iter().next().unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn typing_a_name_another_food_answers_to_records_a_suggestion_and_merges_nothing() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    let food_a = food_named(&app, &key, "fr", "farine");
+    let food_b = food_named(&app, &key, "en", "rye flour");
+
+    let (_, before) = app.post_op("list_merge_suggestions", Some(&key), "{}");
+    assert_eq!(
+        before["result"]["suggestions"],
+        json!([]),
+        "nothing has suggested anything yet"
+    );
+
+    // The one remaining way to make a duplicate name (ADR 0022): typing
+    // "farine" onto Food B, which Food A already answers to.
+    let (status, named) = app.post_op(
+        "set_food_name",
+        Some(&key),
+        &json!({ "food_id": food_b, "language": "fr", "name": "farine" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    let (status, listed) = app.post_op("list_merge_suggestions", Some(&key), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let suggestions = listed["result"]["suggestions"].as_array().unwrap();
+    assert_eq!(suggestions.len(), 1, "{suggestions:#?}");
+    assert_eq!(suggestions[0]["reason"], json!("name_typed_onto_another"));
+    assert_eq!(
+        suggestions[0]["words"],
+        json!([{ "language": "fr", "name": "farine" }]),
+        "the suggestion carries the word that made it, not a resemblance"
+    );
+    let named_pair: Vec<&str> = suggestions[0]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|food| food["id"].as_str().unwrap())
+        .collect();
+    assert!(named_pair.contains(&food_a.as_str()) && named_pair.contains(&food_b.as_str()));
+
+    // Nothing acted on it: both Foods are still there, still two.
+    let (status, still_a) = app.post_op(
+        "get_food",
+        Some(&key),
+        &json!({ "food_id": food_a }).to_string(),
+    );
+    assert_eq!(status, 200, "{still_a}");
+    let (status, still_b) = app.post_op(
+        "get_food",
+        Some(&key),
+        &json!({ "food_id": food_b }).to_string(),
+    );
+    assert_eq!(status, 200, "{still_b}");
+
+    // Recording the same evidence again does not pile up a second note.
+    let (_, again) = app.post_op(
+        "set_food_name",
+        Some(&key),
+        &json!({ "food_id": food_b, "language": "fr", "name": "Farine" }).to_string(),
+    );
+    assert_eq!(again["result"]["names"].as_array().unwrap().len(), 2);
+    let (_, listed_again) = app.post_op("list_merge_suggestions", Some(&key), "{}");
+    assert_eq!(
+        listed_again["result"]["suggestions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "suggestions accumulate as evidence, not as duplicates of one event"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn merging_is_the_operators_and_says_what_it_will_move_before_it_moves_it() {
+    let app = support::spawn_app();
+    let (operator_key, kitchen_id) = operator_with_kitchen(&app);
+
+    // Food A: three Readings, spread across three recipes.
+    read_a_word(&app, &operator_key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &operator_key, &kitchen_id, "fr", "farine");
+    let edited_branch_id = read_a_word(&app, &operator_key, &kitchen_id, "fr", "farine");
+    let food_a = food_named(&app, &operator_key, "fr", "farine");
+
+    // Food B: one Reading, and an English name Food A has none of.
+    read_a_word(&app, &operator_key, &kitchen_id, "en", "flour");
+    let food_b = food_named(&app, &operator_key, "en", "flour");
+
+    // An ordinary Person may not merge: it is on the Operator's exact list of
+    // powers and on no one else's (CONTEXT.md).
+    let stranger = app.core.create_person("Marc").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+    for operation in ["preview_food_merge", "merge_food"] {
+        let (status, refused) = app.post_op(
+            operation,
+            Some(&stranger_key),
+            &json!({
+                "survivor_food_id": food_a,
+                "absorbed_food_id": food_b,
+                "ingredient_lines": 1,
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 401, "{operation}: {refused}");
+    }
+    let (status, refused) = app.post_op("list_merge_suggestions", Some(&stranger_key), "{}");
+    assert_eq!(status, 401, "{refused}");
+
+    // One of Food A's three recipes is edited twice after its line was read.
+    // The Reading is carried onto each new Version, so Food A now has five
+    // Reading rows over three Ingredient Lines — and the figure the Operator
+    // confirms must be the three lines they would see move, not the five rows
+    // beneath them. An inflated safety net is a broken one.
+    for title in ["Fixture, second thoughts", "Fixture, third thoughts"] {
+        // Backdated between saves: consecutive edits inside the coalescing
+        // window amend the head Version rather than minting a new one.
+        backdate_branch_head(&app, &edited_branch_id);
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(&operator_key),
+            &json!({
+                "branch_id": edited_branch_id,
+                "title": title,
+                "ingredients": [{ "kind": "ingredient", "text": "farine" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+    }
+    let (_, food_a_now) = app.post_op(
+        "get_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_a }).to_string(),
+    );
+    assert_eq!(
+        food_a_now["result"]["reading_count"],
+        json!(5),
+        "the carried-forward Readings are real rows"
+    );
+
+    // The saying comes first, and moves nothing.
+    let (status, preview) = app.post_op(
+        "preview_food_merge",
+        Some(&operator_key),
+        &json!({ "survivor_food_id": food_b, "absorbed_food_id": food_a }).to_string(),
+    );
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(
+        preview["result"]["ingredient_lines"],
+        json!(3),
+        "three Ingredient Lines move on screen, not the five rows beneath them"
+    );
+    assert_eq!(
+        preview["result"]["readings"],
+        json!(5),
+        "and five Reading rows change hands in the database"
+    );
+    assert_eq!(preview["result"]["cup_weight_conflict"], json!(false));
+    assert_eq!(preview["result"]["survivor"]["id"], json!(food_b));
+    assert_eq!(preview["result"]["absorbed"]["id"], json!(food_a));
+
+    let (_, unchanged) = app.post_op(
+        "get_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_a }).to_string(),
+    );
+    assert_eq!(
+        unchanged["result"]["reading_count"],
+        json!(5),
+        "a preview moves nothing"
+    );
+
+    // The saying is binding: a Merge told the wrong figure is refused rather
+    // than performed. That refusal is what makes the announcement a safety net
+    // instead of a number nobody had to read.
+    let (status, refused) = app.post_op(
+        "merge_food",
+        Some(&operator_key),
+        &json!({
+            "survivor_food_id": food_b,
+            "absorbed_food_id": food_a,
+            "ingredient_lines": 5,
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        status, 400,
+        "a Merge cannot be reached without having read what it moves: {refused}"
+    );
+    let (_, still_there) = app.post_op(
+        "get_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_a }).to_string(),
+    );
+    assert_eq!(
+        still_there["result"]["reading_count"],
+        json!(5),
+        "the refused Merge moved nothing"
+    );
+
+    // Then the Merge itself, with the figure it was told.
+    let (_, survivor_before) = app.post_op(
+        "get_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_b }).to_string(),
+    );
+    let survivor_before = survivor_before["result"]["reading_count"].as_i64().unwrap();
+    let (status, merged) = app.post_op(
+        "merge_food",
+        Some(&operator_key),
+        &json!({
+            "survivor_food_id": food_b,
+            "absorbed_food_id": food_a,
+            "ingredient_lines": preview["result"]["ingredient_lines"],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{merged}");
+    assert_eq!(
+        merged["result"]["ingredient_lines"], preview["result"]["ingredient_lines"],
+        "the announced count is what moved"
+    );
+    assert_eq!(merged["result"]["readings"], preview["result"]["readings"]);
+
+    // And the announcement is held against what actually moved rather than
+    // against itself: the survivor gained exactly the Readings it named.
+    assert_eq!(
+        merged["result"]["food"]["reading_count"].as_i64().unwrap(),
+        survivor_before + merged["result"]["readings"].as_i64().unwrap(),
+        "every Reading the count named is a Reading the survivor now has"
+    );
+
+    // The survivor carries all names in all Languages.
+    assert_eq!(merged["result"]["food"]["id"], json!(food_b));
+    assert_eq!(
+        merged["result"]["food"]["names"],
+        json!([
+            { "language": "en", "name": "flour" },
+            { "language": "fr", "name": "farine" },
+        ])
+    );
+
+    // The absorbed Food is gone, and there is no un-merge to bring it back.
+    let (status, gone) = app.post_op(
+        "get_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_a }).to_string(),
+    );
+    assert_eq!(status, 404, "{gone}");
+    let (status, no_such) = app.post_op(
+        "unmerge_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_a }).to_string(),
+    );
+    assert_eq!(
+        status, 404,
+        "there is no un-merge in v1 and nothing pretends there is: {no_such}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_merge_asks_which_cup_weight_survives_only_when_the_two_disagree() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, &kitchen_id, "en", "flour");
+    let food_a = food_named(&app, &key, "fr", "farine");
+    let food_b = food_named(&app, &key, "en", "flour");
+
+    // Only one of them knows a Cup Weight: nothing to ask, and the figure is
+    // kept rather than lost with the Food that held it.
+    let (status, weighed) = app.post_op(
+        "set_food_cup_weight",
+        Some(&key),
+        &json!({ "food_id": food_a, "cup_weight_grams": 125.0 }).to_string(),
+    );
+    assert_eq!(status, 200, "{weighed}");
+    let (status, preview) = app.post_op(
+        "preview_food_merge",
+        Some(&key),
+        &json!({ "survivor_food_id": food_b, "absorbed_food_id": food_a }).to_string(),
+    );
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(preview["result"]["cup_weight_conflict"], json!(false));
+
+    // With nothing in dispute there is nothing to say, and saying something
+    // anyway is refused rather than quietly overwriting a known figure.
+    let (status, uninvited) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": food_b,
+            "absorbed_food_id": food_a,
+            "ingredient_lines": 1,
+            "cup_weight_grams": 200.0,
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        status, 400,
+        "merge_food is not a way to set a Cup Weight: {uninvited}"
+    );
+
+    // Now both know one, and they disagree.
+    let (status, weighed) = app.post_op(
+        "set_food_cup_weight",
+        Some(&key),
+        &json!({ "food_id": food_b, "cup_weight_grams": 120.0 }).to_string(),
+    );
+    assert_eq!(status, 200, "{weighed}");
+    let (_, conflicted) = app.post_op(
+        "preview_food_merge",
+        Some(&key),
+        &json!({ "survivor_food_id": food_b, "absorbed_food_id": food_a }).to_string(),
+    );
+    assert_eq!(conflicted["result"]["cup_weight_conflict"], json!(true));
+
+    let (status, refused) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": food_b,
+            "absorbed_food_id": food_a,
+            "ingredient_lines": 1,
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        status, 400,
+        "a disagreement is the Operator's to settle, never Kamosu's to guess: {refused}"
+    );
+
+    // And it is settled by choosing between the two, not by naming a third: a
+    // Merge answers a disagreement, it is not a way to set a Cup Weight.
+    let (status, invented) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": food_b,
+            "absorbed_food_id": food_a,
+            "ingredient_lines": 1,
+            "cup_weight_grams": 118.0,
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        status, 400,
+        "a figure neither Food held is not a choice between them: {invented}"
+    );
+
+    let (status, merged) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": food_b,
+            "absorbed_food_id": food_a,
+            "ingredient_lines": 1,
+            "cup_weight_grams": 125.0,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{merged}");
+    assert_eq!(
+        merged["result"]["food"]["cup_weight_grams"],
+        json!(125.0),
+        "the figure the Operator chose is the one that survives"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_merge_clears_every_suggestion_naming_either_food() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    let food_a = food_named(&app, &key, "fr", "farine");
+    let food_b = food_named(&app, &key, "en", "rye flour");
+    let (status, named) = app.post_op(
+        "set_food_name",
+        Some(&key),
+        &json!({ "food_id": food_b, "language": "fr", "name": "farine" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    let (_, listed) = app.post_op("list_merge_suggestions", Some(&key), "{}");
+    assert_eq!(listed["result"]["suggestions"].as_array().unwrap().len(), 1);
+
+    let (_, preview) = app.post_op(
+        "preview_food_merge",
+        Some(&key),
+        &json!({ "survivor_food_id": food_a, "absorbed_food_id": food_b }).to_string(),
+    );
+    let (status, merged) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": food_a,
+            "absorbed_food_id": food_b,
+            "ingredient_lines": preview["result"]["ingredient_lines"],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{merged}");
+
+    let (_, after) = app.post_op("list_merge_suggestions", Some(&key), "{}");
+    assert_eq!(
+        after["result"]["suggestions"],
+        json!([]),
+        "the question the suggestion asked has been answered"
+    );
+
+    // A Food cannot be merged into itself, and neither may a Food that is gone.
+    let (status, refused) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": food_a,
+            "absorbed_food_id": food_a,
+            "ingredient_lines": 0,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_name_a_merge_adopts_leaves_the_same_trail_a_typed_one_would() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+
+    // Three Foods. A and B are about to be merged; C already answers to the
+    // English word B holds, so the survivor's adoption of it makes a duplicate
+    // name — the one ADR 0022 says must leave a trail however it was made.
+    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, &kitchen_id, "en", "flour");
+    read_a_word(&app, &key, &kitchen_id, "es", "harina");
+    let food_a = food_named(&app, &key, "fr", "farine");
+    let food_b = food_named(&app, &key, "en", "flour");
+    let food_c = food_named(&app, &key, "es", "harina");
+    let (status, named) = app.post_op(
+        "set_food_name",
+        Some(&key),
+        &json!({ "food_id": food_c, "language": "en", "name": "flour" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    // That typing already left its own trail, between B and C. Merge B into A
+    // and it is cleared — but A now answers to "flour" too, so the duplicate
+    // is still there and must still be recorded.
+    let (_, preview) = app.post_op(
+        "preview_food_merge",
+        Some(&key),
+        &json!({ "survivor_food_id": food_a, "absorbed_food_id": food_b }).to_string(),
+    );
+    let (status, merged) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": food_a,
+            "absorbed_food_id": food_b,
+            "ingredient_lines": preview["result"]["ingredient_lines"],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{merged}");
+
+    let (_, listed) = app.post_op("list_merge_suggestions", Some(&key), "{}");
+    let suggestions = listed["result"]["suggestions"].as_array().unwrap();
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "the duplicate the merge made is recorded, not swallowed: {suggestions:#?}"
+    );
+    let pair: Vec<&str> = suggestions[0]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|food| food["id"].as_str().unwrap())
+        .collect();
+    assert!(
+        pair.contains(&food_a.as_str()) && pair.contains(&food_c.as_str()),
+        "the trail names the survivor and the Food it now duplicates: {pair:?}"
+    );
+    assert_eq!(
+        suggestions[0]["words"],
+        json!([{ "language": "en", "name": "flour" }])
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_operator_may_delete_a_food_nothing_points_at_and_no_other() {
+    let app = support::spawn_app();
+    let (operator_key, kitchen_id) = operator_with_kitchen(&app);
+    let branch_id = read_a_word(&app, &operator_key, &kitchen_id, "en", "cardamom");
+    let food_id = food_named(&app, &operator_key, "en", "cardamom");
+
+    // Something still points at it: refused, rather than cascaded. What a Food
+    // knows was expensive to learn (ADR 0022).
+    let (status, refused) = app.post_op(
+        "delete_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    let (status, cleared) = app.post_op(
+        "set_reading",
+        Some(&operator_key),
+        &json!({ "branch_id": branch_id, "line_index": 0 }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+
+    // An ordinary Person still may not: deleting a Food is the Operator's.
+    let stranger = app.core.create_person("Marc").expect("person");
+    let stranger_key = app
+        .core
+        .mint_access_key(&stranger, "browser", false)
+        .unwrap()
+        .secret;
+    let (status, forbidden) = app.post_op(
+        "delete_food",
+        Some(&stranger_key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 401, "{forbidden}");
+
+    let (status, deleted) = app.post_op(
+        "delete_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(deleted["result"]["deleted"], json!(true));
+
+    let (status, gone) = app.post_op(
+        "get_food",
+        Some(&operator_key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{gone}");
+}
+
 // --- Tags (issue #51) --------------------------------------------------------
 
 /// Create a Tag and hand back its id.

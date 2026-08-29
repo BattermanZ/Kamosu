@@ -1283,6 +1283,102 @@ export type SetFoodCupWeightOutput = {
 	reading_count: number;
 };
 
+/** The Operator's worklist: every note that two Foods are probably one thing, with the words that said so. Evidence, never an instruction — nothing merges itself. */
+export type ListMergeSuggestionsInput = Record<string, never>;
+/** What list_merge_suggestions answers. */
+export type ListMergeSuggestionsOutput = {
+	suggestions: {
+		created_at: string;
+		foods: {
+			cup_weight_grams: number | null;
+			id: string;
+			language: string | null;
+			name: string | null;
+			names: {
+				language: string;
+				name: string;
+			}[];
+			nutrition: null;
+			reading_count: number;
+		}[];
+		reason: "arrived_as_one" | "name_typed_onto_another";
+		words: {
+			language: string;
+			name: string;
+		}[];
+	}[];
+};
+
+/** Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
+export type PreviewFoodMergeInput = {
+	absorbed_food_id: string;
+	survivor_food_id: string;
+};
+/** What preview_food_merge answers. */
+export type PreviewFoodMergeOutput = {
+	absorbed: {
+		cup_weight_grams: number | null;
+		id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+		nutrition: null;
+		reading_count: number;
+	};
+	cup_weight_conflict: boolean;
+	ingredient_lines: number;
+	readings: number;
+	survivor: {
+		cup_weight_grams: number | null;
+		id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+		nutrition: null;
+		reading_count: number;
+	};
+};
+
+/** Join two Foods into one: the survivor takes every name both had, every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
+export type MergeFoodInput = {
+	absorbed_food_id: string;
+	cup_weight_grams?: number | null;
+	ingredient_lines: number;
+	survivor_food_id: string;
+};
+/** What merge_food answers. */
+export type MergeFoodOutput = {
+	food: {
+		cup_weight_grams: number | null;
+		id: string;
+		language: string | null;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+		nutrition: null;
+		reading_count: number;
+	};
+	ingredient_lines: number;
+	readings: number;
+};
+
+/** Delete a Food nothing points at. One a Reading still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. */
+export type DeleteFoodInput = {
+	food_id: string;
+};
+/** What delete_food answers. */
+export type DeleteFoodOutput = {
+	deleted: boolean;
+};
+
 /** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 export type GetJobInput = {
 	job_id: string;
@@ -1648,6 +1744,30 @@ export interface Operations {
 		output: SetFoodCupWeightOutput;
 		kind: 'immediate';
 		permission: 'person';
+	};
+	list_merge_suggestions: {
+		input: ListMergeSuggestionsInput;
+		output: ListMergeSuggestionsOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	preview_food_merge: {
+		input: PreviewFoodMergeInput;
+		output: PreviewFoodMergeOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	merge_food: {
+		input: MergeFoodInput;
+		output: MergeFoodOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	delete_food: {
+		input: DeleteFoodInput;
+		output: DeleteFoodOutput;
+		kind: 'immediate';
+		permission: 'operator';
 	};
 	get_job: {
 		input: GetJobInput;
@@ -7608,6 +7728,451 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "list_merge_suggestions",
+		"summary": "The Operator's worklist: every note that two Foods are probably one thing, with the words that said so. Evidence, never an instruction — nothing merges itself.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"suggestions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"foods": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"cup_weight_grams": {
+											"type": [
+												"number",
+												"null"
+											]
+										},
+										"id": {
+											"type": "string"
+										},
+										"language": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"name": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"names": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"language": {
+														"type": "string"
+													},
+													"name": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"language",
+													"name"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"nutrition": {
+											"type": "null"
+										},
+										"reading_count": {
+											"minimum": 0,
+											"type": "integer"
+										}
+									},
+									"required": [
+										"id",
+										"name",
+										"language",
+										"names",
+										"cup_weight_grams",
+										"nutrition",
+										"reading_count"
+									],
+									"type": "object"
+								},
+								"maxItems": 2,
+								"minItems": 2,
+								"type": "array"
+							},
+							"reason": {
+								"enum": [
+									"arrived_as_one",
+									"name_typed_onto_another"
+								]
+							},
+							"words": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"foods",
+							"reason",
+							"words",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"suggestions"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "preview_food_merge",
+		"summary": "Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"absorbed_food_id": {
+					"type": "string"
+				},
+				"survivor_food_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"survivor_food_id",
+				"absorbed_food_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"absorbed": {
+					"additionalProperties": false,
+					"properties": {
+						"cup_weight_grams": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"id": {
+							"type": "string"
+						},
+						"language": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"names": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"language": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"language",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"nutrition": {
+							"type": "null"
+						},
+						"reading_count": {
+							"minimum": 0,
+							"type": "integer"
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"language",
+						"names",
+						"cup_weight_grams",
+						"nutrition",
+						"reading_count"
+					],
+					"type": "object"
+				},
+				"cup_weight_conflict": {
+					"type": "boolean"
+				},
+				"ingredient_lines": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"readings": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"survivor": {
+					"additionalProperties": false,
+					"properties": {
+						"cup_weight_grams": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"id": {
+							"type": "string"
+						},
+						"language": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"names": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"language": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"language",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"nutrition": {
+							"type": "null"
+						},
+						"reading_count": {
+							"minimum": 0,
+							"type": "integer"
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"language",
+						"names",
+						"cup_weight_grams",
+						"nutrition",
+						"reading_count"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"survivor",
+				"absorbed",
+				"ingredient_lines",
+				"readings",
+				"cup_weight_conflict"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "merge_food",
+		"summary": "Join two Foods into one: the survivor takes every name both had, every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"absorbed_food_id": {
+					"type": "string"
+				},
+				"cup_weight_grams": {
+					"exclusiveMinimum": 0,
+					"type": [
+						"number",
+						"null"
+					]
+				},
+				"ingredient_lines": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"survivor_food_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"survivor_food_id",
+				"absorbed_food_id",
+				"ingredient_lines"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"food": {
+					"additionalProperties": false,
+					"properties": {
+						"cup_weight_grams": {
+							"type": [
+								"number",
+								"null"
+							]
+						},
+						"id": {
+							"type": "string"
+						},
+						"language": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"names": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"language": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"language",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"nutrition": {
+							"type": "null"
+						},
+						"reading_count": {
+							"minimum": 0,
+							"type": "integer"
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"language",
+						"names",
+						"cup_weight_grams",
+						"nutrition",
+						"reading_count"
+					],
+					"type": "object"
+				},
+				"ingredient_lines": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"readings": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"food",
+				"ingredient_lines",
+				"readings"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "delete_food",
+		"summary": "Delete a Food nothing points at. One a Reading still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"food_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"food_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"deleted": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"deleted"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_job",
 		"summary": "Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
 		"permission": "public",
@@ -7840,6 +8405,10 @@ export const METHOD_NAMES = {
 	set_food_name: 'setFoodName',
 	remove_food_name: 'removeFoodName',
 	set_food_cup_weight: 'setFoodCupWeight',
+	list_merge_suggestions: 'listMergeSuggestions',
+	preview_food_merge: 'previewFoodMerge',
+	merge_food: 'mergeFood',
+	delete_food: 'deleteFood',
 	get_job: 'getJob',
 	cancel_job: 'cancelJob',
 	list_jobs: 'listJobs',
@@ -7953,6 +8522,14 @@ export interface KamosuClient {
 	removeFoodName(input: RemoveFoodNameInput): Promise<Answer<'remove_food_name'>>;
 	/** Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it. */
 	setFoodCupWeight(input: SetFoodCupWeightInput): Promise<Answer<'set_food_cup_weight'>>;
+	/** The Operator's worklist: every note that two Foods are probably one thing, with the words that said so. Evidence, never an instruction — nothing merges itself. */
+	listMergeSuggestions(input?: ListMergeSuggestionsInput): Promise<Answer<'list_merge_suggestions'>>;
+	/** Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
+	previewFoodMerge(input: PreviewFoodMergeInput): Promise<Answer<'preview_food_merge'>>;
+	/** Join two Foods into one: the survivor takes every name both had, every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
+	mergeFood(input: MergeFoodInput): Promise<Answer<'merge_food'>>;
+	/** Delete a Food nothing points at. One a Reading still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. */
+	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
 	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */

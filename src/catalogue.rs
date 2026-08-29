@@ -1168,6 +1168,94 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: food_schema(),
             handler: crate::operations::set_food_cup_weight,
         },
+        Operation {
+            name: "list_merge_suggestions",
+            summary: "The Operator's worklist: every note that two Foods are \
+                      probably one thing, with the words that said so. \
+                      Evidence, never an instruction — nothing merges itself.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "suggestions": { "type": "array", "items": merge_suggestion_schema() },
+                },
+                "required": ["suggestions"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_merge_suggestions,
+        },
+        Operation {
+            name: "preview_food_merge",
+            summary: "Say how many Ingredient Lines a Merge would move, and \
+                      how many Reading rows, without moving any of them. A \
+                      Merge cannot be undone and refuses to run until this \
+                      figure is said back to it, so this saying is its safety \
+                      net rather than a courtesy.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "survivor_food_id": { "type": "string" },
+                    "absorbed_food_id": { "type": "string" },
+                },
+                "required": ["survivor_food_id", "absorbed_food_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: merge_preview_schema(),
+            handler: crate::operations::preview_food_merge,
+        },
+        Operation {
+            name: "merge_food",
+            summary: "Join two Foods into one: the survivor takes every name \
+                      both had, every Reading pointing at the other points at \
+                      it instead, and every Merge Suggestion naming either is \
+                      cleared. ingredient_lines is the figure \
+                      preview_food_merge announced, said back — a Merge that \
+                      does not match it is refused. Where the two disagree \
+                      about Cup Weight, cup_weight_grams says which of the two \
+                      figures survives. There is no un-merge in v1.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "survivor_food_id": { "type": "string" },
+                    "absorbed_food_id": { "type": "string" },
+                    "ingredient_lines": { "type": "integer", "minimum": 0 },
+                    "cup_weight_grams": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+                },
+                "required": ["survivor_food_id", "absorbed_food_id", "ingredient_lines"],
+                "additionalProperties": false,
+            }),
+            output_schema: merge_result_schema(),
+            handler: crate::operations::merge_food,
+        },
+        Operation {
+            name: "delete_food",
+            summary: "Delete a Food nothing points at. One a Reading still \
+                      points at is refused: what a Food knows was expensive to \
+                      learn and is never discarded by an unrelated act.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" } }, "required": ["food_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "deleted": { "type": "boolean" } }, "required": ["deleted"], "additionalProperties": false }),
+            handler: crate::operations::delete_food,
+        },
         // Watching slow work: two ordinary Operations, so a browser polling an
         // import and an agent polling the same import use the identical shape.
         Operation {
@@ -2117,6 +2205,75 @@ fn food_schema() -> Value {
             "reading_count": { "type": "integer", "minimum": 0 },
         },
         "required": ["id", "name", "language", "names", "cup_weight_grams", "nutrition", "reading_count"],
+        "additionalProperties": false,
+    })
+}
+
+/// A Merge Suggestion as the Operator's worklist serves it: the two Foods in
+/// full, the reason the note was made, and the words that made it. Evidence,
+/// never an instruction (ADR 0022) — reading this list merges nothing.
+fn merge_suggestion_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "foods": { "type": "array", "items": food_schema(), "minItems": 2, "maxItems": 2 },
+            "reason": { "enum": ["arrived_as_one", "name_typed_onto_another"] },
+            "words": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "language": { "type": "string" },
+                        "name": { "type": "string" },
+                    },
+                    "required": ["language", "name"],
+                    "additionalProperties": false,
+                },
+            },
+            "created_at": { "type": "string" },
+        },
+        "required": ["foods", "reason", "words", "created_at"],
+        "additionalProperties": false,
+    })
+}
+
+/// What a Merge is about to move, with both Foods in full so the Operator can
+/// read what they are agreeing to. `ingredient_lines` is what a cook would see
+/// move — the Readings lying on recipes as they stand today — and is the
+/// figure `merge_food` requires said back. `readings` is every row that
+/// changes hands, past Versions included, which is larger whenever a recipe
+/// has been edited since its line was read. `cup_weight_conflict` is the one
+/// question a Merge may have to ask.
+fn merge_preview_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "survivor": food_schema(),
+            "absorbed": food_schema(),
+            "ingredient_lines": { "type": "integer", "minimum": 0 },
+            "readings": { "type": "integer", "minimum": 0 },
+            "cup_weight_conflict": { "type": "boolean" },
+        },
+        "required": [
+            "survivor", "absorbed", "ingredient_lines", "readings",
+            "cup_weight_conflict",
+        ],
+        "additionalProperties": false,
+    })
+}
+
+/// What a Merge did: the surviving Food, and the same two numbers the preview
+/// announced — which is how "the announced count matches what moves" is
+/// checkable rather than merely promised.
+fn merge_result_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "food": food_schema(),
+            "ingredient_lines": { "type": "integer", "minimum": 0 },
+            "readings": { "type": "integer", "minimum": 0 },
+        },
+        "required": ["food", "ingredient_lines", "readings"],
         "additionalProperties": false,
     })
 }

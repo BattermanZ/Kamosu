@@ -3478,6 +3478,22 @@ impl Core {
                 params![food_id, language, name, folded_word(&name)],
             )
             .map_err(|e| OpError::internal(format!("cannot name Food: {e}")))?;
+
+            // Typing a name onto a Food another already answers to is the one
+            // remaining way to make a duplicate name, and it leaves the same
+            // trail as an arriving collision does (ADR 0022). The word is not
+            // refused: a Food is anybody's to name, and the duplicate is
+            // evidence for the Operator rather than an error for the typist.
+            for other in &foods_already_answering_to(conn, language, &name, food_id)? {
+                record_merge_suggestion(
+                    conn,
+                    food_id,
+                    other,
+                    "name_typed_onto_another",
+                    &[(language, name.as_str())],
+                )?;
+            }
+
             food_summary(conn, food_id, person_id)
         })
     }
@@ -3538,6 +3554,438 @@ impl Core {
             food_summary(conn, food_id, person_id)
         })
     }
+
+    /// Every Merge Suggestion this instance holds, newest first: two Foods
+    /// something said were probably one thing, and what said it.
+    ///
+    /// A worklist rather than a hunt (ADR 0022). Kamosu never scans the Food
+    /// list looking for words that resemble each other — every row here was
+    /// put there by a specific event that is recorded alongside it, and
+    /// nothing acts on one automatically.
+    pub fn list_merge_suggestions(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
+        self.db().with_conn(|conn| {
+            let rows: Vec<(String, String, String, String, String)> = {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT food_a_id, food_b_id, reason, words, created_at \
+                         FROM merge_suggestions ORDER BY created_at DESC, food_a_id, food_b_id",
+                    )
+                    .map_err(|e| {
+                        OpError::internal(format!("cannot list Merge Suggestions: {e}"))
+                    })?;
+                statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    })
+                    .map_err(|e| OpError::internal(format!("cannot list Merge Suggestions: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot list Merge Suggestions: {e}")))?
+            };
+            rows.into_iter()
+                .map(|(food_a_id, food_b_id, reason, words, created_at)| {
+                    Ok(json!({
+                        "foods": [
+                            food_summary(conn, &food_a_id, person_id)?,
+                            food_summary(conn, &food_b_id, person_id)?,
+                        ],
+                        "reason": reason,
+                        "words": serde_json::from_str::<Value>(&words).map_err(|e| {
+                            OpError::internal(format!("cannot read a Suggestion's words: {e}"))
+                        })?,
+                        "created_at": created_at,
+                    }))
+                })
+                .collect()
+        })
+    }
+
+    /// What a Merge is about to do, in plain numbers, without doing any of it.
+    ///
+    /// This is the whole safety net: a Merge cannot be undone in v1 (ADR 0022),
+    /// so the blast radius is stated first, by an Operation that writes
+    /// nothing — and `merge_food` then *refuses* to act until the Operator
+    /// says the `ingredient_lines` figure back. The saying is therefore
+    /// binding rather than advisory: a Merge cannot be reached without having
+    /// been told what it moves, and a figure that has gone stale between the
+    /// looking and the doing stops the Merge instead of surprising it.
+    pub fn preview_food_merge(
+        &self,
+        person_id: &str,
+        survivor_food_id: &str,
+        absorbed_food_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let (survivor, absorbed) =
+                ensure_mergeable(conn, survivor_food_id, absorbed_food_id, person_id)?;
+            let moving = merge_blast_radius(conn, absorbed_food_id)?;
+            Ok(json!({
+                "survivor": survivor,
+                "absorbed": absorbed,
+                "ingredient_lines": moving.ingredient_lines,
+                "readings": moving.readings,
+                "cup_weight_conflict": cup_weight_conflict(conn, survivor_food_id, absorbed_food_id)?
+                    .is_some(),
+            }))
+        })
+    }
+
+    /// Join two Foods into one — the Operator's, and no one else's (ADR 0022).
+    ///
+    /// The survivor takes every name the absorbed Food had in a Language the
+    /// survivor has none for, every Reading that pointed at the absorbed Food
+    /// points at the survivor instead, and every Merge Suggestion naming
+    /// either is cleared: the question they asked has now been answered.
+    ///
+    /// `ingredient_lines` is the figure `preview_food_merge` announced, said
+    /// back. It must match what the Merge is about to move or the Merge is
+    /// refused — which is what makes the saying the safety net CONTEXT.md
+    /// calls it rather than a number nobody had to read.
+    ///
+    /// Where the two disagree about Cup Weight, `cup_weight_grams` says which
+    /// **of the two** figures survives; omitting it on a disagreement is
+    /// refused rather than guessed at, and a third figure is refused too — a
+    /// Merge settles a disagreement, it does not set a Cup Weight. Where only
+    /// one of them knows one, that figure is the answer and nothing needs
+    /// saying.
+    ///
+    /// **There is no un-merge in v1** and nothing here pretends otherwise.
+    pub fn merge_food(
+        &self,
+        person_id: &str,
+        survivor_food_id: &str,
+        absorbed_food_id: &str,
+        ingredient_lines: i64,
+        cup_weight_grams: Option<f64>,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            ensure_mergeable(conn, survivor_food_id, absorbed_food_id, person_id)?;
+
+            // Counted before anything moves, so what is reported is what the
+            // preview would have said rather than what is left afterwards.
+            let moving = merge_blast_radius(conn, absorbed_food_id)?;
+            if ingredient_lines != moving.ingredient_lines {
+                return Err(OpError::bad_request(format!(
+                    "this Merge moves {} Ingredient Lines, not {ingredient_lines}: \
+                     read preview_food_merge again before merging",
+                    moving.ingredient_lines
+                )));
+            }
+
+            let surviving_cup_weight = match (
+                cup_weight_grams,
+                cup_weight_conflict(conn, survivor_food_id, absorbed_food_id)?,
+            ) {
+                (Some(chosen), Some((survivor, absorbed))) => {
+                    if chosen != survivor && chosen != absorbed {
+                        return Err(OpError::bad_request(format!(
+                            "cup_weight_grams must be one of the two figures in \
+                             dispute, {survivor} or {absorbed}"
+                        )));
+                    }
+                    Some(chosen)
+                }
+                (Some(_), None) => {
+                    return Err(OpError::bad_request(
+                        "these two Foods do not disagree about Cup Weight: \
+                         a Merge settles a disagreement, it does not set one",
+                    ));
+                }
+                (None, Some(_)) => {
+                    return Err(OpError::bad_request(
+                        "these two Foods disagree about Cup Weight: say which figure survives",
+                    ));
+                }
+                (None, None) => {
+                    let survivor: Option<f64> = cup_weight_of(conn, survivor_food_id)?;
+                    survivor.or(cup_weight_of(conn, absorbed_food_id)?)
+                }
+            };
+
+            let carried: Vec<(String, String)> = {
+                let mut statement = conn
+                    .prepare("SELECT language, name FROM food_names WHERE food_id = ?1")
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+                statement
+                    .query_map(params![absorbed_food_id], |row| {
+                        Ok((row.get(0)?, row.get(1)?))
+                    })
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?
+            };
+
+            conn.execute(
+                "UPDATE readings SET food_id = ?1 WHERE food_id = ?2",
+                params![survivor_food_id, absorbed_food_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot move Readings: {e}")))?;
+
+            conn.execute(
+                "UPDATE foods SET cup_weight_grams = ?2 WHERE id = ?1",
+                params![survivor_food_id, surviving_cup_weight],
+            )
+            .map_err(|e| OpError::internal(format!("cannot set the surviving Cup Weight: {e}")))?;
+
+            // The absorbed Food's own rows go first: one name per Food per
+            // Language is a primary key, so the survivor may only adopt a
+            // word once its old owner has let go of it. Erasing it clears the
+            // Suggestions that named it in the same breath.
+            erase_food(conn, absorbed_food_id)?;
+            // The survivor's own suggestions are answered too: whatever they
+            // asked, the Operator has now said what these Foods are.
+            conn.execute(
+                "DELETE FROM merge_suggestions WHERE food_a_id = ?1 OR food_b_id = ?1",
+                params![survivor_food_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot clear Merge Suggestions: {e}")))?;
+
+            for (language, name) in carried {
+                conn.execute(
+                    "INSERT OR IGNORE INTO food_names \
+                     (food_id, language, name, name_folded) VALUES (?1, ?2, ?3, ?4)",
+                    params![survivor_food_id, language, name, folded_word(&name)],
+                )
+                .map_err(|e| OpError::internal(format!("cannot adopt a Food's name: {e}")))?;
+
+                // An adopted word may be one some *third* Food already answers
+                // to, and a duplicate name leaves the same trail however it was
+                // made (ADR 0022). Recorded after the survivor's own
+                // suggestions are cleared, so answering this merge's question
+                // does not swallow the one this adoption just raised.
+                for other in foods_already_answering_to(conn, &language, &name, survivor_food_id)? {
+                    record_merge_suggestion(
+                        conn,
+                        survivor_food_id,
+                        &other,
+                        "name_typed_onto_another",
+                        &[(language.as_str(), name.as_str())],
+                    )?;
+                }
+            }
+
+            Ok(json!({
+                "food": food_summary(conn, survivor_food_id, person_id)?,
+                "ingredient_lines": moving.ingredient_lines,
+                "readings": moving.readings,
+            }))
+        })
+    }
+
+    /// Delete a Food nothing points at — the Operator's, from the same screen
+    /// merging happens on (ADR 0022).
+    ///
+    /// A Food something still points at is refused rather than cascaded:
+    /// deleting a recipe must never quietly discard the fact that a cup of
+    /// this flour is 125 g. A Food nothing points at is *kept* by Kamosu on
+    /// its own — this Operation is the deliberate act, never a sweep.
+    pub fn delete_food(&self, food_id: &str) -> Result<(), OpError> {
+        self.db().with_conn(|conn| {
+            ensure_food_exists(conn, food_id)?;
+            let reading_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM readings WHERE food_id = ?1",
+                    params![food_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot count a Food's Readings: {e}")))?;
+            if reading_count > 0 {
+                let readings = if reading_count == 1 {
+                    "1 Reading still points".to_string()
+                } else {
+                    format!("{reading_count} Readings still point")
+                };
+                return Err(OpError::bad_request(format!(
+                    "{readings} at this Food: only one nothing points at may be deleted"
+                )));
+            }
+            erase_food(conn, food_id)?;
+            Ok(())
+        })
+    }
+}
+
+/// How much a Merge is about to move, in the two numbers that differ.
+///
+/// They differ because a Reading is carried forward onto each new Version of
+/// its recipe (`carry_forward_readings`), so one flour line in a recipe edited
+/// five times is **one** Ingredient Line and **five** Reading rows. Reporting
+/// only the row count would tell an Operator a merge touches five lines when
+/// one line moves on screen — an inflated safety net is a broken one.
+struct MergeBlastRadius {
+    /// The Ingredient Lines a cook can actually see move: Readings lying on a
+    /// Branch's head Version, which is the recipe as it stands today.
+    ingredient_lines: i64,
+    /// Every Reading row that changes hands, the head Versions' and the past
+    /// Versions' alike — what the merge does to the database.
+    readings: i64,
+}
+
+/// Count what a Merge would move, touching nothing.
+fn merge_blast_radius(
+    conn: &Connection,
+    absorbed_food_id: &str,
+) -> Result<MergeBlastRadius, OpError> {
+    let ingredient_lines: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM readings \
+               JOIN branches ON branches.head_version_id = readings.version_id \
+              WHERE readings.food_id = ?1",
+            params![absorbed_food_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot count the lines a Merge moves: {e}")))?;
+    let readings: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM readings WHERE food_id = ?1",
+            params![absorbed_food_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot count the Readings a Merge moves: {e}")))?;
+    Ok(MergeBlastRadius {
+        ingredient_lines,
+        readings,
+    })
+}
+
+/// Delete a Food and everything held about it — its names, and the Merge
+/// Suggestions that named it, which without it are dangling rows rather than
+/// evidence. Shared by `merge_food` and `delete_food`, the only two ways a
+/// Food ever goes.
+fn erase_food(conn: &Connection, food_id: &str) -> Result<(), OpError> {
+    for statement in [
+        "DELETE FROM merge_suggestions WHERE food_a_id = ?1 OR food_b_id = ?1",
+        "DELETE FROM food_names WHERE food_id = ?1",
+        "DELETE FROM foods WHERE id = ?1",
+    ] {
+        conn.execute(statement, params![food_id])
+            .map_err(|e| OpError::internal(format!("cannot delete Food: {e}")))?;
+    }
+    Ok(())
+}
+
+/// Every other Food already answering to this word in this Language — the
+/// duplicate-name check ADR 0022 wants run wherever a name lands on a Food.
+fn foods_already_answering_to(
+    conn: &Connection,
+    language: &str,
+    name: &str,
+    other_than: &str,
+) -> Result<Vec<String>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT food_id FROM food_names \
+             WHERE language = ?1 AND name_folded = ?2 AND food_id <> ?3",
+        )
+        .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
+    let found = statement
+        .query_map(params![language, folded_word(name), other_than], |row| {
+            row.get(0)
+        })
+        .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot look up Food: {e}")))?;
+    Ok(found)
+}
+
+/// A Food's Cup Weight, or `None` when it has never been told one.
+fn cup_weight_of(conn: &Connection, food_id: &str) -> Result<Option<f64>, OpError> {
+    conn.query_row(
+        "SELECT cup_weight_grams FROM foods WHERE id = ?1",
+        params![food_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read a Food's Cup Weight: {e}")))
+}
+
+/// The two figures, when both Foods know one and the two disagree — the one
+/// case where a Merge has a question only the Operator can answer.
+fn cup_weight_conflict(
+    conn: &Connection,
+    survivor_food_id: &str,
+    absorbed_food_id: &str,
+) -> Result<Option<(f64, f64)>, OpError> {
+    Ok(
+        match (
+            cup_weight_of(conn, survivor_food_id)?,
+            cup_weight_of(conn, absorbed_food_id)?,
+        ) {
+            (Some(survivor), Some(absorbed)) if survivor != absorbed => Some((survivor, absorbed)),
+            _ => None,
+        },
+    )
+}
+
+/// Both Foods exist and are two rather than one — the checks a Merge and its
+/// preview share. Answers them as a reader sees them, which is what both
+/// report back.
+fn ensure_mergeable(
+    conn: &Connection,
+    survivor_food_id: &str,
+    absorbed_food_id: &str,
+    viewer_person_id: &str,
+) -> Result<(Value, Value), OpError> {
+    if survivor_food_id == absorbed_food_id {
+        return Err(OpError::bad_request("a Food cannot be merged into itself"));
+    }
+    ensure_food_exists(conn, survivor_food_id)?;
+    ensure_food_exists(conn, absorbed_food_id)?;
+    Ok((
+        food_summary(conn, survivor_food_id, viewer_person_id)?,
+        food_summary(conn, absorbed_food_id, viewer_person_id)?,
+    ))
+}
+
+/// Record that two Foods are probably one thing, with the words that said so.
+///
+/// Evidence, never an instruction (ADR 0022): writing one merges nothing. The
+/// pair is stored smaller-id-first, so recording it twice in either order
+/// makes one row rather than two.
+///
+/// Where a pair already has a note, the **stronger** testimony wins.
+/// `arrived_as_one` is somebody on another server saying plainly that these
+/// words are one Food — ADR 0022 calls a collision "the only trustworthy
+/// signal in the whole design" — while a duplicate typed on this instance is
+/// merely a coincidence of spelling. So a collision overwrites a typed
+/// duplicate, and nothing overwrites a collision.
+fn record_merge_suggestion(
+    conn: &Connection,
+    one_food_id: &str,
+    other_food_id: &str,
+    reason: &str,
+    words: &[(&str, &str)],
+) -> Result<(), OpError> {
+    if one_food_id == other_food_id {
+        return Ok(());
+    }
+    let (food_a_id, food_b_id) = if one_food_id < other_food_id {
+        (one_food_id, other_food_id)
+    } else {
+        (other_food_id, one_food_id)
+    };
+    let words = Value::Array(
+        words
+            .iter()
+            .map(|(language, name)| json!({ "language": language, "name": name }))
+            .collect(),
+    );
+    conn.execute(
+        "INSERT INTO merge_suggestions (food_a_id, food_b_id, reason, words) \
+         VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT(food_a_id, food_b_id) DO UPDATE SET \
+            reason = excluded.reason, words = excluded.words, \
+            created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
+          WHERE merge_suggestions.reason <> 'arrived_as_one' \
+            AND excluded.reason = 'arrived_as_one'",
+        params![food_a_id, food_b_id, reason, words.to_string()],
+    )
+    .map_err(|e| OpError::internal(format!("cannot record a Merge Suggestion: {e}")))?;
+    Ok(())
 }
 
 /// Carry a Reading forward onto a freshly saved Version wherever the
@@ -5036,7 +5484,25 @@ fn resolve_food_for_names(
                 .iter()
                 .map(|(language, name)| (language.as_str(), name.as_str()))
                 .collect();
-            create_food(conn, &carried_refs)
+            let third = create_food(conn, &carried_refs)?;
+
+            // The collision is testimony, not a resemblance: somebody put
+            // these words in one Food, and that is the only trustworthy
+            // signal in the whole design (ADR 0022). It is recorded across
+            // every pair in the cluster — the Foods that were hit and the
+            // third just minted — so the Operator's worklist shows one
+            // group to consider rather than a single arbitrary pair.
+            let cluster: Vec<&str> = hits
+                .iter()
+                .map(String::as_str)
+                .chain(std::iter::once(third.as_str()))
+                .collect();
+            for (position, one) in cluster.iter().enumerate() {
+                for other in &cluster[position + 1..] {
+                    record_merge_suggestion(conn, one, other, "arrived_as_one", names)?;
+                }
+            }
+            Ok(third)
         }
     }
 }
@@ -5327,6 +5793,20 @@ mod tests {
             let food_a = super::create_food(conn, &[("fr", "farine")]).unwrap();
             let food_b = super::create_food(conn, &[("en", "flour")]).unwrap();
 
+            // A weaker note already stands between them: somebody typed one
+            // Food's word onto the other on this instance. The collision
+            // below is far stronger testimony — ADR 0022 calls it "the only
+            // trustworthy signal in the whole design" — so it must overwrite
+            // this one rather than being dropped as a duplicate row.
+            super::record_merge_suggestion(
+                conn,
+                &food_a,
+                &food_b,
+                "name_typed_onto_another",
+                &[("fr", "farine")],
+            )
+            .unwrap();
+
             // An arriving Food naming both farine (fr) and flour (en) hits
             // both existing Foods by two different words — doubt makes a
             // third carrying both rather than welding food_a and food_b
@@ -5369,13 +5849,53 @@ mod tests {
                 "the new Food carries every arriving name"
             );
 
+            // The collision is testimony, and it is kept as such (#48): every
+            // pair in the cluster of three is recorded, with the words that
+            // said so. Nothing was merged by recording it.
+            let suggestions: Vec<(String, String, String, String)> = conn
+                .prepare(
+                    "SELECT food_a_id, food_b_id, reason, words \
+                     FROM merge_suggestions ORDER BY food_a_id, food_b_id",
+                )
+                .unwrap()
+                .query_map([], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert_eq!(
+                suggestions.len(),
+                3,
+                "the three Foods are pairwise suggested: {suggestions:#?}"
+            );
+            for (food_a_id, food_b_id, reason, words) in &suggestions {
+                assert!(food_a_id < food_b_id, "the pair is held smaller id first");
+                assert_eq!(reason, "arrived_as_one");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(words).unwrap(),
+                    serde_json::json!([
+                        { "language": "fr", "name": "farine" },
+                        { "language": "en", "name": "flour" },
+                    ]),
+                    "the arriving words are the evidence"
+                );
+            }
+
             // A lone word matching the same two Foods, by contrast, never
-            // makes a fourth Food — it goes to the busiest one instead.
+            // makes a fourth Food — it goes to the busiest one instead, and
+            // records nothing: it is already inside a flagged cluster.
             let resolved = super::resolve_food_for_word(conn, "fr", "farine", None).unwrap();
             assert!(
                 resolved == food_a || resolved == food_c,
                 "a lone ambiguous word resolves to an existing Food, never a new one"
             );
+            let still: i64 = conn
+                .query_row("SELECT COUNT(*) FROM merge_suggestions", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(still, 3, "a lone ambiguous word adds no new evidence");
 
             Ok(())
         })

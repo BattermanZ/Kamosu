@@ -536,6 +536,37 @@ pub const MIGRATIONS: &[Migration] = &[
             ON branch_versions(translates_version_id) WHERE translates_version_id IS NOT NULL;
         "#,
     },
+    Migration {
+        version: 19,
+        description: "the Merge Suggestion: evidence two Foods are one, never an instruction (#48, ADR 0022)",
+        sql: r#"
+        -- A Merge Suggestion: a note that two Foods on this instance are
+        -- probably one thing, kept with the reason it was made. Evidence and
+        -- never an instruction — nothing in Kamosu reads this table and acts
+        -- on it, and only an Operator may merge (ADR 0022).
+        --
+        -- The pair is unordered, held that way by the same trick
+        -- `related_recipes` uses: the smaller id first, enforced by a CHECK,
+        -- so "A and B" and "B and A" cannot both be recorded. `words` is the
+        -- evidence itself as JSON — the arriving names that hit two Foods, or
+        -- the single name typed onto a Food another already answers to — so
+        -- an Operator reads *why* rather than comparing names by eye.
+        --
+        -- Merging clears every suggestion naming either Food, and so does
+        -- deleting one: a suggestion pointing at a Food that no longer exists
+        -- is not evidence, it is a dangling row.
+        CREATE TABLE merge_suggestions (
+            food_a_id  TEXT NOT NULL REFERENCES foods(id),
+            food_b_id  TEXT NOT NULL REFERENCES foods(id),
+            reason     TEXT NOT NULL,
+            words      TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (food_a_id, food_b_id),
+            CHECK (food_a_id < food_b_id)
+        );
+        CREATE INDEX merge_suggestions_by_food_b ON merge_suggestions(food_b_id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

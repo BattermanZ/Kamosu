@@ -1004,6 +1004,81 @@ pub fn set_food_cup_weight(
     core.set_food_cup_weight(&caller.person_id, food_id, cup_weight_grams)
 }
 
+pub fn list_merge_suggestions(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request(
+            "list_merge_suggestions takes no input",
+        ));
+    }
+    let caller = caller_of(invocation)?;
+    Ok(json!({ "suggestions": core.list_merge_suggestions(&caller.person_id)? }))
+}
+
+pub fn preview_food_merge(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "preview_food_merge takes { survivor_food_id, absorbed_food_id }";
+    let survivor_food_id = input
+        .get("survivor_food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let absorbed_food_id = input
+        .get("absorbed_food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.preview_food_merge(&caller.person_id, survivor_food_id, absorbed_food_id)
+}
+
+pub fn merge_food(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "merge_food takes { survivor_food_id, absorbed_food_id, ingredient_lines, \
+                 cup_weight_grams? }";
+    let survivor_food_id = input
+        .get("survivor_food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let absorbed_food_id = input
+        .get("absorbed_food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    // The figure preview_food_merge announced, said back: a Merge cannot be
+    // undone, so it may not be reached without having read what it moves.
+    let ingredient_lines = input
+        .get("ingredient_lines")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    if !input
+        .get("cup_weight_grams")
+        .is_none_or(|v| v.is_number() || v.is_null())
+    {
+        return Err(OpError::bad_request(takes));
+    }
+    let cup_weight_grams = input.get("cup_weight_grams").and_then(Value::as_f64);
+    let caller = caller_of(invocation)?;
+    core.merge_food(
+        &caller.person_id,
+        survivor_food_id,
+        absorbed_food_id,
+        ingredient_lines,
+        cup_weight_grams,
+    )
+}
+
+pub fn delete_food(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let food_id = input
+        .get("food_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("delete_food takes { food_id }"))?;
+    core.delete_food(food_id)?;
+    Ok(json!({ "deleted": true }))
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller.as_ref().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")
