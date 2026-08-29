@@ -46,7 +46,7 @@ export function see(row: Row, side: Side): Seen {
 		other,
 		ghost: !own,
 		shared: row.from_branch_point,
-		state: row.state
+		state: row.state,
 	};
 }
 
@@ -114,7 +114,7 @@ export function offer(row: Row, taken: Taken | undefined): Taken | 'undo' | null
  */
 export function carriedInPlace(
 	row: Row,
-	taken: Taken | undefined
+	taken: Taken | undefined,
 ): { text: string; replaced: string | null; leaving: boolean } | null {
 	if (!taken) return null;
 	if (taken === 'remove') {
@@ -168,7 +168,7 @@ export function draftList(
 	list: ListName,
 	taken: Map<string, Taken>,
 	/** Your own lines, so a Step you keep keeps its Photograph. */
-	ownSteps: { photo: string | null }[] = []
+	ownSteps: { photo: string | null }[] = [],
 ) {
 	const out: {
 		kind: 'section' | 'ingredient' | 'step';
@@ -185,7 +185,7 @@ export function draftList(
 				out.push({
 					kind,
 					text: row.mine.text,
-					photo: ownSteps[row.mine.index]?.photo ?? null
+					photo: ownSteps[row.mine.index]?.photo ?? null,
 				});
 			}
 			return;
@@ -202,7 +202,7 @@ export function draftList(
 export function draftVersion(
 	divergence: DivergenceOutput,
 	taken: Map<string, Taken>,
-	changeNote: string
+	changeNote: string,
 ): SaveRecipeVersionInput {
 	const content = divergence.mine.content;
 	return {
@@ -219,14 +219,14 @@ export function draftVersion(
 		source: content.source,
 		ingredients: draftList(divergence.ingredients, 'ingredients', taken).map(({ kind, text }) => ({
 			kind,
-			text
+			text,
 		})) as { kind: 'section' | 'ingredient'; text: string }[],
 		steps: draftList(divergence.steps, 'steps', taken, content.steps) as {
 			kind: 'section' | 'step';
 			text: string;
 			photo: string | null;
 		}[],
-		change_note: changeNote
+		change_note: changeNote,
 	};
 }
 
@@ -288,7 +288,7 @@ export function prose(divergence: DivergenceOutput, taken: Map<string, Taken>): 
 			? parts[0]
 			: m.divergence_prose_and({
 					list: parts.slice(0, -1).join(', '),
-					last: parts.at(-1) ?? ''
+					last: parts.at(-1) ?? '',
 				});
 
 	const wrote = items.filter((item) => item.kind === 'write').map(say);
@@ -306,7 +306,7 @@ export function reading(
 		amount: string | null;
 		unit: string | null;
 		target: string | null;
-	} | null
+	} | null,
 ): string {
 	if (!slot) return '';
 	return [slot.amount, slot.unit, slot.target].filter(Boolean).join(' ');

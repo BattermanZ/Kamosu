@@ -39,7 +39,7 @@ export function chainsByBranch(versions: ThreadVersion[]): Map<string, ThreadVer
 export function buildGroup(
 	branchIds: string[],
 	chains: Map<string, ThreadVersion[]>,
-	fromIndex: number
+	fromIndex: number,
 ): ForkGroup {
 	let depth = fromIndex;
 	for (;;) {

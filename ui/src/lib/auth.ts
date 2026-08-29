@@ -4,7 +4,7 @@ import { OperationError } from './api/client';
 export interface AuthClient {
 	authenticate(
 		mode: 'first-person' | 'login' | 'invite' | 'recover',
-		input: { name?: string; password: string; session_name: string; link?: string }
+		input: { name?: string; password: string; session_name: string; link?: string },
 	): Promise<void>;
 }
 
@@ -26,11 +26,14 @@ export const realAuth = (): AuthClient => ({
 			'first-person': '/auth/first-person',
 			login: '/auth/login',
 			invite: '/auth/invite',
-			recover: '/auth/recover'
+			recover: '/auth/recover',
 		}[mode];
 		const response = await fetch(path, {
-			method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input)
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(input),
 		});
-		if (!response.ok) throw new OperationError('authentication', 'unauthorized', 'authentication failed');
-	}
+		if (!response.ok)
+			throw new OperationError('authentication', 'unauthorized', 'authentication failed');
+	},
 });

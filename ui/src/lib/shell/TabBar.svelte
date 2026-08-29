@@ -20,23 +20,23 @@
 		{
 			href: '/',
 			label: () => m.nav_home(),
-			path: 'M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5'
+			path: 'M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5',
 		},
 		{
 			href: '/recipes',
 			label: () => m.nav_recipes(),
-			path: 'M4 4h11a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm13 0h3v16M8 8h6M8 12h6'
+			path: 'M4 4h11a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm13 0h3v16M8 8h6M8 12h6',
 		},
 		{
 			href: '/shopping',
 			label: () => m.nav_shopping(),
-			path: 'M4 6h3l2 11h9l2-8H8M10 21h.01M17 21h.01'
+			path: 'M4 6h3l2 11h9l2-8H8M10 21h.01M17 21h.01',
 		},
 		{
 			href: '/cooked',
 			label: () => m.nav_cooked(),
-			path: 'M4 15h16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4ZM7 11c0-2 1.5-2 1.5-4M12 11c0-2 1.5-2 1.5-4M17 11c0-2 1.5-2 1.5-4'
-		}
+			path: 'M4 15h16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4ZM7 11c0-2 1.5-2 1.5-4M12 11c0-2 1.5-2 1.5-4M17 11c0-2 1.5-2 1.5-4',
+		},
 	];
 
 	/** The section a path belongs to: `/recipes/soba` is still Recipes. */

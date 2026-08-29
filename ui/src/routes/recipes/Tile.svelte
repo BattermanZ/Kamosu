@@ -81,7 +81,7 @@
 					"FR" read aloud is not a fallback anyone would understand.
 				-->
 				<span
-					class="absolute top-2 right-2 rounded-sm bg-support px-1 py-1 text-label uppercase text-ground"
+					class="absolute top-2 right-2 rounded-sm bg-support px-1 py-1 text-label text-ground uppercase"
 				>
 					<span aria-hidden="true">{entry.language}</span>
 					<span class="sr-only">{fallback}</span>

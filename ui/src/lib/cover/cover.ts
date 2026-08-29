@@ -46,7 +46,7 @@ export const DYES: readonly Dye[] = [
 	{ key: 'murasaki', name: 'murasaki · purple', hex: '#453a5c' },
 	{ key: 'nando', name: 'nando · teal', hex: '#1c4a48' },
 	{ key: 'sumi', name: 'sumi · charcoal', hex: '#33302c' },
-	{ key: 'enji', name: 'enji · deep rose', hex: '#68304a' }
+	{ key: 'enji', name: 'enji · deep rose', hex: '#68304a' },
 ];
 
 /**
@@ -147,6 +147,6 @@ export function coverFor(lineageId: string): Cover {
 		scale: 0.66 + unit(lineageId, 'scale') * 0.36,
 		rotation: unit(lineageId, 'rotation') * 360,
 		centreX: 0.34 + unit(lineageId, 'placeX') * 0.32,
-		centreY: 0.24 + unit(lineageId, 'placeY') * 0.2
+		centreY: 0.24 + unit(lineageId, 'placeY') * 0.2,
 	};
 }

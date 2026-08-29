@@ -24,7 +24,7 @@
 	import type {
 		ImportWebLinkOutput,
 		ListKitchensOutput,
-		SearchRecipesOutput
+		SearchRecipesOutput,
 	} from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
@@ -36,7 +36,7 @@
 	let typed = $state('');
 	/** Which filter is held right now: the whole shelf, this Person's own, or one Kitchen. */
 	let filter = $state<{ kind: 'all' } | { kind: 'mine' } | { kind: 'kitchen'; id: string }>({
-		kind: 'all'
+		kind: 'all',
 	});
 
 	let kitchens = $state<ListKitchensOutput['kitchens']>([]);
@@ -81,7 +81,7 @@
 					const found = await kamosu.searchRecipes({
 						query: query === '' ? null : query,
 						kitchen_id: asked.kind === 'kitchen' ? asked.id : null,
-						mine: asked.kind === 'mine'
+						mine: asked.kind === 'mine',
 					});
 					if (current) {
 						answer = found;
@@ -193,14 +193,22 @@
 				</button>
 			{/snippet}
 
-			{@render chip(m.recipes_filter_all(), filter.kind === 'all', () => (filter = { kind: 'all' }))}
-			{@render chip(m.recipes_filter_mine(), filter.kind === 'mine', () => (filter = { kind: 'mine' }))}
+			{@render chip(
+				m.recipes_filter_all(),
+				filter.kind === 'all',
+				() => (filter = { kind: 'all' }),
+			)}
+			{@render chip(
+				m.recipes_filter_mine(),
+				filter.kind === 'mine',
+				() => (filter = { kind: 'mine' }),
+			)}
 			{#if several}
 				{#each kitchens as kitchen (kitchen.id)}
 					{@render chip(
 						kitchen.nickname ?? kitchen.name,
 						filter.kind === 'kitchen' && filter.id === kitchen.id,
-						() => (filter = { kind: 'kitchen', id: kitchen.id })
+						() => (filter = { kind: 'kitchen', id: kitchen.id }),
 					)}
 				{/each}
 			{/if}
@@ -285,7 +293,7 @@
 	{:else if entries.length === 0}
 		<Empty>{m.recipes_empty()}</Empty>
 	{:else}
-		<p class="mt-4 mb-3 text-label uppercase text-ink-2" role="status">
+		<p class="mt-4 mb-3 text-label text-ink-2 uppercase" role="status">
 			{#if query === null}
 				{entries.length === 1 ? m.recipes_count_one() : m.recipes_count({ count: entries.length })}
 			{:else}

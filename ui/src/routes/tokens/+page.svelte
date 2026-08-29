@@ -27,7 +27,7 @@
 		radii = RADIUS_ORDER.map((name) => ({ name, value: readToken(name) }));
 		layout = ['--tile-w', '--hero-h', '--rule-w'].map((name) => ({
 			name,
-			value: readToken(name)
+			value: readToken(name),
 		}));
 		type = readTypeScale();
 		spacing = readSpacing();
@@ -59,9 +59,9 @@
 					{m.tokens_specimen()}
 				</p>
 				<p class="text-read text-ink-2">
-					{step.name} · {step.size}{step.lineHeight ? ` / ${step.lineHeight}` : ''}{step.letterSpacing
-						? ` · ${step.letterSpacing}`
-						: ''}
+					{step.name} · {step.size}{step.lineHeight
+						? ` / ${step.lineHeight}`
+						: ''}{step.letterSpacing ? ` · ${step.letterSpacing}` : ''}
 				</p>
 			</div>
 		{/each}

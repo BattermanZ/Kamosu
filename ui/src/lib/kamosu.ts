@@ -29,7 +29,7 @@ export function useKamosu(): KamosuClient {
 	const client = getContext<Provided | undefined>(KEY)?.();
 	if (!client) {
 		throw new Error(
-			'no Kamosu client in context — a screen must be rendered inside the root layout, or inside <Kamosu client={standIn().client}> in a test'
+			'no Kamosu client in context — a screen must be rendered inside the root layout, or inside <Kamosu client={standIn().client}> in a test',
 		);
 	}
 	return client;

@@ -36,13 +36,12 @@ interface Declaration {
 }
 
 const DECLARATIONS = new Map<string, Declaration>(
-	CATALOGUE.map((declaration) => [declaration.name, declaration as unknown as Declaration])
+	CATALOGUE.map((declaration) => [declaration.name, declaration as unknown as Declaration]),
 );
 
 /** What a test says an Operation should do. A value, or a refusal. */
 export type Answered<N extends OperationName> =
-	| Operations[N]['output']
-	| { refuse: ErrorKind; message?: string };
+	Operations[N]['output'] | { refuse: ErrorKind; message?: string };
 
 /** What a Job answers when asked for: an id at once, nothing more (ADR 0032). */
 export type AnsweredJob = { job_id: string } | { refuse: ErrorKind; message?: string };
@@ -78,7 +77,7 @@ function checkAgainstSchema(operation: string, schema: SchemaNode, value: unknow
 	if (schema.enum) {
 		if (!schema.enum.includes(value as never)) {
 			throw new Error(
-				`the stand-in was given ${JSON.stringify(value)} for ${where}, which the Catalogue does not allow (${schema.enum.join(', ')})`
+				`the stand-in was given ${JSON.stringify(value)} for ${where}, which the Catalogue does not allow (${schema.enum.join(', ')})`,
 			);
 		}
 		return;
@@ -89,7 +88,7 @@ function checkAgainstSchema(operation: string, schema: SchemaNode, value: unknow
 
 	if (!allowed.some((type) => matchesType(type, value))) {
 		throw new Error(
-			`the stand-in was given ${describe(value)} for ${where}, but the Catalogue declares ${allowed.join(' | ')}`
+			`the stand-in was given ${describe(value)} for ${where}, but the Catalogue declares ${allowed.join(' | ')}`,
 		);
 	}
 
@@ -105,7 +104,7 @@ function checkAgainstSchema(operation: string, schema: SchemaNode, value: unknow
 			if (!childSchema) {
 				if (schema.additionalProperties === false) {
 					throw new Error(
-						`the stand-in's answer for ${where} carries ${name}, which the Catalogue does not declare`
+						`the stand-in's answer for ${where} carries ${name}, which the Catalogue does not declare`,
 					);
 				}
 				continue;
@@ -116,7 +115,7 @@ function checkAgainstSchema(operation: string, schema: SchemaNode, value: unknow
 
 	if (allowed.includes('array') && Array.isArray(value) && schema.items) {
 		value.forEach((item, index) =>
-			checkAgainstSchema(operation, schema.items as SchemaNode, item, `${path}[${index}]`)
+			checkAgainstSchema(operation, schema.items as SchemaNode, item, `${path}[${index}]`),
 		);
 	}
 }
@@ -154,7 +153,7 @@ function matchesType(type: string, value: unknown): boolean {
 			return typeof value === 'object' && value !== null && !Array.isArray(value);
 		default:
 			throw new Error(
-				`the Catalogue declares the type ${type}, which the screen-seam harness does not know how to check — teach stand-in.ts and generate-client.mjs about it together`
+				`the Catalogue declares the type ${type}, which the screen-seam harness does not know how to check — teach stand-in.ts and generate-client.mjs about it together`,
 			);
 	}
 }
@@ -167,7 +166,7 @@ const JOB_ASK_SCHEMA: SchemaNode = {
 	type: 'object',
 	properties: { job_id: { type: 'string' } },
 	required: ['job_id'],
-	additionalProperties: false
+	additionalProperties: false,
 };
 
 /**
@@ -185,7 +184,7 @@ export function standIn(answers: Answers = {}): StandIn {
 			throw new OperationError(
 				operation,
 				'unknown_operation',
-				`${operation} is not in the Catalogue.`
+				`${operation} is not in the Catalogue.`,
 			);
 		}
 		calls.push({ operation, input });
@@ -197,7 +196,7 @@ export function standIn(answers: Answers = {}): StandIn {
 		const programmedAnswer = programmed[operation];
 		if (programmedAnswer === undefined) {
 			throw new Error(
-				`the stand-in was asked for ${operation}, which this test did not answer. Add it to standIn({ … }).`
+				`the stand-in was asked for ${operation}, which this test did not answer. Add it to standIn({ … }).`,
 			);
 		}
 
@@ -210,7 +209,7 @@ export function standIn(answers: Answers = {}): StandIn {
 			throw new OperationError(
 				operation,
 				answer.refuse,
-				answer.message ?? `${operation} was refused.`
+				answer.message ?? `${operation} was refused.`,
 			);
 		}
 
@@ -226,6 +225,6 @@ export function standIn(answers: Answers = {}): StandIn {
 		calls,
 		answer(operation, answer) {
 			programmed[operation] = answer;
-		}
+		},
 	};
 }

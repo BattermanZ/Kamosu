@@ -31,7 +31,7 @@ const ENDED = ['completed', 'failed', 'cancelled'] as const;
 export async function waitForJob(
 	kamosu: KamosuClient,
 	jobId: string,
-	{ every = 400, giveUpAfter = 120_000 } = {}
+	{ every = 400, giveUpAfter = 120_000 } = {},
 ): Promise<GetJobOutput> {
 	const until = Date.now() + giveUpAfter;
 	for (;;) {

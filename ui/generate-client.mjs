@@ -143,7 +143,7 @@ function generate(declarations) {
 		out.push(
 			op.kind === 'job'
 				? `/** What ${op.name} eventually produces, read back through \`get_job\`. */`
-				: `/** What ${op.name} answers. */`
+				: `/** What ${op.name} answers. */`,
 		);
 		out.push(`export type ${name}Output = ${typeOf(op.output_schema, '')};`);
 		out.push('');
@@ -191,10 +191,10 @@ function generate(declarations) {
 				permission: op.permission,
 				kind: op.kind,
 				input_schema: op.input_schema,
-				output_schema: op.output_schema
+				output_schema: op.output_schema,
 			},
 			null,
-			'\t'
+			'\t',
 		);
 		out.push(entry.replace(/^/gm, '\t') + ',');
 	}

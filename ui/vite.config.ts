@@ -16,12 +16,12 @@ export default defineConfig({
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
 				runes: ({ filename }) =>
-					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
+					filename.split(/[/\\]/).includes('node_modules') ? undefined : true,
 			},
 
 			// adapter-static with a fallback: SvelteKit's server half is unused
 			// (ADR 0012). The Rust binary serves `build/` — one artefact, one version.
-			adapter: adapter({ fallback: 'index.html', strict: false })
+			adapter: adapter({ fallback: 'index.html', strict: false }),
 		}),
 
 		// Paraglide compiles every phrase into a function, so a misspelt key is a
@@ -32,8 +32,8 @@ export default defineConfig({
 			project: './project.inlang',
 			outdir: './src/lib/paraglide',
 			strategy: ['localStorage', 'preferredLanguage', 'baseLocale'],
-			emitTsDeclarations: true
-		})
+			emitTsDeclarations: true,
+		}),
 	],
 
 	server: {
@@ -51,19 +51,19 @@ export default defineConfig({
 		// for by Safari's own convention. All three would 404 in dev otherwise.
 		proxy: Object.fromEntries(
 			['/api', '/auth', '/assets', '/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png'].map(
-				(path) => [path, { target: BACKEND, changeOrigin: false }]
-			)
-		)
+				(path) => [path, { target: BACKEND, changeOrigin: false }],
+			),
+		),
 	},
 
 	test: {
 		expect: { requireAssertions: true },
 		environment: 'jsdom',
 		setupFiles: ['./src/testing/setup.ts'],
-		include: ['src/**/*.{test,spec}.{js,ts}']
+		include: ['src/**/*.{test,spec}.{js,ts}'],
 	},
 
 	// Screens are exercised as a browser would run them, so the browser build of
 	// Svelte is what the tests resolve — the server build cannot mount anything.
-	resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined
+	resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 });

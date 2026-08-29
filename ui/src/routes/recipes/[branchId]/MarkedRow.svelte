@@ -20,7 +20,7 @@
 		carriedInPlace,
 		type Row,
 		type Side,
-		type Taken
+		type Taken,
 	} from './divergence';
 
 	interface Props {
@@ -47,7 +47,7 @@
 		open,
 		taken,
 		onToggle,
-		onCarry
+		onCarry,
 	}: Props = $props();
 
 	const seen = $derived(see(row, side));
@@ -94,7 +94,7 @@
 
 	{#if open}
 		<div class="mt-2 border border-rule bg-card p-3">
-			<p class="text-label uppercase text-ink-2">
+			<p class="text-label text-ink-2 uppercase">
 				{#if seen.ghost}
 					{m.divergence_what_happened()}
 				{:else if side === 'theirs'}

@@ -15,7 +15,7 @@ function answering(envelope: unknown, status = 200) {
 		calls.push({ url: String(url), init: init ?? {} });
 		return new Response(JSON.stringify(envelope), {
 			status,
-			headers: { 'content-type': 'application/json' }
+			headers: { 'content-type': 'application/json' },
 		});
 	}) as unknown as typeof globalThis.fetch;
 	return { fetch, calls };
@@ -23,12 +23,15 @@ function answering(envelope: unknown, status = 200) {
 
 describe('the http transport', () => {
 	it('asks the Operation by name and unwraps what it answered', async () => {
-		const { fetch, calls } = answering({ ok: true, result: { version: '0.1.0', setup_complete: false } });
+		const { fetch, calls } = answering({
+			ok: true,
+			result: { version: '0.1.0', setup_complete: false },
+		});
 		const kamosu = createClient(httpTransport({ fetch }));
 
 		await expect(kamosu.instanceStatus()).resolves.toEqual({
 			version: '0.1.0',
-			setup_complete: false
+			setup_complete: false,
 		});
 		expect(calls[0].url).toBe('/api/op/instance_status');
 		expect(calls[0].init.method).toBe('POST');
@@ -55,7 +58,7 @@ describe('the http transport', () => {
 	it('turns a refusal into an OperationError carrying the kind the Core chose', async () => {
 		const { fetch } = answering(
 			{ ok: false, error: { kind: 'unauthorized', message: 'no Person is named' } },
-			401
+			401,
 		);
 		const kamosu = createClient(httpTransport({ fetch }));
 
@@ -63,7 +66,7 @@ describe('the http transport', () => {
 			name: 'OperationError',
 			kind: 'unauthorized',
 			operation: 'list_jobs',
-			message: 'no Person is named'
+			message: 'no Person is named',
 		});
 	});
 

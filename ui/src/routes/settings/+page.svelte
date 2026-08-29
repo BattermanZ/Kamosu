@@ -18,7 +18,7 @@
 		InstanceStatusOutput,
 		ListSessionsOutput,
 		ListAccessKeysOutput,
-		ListKitchensOutput
+		ListKitchensOutput,
 	} from '$lib/api/catalogue';
 
 	const kamosu = useKamosu();
@@ -47,7 +47,7 @@
 	const names: Record<Locale, () => string> = {
 		en: () => m.language_en(),
 		fr: () => m.language_fr(),
-		es: () => m.language_es()
+		es: () => m.language_es(),
 	};
 
 	// Sessions and Access Keys, listed together and each ending individually
@@ -69,7 +69,7 @@
 		try {
 			const [sessionsAnswer, keysAnswer] = await Promise.all([
 				kamosu.listSessions(),
-				kamosu.listAccessKeys()
+				kamosu.listAccessKeys(),
 			]);
 			sessions = sessionsAnswer.sessions.filter((session) => !session.revoked);
 			accessKeys = keysAnswer.access_keys.filter((key) => !key.revoked);
@@ -85,7 +85,9 @@
 	});
 
 	function whenLastUsed(lastUsedAt: string | null): string {
-		return lastUsedAt ? m.access_last_used({ when: new Date(lastUsedAt).toLocaleString() }) : m.access_never_used();
+		return lastUsedAt
+			? m.access_last_used({ when: new Date(lastUsedAt).toLocaleString() })
+			: m.access_never_used();
 	}
 
 	async function endSession(sessionId: string) {
@@ -238,7 +240,9 @@
 			{#if mintedSecret}
 				<div class="mb-4 rounded-sm border border-accent bg-card p-3" role="alert">
 					<p class="text-body font-semibold text-ink">{m.access_key_secret_once()}</p>
-					<code class="mt-2 block overflow-x-auto rounded-sm bg-ground p-2 text-read">{mintedSecret}</code>
+					<code class="mt-2 block overflow-x-auto rounded-sm bg-ground p-2 text-read"
+						>{mintedSecret}</code
+					>
 					<button
 						type="button"
 						class="mt-2 text-label text-accent underline"
@@ -287,7 +291,7 @@
 								<p class="text-body text-ink">
 									{key.name}
 									{#if key.read_only}
-										<span class="ml-1 text-label uppercase text-ink-2"
+										<span class="ml-1 text-label text-ink-2 uppercase"
 											>{m.access_key_read_only()}</span
 										>
 									{/if}
@@ -363,7 +367,9 @@
 								value={kitchen.name}
 							/>
 							{#if kitchen.is_home}
-								<span class="shrink-0 text-label uppercase text-ink-2">{m.kitchen_home_badge()}</span>
+								<span class="shrink-0 text-label text-ink-2 uppercase"
+									>{m.kitchen_home_badge()}</span
+								>
 							{/if}
 							<button class="shrink-0 text-label text-accent underline" type="submit">
 								{m.kitchen_save()}
@@ -375,7 +381,7 @@
 							onsubmit={(event) => {
 								event.preventDefault();
 								const input = event.currentTarget.elements.namedItem(
-									'nickname'
+									'nickname',
 								) as HTMLInputElement;
 								setNickname(kitchen.id, input.value);
 							}}
@@ -395,7 +401,7 @@
 							</button>
 						</form>
 
-						<h3 class="mt-3 mb-1 text-label uppercase text-ink-2">{m.kitchen_members()}</h3>
+						<h3 class="mt-3 mb-1 text-label text-ink-2 uppercase">{m.kitchen_members()}</h3>
 						<ul class="grid gap-1">
 							{#each kitchen.members as member (member.person_id)}
 								<li class="flex items-center justify-between gap-3 text-body text-ink">

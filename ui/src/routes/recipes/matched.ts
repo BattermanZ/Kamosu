@@ -54,12 +54,13 @@ export function matchedLabel(matched: Matched | null): string | null {
  */
 export function fallbackLanguage(entry: Entry): string | null {
 	if (!entry.language_fallback) return null;
-	const language = {
-		en: m.recipes_language_en(),
-		fr: m.recipes_language_fr(),
-		es: m.recipes_language_es()
-		// A Language this build has no word for keeps its own code rather than
-		// the recipe quietly losing its mark.
-	}[entry.language] ?? entry.language;
+	const language =
+		{
+			en: m.recipes_language_en(),
+			fr: m.recipes_language_fr(),
+			es: m.recipes_language_es(),
+			// A Language this build has no word for keeps its own code rather than
+			// the recipe quietly losing its mark.
+		}[entry.language] ?? entry.language;
 	return m.recipes_language_fallback({ language });
 }

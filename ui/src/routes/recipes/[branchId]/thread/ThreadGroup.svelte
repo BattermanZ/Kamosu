@@ -41,7 +41,7 @@
 		onOpenVersion,
 		onOpenAttempt,
 		nested = false,
-		hideTrunk = false
+		hideTrunk = false,
 	}: Props = $props();
 
 	const RUN_THRESHOLD = 4;
@@ -61,7 +61,11 @@
 		let quiet: ThreadVersion[] = [];
 		const flush = () => {
 			if (!quiet.length) return;
-			out.push({ key: rowKey(quiet[0]), versions: quiet, collapsible: quiet.length >= RUN_THRESHOLD });
+			out.push({
+				key: rowKey(quiet[0]),
+				versions: quiet,
+				collapsible: quiet.length >= RUN_THRESHOLD,
+			});
 			quiet = [];
 		};
 		for (const version of trunk) {
@@ -86,7 +90,9 @@
 		return branchIds
 			.map((id) => branches.get(id))
 			.filter((branch): branch is ThreadBranch => !!branch)
-			.map((branch) => (branch.language === 'en' ? branch.hand_id : `${branch.hand_id} (${branch.language})`))
+			.map((branch) =>
+				branch.language === 'en' ? branch.hand_id : `${branch.hand_id} (${branch.language})`,
+			)
 			.join(', ');
 	}
 
@@ -109,10 +115,10 @@
 					{m.thread_quiet_run({
 						count: run.versions.length,
 						from: run.versions[0].created_at.slice(0, 10),
-						to: run.versions[run.versions.length - 1].created_at.slice(0, 10)
+						to: run.versions[run.versions.length - 1].created_at.slice(0, 10),
 					})}
 				</span>
-				<span class="shrink-0 text-label uppercase text-accent">{m.thread_show()}</span>
+				<span class="shrink-0 text-label text-accent uppercase">{m.thread_show()}</span>
 			</button>
 		{:else}
 			{#each run.versions as version (rowKey(version))}
@@ -122,9 +128,9 @@
 						class="flex w-full items-start gap-3 text-left"
 						onclick={() => onOpenVersion(version)}
 					>
-						<span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm bg-accent"></span>
+						<span class="h-2.5 w-2.5 mt-1 shrink-0 rounded-sm bg-accent"></span>
 						<span class="min-w-0 flex-1">
-							<span class="block text-label uppercase text-ink-2">
+							<span class="block text-label text-ink-2 uppercase">
 								{version.created_at.slice(0, 10)}
 							</span>
 							<span class="block font-display text-body text-ink">
@@ -155,7 +161,7 @@
 			{#if run.collapsible}
 				<button
 					type="button"
-					class="w-full py-1 text-left text-label uppercase text-ink-2"
+					class="w-full py-1 text-left text-label text-ink-2 uppercase"
 					onclick={() => toggle(run.key)}
 				>
 					{m.thread_collapse()}
@@ -183,7 +189,7 @@
 		>
 			{#each group.children as child, index (child.branchIds.join(','))}
 				<div class={`min-w-0 border-t-2 ${railColor(index)}`}>
-					<p class="border-b border-rule py-2 text-label uppercase text-ink-2">
+					<p class="border-b border-rule py-2 text-label text-ink-2 uppercase">
 						{railLabel(child.branchIds)}
 					</p>
 					{@render trunkList(child.group.trunk)}

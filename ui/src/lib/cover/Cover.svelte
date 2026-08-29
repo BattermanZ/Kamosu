@@ -37,12 +37,7 @@
 		titleClass?: string;
 	}
 
-	let {
-		lineageId,
-		title,
-		height = 'var(--hero-h)',
-		titleClass = 'text-title'
-	}: Props = $props();
+	let { lineageId, title, height = 'var(--hero-h)', titleClass = 'text-title' }: Props = $props();
 
 	const cover = $derived(coverFor(lineageId));
 </script>

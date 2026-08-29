@@ -29,7 +29,7 @@ const kitchen = {
 	nickname: null,
 	hand_id: 'h_1',
 	is_home: true,
-	members: [{ person_id: 'p_1', name: 'Aurélien' }]
+	members: [{ person_id: 'p_1', name: 'Aurélien' }],
 };
 
 /** One entry on the shelf, with everything the Catalogue requires present. */
@@ -42,7 +42,7 @@ const entry = (over: Record<string, unknown> = {}) => ({
 	main_photo: null,
 	yield: null,
 	matched: null,
-	...over
+	...over,
 });
 
 describe('the recipes screen', () => {
@@ -53,9 +53,9 @@ describe('the recipes screen', () => {
 				query: null,
 				recipes: [
 					entry({ lineage_id: 'l_1', title: 'Airfried Cauliflower' }),
-					entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' })
-				]
-			}
+					entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' }),
+				],
+			},
 		});
 
 		expect(await screen.findByText('Airfried Cauliflower')).toBeInTheDocument();
@@ -66,7 +66,7 @@ describe('the recipes screen', () => {
 	it('explains why nothing matched, and offers the two things you were about to do', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: 'osso buco', recipes: [] }
+			search_recipes: { query: 'osso buco', recipes: [] },
 		});
 
 		// It names what was searched for — from the answer, not from the field.
@@ -75,13 +75,11 @@ describe('the recipes screen', () => {
 		// And says what it looked through, and why it matched only words. An
 		// empty screen would leave a person unable to tell a missing recipe
 		// from a broken search.
-		expect(
-			screen.getByText(/looked through every title, ingredient and step/)
-		).toBeInTheDocument();
+		expect(screen.getByText(/looked through every title, ingredient and step/)).toBeInTheDocument();
 		expect(screen.getByText(/Meaning search is off/)).toBeInTheDocument();
 
 		expect(
-			screen.getByRole('button', { name: /Add a recipe called .osso buco./ })
+			screen.getByRole('button', { name: /Add a recipe called .osso buco./ }),
 		).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /Import from a link/ })).toBeInTheDocument();
 		expect(screen.getByRole('link', { name: /Turn it on/ })).toBeInTheDocument();
@@ -103,12 +101,12 @@ describe('the recipes screen', () => {
 				translation: null,
 				tags: [],
 				related_recipes: [],
-				cooked: { count: 0, last_cooked_at: null, ratings: [] }
-			}
+				cooked: { count: 0, last_cooked_at: null, ratings: [] },
+			},
 		});
 
 		await fireEvent.click(
-			await screen.findByRole('button', { name: /Add a recipe called .osso buco./ })
+			await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
 		);
 
 		// A recipe needs only a title (#6), so the query is the whole recipe:
@@ -143,13 +141,13 @@ describe('the recipes screen', () => {
 							lineage_id: 'l_landed',
 							foreign_id: 'https://example.test/osso-buco',
 							status: 'created',
-							title: 'Osso Buco'
-						}
+							title: 'Osso Buco',
+						},
 					],
 					offered: [],
-					unreadable: []
-				}
-			}
+					unreadable: [],
+				},
+			},
 		});
 
 		await fireEvent.click(await screen.findByRole('button', { name: /Import from a link/ }));
@@ -171,7 +169,7 @@ describe('the recipes screen', () => {
 	it('says the shelf is empty rather than that a search failed, when nothing was searched for', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: null, recipes: [] }
+			search_recipes: { query: null, recipes: [] },
 		});
 
 		expect(await screen.findByText(/The shelf is empty/)).toBeInTheDocument();
@@ -186,16 +184,16 @@ describe('the recipes screen', () => {
 				recipes: [
 					entry({
 						title: 'Chilli con carne',
-						matched: { where: 'ingredient', line: '50 g dark chocolate', step_number: null }
+						matched: { where: 'ingredient', line: '50 g dark chocolate', step_number: null },
 					}),
 					entry({
 						lineage_id: 'l_2',
 						branch_id: 'b_2',
 						title: 'Braised Beef',
-						matched: { where: 'step', line: 'Stir in a square of chocolate.', step_number: 2 }
-					})
-				]
-			}
+						matched: { where: 'step', line: 'Stir in a square of chocolate.', step_number: 2 },
+					}),
+				],
+			},
 		});
 
 		expect(await screen.findByText('50 g dark chocolate')).toBeInTheDocument();
@@ -209,8 +207,8 @@ describe('the recipes screen', () => {
 			list_kitchens: { kitchens: [kitchen] },
 			search_recipes: {
 				query: 'miso',
-				recipes: [entry({ matched: { where: 'title', line: 'Miso Soup', step_number: null } })]
-			}
+				recipes: [entry({ matched: { where: 'title', line: 'Miso Soup', step_number: null } })],
+			},
 		});
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
@@ -224,9 +222,9 @@ describe('the recipes screen', () => {
 				query: null,
 				recipes: [
 					entry({ title: 'Îles Flottantes', language: 'fr', language_fallback: true }),
-					entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' })
-				]
-			}
+					entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' }),
+				],
+			},
 		});
 
 		// Shown, not hidden: a Language preference never hides a recipe from
@@ -246,10 +244,10 @@ describe('the recipes screen', () => {
 					entry({
 						title: 'Sukiyaki Udon',
 						language: 'unknown',
-						language_fallback: false
-					})
-				]
-			}
+						language_fallback: false,
+					}),
+				],
+			},
 		});
 
 		// A recipe honestly written in two Languages is not in a Language its
@@ -263,7 +261,7 @@ describe('the recipes screen', () => {
 	it('names no Kitchen on a card, and offers a Kitchen filter only where there are several', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: null, recipes: [entry()] }
+			search_recipes: { query: null, recipes: [entry()] },
 		});
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
@@ -275,9 +273,9 @@ describe('the recipes screen', () => {
 	it('offers one filter per Kitchen where the Person cooks in several, and asks with it', async () => {
 		const { kamosu } = renderScreen(Recipes, {
 			list_kitchens: {
-				kitchens: [kitchen, { ...kitchen, id: 'k_marc', name: 'Chez Marc', is_home: false }]
+				kitchens: [kitchen, { ...kitchen, id: 'k_marc', name: 'Chez Marc', is_home: false }],
 			},
-			search_recipes: { query: null, recipes: [entry()] }
+			search_recipes: { query: null, recipes: [entry()] },
 		});
 
 		const marc = await screen.findByRole('button', { name: 'Chez Marc' });

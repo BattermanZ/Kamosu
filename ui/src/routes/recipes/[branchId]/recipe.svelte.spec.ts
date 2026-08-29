@@ -17,7 +17,7 @@ import RecipeTestHarness from './RecipeTestHarness.svelte';
 const line = (text: string, index: number) => ({
 	kind: 'ingredient',
 	text,
-	index
+	index,
 });
 const step = (text: string, index: number) => ({ kind: 'step', text, index });
 
@@ -25,7 +25,7 @@ const branch = (
 	branch_id: string,
 	kitchen_name: string,
 	ingredients: { kind: 'section' | 'ingredient'; text: string }[],
-	steps: { kind: 'section' | 'step'; text: string; photo: string | null }[]
+	steps: { kind: 'section' | 'step'; text: string; photo: string | null }[],
 ) => ({
 	branch_id,
 	kitchen_id: `k_${branch_id}`,
@@ -42,40 +42,40 @@ const branch = (
 		main_photo: null,
 		source: { text: 'mykoreankitchen.com', link: null },
 		ingredients,
-		steps
+		steps,
 	},
-	readings: ingredients.map(() => null)
+	readings: ingredients.map(() => null),
 });
 
 const MY_INGREDIENTS = [
 	{ kind: 'ingredient' as const, text: '1 cup potato starch (or corn starch)' },
 	{ kind: 'ingredient' as const, text: '¼ cup honey' },
 	{ kind: 'ingredient' as const, text: '¼ cup brown sugar' },
-	{ kind: 'ingredient' as const, text: '1 Tbsp rice vinegar' }
+	{ kind: 'ingredient' as const, text: '1 Tbsp rice vinegar' },
 ];
 const THEIR_INGREDIENTS = [
 	{ kind: 'ingredient' as const, text: '¾ cup potato starch' },
 	{ kind: 'ingredient' as const, text: '¼ cup honey' },
-	{ kind: 'ingredient' as const, text: '1 tsp gochugaru' }
+	{ kind: 'ingredient' as const, text: '1 tsp gochugaru' },
 ];
 const MY_STEPS = [
 	{
 		kind: 'step' as const,
 		text: 'Deep fry at 190 C until crisp.',
-		photo: null
-	}
+		photo: null,
+	},
 ];
 const THEIR_STEPS = [
 	{
 		kind: 'step' as const,
 		text: 'Air fry at 200 C for 18 minutes.',
-		photo: null
+		photo: null,
 	},
 	{
 		kind: 'step' as const,
 		text: 'Let it sit 5 minutes before saucing.',
-		photo: null
-	}
+		photo: null,
+	},
 ];
 
 /**
@@ -96,14 +96,14 @@ function divergence() {
 				state: 'changed' as const,
 				from_branch_point: true,
 				mine: line('1 cup potato starch (or corn starch)', 0),
-				theirs: line('¾ cup potato starch', 0)
+				theirs: line('¾ cup potato starch', 0),
 			},
 			{
 				kind: 'ingredient',
 				state: 'same' as const,
 				from_branch_point: true,
 				mine: line('¼ cup honey', 1),
-				theirs: line('¼ cup honey', 1)
+				theirs: line('¼ cup honey', 1),
 			},
 			{
 				// Marc took this out. It was at the Branch Point, so it can be
@@ -112,7 +112,7 @@ function divergence() {
 				state: 'only-mine' as const,
 				from_branch_point: true,
 				mine: line('¼ cup brown sugar', 2),
-				theirs: null
+				theirs: null,
 			},
 			{
 				// Mine, written after we parted. Nothing of his resembles it.
@@ -120,7 +120,7 @@ function divergence() {
 				state: 'only-mine' as const,
 				from_branch_point: false,
 				mine: line('1 Tbsp rice vinegar', 3),
-				theirs: null
+				theirs: null,
 			},
 			{
 				// His, written after we parted, landing in the same place. The
@@ -129,8 +129,8 @@ function divergence() {
 				state: 'only-theirs' as const,
 				from_branch_point: false,
 				mine: null,
-				theirs: line('1 tsp gochugaru', 2)
-			}
+				theirs: line('1 tsp gochugaru', 2),
+			},
 		],
 		steps: [
 			{
@@ -138,36 +138,36 @@ function divergence() {
 				state: 'only-mine' as const,
 				from_branch_point: true,
 				mine: step('Deep fry at 190 C until crisp.', 0),
-				theirs: null
+				theirs: null,
 			},
 			{
 				kind: 'step',
 				state: 'only-theirs' as const,
 				from_branch_point: true,
 				mine: null,
-				theirs: step('Air fry at 200 C for 18 minutes.', 0)
+				theirs: step('Air fry at 200 C for 18 minutes.', 0),
 			},
 			{
 				kind: 'step',
 				state: 'only-theirs' as const,
 				from_branch_point: false,
 				mine: null,
-				theirs: step('Let it sit 5 minutes before saucing.', 1)
-			}
+				theirs: step('Let it sit 5 minutes before saucing.', 1),
+			},
 		],
 		fields: {
 			title: {
 				same: true,
 				mine: 'Korean Fried Chicken',
-				theirs: 'Korean Fried Chicken'
+				theirs: 'Korean Fried Chicken',
 			},
 			yield: { same: true, mine: null, theirs: null },
 			prep_time_minutes: { same: true, mine: 20, theirs: 20 },
 			cook_time_minutes: { same: true, mine: 30, theirs: 30 },
 			source: { same: true, mine: null, theirs: null },
 			note: { same: true, mine: null, theirs: null },
-			main_photo: { same: true, mine: null, theirs: null }
-		}
+			main_photo: { same: true, mine: null, theirs: null },
+		},
 	};
 }
 
@@ -194,12 +194,12 @@ function forked(extra: Answers = {}) {
 					translates_version_id: null,
 					language: 'en',
 					content: divergence().mine.content,
-					readings: MY_INGREDIENTS.map(() => null)
-				}
+					readings: MY_INGREDIENTS.map(() => null),
+				},
 			],
 			tags: [],
 			related_recipes: [],
-			cooked: { count: 0, last_cooked_at: null, ratings: [] }
+			cooked: { count: 0, last_cooked_at: null, ratings: [] },
 		},
 		get_thread: {
 			lineage_id: 'l_1',
@@ -210,7 +210,7 @@ function forked(extra: Answers = {}) {
 					hand_id: 'h_mine',
 					language: 'en',
 					head_version_id: 'v_mine',
-					translation: null
+					translation: null,
 				},
 				{
 					branch_id: 'theirs',
@@ -218,21 +218,21 @@ function forked(extra: Answers = {}) {
 					hand_id: 'h_theirs',
 					language: 'en',
 					head_version_id: 'v_theirs',
-					translation: null
-				}
+					translation: null,
+				},
 			],
 			versions: [],
-			attempts: []
+			attempts: [],
 		},
 		divergence: divergence(),
-		...extra
+		...extra,
 	} as Answers;
 }
 
 function renderRecipe(answers: Answers = forked()) {
 	const kamosu = standIn(answers);
 	render(RecipeTestHarness, {
-		props: { client: kamosu.client, branchId: 'mine' }
+		props: { client: kamosu.client, branchId: 'mine' },
 	});
 	return { kamosu };
 }
@@ -317,9 +317,9 @@ describe('a Divergence', () => {
 					collapsed: false,
 					language: 'en',
 					language_offer: null,
-					translates_version_id: null
-				}
-			})
+					translates_version_id: null,
+				},
+			}),
 		);
 		await screen.findByText('Maison Batterman');
 
@@ -342,7 +342,7 @@ describe('a Divergence', () => {
 		expect(note.value).not.toMatch(/branch|version|v_/i);
 
 		await fireEvent.click(
-			screen.getAllByRole('button', { name: /^Save a Version$/i }).at(-1) as HTMLElement
+			screen.getAllByRole('button', { name: /^Save a Version$/i }).at(-1) as HTMLElement,
 		);
 
 		const saved = kamosu.calls.find((call) => call.operation === 'save_recipe_version');
@@ -356,7 +356,7 @@ describe('a Divergence', () => {
 			'¾ cup potato starch',
 			'¼ cup honey',
 			'¼ cup brown sugar',
-			'1 Tbsp rice vinegar'
+			'1 Tbsp rice vinegar',
 		]);
 		expect(input.change_note).toBe('Took ¾ cup potato starch from Chez Marc.');
 	});
@@ -389,7 +389,7 @@ describe('a Divergence', () => {
 		expect(screen.getByText('¾ cup potato starch')).toBeInTheDocument();
 		expect(screen.queryByText('1 cup potato starch (or corn starch)')).not.toBeInTheDocument();
 		expect(
-			screen.getByText(/replacing 1 cup potato starch \(or corn starch\)/i)
+			screen.getByText(/replacing 1 cup potato starch \(or corn starch\)/i),
 		).toBeInTheDocument();
 		expect(screen.getByText(/sitting on your recipe. Not saved/i)).toBeInTheDocument();
 	});
@@ -405,12 +405,12 @@ describe('a Divergence', () => {
 						hand_id: `h_${id}`,
 						language: 'en',
 						head_version_id: `v_${id}`,
-						translation: null
+						translation: null,
 					})),
 					versions: [],
-					attempts: []
-				}
-			})
+					attempts: [],
+				},
+			}),
 		);
 
 		// ADR 0014: "Two Branches, not five… the switch is the part that will not
@@ -463,13 +463,13 @@ describe('a Divergence', () => {
 							hand_id: 'h_mine',
 							language: 'en',
 							head_version_id: 'v_mine',
-							translation: null
-						}
+							translation: null,
+						},
 					],
 					versions: [],
-					attempts: []
-				}
-			})
+					attempts: [],
+				},
+			}),
 		);
 
 		expect(await screen.findByText('1 cup potato starch (or corn starch)')).toBeInTheDocument();
@@ -496,18 +496,18 @@ describe('the Cooked section', () => {
 							person_id: 'p_aurelien',
 							name: 'Aurélien',
 							rating: 'again' as const,
-							at: '2026-08-14T18:30:00Z'
+							at: '2026-08-14T18:30:00Z',
 						},
 						{
 							person_id: 'p_marie',
 							name: 'Marie',
 							rating: 'tweak' as const,
-							at: '2026-08-02T19:00:00Z'
-						}
+							at: '2026-08-02T19:00:00Z',
+						},
 					],
-					...extra
-				}
-			}
+					...extra,
+				},
+			},
 		} as Answers);
 
 	it('shows each Person’s own verdict beside their name, and never a score', async () => {

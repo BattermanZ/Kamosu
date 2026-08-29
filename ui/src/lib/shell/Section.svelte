@@ -15,7 +15,7 @@
 </script>
 
 <section class="mt-8">
-	<h2 class="mb-3 border-b border-rule pb-2 text-label font-medium uppercase text-accent">
+	<h2 class="mb-3 border-b border-rule pb-2 text-label font-medium text-accent uppercase">
 		{heading}
 	</h2>
 	{@render children()}

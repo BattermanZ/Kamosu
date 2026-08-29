@@ -20,14 +20,11 @@ function lineageIds(count: number, seed = 1): string[] {
 		state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
 		return state;
 	};
-	return Array.from({ length: count }, () =>
-		'l_' +
-		Array.from({ length: 4 }, () =>
-			next()
-				.toString(16)
-				.padStart(8, '0')
-				.slice(0, 4)
-		).join('')
+	return Array.from(
+		{ length: count },
+		() =>
+			'l_' +
+			Array.from({ length: 4 }, () => next().toString(16).padStart(8, '0').slice(0, 4)).join(''),
 	);
 }
 
@@ -59,7 +56,7 @@ describe('a Cover is the same wherever it is drawn', () => {
 			lineageIds(400).map((id) => {
 				const cover = coverFor(id);
 				return `${cover.dye.key}/${cover.shape.key}/${cover.rotation}`;
-			})
+			}),
 		);
 		// 400 ids over 64 dye-and-shape pairs, each with a continuous rotation:
 		// collisions on the whole face should be vanishingly rare.
@@ -156,10 +153,12 @@ describe('a shelf of Covers looks like a shelf', () => {
 	});
 
 	it('reaches every dye-and-shape pairing rather than only some', () => {
-		const pairs = new Set(ids.map((id) => {
-			const cover = coverFor(id);
-			return `${cover.dye.key}/${cover.shape.key}`;
-		}));
+		const pairs = new Set(
+			ids.map((id) => {
+				const cover = coverFor(id);
+				return `${cover.dye.key}/${cover.shape.key}`;
+			}),
+		);
 		expect(pairs.size).toBe(DYES.length * PASTA_SHAPES.length);
 	});
 

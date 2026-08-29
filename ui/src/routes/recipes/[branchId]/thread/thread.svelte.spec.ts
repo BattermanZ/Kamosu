@@ -27,8 +27,8 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						language: 'en',
 						head_version_id: 'v_2',
-						translation: null
-					}
+						translation: null,
+					},
 				],
 				versions: [
 					{
@@ -41,7 +41,7 @@ describe('the Thread screen', () => {
 						change_note: 'Imported from mykoreankitchen.com',
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_mine',
@@ -53,8 +53,8 @@ describe('the Thread screen', () => {
 						change_note: null,
 						created_at: '2026-03-14T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
-					}
+						language: 'en',
+					},
 				],
 				attempts: [
 					{
@@ -71,10 +71,10 @@ describe('the Thread screen', () => {
 						resumable: false,
 						created_at: '2026-03-21T00:00:00Z',
 						last_action_at: '2026-03-21T00:00:00Z',
-						photographs: []
-					}
-				]
-			}
+						photographs: [],
+					},
+				],
+			},
 		});
 
 		expect(await screen.findByText('Imported from mykoreankitchen.com')).toBeInTheDocument();
@@ -96,7 +96,7 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						language: 'en',
 						head_version_id: 'v_3',
-						translation: null
+						translation: null,
 					},
 					{
 						branch_id: 'b_marc',
@@ -104,8 +104,8 @@ describe('the Thread screen', () => {
 						hand_id: 'h_marc',
 						language: 'en',
 						head_version_id: 'v_4',
-						translation: null
-					}
+						translation: null,
+					},
 				],
 				versions: [
 					{
@@ -118,7 +118,7 @@ describe('the Thread screen', () => {
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_marc',
@@ -130,7 +130,7 @@ describe('the Thread screen', () => {
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_mine',
@@ -142,7 +142,7 @@ describe('the Thread screen', () => {
 						change_note: 'Hotter second fry',
 						created_at: '2026-08-09T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_marc',
@@ -154,11 +154,11 @@ describe('the Thread screen', () => {
 						change_note: 'Air fryer',
 						created_at: '2026-06-02T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
-					}
+						language: 'en',
+					},
 				],
-				attempts: []
-			}
+				attempts: [],
+			},
 		});
 
 		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						language: 'en',
 						head_version_id: 'v_2',
-						translation: null
+						translation: null,
 					},
 					{
 						branch_id: 'b_marc',
@@ -190,7 +190,7 @@ describe('the Thread screen', () => {
 						hand_id: 'h_marc',
 						language: 'en',
 						head_version_id: 'm_2',
-						translation: null
+						translation: null,
 					},
 					{
 						branch_id: 'b_camille',
@@ -198,8 +198,8 @@ describe('the Thread screen', () => {
 						hand_id: 'h_camille',
 						language: 'fr',
 						head_version_id: 'c_1',
-						translation: null
-					}
+						translation: null,
+					},
 				],
 				versions: [
 					{
@@ -212,7 +212,7 @@ describe('the Thread screen', () => {
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_marc',
@@ -224,7 +224,7 @@ describe('the Thread screen', () => {
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_camille',
@@ -236,7 +236,7 @@ describe('the Thread screen', () => {
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_mine',
@@ -248,7 +248,7 @@ describe('the Thread screen', () => {
 						change_note: 'Hotter second fry',
 						created_at: '2026-08-09T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_marc',
@@ -260,7 +260,7 @@ describe('the Thread screen', () => {
 						change_note: 'Air fryer',
 						created_at: '2026-06-02T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_camille',
@@ -272,7 +272,7 @@ describe('the Thread screen', () => {
 						change_note: 'Air fryer',
 						created_at: '2026-06-02T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_marc',
@@ -284,7 +284,7 @@ describe('the Thread screen', () => {
 						change_note: null,
 						created_at: '2026-08-10T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
+						language: 'en',
 					},
 					{
 						branch_id: 'b_camille',
@@ -296,11 +296,11 @@ describe('the Thread screen', () => {
 						change_note: 'Translated into French',
 						created_at: '2026-08-12T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
-					}
+						language: 'en',
+					},
 				],
-				attempts: []
-			}
+				attempts: [],
+			},
 		});
 
 		// Two forks happened: v1 splits mine from {marc, camille}, then m1
@@ -329,8 +329,8 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						language: 'en',
 						head_version_id: 'v_1',
-						translation: null
-					}
+						translation: null,
+					},
 				],
 				versions: [
 					{
@@ -343,10 +343,10 @@ describe('the Thread screen', () => {
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
-						language: 'en'
-					}
+						language: 'en',
+					},
 				],
-				attempts: []
+				attempts: [],
 			},
 			get_recipe: {
 				branch_id: 'b_mine',
@@ -377,14 +377,14 @@ describe('the Thread screen', () => {
 							main_photo: null,
 							source: null,
 							ingredients: [{ kind: 'ingredient', text: '1.4 kg whole chicken' }],
-							steps: [{ kind: 'step', text: 'Marinate the chicken.', photo: null }]
+							steps: [{ kind: 'step', text: 'Marinate the chicken.', photo: null }],
 						},
-						readings: [null]
-					}
+						readings: [null],
+					},
 				],
 				tags: [],
 				related_recipes: [],
-				cooked: { count: 0, last_cooked_at: null, ratings: [] }
+				cooked: { count: 0, last_cooked_at: null, ratings: [] },
 			},
 			start_attempt: {
 				id: 'at_2',
@@ -400,8 +400,8 @@ describe('the Thread screen', () => {
 				resumable: true,
 				created_at: '2026-08-28T00:00:00Z',
 				last_action_at: '2026-08-28T00:00:00Z',
-				photographs: []
-			}
+				photographs: [],
+			},
 		});
 
 		await fireEvent.click(await screen.findByText('Imported'));
@@ -427,7 +427,7 @@ describe('the Thread screen', () => {
 			change_note: null,
 			created_at: `2026-08-1${n}T00:00:00Z`,
 			translates_version_id: null,
-			language: 'en'
+			language: 'en',
 		}));
 
 		renderThread('b_mine', {
@@ -440,12 +440,12 @@ describe('the Thread screen', () => {
 						hand_id: 'h_aurelien',
 						language: 'en',
 						head_version_id: 'v_4',
-						translation: null
-					}
+						translation: null,
+					},
 				],
 				versions,
-				attempts: []
-			}
+				attempts: [],
+			},
 		});
 
 		const showButton = await screen.findByRole('button', { name: /4 quiet saves/ });

@@ -51,7 +51,9 @@
 		};
 	});
 
-	const branchesById = $derived(new Map(thread?.branches.map((branch) => [branch.branch_id, branch]) ?? []));
+	const branchesById = $derived(
+		new Map(thread?.branches.map((branch) => [branch.branch_id, branch]) ?? []),
+	);
 
 	const attemptsByVersion = $derived.by(() => {
 		const map = new Map<string, Attempt[]>();
@@ -66,7 +68,11 @@
 	const rootGroup = $derived.by(() => {
 		if (!thread) return undefined;
 		const chains = chainsByBranch(thread.versions);
-		return buildGroup(thread.branches.map((branch) => branch.branch_id), chains, 0);
+		return buildGroup(
+			thread.branches.map((branch) => branch.branch_id),
+			chains,
+			0,
+		);
 	});
 
 	// ---- reading a past Version in full, and cooking from it -----------------
@@ -87,7 +93,10 @@
 		if (!openVersion) return;
 		cooking = 'starting';
 		try {
-			await kamosu.startAttempt({ branch_id: openVersion.branch_id, version_id: openVersion.version_id });
+			await kamosu.startAttempt({
+				branch_id: openVersion.branch_id,
+				version_id: openVersion.version_id,
+			});
 			cooking = 'started';
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -125,7 +134,11 @@
 		<div
 			class={`mx-auto w-full max-w-2xl rounded-sm bg-card p-4 ${scrollable ? 'max-h-[70vh] overflow-y-auto' : ''}`}
 		>
-			<button type="button" class="float-right text-label uppercase text-ink-2" onclick={closeSheets}>
+			<button
+				type="button"
+				class="float-right text-label text-ink-2 uppercase"
+				onclick={closeSheets}
+			>
 				{m.thread_close()}
 			</button>
 			{@render children()}
@@ -141,13 +154,13 @@
 		{openContent?.title ?? m.loading()}
 	</p>
 	{#if openContent}
-		<h2 class="mt-4 text-label uppercase text-accent">{m.thread_ingredients()}</h2>
+		<h2 class="mt-4 text-label text-accent uppercase">{m.thread_ingredients()}</h2>
 		<ul class="mt-2 grid gap-1">
 			{#each openContent.ingredients as line, index (index)}
 				<li class="text-line text-ink">{line.text}</li>
 			{/each}
 		</ul>
-		<h2 class="mt-4 text-label uppercase text-accent">{m.thread_method()}</h2>
+		<h2 class="mt-4 text-label text-accent uppercase">{m.thread_method()}</h2>
 		<ol class="mt-2 grid gap-1">
 			{#each openContent.steps as step, index (index)}
 				<li class="text-body text-ink">{step.text}</li>

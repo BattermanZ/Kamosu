@@ -14,28 +14,28 @@ describe('the Catalogue-derived stand-in', () => {
 		const kamosu = standIn({ instance_status: { version: '0.1.0', setup_complete: true } });
 		await expect(kamosu.client.instanceStatus()).resolves.toEqual({
 			version: '0.1.0',
-			setup_complete: true
+			setup_complete: true,
 		});
 	});
 
 	it('refuses an answer that is missing a declared field', async () => {
 		// `version` is required by instance_status's output schema.
 		const kamosu = standIn({
-			instance_status: { setup_complete: true } as never
+			instance_status: { setup_complete: true } as never,
 		});
 		await expect(kamosu.client.instanceStatus()).rejects.toThrow(/missing version/);
 	});
 
 	it('refuses an answer carrying a field the Catalogue does not declare', async () => {
 		const kamosu = standIn({
-			instance_status: { version: '0.1.0', setup_complete: true, kitchen: 'home' } as never
+			instance_status: { version: '0.1.0', setup_complete: true, kitchen: 'home' } as never,
 		});
 		await expect(kamosu.client.instanceStatus()).rejects.toThrow(/does not declare/);
 	});
 
 	it('refuses a value of the wrong type', async () => {
 		const kamosu = standIn({
-			instance_status: { version: '0.1.0', setup_complete: 'yes' } as never
+			instance_status: { version: '0.1.0', setup_complete: 'yes' } as never,
 		});
 		await expect(kamosu.client.instanceStatus()).rejects.toThrow(/declares boolean/);
 	});
@@ -51,11 +51,11 @@ describe('the Catalogue-derived stand-in', () => {
 				error: null,
 				errorCode: null,
 				created_at: 't',
-				updated_at: 't'
-			}
+				updated_at: 't',
+			},
 		});
 		await expect(kamosu.client.getJob({ job_id: 'j1' })).rejects.toThrow(
-			/which the Catalogue does not allow/
+			/which the Catalogue does not allow/,
 		);
 	});
 
@@ -70,7 +70,7 @@ describe('the Catalogue-derived stand-in', () => {
 		// Named from the generated METHOD_NAMES, not from a rule re-derived here:
 		// a test that re-implements the generator can only agree with its bugs.
 		expect(Object.keys(kamosu.client).sort()).toEqual(
-			CATALOGUE.map((declaration) => METHOD_NAMES[declaration.name]).sort()
+			CATALOGUE.map((declaration) => METHOD_NAMES[declaration.name]).sort(),
 		);
 	});
 });

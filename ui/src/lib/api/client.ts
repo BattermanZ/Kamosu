@@ -16,12 +16,7 @@ import { CATALOGUE, METHOD_NAMES, type KamosuClient, type OperationName } from '
 
 /** The kinds of refusal the Core distinguishes, as the web door names them. */
 export type ErrorKind =
-	| 'unauthorized'
-	| 'unknown_operation'
-	| 'not_found'
-	| 'busy'
-	| 'bad_request'
-	| 'internal';
+	'unauthorized' | 'unknown_operation' | 'not_found' | 'busy' | 'bad_request' | 'internal';
 
 /** An Operation that was reached and refused. Not a network failure. */
 export class OperationError extends Error {
@@ -58,7 +53,7 @@ const KINDS: readonly ErrorKind[] = [
 	'not_found',
 	'busy',
 	'bad_request',
-	'internal'
+	'internal',
 ];
 
 const asKind = (value: unknown): ErrorKind =>
@@ -78,13 +73,13 @@ export function httpTransport(options: TransportOptions = {}): Transport {
 			response = await doFetch(`/api/op/${operation}`, {
 				method: 'POST',
 				headers,
-				body: JSON.stringify(input ?? {})
+				body: JSON.stringify(input ?? {}),
 			});
 		} catch (cause) {
 			// The instance was not reached at all — a kitchen on a bad connection,
 			// not an Operation that refused. Named apart so a screen can say so.
 			throw new OperationError(operation, 'internal', 'Kamosu could not be reached.', {
-				cause
+				cause,
 			});
 		}
 
@@ -95,7 +90,7 @@ export function httpTransport(options: TransportOptions = {}): Transport {
 			throw new OperationError(
 				operation,
 				'internal',
-				`Kamosu answered ${response.status} with something that was not an envelope.`
+				`Kamosu answered ${response.status} with something that was not an envelope.`,
 			);
 		}
 
@@ -103,7 +98,7 @@ export function httpTransport(options: TransportOptions = {}): Transport {
 			throw new OperationError(
 				operation,
 				asKind(envelope.error?.kind),
-				envelope.error?.message ?? `${operation} was refused.`
+				envelope.error?.message ?? `${operation} was refused.`,
 			);
 		}
 		return envelope.result;

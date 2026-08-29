@@ -36,7 +36,7 @@
 		fieldText,
 		rowKey,
 		type Side,
-		type Taken
+		type Taken,
 	} from './divergence';
 
 	interface Props {
@@ -86,7 +86,7 @@
 
 				divergence = await kamosu.divergence({
 					branch_id: branchId,
-					other_branch_id: others[0].branch_id
+					other_branch_id: others[0].branch_id,
 				});
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
@@ -114,8 +114,9 @@
 
 	const unshared = $derived(
 		divergence
-			? [...divergence.ingredients, ...divergence.steps].filter((row) => row.state !== 'same').length
-			: 0
+			? [...divergence.ingredients, ...divergence.steps].filter((row) => row.state !== 'same')
+					.length
+			: 0,
 	);
 
 	/** Marked rows are only ever drawn when there IS a divergence and it is shown. */
@@ -233,7 +234,7 @@
 
 		<div class="px-gutter pt-4">
 			{#if content.source}
-				<p class="text-label uppercase text-ink-2">
+				<p class="text-label text-ink-2 uppercase">
 					{m.recipe_from_source({ source: content.source.text })}
 				</p>
 			{/if}
@@ -248,19 +249,19 @@
 				{#if content.prep_time_minutes !== null}
 					<div class="flex flex-col">
 						<b class="font-display text-panel-figure font-semibold">{content.prep_time_minutes}</b>
-						<span class="text-label uppercase text-ink-2">{m.recipe_min_prep()}</span>
+						<span class="text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
 					</div>
 				{/if}
 				{#if content.cook_time_minutes !== null}
 					<div class="flex flex-col">
 						<b class="font-display text-panel-figure font-semibold">{content.cook_time_minutes}</b>
-						<span class="text-label uppercase text-ink-2">{m.recipe_min_cook()}</span>
+						<span class="text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
 					</div>
 				{/if}
 				{#if content.yield}
 					<div class="flex flex-col">
 						<b class="font-display text-panel-figure font-semibold">{content.yield.amount}</b>
-						<span class="text-label uppercase text-ink-2">{content.yield.noun}</span>
+						<span class="text-label text-ink-2 uppercase">{content.yield.noun}</span>
 					</div>
 				{/if}
 			</div>
@@ -272,7 +273,7 @@
 		</div>
 
 		<!-- Ingredients ------------------------------------------------------ -->
-		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold uppercase text-accent">
+		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
 			{m.recipe_ingredients()}
 		</h2>
 		<ul class="px-gutter">
@@ -281,7 +282,7 @@
 					{@const key = rowKey('ingredients', index)}
 					{@const own = side === 'mine' ? row.mine : row.theirs}
 					{#if row.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label uppercase text-ink-2">
+						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
 							{(own ?? row.mine ?? row.theirs)?.text}
 						</li>
 					{:else if row.state === 'same'}
@@ -307,7 +308,7 @@
 			{:else}
 				{#each content.ingredients as item, index (index)}
 					{#if item.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label uppercase text-ink-2">
+						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
 							{item.text}
 						</li>
 					{:else}
@@ -323,7 +324,7 @@
 		</ul>
 
 		<!-- Method ----------------------------------------------------------- -->
-		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold uppercase text-accent">
+		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
 			{m.recipe_method()}
 		</h2>
 		<ol class="px-gutter">
@@ -334,7 +335,7 @@
 					{@const own = side === 'mine' ? row.mine : row.theirs}
 					{@const n = number(!own)}
 					{#if row.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label uppercase text-ink-2">
+						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
 							{(own ?? row.mine ?? row.theirs)?.text}
 						</li>
 					{:else if row.state === 'same'}
@@ -359,7 +360,7 @@
 				{@const number = numbering()}
 				{#each content.steps as item, index (index)}
 					{#if item.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1 font-display text-label uppercase text-ink-2">
+						<li class="border-b border-rule py-4 pb-1 font-display text-label text-ink-2 uppercase">
 							{item.text}
 						</li>
 					{:else}
@@ -375,7 +376,7 @@
 		</ol>
 
 		{#if content.note}
-			<div class="mx-gutter mt-5 border border-rule bg-card p-4 text-body">{content.note}</div>
+			<div class="mt-5 mx-gutter border border-rule bg-card p-4 text-body">{content.note}</div>
 		{/if}
 		{#if markOf('note')}
 			<p class="mx-gutter mt-1 text-read text-accent">{markOf('note')}</p>
@@ -393,7 +394,7 @@
 			does not appear: silence is not a score of zero.
 		-->
 		{#if recipe}
-			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold uppercase text-accent">
+			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
 				{m.recipe_cooked()}
 			</h2>
 			<div class="px-gutter">
@@ -410,7 +411,7 @@
 						{#each recipe.cooked.ratings as verdict (verdict.person_id)}
 							<li class="flex items-baseline justify-between gap-3 border-b border-rule py-2">
 								<span class="text-line">{verdict.name}</span>
-								<span class="text-read uppercase text-accent">{ratingLabel(verdict.rating)}</span>
+								<span class="text-read text-accent uppercase">{ratingLabel(verdict.rating)}</span>
 							</li>
 						{/each}
 					</ul>
@@ -441,14 +442,14 @@
 	     Version is saved — there is no other kind of save here. -->
 	{#if taken.size > 0 && divergence}
 		<div
-			class="bottom-tabbar fixed inset-x-0 z-30 mx-auto max-w-2xl border-t border-on-accent/25 bg-accent px-gutter py-3 text-on-accent"
+			class="fixed inset-x-0 bottom-tabbar z-30 mx-auto max-w-2xl border-t border-on-accent/25 bg-accent px-gutter py-3 text-on-accent"
 		>
 			<p class="mb-2 text-read">
 				{taken.size === 1
 					? m.divergence_unsaved_one({ kitchen: divergence.theirs.kitchen_name })
 					: m.divergence_unsaved({
 							count: taken.size,
-							kitchen: divergence.theirs.kitchen_name
+							kitchen: divergence.theirs.kitchen_name,
 						})}
 			</p>
 			<div class="flex gap-2">
@@ -474,21 +475,20 @@
 {#if saving && divergence}
 	<div class="fixed inset-0 z-40 bg-accent/40"></div>
 	<div
-		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter py-5 pb-safe"
+		class="py-5 fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pb-safe"
 		role="dialog"
 		aria-modal="true"
 		aria-label={m.divergence_save()}
 	>
 		<h3 class="font-display text-title font-semibold">{m.divergence_save()}</h3>
-		<label class="mt-4 block text-label uppercase text-ink-2" for="what-changed">
+		<label class="mt-4 block text-label text-ink-2 uppercase" for="what-changed">
 			{m.divergence_what_changed()}
 		</label>
 		<textarea
 			id="what-changed"
 			rows="3"
 			bind:value={changeNote}
-			class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"
-		></textarea>
+			class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"></textarea>
 		<p class="mt-2 text-read text-ink-2">
 			{m.divergence_save_hint({ kitchen: divergence.theirs.kitchen_name })}
 		</p>

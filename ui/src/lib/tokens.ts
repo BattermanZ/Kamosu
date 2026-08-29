@@ -28,7 +28,7 @@ export const COLOUR_ORDER = [
 	'--color-cook-rule',
 	'--color-cook-panel',
 	'--color-cook-accent',
-	'--color-cook-on-accent'
+	'--color-cook-on-accent',
 ] as const;
 
 export const RADIUS_ORDER = ['--radius-sm', '--radius-md', '--radius-lg', '--radius-pill'] as const;
@@ -44,7 +44,7 @@ export const TYPE_ORDER = [
 	'--text-body',
 	'--text-tile-title',
 	'--text-read',
-	'--text-label'
+	'--text-label',
 ] as const;
 
 /** Zero, the seven steps, and the gutter. No other step exists to reach for. */
@@ -57,7 +57,7 @@ export const SPACING_ORDER = [
 	'--spacing-6',
 	'--spacing-8',
 	'--spacing-12',
-	'--spacing-gutter'
+	'--spacing-gutter',
 ] as const;
 
 /** One token's resolved value, as the browser computed it. Empty if undeclared. */
@@ -78,12 +78,12 @@ export function readTypeScale(): TypeStep[] {
 		name,
 		size: readToken(name),
 		lineHeight: readToken(`${name}--line-height`),
-		letterSpacing: readToken(`${name}--letter-spacing`)
+		letterSpacing: readToken(`${name}--letter-spacing`),
 	})).filter((step) => step.size !== '');
 }
 
 export function readSpacing(): { name: string; value: string }[] {
 	return SPACING_ORDER.map((name) => ({ name, value: readToken(name) })).filter(
-		(step) => step.value !== ''
+		(step) => step.value !== '',
 	);
 }

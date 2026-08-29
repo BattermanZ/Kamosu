@@ -11,6 +11,6 @@
 	let { children }: Props = $props();
 </script>
 
-<p class="rounded-sm border border-rule border-dashed bg-ground-2 p-6 text-body text-ink-2">
+<p class="rounded-sm border border-dashed border-rule bg-ground-2 p-6 text-body text-ink-2">
 	{@render children()}
 </p>
