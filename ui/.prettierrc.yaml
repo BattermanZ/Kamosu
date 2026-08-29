@@ -1,0 +1,34 @@
+# How Kamosu's interface is formatted. Layout is not a matter of taste here:
+# `cargo fmt --check` has settled it for the Rust half since the beginning, and
+# this is the same decision for the other half. `just check` fails on a file
+# that has drifted.
+#
+# This config lives in ui/ rather than the repo root on purpose. Prettier
+# formats Markdown by default, and docs/adr/, AGENTS.md and CONTEXT.md are
+# hand-wrapped prose that must not be reflowed. Scoping it here makes that
+# impossible rather than merely discouraged.
+
+# Tabs, single quotes and a 100-column budget are what the interface was already
+# written in — SvelteKit's own defaults, inherited from `sv create`. Matching
+# them keeps the adoption diff to real changes instead of whitespace churn.
+useTabs: true
+singleQuote: true
+printWidth: 100
+
+plugins:
+  # Teaches Prettier the .svelte format. Without it, components are unformatted.
+  - prettier-plugin-svelte
+  # Sorts Tailwind classes into their canonical order. MUST BE LAST: it wraps
+  # whichever printer ran before it, so any plugin listed after it is ignored.
+  - prettier-plugin-tailwindcss
+
+# Tailwind v4 is configured in CSS, not in a tailwind.config.js, so the sorter
+# cannot discover the theme on its own — it has to be handed the stylesheet that
+# `@import "tailwindcss"` and the design tokens live in. Resolved relative to
+# this file. Same source of truth as `just css` compiles into assets/app.css.
+tailwindStylesheet: ./src/app.css
+
+overrides:
+  - files: '*.svelte'
+    options:
+      parser: svelte
