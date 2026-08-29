@@ -10,7 +10,41 @@ base64 = "0.23.1"
 caseless = "0.2.2"
 clap = { version = "4.6.6", features = ["derive"] }
 hex = "0.4.3"
-image = { version = "0.25.10", features = ["jpeg", "png", "gif", "bmp", "webp"] }
+# Every format `image` can decode, minus two — and `default-features = false` is
+# the load-bearing part. Without it the listed features are added to the default
+# set rather than replacing it, which is how this once compiled all fifteen
+# formats while naming five.
+#
+# What is deliberately absent:
+#   avif — `image`'s "avif" feature is the ENCODER only (the decoder lives
+#          behind "avif-native", which the defaults never enabled). Kamosu
+#          always encodes WebP, so it could never be reached. It brought in
+#          ravif and rav1e, an entire AV1 encoder.
+#   exr  — OpenEXR, a film HDR format. No kitchen photographs a recipe into one.
+#
+# Together they cost 44 crates and dragged in `paste`, unmaintained
+# (RUSTSEC-2024-0436). Dropping them is what removed that advisory.
+#
+# `rayon` is a default that IS wanted: it is the parallelism in decoding, and
+# this crate's own profile note is about how slow a camera-original photograph
+# is to re-encode. Adding a format here widens what `sniff` accepts, because it
+# asks `image::guess_format` what the compiled build understands (ADR 0017).
+image = { version = "0.25.10", default-features = false, features = [
+    "rayon",
+    "bmp",
+    "dds",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "tga",
+    "tiff",
+    "webp",
+] }
 iso8601-duration = "0.2.0"
 rand = { version = "0.10.2", features = ["sys_rng"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }

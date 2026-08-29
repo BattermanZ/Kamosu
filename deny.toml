@@ -15,23 +15,19 @@
 # published rather than the year.
 
 [advisories]
-# An advisory listed here is one that has been read and judged not to apply, or
-# not to be fixable. Never add an id to quiet a build without writing why —
-# and re-read the reason when a dependency moves.
-ignore = [
-  { id = "RUSTSEC-2024-0436", reason = """
-paste 1.0.15 is unmaintained — its author archived the repository. It is not
-vulnerable; there is no advisory against its behaviour and no fixed version to
-move to.
-
-It is also not ours to move. It arrives twice underneath `image`, through
-exr/pulp and through ravif/rav1e, and `image` is what decodes the photographs
-ADR 0017 is about. Nothing Kamosu can write changes that until those crates
-drop it upstream.
-
-paste is a proc-macro: it runs in the compiler and expands to code, then is
-gone. None of it is in the binary that ships. Unmaintained here is a risk to
-future builds, not to a running kitchen.
-
-Revisit when `image` next has a major release.""" },
-]
+# Empty, and worth keeping that way.
+#
+# An id belongs here only when an advisory has been read and judged not to
+# apply, or judged unfixable — never to quiet a build. Write the reason next to
+# the id when you add one, and re-read it whenever the dependency moves.
+#
+# The first run of this gate found RUSTSEC-2024-0436, unmaintained `paste`,
+# arriving twice under `image`. It was nearly recorded here as unfixable. It
+# was not: `image` was pulling every format it knows how to build, and the two
+# that dragged `paste` in were an AVIF encoder Kamosu can never reach and
+# OpenEXR. Scoping the feature list in Cargo.toml removed it from the build
+# outright — read that file's comment for the reasoning. cargo-deny resolves
+# features, so the advisory is gone rather than silenced.
+#
+# Reach for the real fix first. This list is for what survives it.
+ignore = []
