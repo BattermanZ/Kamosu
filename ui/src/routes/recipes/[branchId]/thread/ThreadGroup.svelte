@@ -82,7 +82,8 @@
 
 	function toggle(key: string) {
 		const next = new Set(expanded);
-		next.has(key) ? next.delete(key) : next.add(key);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
 		expanded = next;
 	}
 

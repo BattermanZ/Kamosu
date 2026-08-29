@@ -151,13 +151,15 @@
 
 	function toggle(key: string) {
 		const next = new Set(open);
-		next.has(key) ? next.delete(key) : next.add(key);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
 		open = next;
 	}
 
 	function carry(key: string, what: Taken | 'undo') {
 		const next = new Map(taken);
-		what === 'undo' ? next.delete(key) : next.set(key, what);
+		if (what === 'undo') next.delete(key);
+		else next.set(key, what);
 		taken = next;
 		saved = 'no';
 	}
