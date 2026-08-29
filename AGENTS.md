@@ -79,8 +79,9 @@ Everything runs through `just` at the repo root — never a hand-rolled
 `cargo run &`, which leaks a process holding the port.
 
 ```sh
-just check      # fmt + clippy + svelte-check + the two freshness gates (below)
+just check      # fmt + clippy + prettier + svelte-check + the two freshness gates (below)
 just test       # the behaviour suite (real Operations, real SQLite) + the screen tests
+just format     # apply Prettier to ui/ — the Svelte half of `cargo fmt`
 just css        # regenerate assets/app.css and the icon PNGs from ui/ (their source)
 just client     # regenerate the typed client from the Catalogue (see The interface)
 just ui-build   # build the Svelte app into ui/build, which the binary embeds
@@ -100,6 +101,14 @@ another port cannot happen. `dev-start` is always safe to re-run for both.
 
 `dev-clean` deletes `target/` to reclaim build cache; the next build is a full
 rebuild. Dev state lives in gitignored `.dev/`.
+
+**Layout is settled by a formatter in both languages** — `cargo fmt` for Rust,
+Prettier for `ui/` — and `just check` fails on either. Never argue with them and
+never hand-format; run `just format` and move on. Two things `ui/.prettierignore`
+excludes are worth knowing before you try to "fix" them: the generated files,
+because `just check` compares them byte-for-byte against a fresh regeneration,
+and `ui/src/app.css`, because Tailwind passes that file's indentation through
+into the compiled stylesheet that ships.
 
 ## Design tokens
 
