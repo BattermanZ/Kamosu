@@ -13,7 +13,26 @@
  *      `just css`; `just check` fails if the committed copy has diverged.
  */
 
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+/* What Tailwind reads to decide which utilities to emit.
+
+   Named explicitly because the automatic detection it replaces sweeps every
+   non-gitignored file under ui/ — config files, and the prose in their
+   comments. That is not a hypothetical: the word "inline", written in a code
+   comment in eslint.config.js, put a real `.inline { display: inline }` rule
+   into this stylesheet. Only src/ holds markup, so only src/ is read.
+
+   paraglide is excluded because an explicit @source overrides .gitignore, and
+   that directory is every translated phrase in three languages compiled into
+   functions. A phrase is not a class name.
+
+   When the Share Link page arrives it is rendered from Rust strings (ADR 0013)
+   and wants `@source "../../src"` added here. Tailwind's classes are identical
+   everywhere, which is exactly why both renderings can draw from this one file.
+   Nothing in Rust emits a class today. */
+@source "./";
+@source not "./lib/paraglide";
 
 /* `static`: every token below is emitted into :root even when no utility uses
    it yet — the tokens page reads them all back with getComputedStyle, and

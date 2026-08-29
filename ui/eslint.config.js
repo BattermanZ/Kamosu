@@ -59,8 +59,8 @@ export default ts.config(
 				extraFileExtensions: ['.svelte'],
 
 				// The documented setup imports ./svelte.config.js here. Kamosu has
-				// none — SvelteKit's own configuration sits in vite.config.ts,
-				// which is where `runes: true` is really decided. Restated rather than
+				// none — SvelteKit is configured inline in vite.config.ts, which is
+				// where `runes: true` is really decided. Restated rather than
 				// imported because eslint.config.js cannot import a .ts file
 				// without a loader, and one boolean duplicated is a smaller price
 				// than a build file rearranged to suit a linter. If runes mode ever

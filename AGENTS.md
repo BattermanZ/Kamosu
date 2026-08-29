@@ -128,6 +128,14 @@ never needs Node — but `just check` regenerates it into a temp directory and
 **fails if what is committed has drifted from `ui/`**. Never hand-edit
 `assets/app.css`; change `ui/src/app.css` and run `just css`.
 
+**Tailwind reads `ui/src/` and nothing else**, declared with `source(none)` and
+an explicit `@source` at the top of `ui/src/app.css`. The automatic detection
+that replaced sweeps every non-gitignored file under `ui/` — including config
+files and the prose inside their comments — and a bare utility word written in a
+comment emits a real rule into the stylesheet that ships. If a new place ever
+holds markup (the Rust-rendered Share Link page will), add an `@source` line for
+it rather than removing the scoping.
+
 ## The interface
 
 The frontend is **Svelte 5 + SvelteKit on `adapter-static` + TypeScript +
