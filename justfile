@@ -246,6 +246,49 @@ format:
     just _npm-deps
     cd ui && npm run --silent format
 
+# Check both dependency trees for published vulnerabilities: cargo-deny against
+# the RustSec database, npm audit against GitHub's.
+#
+# Deliberately NOT part of `just check`. Both halves fetch an advisory database
+# over the network, and `just check` has to stay fast and work offline. The
+# trade-off is that this is a recipe someone has to remember — run it when
+# adding or changing a dependency, and every so often regardless. That last part
+# is the real argument for CI: an advisory appears because the world changed,
+# not because this repo did, so a tree that was clean in March is not clean in
+# June by any property of the code.
+#
+# Both run even when the first one fails, because "what is wrong with my
+# dependencies" is a question you want answered in full, once.
+audit:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if ! command -v cargo-deny >/dev/null 2>&1; then
+        echo "error: cargo-deny is not installed. Install it with:" >&2
+        echo "           cargo install --locked cargo-deny" >&2
+        exit 1
+    fi
+    failed=0
+
+    echo "── Rust (cargo-deny, RustSec) ─────────────────────────────────────────"
+    cargo deny check advisories || failed=1
+
+    echo ""
+    echo "── The interface (npm audit) ──────────────────────────────────────────"
+    just _npm-deps
+    # Fails on high and critical only. The lows in this tree today are
+    # SvelteKit's server-side cookie parser, which Kamosu never runs: the
+    # server half is unused (ADR 0012) and the Rust binary serves the built
+    # files. npm's own remedy for it is a downgrade to @sveltejs/kit 0.0.30,
+    # which is not a fix. Lows are still printed — read them, don't obey them.
+    ( cd ui && npm audit --audit-level=high ) || failed=1
+
+    echo ""
+    if (( failed )); then
+        echo "error: at least one dependency tree has something to answer for." >&2
+        exit 1
+    fi
+    echo "both dependency trees are clean at the levels this gate enforces."
+
 # ── The interface ─────────────────────────────────────────────────────────────
 
 # Internal: make sure the interface's dependencies are there. Every recipe that

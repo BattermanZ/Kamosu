@@ -68,6 +68,17 @@ Two calls, in order:
 Chasing a major release mid-build is a rewrite, not an upgrade; upgrade
 deliberately, as its own piece of work.
 
+**Holding a version is not the same as ignoring an advisory.** `just audit`
+checks both trees — cargo-deny against RustSec, `npm audit` against GitHub's
+database — and it is the one reason to move a version outside a deliberate
+upgrade. A published vulnerability or a yanked release is a fact about the
+world, not a new feature you are chasing. This is why no Dependabot or Renovate
+runs here: automated version-bump pull requests would fight the paragraph above
+every week, and `just audit` gives the security half without the churn. Read
+what it reports rather than obeying it — `npm audit`'s suggested remedy is
+routinely a downgrade that breaks more than it fixes. Advisories judged not to
+apply are recorded, with the reasoning, in `deny.toml`.
+
 **Kamosu pins its compiler.** `rust-toolchain.toml` fixes the Rust version so
 every machine and every CI run builds identically. Pinning the toolchain and
 letting crates float are not in conflict: one is the kitchen, the other is the
@@ -82,6 +93,7 @@ Everything runs through `just` at the repo root — never a hand-rolled
 just check      # fmt + clippy + prettier + eslint + svelte-check + the two freshness gates (below)
 just test       # the behaviour suite (real Operations, real SQLite) + the screen tests
 just format     # apply Prettier to ui/ — the Svelte half of `cargo fmt`
+just audit      # both dependency trees against their advisory databases (needs network)
 just css        # regenerate assets/app.css and the icon PNGs from ui/ (their source)
 just client     # regenerate the typed client from the Catalogue (see The interface)
 just ui-build   # build the Svelte app into ui/build, which the binary embeds

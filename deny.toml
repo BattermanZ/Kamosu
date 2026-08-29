@@ -1,0 +1,37 @@
+# What Kamosu checks its Rust dependencies for, and what it has decided to live
+# with. Run it with `just audit` — never folded into `just check`, because this
+# one needs the network to fetch the RustSec advisory database and `just check`
+# must stay fast and work on a train.
+#
+# Only `advisories` is configured, and `just audit` asks for only that check.
+# The licenses, bans and sources checks are deliberately left alone: each wants
+# a decision per crate in the tree, which is its own afternoon and not this
+# one. A bare `cargo deny check` runs all four and will fail on licenses with
+# nothing allowed — that is the empty config talking, not a real finding.
+#
+# Why this exists at all: Kamosu decodes photographs it did not take, fetches
+# pages it was told about by text it was told to read (ADR 0033), and hashes
+# passwords. Advisories in that tree are worth knowing about the week they are
+# published rather than the year.
+
+[advisories]
+# An advisory listed here is one that has been read and judged not to apply, or
+# not to be fixable. Never add an id to quiet a build without writing why —
+# and re-read the reason when a dependency moves.
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = """
+paste 1.0.15 is unmaintained — its author archived the repository. It is not
+vulnerable; there is no advisory against its behaviour and no fixed version to
+move to.
+
+It is also not ours to move. It arrives twice underneath `image`, through
+exr/pulp and through ravif/rav1e, and `image` is what decodes the photographs
+ADR 0017 is about. Nothing Kamosu can write changes that until those crates
+drop it upstream.
+
+paste is a proc-macro: it runs in the compiler and expands to code, then is
+gone. None of it is in the binary that ships. Unmaintained here is a risk to
+future builds, not to a running kitchen.
+
+Revisit when `image` next has a major release.""" },
+]
