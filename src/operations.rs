@@ -764,6 +764,30 @@ pub fn search_recipes(
     core.search_recipes(&caller.person_id, query, kitchen_id, mine)
 }
 
+/// Home's computed shelves (#64). Like the diary it takes no input: whose Home
+/// is not a question, and a `person_id` here would be a permission question
+/// wearing a parameter's clothes.
+pub fn home_shelves(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request("home_shelves takes no input"));
+    }
+    let caller = caller_of(invocation)?;
+    core.home_shelves(&caller.person_id)
+}
+
+pub fn note_recipe_opened(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("note_recipe_opened takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.note_recipe_opened(&caller.person_id, branch_id)
+}
+
 pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")

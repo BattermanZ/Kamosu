@@ -717,6 +717,38 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX meaning_vectors_by_attempt ON meaning_vectors(attempt_id);
         "#,
     },
+    Migration {
+        version: 22,
+        description: "recently opened: when each Person last opened each Lineage (#64, ADR 0027)",
+        sql: r#"
+        -- The one fact Home stores. Everything else on that screen is computed
+        -- from recipes and Attempts that already exist (ADR 0009); this is the
+        -- exception ADR 0027 named when it added the *recently opened* shelf.
+        --
+        -- It is **private and local, and it never travels**: it is in no
+        -- fingerprint, no Vault, no Bundle and no Share Link. An instance that
+        -- lost this table entirely would lose the order of one shelf and
+        -- nothing else, which is why nothing anywhere reads it back except
+        -- Home.
+        --
+        -- One row per Person per Lineage rather than a log of every opening:
+        -- the shelf asks *what was I last looking at*, and the answer to that
+        -- is one timestamp. A log would grow without bound to answer a question
+        -- nobody asks.
+        CREATE TABLE recipe_opens (
+            person_id  TEXT NOT NULL REFERENCES people(id),
+            lineage_id TEXT NOT NULL REFERENCES lineages(id),
+            opened_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (person_id, lineage_id)
+        );
+
+        -- The shelf's one query, exactly: this Person's openings, latest first.
+        -- Home reads them in this order rather than sorting them itself, which
+        -- is what makes the DESC half of this index load-bearing rather than
+        -- decorative.
+        CREATE INDEX recipe_opens_by_person ON recipe_opens(person_id, opened_at DESC);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

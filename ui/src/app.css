@@ -33,6 +33,13 @@
    Nothing in Rust emits a class today. */
 @source "./";
 @source not "./lib/paraglide";
+/* A screen test quotes the words a screen renders, so that it can assert them.
+   Those words are prose, not class names, and a stylesheet must not grow a rule
+   because an assertion contains the word "table" — which is exactly what
+   `On the table inside 30 minutes` did (#64), emitting `.table { display: table }`
+   into the file the binary ships. A `.spec.ts` file holds no markup, so nothing
+   is lost by not reading one. */
+@source not "./**/*.spec.ts";
 
 /* `static`: every token below is emitted into :root even when no utility uses
    it yet — the tokens page reads them all back with getComputedStyle, and

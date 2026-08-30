@@ -793,6 +793,44 @@ export type SearchRecipesOutput = {
 	}[];
 };
 
+/** Home: the computed shelves that answer *show me something* rather than handing back a search box — cooked most, quick tonight, never cooked, recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All four are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027). */
+export type HomeShelvesInput = Record<string, never>;
+/** What home_shelves answers. */
+export type HomeShelvesOutput = {
+	quick_tonight_minutes: number;
+	shelves: {
+		name: "cooked_most" | "quick_tonight" | "never_cooked" | "recently_opened";
+		recipes: {
+			branch_id: string;
+			language: string;
+			language_fallback: boolean;
+			lineage_id: string;
+			main_photo: string | null;
+			matched: {
+				by: "words" | "meaning";
+				line: string;
+				step_number: number | null;
+				where: "title" | "tag" | "ingredient" | "step" | "section" | "note" | "attempt";
+			} | null;
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		}[];
+	}[];
+};
+
+/** Remember that the caller opened this recipe, for Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027). */
+export type NoteRecipeOpenedInput = {
+	branch_id: string;
+};
+/** What note_recipe_opened answers. */
+export type NoteRecipeOpenedOutput = {
+	lineage_id: string;
+	opened_at: string;
+};
+
 /** Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
 export type MeaningSearchStatusInput = Record<string, never>;
 /** What meaning_search_status answers. */
@@ -1849,6 +1887,18 @@ export interface Operations {
 	search_recipes: {
 		input: SearchRecipesInput;
 		output: SearchRecipesOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	home_shelves: {
+		input: HomeShelvesInput;
+		output: HomeShelvesOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	note_recipe_opened: {
+		input: NoteRecipeOpenedInput;
+		output: NoteRecipeOpenedOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -5679,6 +5729,186 @@ export const CATALOGUE = [
 				"query",
 				"closest",
 				"recipes"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "home_shelves",
+		"summary": "Home: the computed shelves that answer *show me something* rather than handing back a search box — cooked most, quick tonight, never cooked, recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All four are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027).",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"quick_tonight_minutes": {
+					"type": "integer"
+				},
+				"shelves": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"enum": [
+									"cooked_most",
+									"quick_tonight",
+									"never_cooked",
+									"recently_opened"
+								]
+							},
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"language": {
+											"type": "string"
+										},
+										"language_fallback": {
+											"type": "boolean"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"matched": {
+											"additionalProperties": false,
+											"properties": {
+												"by": {
+													"enum": [
+														"words",
+														"meaning"
+													]
+												},
+												"line": {
+													"type": "string"
+												},
+												"step_number": {
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"where": {
+													"enum": [
+														"title",
+														"tag",
+														"ingredient",
+														"step",
+														"section",
+														"note",
+														"attempt"
+													],
+													"type": "string"
+												}
+											},
+											"required": [
+												"where",
+												"line",
+												"step_number",
+												"by"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										},
+										"yield": {
+											"additionalProperties": false,
+											"properties": {
+												"amount": {
+													"type": "string"
+												},
+												"noun": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"amount",
+												"noun"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"lineage_id",
+										"branch_id",
+										"title",
+										"language",
+										"language_fallback",
+										"main_photo",
+										"yield",
+										"matched"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"name",
+							"recipes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"quick_tonight_minutes",
+				"shelves"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "note_recipe_opened",
+		"summary": "Remember that the caller opened this recipe, for Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027).",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"lineage_id": {
+					"type": "string"
+				},
+				"opened_at": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"lineage_id",
+				"opened_at"
 			],
 			"type": "object"
 		}
@@ -9717,6 +9947,8 @@ export const METHOD_NAMES = {
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
 	search_recipes: 'searchRecipes',
+	home_shelves: 'homeShelves',
+	note_recipe_opened: 'noteRecipeOpened',
 	meaning_search_status: 'meaningSearchStatus',
 	accept_meaning_search_terms: 'acceptMeaningSearchTerms',
 	decline_meaning_search: 'declineMeaningSearch',
@@ -9828,6 +10060,10 @@ export interface KamosuClient {
 	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;
 	/** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
 	searchRecipes(input: SearchRecipesInput): Promise<Answer<'search_recipes'>>;
+	/** Home: the computed shelves that answer *show me something* rather than handing back a search box — cooked most, quick tonight, never cooked, recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All four are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027). */
+	homeShelves(input?: HomeShelvesInput): Promise<Answer<'home_shelves'>>;
+	/** Remember that the caller opened this recipe, for Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027). */
+	noteRecipeOpened(input: NoteRecipeOpenedInput): Promise<Answer<'note_recipe_opened'>>;
 	/** Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
 	meaningSearchStatus(input?: MeaningSearchStatusInput): Promise<Answer<'meaning_search_status'>>;
 	/** Accept the terms of the model Meaning Search needs. Kamosu ships no weights (ADR 0029): the person who accepts the terms is the person the terms are about, and the acceptance keeps the Hand that made it and whether it arrived by login or by Access Key. Available at both Doors — a web-only carve-out would be the first hole in Parity, and would stop nothing anyway. */

@@ -796,6 +796,103 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::search_recipes,
         },
         Operation {
+            name: "home_shelves",
+            summary: "Home: the computed shelves that answer *show me \
+                      something* rather than handing back a search box — \
+                      cooked most, quick tonight, never cooked, recently \
+                      opened. Each is one card per Lineage in the reader's \
+                      Reading Language, in the same shape the library's shelf \
+                      answers in. A shelf with nothing on it is left out \
+                      rather than sent empty, so an instance holding no \
+                      recipes answers with no shelves at all. All four are \
+                      counted from recipes and Attempts that already exist, \
+                      except *recently opened*, which reads what \
+                      `note_recipe_opened` remembered (ADR 0011, ADR 0027).",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    // The line *quick tonight* is drawn at, sent rather than
+                    // written on the screen twice: the shelf's heading says
+                    // "under 30 minutes" because the Core said 30, so the
+                    // number a reader sees cannot drift from the number that
+                    // chose the recipes under it.
+                    "quick_tonight_minutes": { "type": "integer" },
+                    "shelves": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                // What the shelf is, not what to call it: the
+                                // wording is the screen's, in the reader's own
+                                // language, and an agent at the MCP door gets
+                                // the name rather than English prose.
+                                "name": {
+                                    "enum": [
+                                        "cooked_most", "quick_tonight",
+                                        "never_cooked", "recently_opened"
+                                    ],
+                                },
+                                "recipes": {
+                                    "type": "array",
+                                    "items": shelf_entry_schema(),
+                                },
+                            },
+                            "required": ["name", "recipes"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["quick_tonight_minutes", "shelves"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::home_shelves,
+        },
+        Operation {
+            name: "note_recipe_opened",
+            summary: "Remember that the caller opened this recipe, for Home's \
+                      *recently opened* shelf. One fact per Person per \
+                      Lineage — opening a recipe's French Branch and its \
+                      English one is opening the same recipe — and opening it \
+                      again moves the time rather than adding a row. It is \
+                      private to the Person, never travels, and is in no \
+                      fingerprint, Vault or Bundle: an instance that lost it \
+                      would lose the order of one shelf and nothing else \
+                      (ADR 0027).",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            // It writes, so a read-only Access Key cannot do it. That is the
+            // deliberate cost of keeping `get_recipe` a read: a Credential
+            // that may read every recipe must never be locked out of the
+            // library by the act of reading one.
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    // The Lineage the opening was recorded against, which is
+                    // never the Branch that was opened.
+                    "lineage_id": { "type": "string" },
+                    "opened_at": { "type": "string" },
+                },
+                "required": ["lineage_id", "opened_at"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::note_recipe_opened,
+        },
+        Operation {
             name: "meaning_search_status",
             summary: "Whether Meaning Search is on here, what model it would \
                       use, who accepted that model's terms — and whether this \
@@ -1760,6 +1857,72 @@ fn meaning_status_schema() -> Value {
 /// nothing to print a fence with; the Kitchen a Branch belongs to is
 /// machinery, and it appears where it means something — in the Thread, and
 /// where two Branches sit side by side.
+/// One card on a shelf — the most-repeated object in Kamosu, and therefore
+/// declared exactly once. The library's shelf (`search_recipes`) and Home's
+/// four (`home_shelves`) both answer in this shape, so a recipe is the same
+/// object on both screens rather than two treatments of one thing that drift.
+fn shelf_entry_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "lineage_id": { "type": "string" },
+            // The Branch this entry opens: the one in the reader's
+            // own Language where the Lineage has one.
+            "branch_id": { "type": "string" },
+            "title": { "type": "string" },
+            "language": { "type": "string" },
+            // True where the reader is being shown a Language they
+            // did not ask for. The mark exists so a preference can
+            // never hide a recipe from its owner (ADR 0006): the
+            // recipe is shown either way, and says which it is.
+            "language_fallback": { "type": "boolean" },
+            "main_photo": { "type": ["string", "null"] },
+            "yield": yield_schema(),
+            // The line that matched, for a result that can explain
+            // itself (ADR 0027). Null on an unsearched shelf, and
+            // on a title match `line` is the title itself.
+            "matched": {
+                "type": ["object", "null"],
+                "properties": {
+                    "where": {
+                        "type": "string",
+                        // A Section header — "For the sauce" — is
+                        // searched with the rest of the recipe but
+                        // is neither an ingredient nor a step, so
+                        // it answers as itself rather than being
+                        // mislabelled as one.
+                        "enum": [
+                            "title", "tag", "ingredient", "step",
+                            "section", "note", "attempt"
+                        ],
+                    },
+                    "line": { "type": "string" },
+                    // Which half of searching found this. A reader
+                    // cannot tell the two apart by looking at the
+                    // line, and the surprising result is exactly
+                    // where trust is won or lost — so the answer
+                    // says which it was rather than leaving the
+                    // screen to guess (ADR 0027).
+                    "by": { "enum": ["words", "meaning"] },
+                    // Which step this is, counted as the recipe
+                    // page counts them — over the Steps alone,
+                    // Sections taking no number — so a result can
+                    // say "step 4" and mean the step so numbered.
+                    // Null for every other kind of match.
+                    "step_number": { "type": ["integer", "null"] },
+                },
+                "required": ["where", "line", "step_number", "by"],
+                "additionalProperties": false,
+            },
+        },
+        "required": [
+            "lineage_id", "branch_id", "title", "language",
+            "language_fallback", "main_photo", "yield", "matched"
+        ],
+        "additionalProperties": false,
+    })
+}
+
 fn shelf_schema() -> Value {
     json!({
         "type": "object",
@@ -1775,68 +1938,7 @@ fn shelf_schema() -> Value {
             // letting a weak match pass as a good one (ADR 0027). Always false
             // where Meaning Search is off: with no model there is no nearest.
             "closest": { "type": "boolean" },
-            "recipes": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "lineage_id": { "type": "string" },
-                        // The Branch this entry opens: the one in the reader's
-                        // own Language where the Lineage has one.
-                        "branch_id": { "type": "string" },
-                        "title": { "type": "string" },
-                        "language": { "type": "string" },
-                        // True where the reader is being shown a Language they
-                        // did not ask for. The mark exists so a preference can
-                        // never hide a recipe from its owner (ADR 0006): the
-                        // recipe is shown either way, and says which it is.
-                        "language_fallback": { "type": "boolean" },
-                        "main_photo": { "type": ["string", "null"] },
-                        "yield": yield_schema(),
-                        // The line that matched, for a result that can explain
-                        // itself (ADR 0027). Null on an unsearched shelf, and
-                        // on a title match `line` is the title itself.
-                        "matched": {
-                            "type": ["object", "null"],
-                            "properties": {
-                                "where": {
-                                    "type": "string",
-                                    // A Section header — "For the sauce" — is
-                                    // searched with the rest of the recipe but
-                                    // is neither an ingredient nor a step, so
-                                    // it answers as itself rather than being
-                                    // mislabelled as one.
-                                    "enum": [
-                                        "title", "tag", "ingredient", "step",
-                                        "section", "note", "attempt"
-                                    ],
-                                },
-                                "line": { "type": "string" },
-                                // Which half of searching found this. A reader
-                                // cannot tell the two apart by looking at the
-                                // line, and the surprising result is exactly
-                                // where trust is won or lost — so the answer
-                                // says which it was rather than leaving the
-                                // screen to guess (ADR 0027).
-                                "by": { "enum": ["words", "meaning"] },
-                                // Which step this is, counted as the recipe
-                                // page counts them — over the Steps alone,
-                                // Sections taking no number — so a result can
-                                // say "step 4" and mean the step so numbered.
-                                // Null for every other kind of match.
-                                "step_number": { "type": ["integer", "null"] },
-                            },
-                            "required": ["where", "line", "step_number", "by"],
-                            "additionalProperties": false,
-                        },
-                    },
-                    "required": [
-                        "lineage_id", "branch_id", "title", "language",
-                        "language_fallback", "main_photo", "yield", "matched"
-                    ],
-                    "additionalProperties": false,
-                },
-            },
+            "recipes": { "type": "array", "items": shelf_entry_schema() },
         },
         "required": ["query", "closest", "recipes"],
         "additionalProperties": false,

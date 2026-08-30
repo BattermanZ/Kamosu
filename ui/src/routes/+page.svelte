@@ -1,124 +1,88 @@
+<!--
+	`/` — **Home** to a Person, and the account form to anyone who is not one yet.
+
+	The tab bar has pointed Home at `/` since the shell was built, and until now
+	`/` was the login form. This is the other side of signing in (#64).
+
+	**How it knows: it asks.** There is no cookie read here and no second idea of
+	who is signed in kept beside the Core's — the screen asks for its shelves,
+	and a refusal *is* the answer that nobody is signed in. One round trip does
+	both jobs, so a signed-in Person never sees the login form flash first.
+
+	An Invite or a recovery link goes straight to the form without asking, since
+	the whole point of one is that you are not signed in yet — and asking would
+	spend a request to be told what the address already says.
+-->
 <script lang="ts">
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
-	import { useAuth } from '$lib/auth';
 	import { OperationError } from '$lib/api/client';
-	import Screen from '$lib/shell/Screen.svelte';
+	import type { HomeShelvesOutput } from '$lib/api/catalogue';
+	import Account from './Account.svelte';
+	import Home from './Home.svelte';
 
 	const kamosu = useKamosu();
-	const auth = useAuth();
-	let setupComplete = $state<boolean | undefined>(undefined);
-	let name = $state('');
-	let password = $state('');
-	let failed = $state<string | undefined>(undefined);
-	let busy = $state(false);
-	const invite = $derived(page.url.pathname.startsWith('/invite/') ? page.url.pathname : undefined);
-	const recovery = $derived(
-		page.url.pathname.startsWith('/recover/') ? page.url.pathname : undefined,
-	);
-	const mode = $derived(
-		invite ? 'invite' : recovery ? 'recover' : setupComplete ? 'login' : 'first-person',
+
+	/** The shelves once they arrive; undefined while asking; null once refused. */
+	let home = $state<HomeShelvesOutput | null | undefined>(undefined);
+	let failed = $state(false);
+	/** Bumped when the form reports a sign-in, which re-runs the ask below. */
+	let asked = $state(0);
+
+	const arriving = $derived(
+		page.url.pathname.startsWith('/invite/') || page.url.pathname.startsWith('/recover/'),
 	);
 
+	/** The form says it worked: forget the refusal and ask again. */
+	function signedIn() {
+		home = undefined;
+		asked += 1;
+	}
+
 	$effect(() => {
+		if (arriving) return;
+		// Read before the await, so signing in re-runs this rather than leaving
+		// the form standing in front of a Person who is now signed in.
+		void asked;
+
 		let current = true;
 		kamosu
-			.instanceStatus()
-			.then((status) => {
-				if (current) setupComplete = status.setup_complete;
+			.homeShelves({})
+			.then((shelves) => {
+				if (current) {
+					home = shelves;
+					failed = false;
+				}
 			})
 			.catch((error: unknown) => {
-				if (current) failed = error instanceof Error ? error.message : m.account_failed();
+				if (!(error instanceof OperationError)) throw error;
+				if (!current) return;
+				// Refused for want of a Credential is not a failure — it is the
+				// answer, and the answer is the login form. Anything else is a
+				// Kamosu that could not be reached, which says so instead.
+				if (error.kind === 'unauthorized') {
+					home = null;
+				} else {
+					failed = true;
+				}
 			});
 		return () => {
 			current = false;
 		};
 	});
-
-	async function submit() {
-		busy = true;
-		failed = undefined;
-		try {
-			await auth.authenticate(mode, {
-				name: recovery ? undefined : name,
-				password,
-				session_name: 'this browser',
-				link: invite ?? recovery,
-			});
-			if (mode === 'first-person' || mode === 'invite') setupComplete = true;
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			failed = error.message;
-		} finally {
-			busy = false;
-			password = '';
-		}
-	}
 </script>
 
-{#if setupComplete === undefined}
-	<Screen title="Loading Kamosu…" />
+{#if arriving || home === null}
+	<Account onSignedIn={signedIn} />
+{:else if home}
+	<Home {home} />
+{:else if failed}
+	<div class="mx-auto max-w-2xl px-gutter pt-6">
+		<p class="text-body text-support" role="alert">{m.home_failed()}</p>
+	</div>
 {:else}
-	<Screen
-		title={invite
-			? m.account_invite_title()
-			: recovery
-				? m.account_recover_title()
-				: setupComplete
-					? m.account_login_title()
-					: m.account_setup_title()}
-		blurb={invite
-			? m.account_invite_blurb()
-			: recovery
-				? m.account_recover_blurb()
-				: setupComplete
-					? undefined
-					: m.account_setup_blurb()}
-	>
-		<form
-			class="grid gap-4"
-			onsubmit={(event) => {
-				event.preventDefault();
-				submit();
-			}}
-		>
-			{#if !recovery}
-				<label class="grid gap-1 text-body text-ink">
-					{m.account_name()}
-					<input
-						class="min-h-12 rounded-sm border border-rule bg-card px-3"
-						bind:value={name}
-						required
-						autocomplete="username"
-					/>
-				</label>
-			{/if}
-			<label class="grid gap-1 text-body text-ink">
-				{m.account_password()}
-				<input
-					class="min-h-12 rounded-sm border border-rule bg-card px-3"
-					type="password"
-					bind:value={password}
-					required
-					autocomplete={mode === 'login' ? 'current-password' : 'new-password'}
-				/>
-			</label>
-			{#if failed}
-				<p class="text-body text-accent" role="alert">{failed}</p>
-			{/if}
-			<button
-				class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-				disabled={busy}
-			>
-				{invite
-					? m.account_invite_submit()
-					: recovery
-						? m.account_recover_submit()
-						: setupComplete
-							? m.account_login()
-							: m.account_create()}
-			</button>
-		</form>
-	</Screen>
+	<div class="mx-auto max-w-2xl px-gutter pt-6">
+		<p class="text-body text-ink-2">{m.loading()}</p>
+	</div>
 {/if}

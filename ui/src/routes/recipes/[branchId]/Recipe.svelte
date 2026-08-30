@@ -105,6 +105,19 @@
 				if (!current) return;
 				recipe = read;
 
+				// Home's *recently opened* shelf, and the whole of what feeds it
+				// (#64, ADR 0027). It is a separate Operation rather than
+				// something `get_recipe` does on the side, because `get_recipe`
+				// must stay a read: a read-only Access Key may read every recipe,
+				// and making the reading itself a write would lock it out of the
+				// library.
+				//
+				// Nothing waits on it and nothing is shown if it fails. It is one
+				// timestamp that never travels and costs nothing if lost, so it
+				// may never be the reason a cook cannot read a recipe — a
+				// read-only Key is refused here every time, and reads on.
+				void kamosu.noteRecipeOpened({ branch_id: branchId }).catch(() => {});
+
 				// Any Branch of the Lineage answers the same Thread, so this is how
 				// the screen learns a second one exists at all. ADR 0014 designed
 				// the switch for exactly two and says a third is not designed for —

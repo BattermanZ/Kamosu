@@ -18,20 +18,15 @@
 	answer can say that nothing was close enough and these are the nearest.
 -->
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import { waitForJob } from '$lib/api/job';
 	import { MeaningSearch } from '$lib/meaning.svelte';
-	import type {
-		ImportWebLinkOutput,
-		ListKitchensOutput,
-		SearchRecipesOutput,
-	} from '$lib/api/catalogue';
+	import type { ListKitchensOutput, SearchRecipesOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
+	import AddOrImport from '$lib/AddOrImport.svelte';
 	import MeaningOffer from './MeaningOffer.svelte';
 
 	const kamosu = useKamosu();
@@ -132,65 +127,9 @@
 	 */
 	const closest = $derived(answer?.closest ?? false);
 
-	// --- the two things nothing-found offers ------------------------------
-	//
-	// Both of them *do* the thing rather than pointing at a screen to do it
-	// on. With a library this size a search that finds nothing usually means
-	// you do not have that recipe yet, and adding it was the next thing you
-	// were going to do (ADR 0027) — so an offer that only navigates somewhere
-	// has put a screen between a person and the one act they came for.
-
-	let adding = $state(false);
-	let importing = $state<'no' | 'asking' | 'working'>('no');
-	let link = $state('');
-	let offerFailed = $state<string | undefined>(undefined);
-
-	/**
-	 * Add the recipe that was searched for. A recipe needs only a title (#6),
-	 * so the query *is* the recipe — it lands in the Home Kitchen and opens.
-	 */
-	async function add(title: string) {
-		const home = kitchens.find((kitchen) => kitchen.is_home) ?? kitchens[0];
-		if (!home) return;
-		adding = true;
-		offerFailed = undefined;
-		try {
-			const made = await kamosu.createRecipe({ kitchen_id: home.id, title });
-			await goto(`/recipes/${made.branch_id}`);
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			offerFailed = error.message;
-			adding = false;
-		}
-	}
-
-	/**
-	 * Import from a link. Reading a web page is slow, so it is a Job (ADR 0032):
-	 * this asks, waits on `get_job` — the one way any Job is ever read back —
-	 * and opens whatever arrived.
-	 */
-	async function importLink() {
-		importing = 'working';
-		offerFailed = undefined;
-		try {
-			const asked = await kamosu.importWebLink({ url: link.trim() });
-			const finished = await waitForJob(kamosu, asked.job_id);
-			const result = finished.result as ImportWebLinkOutput;
-			const landed = result.arrived[0] ?? result.offered[0];
-			if (landed) {
-				await goto(`/recipes/${landed.branch_id}`);
-				return;
-			}
-			// The page was reached and held no recipe this instance could read.
-			// Saying so is the whole answer; there is nothing to open.
-			offerFailed = result.unreadable[0]?.reason ?? m.recipes_import_unreadable();
-			importing = 'asking';
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			offerFailed = error.message;
-			importing = 'asking';
-		}
-	}
+	// The two things nothing-found offers live in `AddOrImport`, because Home
+	// reaches the same dead end from the other direction (#64) and both must
+	// *do* the thing rather than point at a screen to do it on (ADR 0027).
 </script>
 
 <Screen title={m.recipes_title()} blurb={m.recipes_blurb()}>
@@ -259,55 +198,8 @@
 			<p class="mt-2 text-read text-ink-2">
 				{meaning.status?.on ? m.recipes_nothing_why_meaning() : m.recipes_nothing_why()}
 			</p>
-			<div class="mt-4 grid gap-2">
-				<button
-					type="button"
-					onclick={() => add(query)}
-					disabled={adding || importing === 'working'}
-					class="min-h-12 rounded-sm bg-accent px-4 py-3 text-left font-display text-body text-on-accent disabled:opacity-60"
-				>
-					{m.recipes_nothing_add({ query })}
-				</button>
-
-				{#if importing === 'no'}
-					<button
-						type="button"
-						onclick={() => (importing = 'asking')}
-						disabled={adding}
-						class="min-h-12 rounded-sm border border-rule bg-card px-4 py-3 text-left font-display text-body text-accent disabled:opacity-60"
-					>
-						{m.recipes_nothing_import()}
-					</button>
-				{:else}
-					<form
-						class="grid gap-2"
-						onsubmit={(event) => {
-							event.preventDefault();
-							importLink();
-						}}
-					>
-						<label class="grid gap-1 text-read text-ink-2">
-							{m.recipes_import_link()}
-							<input
-								type="url"
-								bind:value={link}
-								required
-								placeholder="https://"
-								class="min-h-12 rounded-sm border border-rule bg-card px-3 text-body text-ink"
-							/>
-						</label>
-						<button
-							class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
-							disabled={importing === 'working'}
-						>
-							{importing === 'working' ? m.recipes_import_working() : m.recipes_nothing_import()}
-						</button>
-					</form>
-				{/if}
-
-				{#if offerFailed}
-					<p class="text-read text-support" role="alert">{offerFailed}</p>
-				{/if}
+			<div class="mt-4">
+				<AddOrImport title={query} {kitchens} />
 			</div>
 			<!--
 				Offered here rather than buried in settings: this is the moment a

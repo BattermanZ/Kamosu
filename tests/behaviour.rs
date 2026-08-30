@@ -10296,3 +10296,355 @@ async fn declining_is_an_answer_to_the_offer_and_nothing_else() {
     assert_eq!(held["result"]["state"], json!("accepted"));
     assert_eq!(held["result"]["declined_at"], json!(null));
 }
+
+// --- Home: the computed shelves (issue #64) ----------------------------------
+//
+// Home answers *show me something* rather than handing back a search box, so
+// everything on it is worked out from recipes and Attempts that already exist —
+// except *recently opened*, which reads the one fact this screen stores. All of
+// it is asked through a real Door.
+
+/// Every shelf on this Person's Home, keyed by name, with each shelf's recipe
+/// titles in the order they arrived. What the screen actually reads, minus the
+/// card's other fields.
+fn home_titles(
+    app: &support::TestApp,
+    key: &str,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let (status, home) = app.post_op("home_shelves", Some(key), "{}");
+    assert_eq!(status, 200, "{home}");
+    home["result"]["shelves"]
+        .as_array()
+        .expect("shelves")
+        .iter()
+        .map(|shelf| {
+            (
+                shelf["name"].as_str().expect("a shelf name").to_string(),
+                shelf["recipes"]
+                    .as_array()
+                    .expect("recipes")
+                    .iter()
+                    .map(|card| card["title"].as_str().unwrap().to_string())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+/// A recipe with times on it, which is what *quick tonight* is computed from.
+fn timed_recipe_in(
+    app: &support::TestApp,
+    key: &str,
+    kitchen_id: &str,
+    title: &str,
+    prep: Option<i64>,
+    cook: Option<i64>,
+) -> String {
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": title,
+            "prep_time_minutes": prep,
+            "cook_time_minutes": cook,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    created["result"]["branch_id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn home_shows_the_four_computed_shelves_the_spec_names() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Cooked twice and quick: it stands on two shelves at once, because a
+    // suggestion is not a filing system and nothing here is exclusive.
+    let ramen = timed_recipe_in(&app, &key, &kitchen_id, "Ramen", Some(5), Some(10));
+    // Cooked once, and far too long to be a Tuesday.
+    let cassoulet = timed_recipe_in(&app, &key, &kitchen_id, "Cassoulet", Some(60), Some(180));
+    // Never cooked, and quick.
+    let omelette = timed_recipe_in(&app, &key, &kitchen_id, "Omelette", None, Some(8));
+
+    cook_it(&app, &key, &ramen, json!({}));
+    cook_it(&app, &key, &ramen, json!({}));
+    cook_it(&app, &key, &cassoulet, json!({}));
+
+    app.post_op(
+        "note_recipe_opened",
+        Some(&key),
+        &json!({ "branch_id": omelette }).to_string(),
+    );
+
+    let shelves = home_titles(&app, &key);
+
+    assert_eq!(
+        shelves.get("cooked_most"),
+        Some(&vec!["Ramen".to_string(), "Cassoulet".to_string()]),
+        "most-cooked first: {shelves:?}"
+    );
+    assert_eq!(
+        shelves.get("quick_tonight"),
+        Some(&vec!["Omelette".to_string(), "Ramen".to_string()]),
+        "soonest first, and the three-hour cassoulet is not on it: {shelves:?}"
+    );
+    assert_eq!(
+        shelves.get("never_cooked"),
+        Some(&vec!["Omelette".to_string()]),
+        "only the one nobody has made: {shelves:?}"
+    );
+    assert_eq!(
+        shelves.get("recently_opened"),
+        Some(&vec!["Omelette".to_string()]),
+        "the one that was opened: {shelves:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn home_counts_unfinished_cookings_because_starting_is_what_makes_a_cooking_real() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    recipe_in(&app, &key, &kitchen_id, "Pain");
+
+    // Started and never finished. It is still a cooking (ADR 0010), which is
+    // the same rule the diary shows it under — so it counts here and takes the
+    // recipe off *never cooked*.
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": soup }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("cooked_most"),
+        Some(&vec!["Miso Soup".to_string()]),
+        "an unfinished cooking is a cooking: {shelves:?}"
+    );
+    assert_eq!(
+        shelves.get("never_cooked"),
+        Some(&vec!["Pain".to_string()]),
+        "and the recipe it was started on has left *never cooked*: {shelves:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_kamosu_knows_no_time_for_is_never_called_quick() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // No time at all — the ordinary state of 36 of the 86 real recipes. Calling
+    // it quick would be a guess, which is the one thing Kamosu will not do with
+    // a number it does not have.
+    recipe_in(&app, &key, &kitchen_id, "Grand-mère's stew");
+    // One of the two times is enough to answer with.
+    timed_recipe_in(&app, &key, &kitchen_id, "Toast", None, Some(3));
+    // Exactly on the line is under it.
+    timed_recipe_in(&app, &key, &kitchen_id, "Risotto", Some(10), Some(20));
+    // One minute past is past.
+    timed_recipe_in(&app, &key, &kitchen_id, "Daube", Some(11), Some(20));
+
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("quick_tonight"),
+        Some(&vec!["Toast".to_string(), "Risotto".to_string()]),
+        "no time means not quick, and 31 minutes is not 30: {shelves:?}"
+    );
+
+    // The line itself is sent rather than written on the screen, so the heading
+    // a reader sees cannot drift from the number that chose what is under it.
+    let (_, home) = app.post_op("home_shelves", Some(&key), "{}");
+    assert_eq!(home["result"]["quick_tonight_minutes"], json!(30), "{home}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_empty_shelf_is_left_out_and_an_empty_library_answers_with_no_shelves_at_all() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // A Kitchen holding nothing. Four empty rows would be four ways of saying
+    // the same nothing, so the answer carries none and the screen says it once.
+    let (status, empty) = app.post_op("home_shelves", Some(&key), "{}");
+    assert_eq!(status, 200, "{empty}");
+    assert_eq!(empty["result"]["shelves"], json!([]), "{empty}");
+
+    // One recipe, never cooked, no time on it, never opened: exactly one shelf
+    // has anything to say, and it is the only one that appears.
+    recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.keys().collect::<Vec<_>>(),
+        vec!["never_cooked"],
+        "a shelf with nothing on it is not sent: {shelves:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recently_opened_is_one_fact_per_person_per_lineage_and_reaches_nobody_else() {
+    let app = support::spawn_app();
+    let (_aurelien, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+
+    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
+    recipe_in(&app, &marc_key, &marc_kitchen, "Cassoulet");
+
+    let open = |branch: &str| {
+        let (status, noted) = app.post_op(
+            "note_recipe_opened",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        assert_eq!(status, 200, "{noted}");
+        noted["result"].clone()
+    };
+
+    let first = open(&soup);
+    // The opening is recorded against the Lineage, never the Branch: opening a
+    // recipe's French rendering and its English one is opening one recipe.
+    assert!(first["lineage_id"].is_string(), "{first}");
+    assert_ne!(first["lineage_id"], json!(soup), "{first}");
+    open(&curry);
+
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("recently_opened"),
+        Some(&vec!["Katsu Curry".to_string(), "Miso Soup".to_string()]),
+        "latest first: {shelves:?}"
+    );
+
+    // Opening it again moves it to the front rather than adding a second row.
+    open(&soup);
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("recently_opened"),
+        Some(&vec!["Miso Soup".to_string(), "Katsu Curry".to_string()]),
+        "one fact per Lineage, moved rather than doubled: {shelves:?}"
+    );
+
+    // Marc's Home knows nothing about what Aurélien opened, and Aurélien's
+    // Home has never heard of Marc's Kitchen.
+    let marc_home = home_titles(&app, &marc_key);
+    assert_eq!(marc_home.get("recently_opened"), None, "{marc_home:?}");
+    assert_eq!(
+        marc_home.get("never_cooked"),
+        Some(&vec!["Cassoulet".to_string()]),
+        "{marc_home:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_in_a_kitchen_you_do_not_cook_in_can_be_neither_opened_nor_shelved() {
+    let app = support::spawn_app();
+    let (_aurelien, key, _kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+    let cassoulet = recipe_in(&app, &marc_key, &marc_kitchen, "Cassoulet");
+
+    let (status, refused) = app.post_op(
+        "note_recipe_opened",
+        Some(&key),
+        &json!({ "branch_id": cassoulet }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"), "{refused}");
+
+    // And nothing of Marc's reaches Aurélien's Home, which is the same
+    // Kitchen boundary the library's shelf draws (ADR 0026).
+    let shelves = home_titles(&app, &key);
+    assert!(shelves.is_empty(), "{shelves:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn home_cards_are_the_same_cards_the_library_shelf_serves() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+
+    let (_, home) = app.post_op("home_shelves", Some(&key), "{}");
+    let on_home = home["result"]["shelves"][0]["recipes"][0].clone();
+    let (_, shelf) = app.post_op("search_recipes", Some(&key), "{}");
+    let in_library = shelf["result"]["recipes"][0].clone();
+
+    assert_eq!(
+        on_home, in_library,
+        "one card, one shape, both screens: {home} / {shelf}"
+    );
+    assert_eq!(on_home["branch_id"], json!(soup));
+    assert_eq!(
+        on_home["matched"],
+        json!(null),
+        "nothing was searched for, so nothing matched"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn home_files_a_lineage_once_under_the_reading_language() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Soupe miso",
+            "language": "fr",
+            "prep_time_minutes": 5,
+            "cook_time_minutes": 5,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let soupe = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // The same recipe again in English: a Translation is a Branch of the same
+    // Lineage (ADR 0006), so Home must show one card, not two.
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": soupe,
+            "language": "en",
+            "title": "Miso Soup",
+            "prep_time_minutes": 5,
+            "cook_time_minutes": 5,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+
+    let reading = |language: &str| {
+        let (status, set) = app.post_op(
+            "set_reading_preferences",
+            Some(&key),
+            &json!({ "reading_language": language, "reading_measures": "metric" }).to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+    };
+
+    reading("fr");
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("quick_tonight"),
+        Some(&vec!["Soupe miso".to_string()]),
+        "one card per Lineage, in the reader's own Language: {shelves:?}"
+    );
+
+    // Reading in English moves that same one card to the English Branch rather
+    // than adding a second — the two Branches are one recipe (ADR 0006).
+    reading("en");
+    let shelves = home_titles(&app, &key);
+    assert_eq!(
+        shelves.get("quick_tonight"),
+        Some(&vec!["Miso Soup".to_string()]),
+        "still one card, now in English: {shelves:?}"
+    );
+    assert_eq!(
+        shelves.get("never_cooked"),
+        Some(&vec!["Miso Soup".to_string()]),
+        "and one card on every shelf it stands on: {shelves:?}"
+    );
+}

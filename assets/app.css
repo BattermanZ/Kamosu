@@ -452,6 +452,15 @@
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
   }
+  .snap-x {
+    scroll-snap-type: x var(--tw-scroll-snap-strictness);
+  }
+  .snap-mandatory {
+    --tw-scroll-snap-strictness: mandatory;
+  }
+  .scroll-pl-gutter {
+    scroll-padding-left: var(--spacing-gutter);
+  }
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -876,6 +885,15 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
+  .\[\&\>li\]\:w-\[var\(--tile-w\)\] > li {
+    width: var(--tile-w);
+  }
+  .\[\&\>li\]\:shrink-0 > li {
+    flex-shrink: 0;
+  }
+  .\[\&\>li\]\:snap-start > li {
+    scroll-snap-align: start;
+  }
 }
 @font-face {
   font-family: "Zen Old Mincho";
@@ -1031,6 +1049,11 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-scroll-snap-strictness {
+  syntax: "*";
+  inherits: false;
+  initial-value: proximity;
+}
 @property --tw-border-style {
   syntax: "*";
   inherits: false;
@@ -1104,6 +1127,7 @@
       --tw-rotate-z: initial;
       --tw-skew-x: initial;
       --tw-skew-y: initial;
+      --tw-scroll-snap-strictness: proximity;
       --tw-border-style: solid;
       --tw-font-weight: initial;
       --tw-blur: initial;
