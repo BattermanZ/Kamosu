@@ -1665,13 +1665,14 @@ fn recipe_schema() -> Value {
                         "content": recipe_content_schema(),
                         "readings": reading_list_schema(),
                         "measured": measured_schema(),
+                        "cooking": cooking_schema(),
                         "translates_version_id": { "type": ["string", "null"] },
                         "language": { "type": ["string", "null"] },
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
                         "name", "change_note", "created_at", "content", "readings",
-                        "measured", "translates_version_id", "language"
+                        "measured", "cooking", "translates_version_id", "language"
                     ],
                     "additionalProperties": false,
                 },
@@ -2357,6 +2358,51 @@ fn measured_schema() -> Value {
             "steps": { "type": "array", "items": { "type": ["string", "null"] } },
         },
         "required": ["ingredients", "steps"],
+        "additionalProperties": false,
+    })
+}
+
+/// **What the cooking screen reads out of each Step**, and Kamosu stores
+/// nowhere (ADR 0011, CONTEXT.md "Step"): which Ingredient Lines the Step uses,
+/// and the duration it offers as a timer.
+///
+/// One slot per row of the Version's `steps`, in the same order `measured`
+/// takes, and `null` on a Section row — a Section is neither a Step nor
+/// somewhere a cook stands.
+///
+/// `uses` names Ingredient Lines by their index into the Version's own
+/// `ingredients`, and an empty list is a real answer rather than a gap: it is
+/// the step that adds nothing new, where the panel says so. Which lines those
+/// are is worked out from their **Readings** on every read — nothing points at
+/// anything and nobody types a link (ADR 0019) — so a recipe Kamosu has read
+/// nothing on has a panel that is simply empty, per ADR 0002's rule that
+/// anything built on a Reading degrades politely.
+///
+/// `timer_seconds` is read out of the Step's own text at display time. Nothing
+/// is typed beside the sentence and nothing is written down: a range answers
+/// with its lower end, because a timer that goes off early sends you to look
+/// and one that goes off late has already let it burn.
+fn cooking_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": ["object", "null"],
+                    "properties": {
+                        "uses": {
+                            "type": "array",
+                            "items": { "type": "integer", "minimum": 0 },
+                        },
+                        "timer_seconds": { "type": ["integer", "null"], "minimum": 1 },
+                    },
+                    "required": ["uses", "timer_seconds"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["steps"],
         "additionalProperties": false,
     })
 }

@@ -9664,3 +9664,340 @@ async fn the_diary_needs_a_credential_naming_a_person_and_takes_no_input() {
         "a diary is the caller's own — there is no whose to ask: {refused}"
     );
 }
+
+// --- The cooking screen (issue #61, ADR 0011) --------------------------------
+
+/// A Recipe whose Steps really do use some of its Ingredient Lines and not
+/// others, with the Readings that join the two already set — the ordinary
+/// state of a recipe somebody has read. `(key, branch_id)`.
+///
+/// It is deliberately not tidy: a Section sits in each list, one line is
+/// never named by any Step, one Step names nothing at all, and one line is
+/// left unread so the panel has to cope with a Reading that is simply absent.
+fn recipe_read_and_ready_to_cook(app: &support::TestApp, cook_name: &str) -> (String, String) {
+    let (_person, key, kitchen_id) = person_with_kitchen(app, cook_name);
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Chicken Katsu Curry",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "section", "text": "For the cutlets" },
+                { "kind": "ingredient", "text": "2 chicken breasts" },
+                { "kind": "ingredient", "text": "1 cup panko" },
+                { "kind": "ingredient", "text": "800 ml water" },
+                { "kind": "ingredient", "text": "a pinch of salt" },
+            ],
+            "steps": [
+                { "kind": "section", "text": "Assemble" },
+                { "kind": "step", "text": "Coat the chicken breast in panko." },
+                { "kind": "step", "text": "Pour in the water and simmer for about 7 minutes." },
+                { "kind": "step", "text": "Cover and leave it alone." },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    for (line_index, amount, unit, target) in [
+        (1, "2", Value::Null, json!("chicken")),
+        (2, "1", json!("cup"), json!("panko")),
+        (3, "800", json!("ml"), json!("water")),
+    ] {
+        let (status, read) = app.post_op(
+            "set_reading",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "line_index": line_index,
+                "amount": amount,
+                "unit": unit,
+                "target": target,
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+    }
+    // The salt is left unread on purpose: 28% of the real corpus's lines carry
+    // no quantity, and such a line still has to be a working line (ADR 0002).
+    (key, branch_id)
+}
+
+/// The whole of ADR 0011's mechanism: which Ingredients a Step uses is worked
+/// out from their Readings on every read, and is stored nowhere.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_uses_the_ingredients_its_readings_name_and_nothing_is_stored() {
+    let app = support::spawn_app();
+    let (key, branch_id) = recipe_read_and_ready_to_cook(&app, "Aurélien");
+
+    let (status, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{fetched}");
+    let cooking = &fetched["result"]["versions"][0]["cooking"];
+
+    assert_eq!(
+        cooking["steps"][0],
+        json!(null),
+        "a Section is neither a Step nor somewhere a cook stands"
+    );
+    assert_eq!(
+        cooking["steps"][1]["uses"],
+        json!([1, 2]),
+        "`chicken breast` names the `2 chicken breasts` line although the Reading \
+         says `chicken` and the step says `breast`: a whole word, with a trailing s \
+         forgiven"
+    );
+    assert_eq!(
+        cooking["steps"][2]["uses"],
+        json!([3]),
+        "the water step uses the water and nothing else"
+    );
+    assert_eq!(
+        cooking["steps"][3]["uses"],
+        json!([]),
+        "a step that adds nothing new says so — nothing to add, just the pot"
+    );
+
+    // The salt was never read, so no Step can use it. That is ADR 0002 working:
+    // the line is still on the page, still shops, and simply never appears in a
+    // step-scoped panel.
+    for slot in cooking["steps"].as_array().unwrap() {
+        if let Some(uses) = slot["uses"].as_array() {
+            assert!(
+                !uses.contains(&json!(4)),
+                "an unread line cannot be derived onto a Step"
+            );
+        }
+    }
+
+    // Nothing here is stored: it is worked out from `readings` and `content`,
+    // which is what makes it survive a parser being replaced.
+    assert_eq!(
+        fetched["result"]["versions"][0]["readings"][4],
+        json!(null),
+        "the unread line stays unread"
+    );
+}
+
+/// A Step names a Food as a whole word or not at all — and the one latitude
+/// is a trailing `s`, so a line read as *egg* reaches the step that says
+/// *eggs*.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_names_a_food_as_a_whole_word_and_never_as_a_fragment() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Whole words only",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 eggs" },
+                { "kind": "ingredient", "text": "200 g rice" },
+                { "kind": "ingredient", "text": "1 gousse d'ail" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Beat the eggs." },
+                { "kind": "step", "text": "Check the price of the eggshell substitute." },
+                { "kind": "step", "text": "Faire revenir l'ail." },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    for (line_index, target) in [(0, "egg"), (1, "rice"), (2, "ail")] {
+        let (status, read) = app.post_op(
+            "set_reading",
+            Some(&key),
+            &json!({ "branch_id": branch_id, "line_index": line_index, "target": target })
+                .to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+    }
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let steps = &fetched["result"]["versions"][0]["cooking"]["steps"];
+    assert_eq!(
+        steps[0]["uses"],
+        json!([0]),
+        "`eggs` uses the line read as `egg` — one trailing s is forgiven"
+    );
+    assert_eq!(
+        steps[1]["uses"],
+        json!([]),
+        "`price` does not contain `rice` and `eggshell` does not contain `egg`: \
+         a fragment is not a mention"
+    );
+    assert_eq!(
+        steps[2]["uses"],
+        json!([2]),
+        "`l'ail` names the garlic — a word France would otherwise find inside \
+         half its own language"
+    );
+}
+
+/// A duration is read out of the Step's own text and stored nowhere — and a
+/// Step with no duration offers no timer, which is three Steps in four.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_duration_in_a_steps_text_is_offered_as_a_timer_and_nothing_else_is() {
+    let app = support::spawn_app();
+    let (key, branch_id) = recipe_read_and_ready_to_cook(&app, "Aurélien");
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let cooking = &fetched["result"]["versions"][0]["cooking"];
+
+    assert_eq!(
+        cooking["steps"][2]["timer_seconds"],
+        json!(420),
+        "`simmer for about 7 minutes` offers seven minutes"
+    );
+    assert_eq!(cooking["steps"][1]["timer_seconds"], json!(null));
+    assert_eq!(
+        cooking["steps"][3]["timer_seconds"],
+        json!(null),
+        "`Cover and leave it alone` names no duration, so it offers no timer"
+    );
+
+    // The Step's text is untouched: a timer is read out of it, never written
+    // into it (CONTEXT.md, "Step").
+    assert_eq!(
+        fetched["result"]["versions"][0]["content"]["steps"][2]["text"],
+        json!("Pour in the water and simmer for about 7 minutes.")
+    );
+}
+
+/// Every shape of duration the real corpus actually writes, driven through the
+/// real Operation rather than a unit test — the same rule #49 holds units to.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_range_offers_its_lower_end_and_a_number_that_is_not_a_duration_offers_nothing() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let written = [
+        ("Knead the dough for 3–4 minutes.", json!(180)),
+        ("Microwave until golden, 1 to 3 minutes.", json!(60)),
+        ("Marinate in the fridge for 20-30 min.", json!(1200)),
+        ("Cover and refrigerate 8 hours or overnight.", json!(28800)),
+        ("Laisser reposer 1 heure.", json!(3600)),
+        ("Cocinar 30 segundos.", json!(30)),
+        ("Rest for 1.5 hours.", json!(5400)),
+        ("Preheat oven to 350 F (175 C).", json!(null)),
+        ("Turn the pan 90 degrees.", json!(null)),
+        ("Add 2 tbsp of soy sauce and 500 g of rice.", json!(null)),
+        ("Bake at 450F/230C for 20-30 min.", json!(1200)),
+        // Minutes written after an hour and given no unit of their own — how
+        // French writes an hour and a half. Absent from the 86-recipe export,
+        // and handled from the language rather than from the corpus.
+        ("Laisser lever 1 h 30.", json!(5400)),
+        ("Rest for 1 hour 30 minutes.", json!(5400)),
+        // The same shape where the trailing number is somebody else's: an hour
+        // count and a weight, never an hour and two hundred minutes.
+        ("Simmer 2 hours, then add 200 g of rice.", json!(7200)),
+        // Past a week it was never a duration anybody meant to time.
+        ("Age it for 9000 hours.", json!(null)),
+    ];
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Every duration the corpus writes",
+            "steps": written
+                .iter()
+                .map(|(text, _)| json!({ "kind": "step", "text": text }))
+                .collect::<Vec<Value>>(),
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap();
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let steps = fetched["result"]["versions"][0]["cooking"]["steps"]
+        .as_array()
+        .unwrap()
+        .clone();
+    for (index, (text, expected)) in written.iter().enumerate() {
+        assert_eq!(
+            steps[index]["timer_seconds"], *expected,
+            "the timer read out of {text:?}"
+        );
+    }
+}
+
+/// The panel is scaled and converted by the same one slot the recipe page uses
+/// (#49, ADR 0016) — the cooking screen learns no arithmetic of its own, and a
+/// quantity Kamosu could not read is left whole rather than guessed at.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_amounts_a_step_uses_carry_the_one_subordinate_line_already_worked_out() {
+    let app = support::spawn_app();
+    let (key, branch_id) = recipe_read_and_ready_to_cook(&app, "Aurélien");
+    let (status, set) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+
+    // Cooking to eight servings where the recipe is written for four: the
+    // Attempt's Yield is what scales the panel, and it is a fact about this
+    // afternoon rather than a deviation (ADR 0010).
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "cooking_yield": { "amount": "8", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let version = &fetched["result"]["versions"][0];
+    let panko = version["cooking"]["steps"][1]["uses"][1].as_u64().unwrap() as usize;
+    assert_eq!(
+        version["content"]["ingredients"][panko]["text"],
+        json!("1 cup panko"),
+        "the panel is drawn from the written line, at full size (ADR 0002)"
+    );
+    assert_eq!(
+        version["measured"]["ingredients"][panko],
+        json!("about 470 ml"),
+        "two cups of panko for a doubled cook, in this reader's measures — one \
+         slot doing scaling and conversion together (#49). Millilitres rather \
+         than grams because panko has no Cup Weight, which ADR 0016 calls a line \
+         that offers millilitres instead rather than a gap to close"
+    );
+    assert_eq!(
+        version["measured"]["ingredients"][4],
+        json!(null),
+        "`a pinch of salt` was never read, so nothing is guessed beneath it"
+    );
+}

@@ -143,6 +143,11 @@
      record is dated and stays as written — this file is what is current. */
   --hero-h: 320px;
   --rule-w: 1px;                /* rule weight */
+  /* The noren over the cooking screen: one hanging strip per Step, the one you
+     are on lit. 3px is the identity record of 26 August's figure (.k-noren i),
+     tokenised here rather than written as an arbitrary utility, because the
+     spacing scale above is deliberately the whole of what exists (#61). */
+  --noren-h: 3px;
 }
 
 /* ── Fonts, served by the binary at /assets/fonts/ ─────────────────────────── */

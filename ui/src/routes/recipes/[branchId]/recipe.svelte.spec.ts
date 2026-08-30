@@ -206,6 +206,7 @@ function forked(extra: Answers = {}) {
 						ingredients: MY_INGREDIENTS.map(() => null),
 						steps: MY_STEPS.map(() => null),
 					},
+					cooking: { steps: MY_STEPS.map(() => ({ uses: [], timer_seconds: null })) },
 				},
 			],
 			tags: [],
@@ -637,6 +638,15 @@ describe('the recipe screen', () => {
 					measured: measured ?? {
 						ingredients: SECTIONED.map(() => null),
 						steps: SECTIONED_STEPS.map(() => null),
+					},
+					// What the Core read out of each Step for the cooking screen
+					// (#61): the Ingredient Lines it uses, and its timer. The
+					// recipe page shows neither — it is here because one Version
+					// has one declared shape wherever it is served.
+					cooking: {
+						steps: SECTIONED_STEPS.map((row) =>
+							row.kind === 'step' ? { uses: [], timer_seconds: null } : null,
+						),
 					},
 				},
 			],

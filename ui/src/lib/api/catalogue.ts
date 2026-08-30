@@ -456,6 +456,12 @@ export type CreateRecipeOutput = {
 				noun: string;
 			} | null;
 		};
+		cooking: {
+			steps: ({
+				timer_seconds: number | null;
+				uses: number[];
+			} | null)[];
+		};
 		created_at: string;
 		hand_id: string;
 		language: string | null;
@@ -614,6 +620,12 @@ export type StartTranslationOutput = {
 				amount: string;
 				noun: string;
 			} | null;
+		};
+		cooking: {
+			steps: ({
+				timer_seconds: number | null;
+				uses: number[];
+			} | null)[];
 		};
 		created_at: string;
 		hand_id: string;
@@ -847,6 +859,12 @@ export type GetRecipeOutput = {
 				amount: string;
 				noun: string;
 			} | null;
+		};
+		cooking: {
+			steps: ({
+				timer_seconds: number | null;
+				uses: number[];
+			} | null)[];
 		};
 		created_at: string;
 		hand_id: string;
@@ -3823,6 +3841,45 @@ export const CATALOGUE = [
 								],
 								"type": "object"
 							},
+							"cooking": {
+								"additionalProperties": false,
+								"properties": {
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"timer_seconds": {
+													"minimum": 1,
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"uses": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"uses",
+												"timer_seconds"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"steps"
+								],
+								"type": "object"
+							},
 							"created_at": {
 								"type": "string"
 							},
@@ -3934,6 +3991,7 @@ export const CATALOGUE = [
 							"content",
 							"readings",
 							"measured",
+							"cooking",
 							"translates_version_id",
 							"language"
 						],
@@ -4671,6 +4729,45 @@ export const CATALOGUE = [
 								],
 								"type": "object"
 							},
+							"cooking": {
+								"additionalProperties": false,
+								"properties": {
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"timer_seconds": {
+													"minimum": 1,
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"uses": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"uses",
+												"timer_seconds"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"steps"
+								],
+								"type": "object"
+							},
 							"created_at": {
 								"type": "string"
 							},
@@ -4782,6 +4879,7 @@ export const CATALOGUE = [
 							"content",
 							"readings",
 							"measured",
+							"cooking",
 							"translates_version_id",
 							"language"
 						],
@@ -5834,6 +5932,45 @@ export const CATALOGUE = [
 								],
 								"type": "object"
 							},
+							"cooking": {
+								"additionalProperties": false,
+								"properties": {
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"timer_seconds": {
+													"minimum": 1,
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"uses": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"uses",
+												"timer_seconds"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"steps"
+								],
+								"type": "object"
+							},
 							"created_at": {
 								"type": "string"
 							},
@@ -5945,6 +6082,7 @@ export const CATALOGUE = [
 							"content",
 							"readings",
 							"measured",
+							"cooking",
 							"translates_version_id",
 							"language"
 						],

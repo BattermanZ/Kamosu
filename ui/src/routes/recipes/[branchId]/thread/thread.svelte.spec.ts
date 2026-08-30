@@ -381,6 +381,7 @@ describe('the Thread screen', () => {
 						},
 						readings: [null],
 						measured: { ingredients: [null], steps: [null] },
+						cooking: { steps: [{ uses: [], timer_seconds: null }] },
 					},
 				],
 				tags: [],

@@ -2858,6 +2858,12 @@ impl Core {
                 // as written, which is a scale of one.
                 version["measured"] =
                     measured_for_version(conn, &version["content"], &version_id, &reader, scale)?;
+                // And what the cooking screen reads out of each Step, from the
+                // Readings just laid alongside (ADR 0011). Derived here, on
+                // every read, so nothing about which Ingredients a Step uses is
+                // ever stored — and so both Doors say the same thing.
+                let readings = version["readings"].as_array().cloned().unwrap_or_default();
+                version["cooking"] = cooking_for_version(&version["content"], &readings);
             }
 
             Ok(json!({
@@ -4410,7 +4416,111 @@ fn measured_for_version(
     Ok(json!({ "ingredients": ingredients, "steps": steps }))
 }
 
-/// Every Reading on a Version that could carry a measurement, with the
+/// **What the cooking screen reads out of each Step, and stores nowhere**
+/// (ADR 0011, CONTEXT.md "Step"): which Ingredient Lines the Step uses, and
+/// the duration it offers as a timer.
+///
+/// One slot per row of `content.steps`, in the same order — the shape
+/// `measured` already takes — and `null` on a Section row, which is neither a
+/// Step nor something a cook stands on.
+///
+/// **Nothing new is stored and nobody types a link.** A Step points at no
+/// Ingredient Line and an Ingredient Line has no name of its own (ADR 0019);
+/// what joins them is the Reading's target, which is a word. So this is worked
+/// out here, on every read, from the two things already written — and a Step
+/// on a recipe nothing has been read on simply uses nothing, which is the
+/// panel degrading to prose rather than failing.
+///
+/// It is worked out in the Core rather than on the screen so that both Doors
+/// get it: an agent asked to read out the next step names the same amounts the
+/// phone on the worktop is showing (ADR 0001, ADR 0010).
+fn cooking_for_version(content: &Value, readings: &[Value]) -> Value {
+    let no_lines = Vec::new();
+    let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
+
+    // Each Reading's target, folded once — the loose fold, because this asks
+    // *did the cook mean this* rather than *is this the same word*, which is
+    // the same distinction `folded_for_search` was drawn for.
+    let targets: Vec<(usize, String)> = readings
+        .iter()
+        .enumerate()
+        .filter_map(|(line_index, reading)| {
+            let target = reading.get("target")?.as_str()?.trim();
+            (!target.is_empty()).then(|| (line_index, folded_for_search(target)))
+        })
+        .collect();
+
+    let steps: Vec<Value> = step_lines
+        .iter()
+        .map(|line| {
+            if line["kind"] != "step" {
+                return Value::Null;
+            }
+            let Some(text) = line["text"].as_str() else {
+                return Value::Null;
+            };
+            let folded = folded_for_search(text);
+            let uses: Vec<usize> = targets
+                .iter()
+                .filter(|(_, target)| names_in(&folded, target))
+                .map(|(line_index, _)| *line_index)
+                .collect();
+            json!({ "uses": uses, "timer_seconds": units::step_duration(text) })
+        })
+        .collect();
+
+    json!({ "steps": steps })
+}
+
+/// Whether a Step's folded text names this Food — the whole of how a Step and
+/// an Ingredient Line are joined.
+///
+/// A whole word, never a fragment: *rice* must not be found inside *price*, and
+/// the corpus's *ail* — garlic — would otherwise be inside half the French
+/// language. The one latitude is a trailing `s`, so a line read as *egg* is
+/// used by a step that says *eggs*, and one read as *tomates* by a step that
+/// says *tomate*. It is a tolerance rather than a rule about plurals: getting
+/// it wrong costs an amount shown on one step too many or one too few, which
+/// ADR 0002 already said this degrades to.
+///
+/// Both sides arrive already folded; nothing here folds anything.
+fn names_in(folded_text: &str, folded_target: &str) -> bool {
+    let singular = folded_target.strip_suffix('s').unwrap_or(folded_target);
+    !singular.is_empty() && contains_whole_word(folded_text, singular)
+}
+
+/// `haystack` contains `needle` as a whole word — a letter or a digit on
+/// neither side — allowing one trailing `s` on the word found, which is the
+/// plural tolerance [`names_in`] wants.
+///
+/// An empty `needle` is never contained. Saying so here rather than trusting
+/// the caller is what keeps the byte arithmetic below sound: with nothing to
+/// advance past, the walk would step a byte at a time through characters it
+/// must not split.
+fn contains_whole_word(haystack: &str, needle: &str) -> bool {
+    let Some(first) = needle.chars().next() else {
+        return false;
+    };
+    let mut from = 0;
+    while let Some(offset) = haystack[from..].find(needle) {
+        let start = from + offset;
+        let mut end = start + needle.len();
+        let before = haystack[..start].chars().next_back();
+        // The plural tolerance: `egg` is found in `eggs`, and the word still has
+        // to end there — `egg` is not found in `eggshell`.
+        if haystack[end..].starts_with('s') {
+            end += 's'.len_utf8();
+        }
+        let after = haystack[end..].chars().next();
+        if !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric) {
+            return true;
+        }
+        from = start + first.len_utf8();
+    }
+    false
+}
+
+/// Every Reading on a Version that could carry a measurement, with the/// Every Reading on a Version that could carry a measurement, with the
 /// effective Cup Weight of the Food it points at.
 ///
 /// **Effective** is the whole point: the figure somebody set on the Food wins,

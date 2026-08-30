@@ -1109,3 +1109,261 @@ fn scale_after(characters: &[char], mut index: usize) -> Option<Scale> {
     });
     (ends_here || spelled_out).then_some(scale)
 }
+
+// --- Durations in Step text --------------------------------------------------
+
+/// What each duration word is worth in seconds, folded once. The three
+/// interface Languages sit in one table for the same reason [`UNITS`] does:
+/// a French recipe read by an English cook still says *minutes* in its own
+/// text, so the reader is never told which Language to expect.
+///
+/// The bare `h` is here although Aurélien's 86-recipe export contains not one
+/// — `1 h 30` is the ordinary French spelling and its absence from 579 real
+/// Steps is a fact about those recipes rather than about French. What is *not*
+/// here is a bare `m` or `s`: a metre and a gram's neighbour are too close, and
+/// a duration nobody offers is cheaper than a timer offered on `500 g`.
+const DURATION_WORDS: &[(&str, i64)] = &[
+    ("second", 1),
+    ("seconds", 1),
+    ("sec", 1),
+    ("secs", 1),
+    ("seconde", 1),
+    ("secondes", 1),
+    ("segundo", 1),
+    ("segundos", 1),
+    ("minute", 60),
+    ("minutes", 60),
+    ("min", 60),
+    ("mins", 60),
+    ("mn", 60),
+    ("minuto", 60),
+    ("minutos", 60),
+    ("hour", 3600),
+    ("hours", 3600),
+    ("hr", 3600),
+    ("hrs", 3600),
+    ("h", 3600),
+    ("heure", 3600),
+    ("heures", 3600),
+    ("hora", 3600),
+    ("horas", 3600),
+];
+
+/// The words that join the two ends of a range, beside the dashes and the
+/// slash [`Piece::Dash`] covers. `a` is here for the Spanish *de 5 a 7 minutos*
+/// and takes the French *à* with it, since [`fold_loosely`] drops the accent.
+const RANGE_WORDS: &[&str] = &["to", "a", "or", "ou", "y", "o", "hasta"];
+
+/// The one word a cook is allowed to slip between the number and its unit —
+/// *cook for 3 more minutes*. Four real Steps in the export do it, all of them
+/// with `more`, and none of them with two words; the rest of this list is that
+/// one habit written in the other two Languages rather than a guess at what
+/// else might appear.
+const MORE_WORDS: &[&str] = &[
+    "more",
+    "additional",
+    "further",
+    "extra",
+    "other",
+    "autres",
+    "mas",
+    "otros",
+    "otras",
+];
+
+/// One piece of a Step's text, as the duration reader sees it. Whitespace
+/// produces nothing at all, so `20-30 min` and `20 - 30 min` are one shape.
+enum Piece {
+    Number(f64),
+    Word(String),
+    /// A dash or a slash: the punctuation half of a range.
+    Dash,
+    /// Anything else — a comma, a bracket, a full stop. Present rather than
+    /// skipped, so that a range's two ends must genuinely be adjacent.
+    Other,
+}
+
+/// [`fold`], with combining marks dropped as well — the same second, looser
+/// rule `core::folded_for_search` runs on, and for the same reason: *à* and *a*
+/// are one range word, and *heures* must read the same however the accent was
+/// typed.
+///
+/// It is not a call to that function because the dependency runs the other way:
+/// `core` uses `units`, never the reverse. What the two share is the rule, and
+/// the rule is written down in both places rather than in neither.
+fn fold_loosely(word: &str) -> String {
+    use unicode_normalization::char::is_combining_mark;
+    fold(word)
+        .chars()
+        .filter(|c| !is_combining_mark(*c))
+        .collect()
+}
+
+/// **The timer a Step offers**, in seconds, or nothing.
+///
+/// Read out of the Step's own text at display time and stored nowhere
+/// (ADR 0011, CONTEXT.md "Step"): nothing is typed beside the sentence and the
+/// Step's truth stays its text. One tap starts it; Kamosu never writes it down.
+///
+/// Nothing is the answer for roughly three Steps in four — 425 of the 579 real
+/// Steps in Aurélien's export carry no duration at all — and that is not a
+/// failure. A Step with no timer simply offers none.
+///
+/// **A range answers with its lower end.** 154 real Steps carry a duration and
+/// 64 of them are ranges: *simmer for 5-8 minutes*, *knead for 3–4 minutes*.
+/// The lower end is the one a cook can act on, because a timer that goes off at
+/// five minutes sends you to look at a pan that may need three more, while one
+/// that goes off at eight has already let it burn.
+///
+/// **The first duration in the text wins**, not the largest and not the last.
+/// A Step reads in order and the timer belongs to the thing it is telling you
+/// to do now.
+pub fn step_duration(text: &str) -> Option<i64> {
+    let pieces = tokenise(text);
+    for (index, piece) in pieces.iter().enumerate() {
+        let Piece::Word(word) = piece else { continue };
+        let Some(unit_seconds) = seconds_each(word) else {
+            continue;
+        };
+        let Some((at, written)) = number_before(&pieces, index) else {
+            continue;
+        };
+        let quantity = lower_end(&pieces, at).unwrap_or(written);
+        let seconds =
+            quantity * unit_seconds as f64 + trailing_minutes(&pieces, index, unit_seconds);
+        if !(1.0..=LONGEST_TIMER_SECONDS as f64).contains(&seconds) {
+            continue;
+        }
+        return Some(seconds.round() as i64);
+    }
+    None
+}
+
+/// The longest duration this offers a timer for: a week.
+///
+/// Not a guess at what a recipe means — a 48-hour ferment and an overnight
+/// marinade are real, and the longest in Aurélien's export is twelve hours. It
+/// is a floor under nonsense: past a week the number was not a duration
+/// somebody meant to time, and a countdown running for years is worse than no
+/// timer at all.
+const LONGEST_TIMER_SECONDS: i64 = 7 * 24 * 60 * 60;
+
+/// What one of this duration word is worth in seconds, or nothing where the
+/// word names no duration.
+fn seconds_each(word: &str) -> Option<i64> {
+    DURATION_WORDS
+        .iter()
+        .find(|(spelling, _)| *spelling == word)
+        .map(|(_, seconds)| *seconds)
+}
+
+/// The minutes written after an hour and given no unit of their own — `1 h 30`,
+/// `1 hour 30 minutes` — in seconds, or zero.
+///
+/// **Only after hours**, and only for a number under sixty, so `2 hours 200 g
+/// of flour` cannot become three and a bit hours. Aurélien's 86-recipe export
+/// contains not one of these, which is why they are handled from the language
+/// rather than from the corpus: `1 h 30` is how French writes an hour and a
+/// half, and its absence from these 86 recipes is a fact about them.
+fn trailing_minutes(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {
+    if unit_seconds != 3600 {
+        return 0.0;
+    }
+    let Some(Piece::Number(minutes)) = pieces.get(unit + 1) else {
+        return 0.0;
+    };
+    if !(1.0..60.0).contains(minutes) {
+        return 0.0;
+    }
+    // A number followed by a word must be that word's own quantity, unless the
+    // word is itself minutes — `1 h 30 min` is one duration, `2 hours 30 g` is
+    // an hour count and a weight.
+    match pieces.get(unit + 2) {
+        Some(Piece::Word(word)) if seconds_each(word) != Some(60) => 0.0,
+        _ => minutes * 60.0,
+    }
+}
+
+/// The number this duration word is counting, and where it sits — the piece
+/// right before it, or the one before a single [`MORE_WORDS`] word.
+fn number_before(pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
+    let mut at = unit.checked_sub(1)?;
+    if let Piece::Word(word) = pieces.get(at)?
+        && MORE_WORDS.contains(&word.as_str())
+    {
+        at = at.checked_sub(1)?;
+    }
+    match pieces.get(at)? {
+        Piece::Number(number) => Some((at, *number)),
+        _ => None,
+    }
+}
+
+/// The lower end of a range whose upper end is the number at `upper_at`, where
+/// the two pieces before it are a range's other half — `5`, `-`, `8` or `1`,
+/// `to`, `3`. Nothing where this is a plain duration, and nothing where the
+/// supposed lower end is not actually lower, since `30-20 minutes` is not a
+/// range anybody wrote.
+fn lower_end(pieces: &[Piece], upper_at: usize) -> Option<f64> {
+    let upper = match pieces.get(upper_at)? {
+        Piece::Number(number) => *number,
+        _ => return None,
+    };
+    match pieces.get(upper_at.checked_sub(1)?)? {
+        Piece::Dash => {}
+        Piece::Word(word) if RANGE_WORDS.contains(&word.as_str()) => {}
+        _ => return None,
+    }
+    match pieces.get(upper_at.checked_sub(2)?)? {
+        Piece::Number(lower) if *lower > 0.0 && *lower < upper => Some(*lower),
+        _ => None,
+    }
+}
+
+/// Split a Step's text into the pieces the duration reader compares. Numbers
+/// take the French decimal comma the same way [`parse_amount`] does, and a
+/// vulgar fraction written against a number — `1½ hours` — is added to it.
+fn tokenise(text: &str) -> Vec<Piece> {
+    let characters: Vec<char> = text.chars().collect();
+    let mut pieces = Vec::new();
+    let mut index = 0;
+    while index < characters.len() {
+        let character = characters[index];
+        if character.is_whitespace() {
+            index += 1;
+        } else if character.is_ascii_digit() {
+            let start = index;
+            while index < characters.len()
+                && (characters[index].is_ascii_digit()
+                    || ((characters[index] == '.' || characters[index] == ',')
+                        && characters.get(index + 1).is_some_and(char::is_ascii_digit)))
+            {
+                index += 1;
+            }
+            let digits: String = characters[start..index].iter().collect();
+            let mut number = parse_plain(&digits).unwrap_or(0.0);
+            if let Some(fraction) = characters
+                .get(index)
+                .and_then(|c| FRACTIONS.iter().find(|(glyph, _)| glyph == c))
+            {
+                number += fraction.1;
+                index += 1;
+            }
+            pieces.push(Piece::Number(number));
+        } else if character.is_alphabetic() {
+            let start = index;
+            while index < characters.len() && characters[index].is_alphabetic() {
+                index += 1;
+            }
+            let word: String = characters[start..index].iter().collect();
+            pieces.push(Piece::Word(fold_loosely(&word)));
+        } else {
+            index += 1;
+            pieces.push(match character {
+                '-' | '\u{2013}' | '\u{2014}' | '/' => Piece::Dash,
+                _ => Piece::Other,
+            });
+        }
+    }
+    pieces
+}

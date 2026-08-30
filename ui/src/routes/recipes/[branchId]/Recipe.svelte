@@ -654,11 +654,18 @@
 			<p class="mx-gutter mt-4 text-read text-support" role="alert">{m.divergence_save_failed()}</p>
 		{/if}
 
-		<button
+		<!--
+			Into the cooking screen (#61, ADR 0011). It is a link rather than a
+			button that starts something: opening the screen IS starting the
+			Attempt, and one already In Progress is handed back rather than
+			doubled — so there is nothing here to press twice by mistake.
+		-->
+		<a
+			href="/cook/{branchId}"
 			class="mx-gutter mt-6 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"
 		>
 			{m.recipe_cook_this()}
-		</button>
+		</a>
 		<a
 			href="/recipes/{branchId}/thread"
 			class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
