@@ -203,7 +203,7 @@ ui-test:
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
 # the build fails if what is committed has drifted from ui/.
-check: _check-tokens-fresh _check-client-fresh ui-format-check ui-lint ui-check
+check: _check-tokens-fresh _check-client-fresh _check-cover-fresh ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
@@ -337,6 +337,34 @@ _check-client-fresh:
     if ! diff -u ui/src/lib/api/catalogue.ts "$tmp/catalogue.ts"; then
         echo "error: the committed typed client has drifted from the Catalogue —" >&2
         echo "       run 'just client' and commit the regenerated file." >&2
+        exit 1
+    fi
+
+# Regenerate the Cover's faces for the Core. A Cover is drawn twice — by the
+# Svelte app and, since #65, by the server-rendered Share Link page — and the
+# eight dyes and eight shapes are decided in ui/src/lib/cover/. This writes them
+# out as Rust so the artwork cannot drift; the arithmetic beside it in
+# src/cover.rs is written in both languages and pinned by its own tests.
+# Safe to run any time.
+cover:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _npm-deps
+    cd ui && node ./generate-cover.mjs
+
+# Internal: regenerate the Cover's faces into a temp directory and compare with
+# what is committed, so a shape changed in the app but never carried to the
+# server cannot pass `just check` unnoticed.
+_check-cover-fresh:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    just _npm-deps
+    ( cd ui && OUT="$tmp/cover_faces.rs" node ./generate-cover.mjs )
+    if ! diff -u src/cover_faces.rs "$tmp/cover_faces.rs"; then
+        echo "error: the committed Cover faces have drifted from ui/src/lib/cover/ —" >&2
+        echo "       run 'just cover' and commit the regenerated file." >&2
         exit 1
     fi
 

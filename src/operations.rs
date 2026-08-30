@@ -847,6 +847,70 @@ pub fn get_thread(core: &Core, invocation: &Invocation, input: Value) -> Result<
     core.get_thread(&caller.person_id, branch_id)
 }
 
+// ── Share Links (#65, ADR 0026, ADR 0018) ────────────────────────────────────
+
+pub fn share_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("share_recipe takes { branch_id, public_address? }"))?;
+    let address = input.get("public_address").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.share_recipe(&caller.person_id, branch_id, address)
+}
+
+pub fn end_share_link(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("end_share_link takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.end_share_link(&caller.person_id, branch_id)
+}
+
+pub fn get_share_link(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("get_share_link takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.get_share_link(&caller.person_id, branch_id)
+}
+
+pub fn set_public_address(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let address = input
+        .get("public_address")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("set_public_address takes { public_address }"))?;
+    core.set_public_address(address)
+}
+
+/// What the Share Link page consumes. Public: holding the token is the whole
+/// of the permission, so there is no Caller to resolve here at all.
+pub fn read_shared_recipe(
+    core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let token = input
+        .get("token")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_shared_recipe takes { token }"))?;
+    core.read_shared_recipe(token)
+}
+
 pub fn branch_point(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let takes = "branch_point takes { branch_a_id, branch_b_id }";
     let branch_a_id = input

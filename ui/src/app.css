@@ -33,6 +33,15 @@
    Nothing in Rust emits a class today. */
 @source "./";
 @source not "./lib/paraglide";
+/* The Share Link page is rendered from Rust strings (#65, ADR 0012, ADR 0026),
+   so the classes it writes have to be emitted here too. Tailwind's classes are
+   identical in both renderings, which is exactly why one stylesheet serves a
+   Svelte screen and a server-rendered page without either knowing about the
+   other. Scoped to the two modules that hold markup rather than to `src/`
+   wholesale, so the prose in every other Rust comment stays out of it — the
+   same trap the `@source not` rules below already guard against. */
+@source "../../src/share_page.rs";
+@source "../../src/cover.rs";
 /* A screen test quotes the words a screen renders, so that it can assert them.
    Those words are prose, not class names, and a stylesheet must not grow a rule
    because an assertion contains the word "table" — which is exactly what
@@ -348,4 +357,31 @@
    `bottom-0` the tab bar swallowed its Save button entirely. */
 @utility bottom-tabbar {
   bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom));
+}
+
+/* The wash under a recipe's title, over its photograph. Indigo rather than a
+   neutral grey — the app's own colour — and near-solid at the hem so the title
+   is readable over a photograph whose colours nobody chose (#81).
+
+   Its height and stops are fitted, not chosen by eye: over the worst backdrop
+   a photograph can be — pure white — kinari must clear 3:1 at the 27px title
+   and 4.5:1 at the 10.5px Source line above it. A shorter wash left the Source
+   at 3.5:1. Starting it higher, rather than making it darker, buys the
+   contrast while keeping the fade as gentle at any given point as it was.
+
+   It lived in `Recipe.svelte`'s scoped style until #65, which gave the Share
+   Link page the same hero and the messaging-app card a picture of it. Three
+   renderings of one gradient is exactly the drift this file exists to prevent,
+   so it is named once here.
+
+   A COVER NEVER WEARS IT. Its dye was chosen and needs no wash (#46, #81); the
+   title stands on it bare. */
+@utility wash {
+  height: 200px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-accent) 0%, transparent) 0%,
+    color-mix(in srgb, var(--color-accent) 55%, transparent) 40%,
+    color-mix(in srgb, var(--color-accent) 95%, transparent) 100%
+  );
 }

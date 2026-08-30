@@ -370,7 +370,7 @@
 					/>
 					<!-- The wash. A photograph's colours are nobody's choice, so
 					     the title is given ground of its own rather than hoping. -->
-					<div class="wash pointer-events-none absolute inset-x-0 bottom-0"></div>
+					<div class="pointer-events-none absolute inset-x-0 bottom-0 wash"></div>
 				{:else}
 					<Cover lineageId={recipe.lineage_id} title={content.title} band={false} />
 				{/if}
@@ -685,6 +685,18 @@
 		>
 			{m.recipe_the_thread()}
 		</a>
+		<!--
+			Into the share screen (#65, ADR 0026). A link rather than a switch
+			here on purpose: turning sharing on is one deliberate act taken on a
+			screen that says what it means, not a toggle brushed past on the way
+			to cooking.
+		-->
+		<a
+			href="/recipes/{branchId}/share"
+			class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
+		>
+			{m.share_title()}
+		</a>
 	{/if}
 
 	<!-- Carried across and not yet saved. It becomes real only when an ordinary
@@ -769,24 +781,10 @@
 		--whose: var(--color-support);
 	}
 
-	/* The wash under the title, in indigo rather than a neutral grey: the app's
-	   own colour, and near-solid at the hem so the title is readable over any
-	   photograph. Written with color-mix against the token so it cannot drift
-	   from the palette the way a pasted hex would.
-
-	   Its height and stops are fitted, not chosen by eye: over the worst
-	   backdrop a photograph can be — pure white — kinari must clear 3:1 at the
-	   27px title and 4.5:1 at the 10.5px Source line above it. A shorter wash
-	   left the Source at 3.5:1. Starting it higher, rather than making it
-	   darker, buys the contrast while keeping the fade as gentle at any given
-	   point as it already was. */
-	.wash {
-		height: 200px;
-		background: linear-gradient(
-			to bottom,
-			color-mix(in srgb, var(--color-accent) 0%, transparent) 0%,
-			color-mix(in srgb, var(--color-accent) 55%, transparent) 40%,
-			color-mix(in srgb, var(--color-accent) 95%, transparent) 100%
-		);
-	}
+	/* The wash under the title is `@utility wash` in ui/src/app.css. It moved
+	   there in #65, which gave the Share Link page the same hero and the
+	   messaging-app card a picture of it: one gradient rendered three ways is
+	   exactly what the stylesheet exists to keep from drifting. Its fitted
+	   height and stops, and why they are what they are, are recorded beside it.
+	*/
 </style>

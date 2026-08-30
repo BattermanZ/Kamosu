@@ -1065,6 +1065,138 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             output_schema: thread_schema(),
             handler: crate::operations::get_thread,
         },
+        // ── Share Links (#65, ADR 0026, ADR 0018) ──────────────────────────
+        //
+        // There are two levels of visibility and no third: a recipe is seen by
+        // its Kitchen, or by anyone holding its Share Link. Nothing here takes
+        // a visibility argument, because there is no scale to set a point on.
+        Operation {
+            name: "share_recipe",
+            summary: "Turn a Recipe's Share Link on, and answer the link. One \
+                      permanent, unguessable address per Recipe, never \
+                      expiring, freely passed on. Asking twice for a Recipe \
+                      already shared answers the link it already has rather \
+                      than minting a second one. The link's Secret is answered \
+                      exactly once — here, at the moment it is minted — \
+                      because only its hash is stored. The instance's public \
+                      address is asked for at the first Share Link and stored \
+                      once; a link is kept as a token rather than a URL, so \
+                      setting the address later makes every link already \
+                      minted render correctly.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "public_address": {
+                        "type": "string",
+                        "description": "Where this instance is reachable from outside, \
+                                         e.g. https://kamosu.example.com — asked at the \
+                                         first Share Link and stored once. Ignored where \
+                                         an address is already stored; `set_public_address` \
+                                         is how one is changed.",
+                    },
+                },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: share_link_schema(),
+            handler: crate::operations::share_recipe,
+        },
+        Operation {
+            name: "end_share_link",
+            summary: "End a Recipe's Share Link. Permanent: the link stops \
+                      working and turning sharing back on mints a new one, so \
+                      a withdrawn link stays dead. It reaches no copy already \
+                      sent, and Kamosu says so rather than letting that be \
+                      discovered.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: share_link_schema(),
+            handler: crate::operations::end_share_link,
+        },
+        Operation {
+            name: "get_share_link",
+            summary: "Whether a Recipe is shared, and by whom. The link's URL \
+                      is answered only at the moment it is minted, since only \
+                      the Secret's hash is stored — so this says a link \
+                      exists without being able to reprint it.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: share_link_schema(),
+            handler: crate::operations::get_share_link,
+        },
+        Operation {
+            name: "set_public_address",
+            summary: "Set where this instance is reachable from outside. Kept \
+                      in the database and never in an environment variable, so \
+                      moving an instance is one act that every Share Link \
+                      already minted follows.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "public_address": { "type": "string" } },
+                "required": ["public_address"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "public_address": { "type": "string" } },
+                "required": ["public_address"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::set_public_address,
+        },
+        Operation {
+            name: "read_shared_recipe",
+            summary: "Read a Recipe through its Share Link token: the Recipe \
+                      as it stands, its Translations, and its Thread complete \
+                      back to the first Version with every name and *what \
+                      changed* line. Never an Attempt, a rating or an Attempt \
+                      photograph. Public, because holding the token is the \
+                      whole of the permission — this is what the Share Link \
+                      page consumes, and the page is not an Operation, so \
+                      Parity is untouched.",
+            permission: Permission::Public,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "token": { "type": "string" } },
+                "required": ["token"],
+                "additionalProperties": false,
+            }),
+            output_schema: shared_recipe_schema(),
+            handler: crate::operations::read_shared_recipe,
+        },
         Operation {
             name: "branch_point",
             summary: "The last Version two Branches share, found by \
@@ -2624,6 +2756,141 @@ fn import_report_schema() -> Value {
 /// Unit (whatever word was written; see #49) and a target, all optional and
 /// `null` together wherever Kamosu has read nothing (ADR 0002, ADR 0021). A
 /// target names a Food by the word alone; Foods (#47) carry no id here.
+/// Whether a Recipe is shared, and by whom (#65, ADR 0026).
+///
+/// `url` is answered **only at the moment a link is minted**, and is null
+/// every other time. Only the Secret's hash is stored, so there is nothing to
+/// reprint later — the same bargain every Secret in Kamosu makes (ADR 0031).
+/// The share screen therefore knows a link exists without being able to show
+/// it again, which is honest about what an instance actually holds.
+fn share_link_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "shared": {
+                "type": "boolean",
+                "description": "Whether a live Share Link exists. This is the whole of \
+                                 Visibility: there is no scale and no third audience.",
+            },
+            "share_id": { "type": ["string", "null"] },
+            "url": {
+                "type": ["string", "null"],
+                "description": "The link itself, answered once, at the moment it is minted.",
+            },
+            "shared_by": {
+                "type": ["string", "null"],
+                "description": "The Name of the Person who turned the link on, looked up \
+                                 live. Never a Kitchen: a Kitchen's Nickname is private to \
+                                 the member who set it and could not appear on a public page.",
+            },
+            "created_at": { "type": ["string", "null"] },
+            "public_address": { "type": ["string", "null"] },
+        },
+        "required": ["shared", "share_id", "url", "shared_by", "created_at", "public_address"],
+        "additionalProperties": false,
+    })
+}
+
+/// One Branch as a stranger holding a Share Link sees it: the words, the
+/// Readings, and the one subordinate line each produces.
+///
+/// There is no `measured` slot: Kamosu converts to the kitchen (ADR 0016) and
+/// a stranger holding a link has no kitchen, so there is no reader to convert
+/// for. The Reading still travels, as structure for an agent reading the same
+/// share at the MCP door.
+fn shared_version_schema() -> Value {
+    shared_version_schema_of(json!("object"))
+}
+
+/// The same shape, declared nullable — `recipe` is absent on an ended link.
+/// Written as a `type` array rather than an `anyOf` because that is the subset
+/// of JSON Schema the Catalogue declares and the typed client renders; a shape
+/// outside it is one the interface would silently stop checking.
+fn nullable_shared_version_schema() -> Value {
+    shared_version_schema_of(json!(["object", "null"]))
+}
+
+fn shared_version_schema_of(type_: Value) -> Value {
+    json!({
+        "type": type_,
+        "properties": {
+            "branch_id": { "type": "string" },
+            "lineage_id": {
+                "type": "string",
+                "description": "What a Cover is drawn from, for a recipe with no \
+                                 photograph — the Lineage id and nothing else (#46).",
+            },
+            "version_id": { "type": "string" },
+            "language": { "type": "string" },
+            "content": recipe_content_schema(),
+            "readings": reading_list_schema(),
+        },
+        "required": [
+            "branch_id", "lineage_id", "version_id", "language",
+            "content", "readings",
+        ],
+        "additionalProperties": false,
+    })
+}
+
+/// Everything the public Share Link page draws.
+///
+/// **No Attempt appears here in any form** — not a rating, not a note, not an
+/// Attempt photograph (ADR 0005, ADR 0026). There is no field for one.
+///
+/// The Thread is complete back to the first Version, names and *what changed*
+/// lines included: a share cannot be made to start part-way along, so there is
+/// no argument anywhere that could shorten it (ADR 0018).
+fn shared_recipe_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "ended": {
+                "type": "boolean",
+                "description": "Whether this link has been ended. A token nobody minted is \
+                                 not found; a real token whose link was withdrawn answers \
+                                 here, because 'no such page' reads as a mistake to retry.",
+            },
+            "share_id": { "type": "string" },
+            "shared_by": { "type": ["string", "null"] },
+            "public_address": { "type": ["string", "null"] },
+            "recipe": nullable_shared_version_schema(),
+            "translations": {
+                "type": "array",
+                "items": shared_version_schema(),
+                "description": "The Branches of this Lineage in another Language that \
+                                 translate the Branch shared (ADR 0006). Carried whole \
+                                 rather than as links: each is a Branch of its own, and a \
+                                 token per Translation would be a second link to end.",
+            },
+            "thread": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "sequence": { "type": "integer" },
+                        "name": { "type": ["string", "null"] },
+                        "change_note": { "type": ["string", "null"] },
+                        "hand": {
+                            "type": "string",
+                            "description": "The Name of the Person who wrote this Version. \
+                                             What makes credit travel with a recipe.",
+                        },
+                        "created_at": { "type": "string" },
+                    },
+                    "required": ["sequence", "name", "change_note", "hand", "created_at"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": [
+            "ended", "share_id", "shared_by", "public_address",
+            "recipe", "translations", "thread",
+        ],
+        "additionalProperties": false,
+    })
+}
+
 fn reading_schema() -> Value {
     json!({
         "type": ["object", "null"],

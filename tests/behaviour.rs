@@ -10807,3 +10807,481 @@ async fn home_files_a_lineage_once_under_the_reading_language() {
         "and one card on every shelf it stands on: {shelves:?}"
     );
 }
+
+// ── Share Links (#65, ADR 0026, ADR 0018) ────────────────────────────────────
+
+/// Share a recipe and answer (branch_id, token, url).
+fn share(app: &support::TestApp, key: &str, branch_id: &str) -> (String, String) {
+    let (status, shared) = app.post_op(
+        "share_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id, "public_address": "https://kamosu.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "{shared}");
+    let url = shared["result"]["url"]
+        .as_str()
+        .expect("a link")
+        .to_string();
+    let token = url.rsplit('/').next().expect("a token").to_string();
+    (token, url)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_share_link_is_one_permanent_address_and_asking_twice_does_not_mint_a_second() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Tarte aux pommes" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (token, url) = share(&app, &key, &branch_id);
+    assert!(url.starts_with("https://kamosu.example/s/"));
+    // 256 bits of Secret, as hex. Enumeration is answered by the size of the
+    // Secret and by nothing else (ADR 0031, ADR 0032).
+    assert_eq!(token.len(), 64, "a Share Link token is 256 bits");
+    assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+
+    // Asking again is one intention, not two: the same link comes back, and a
+    // second live link is never minted.
+    let (status, again) = app.post_op(
+        "share_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["result"]["shared"], json!(true));
+    // The Secret is answered once, at minting, because only its hash is kept.
+    assert_eq!(again["result"]["url"], Value::Null);
+
+    // And the link still opens the recipe.
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200, "{page}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ending_a_share_link_is_permanent_and_re_enabling_mints_a_new_one() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Coq au vin" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (first, _url) = share(&app, &key, &branch_id);
+    let (status, ended) = app.post_op(
+        "end_share_link",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+    assert_eq!(ended["result"]["shared"], json!(false));
+
+    // The old link is dead — and says so, rather than reading as a mistake to
+    // retry. It is still a 200: this is an answer, not a failure.
+    let (status, _type, page) = app.get(&format!("/s/{first}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("This link was ended"), "{page}");
+    // And it carries none of the recipe.
+    assert!(!page.contains("Coq au vin"), "an ended link shows nothing");
+
+    // Turning sharing back on mints a NEW link, and the withdrawn one stays dead.
+    let (second, _url) = share(&app, &key, &branch_id);
+    assert_ne!(second, first, "re-enabling mints a new Secret");
+    let (status, _type, page) = app.get(&format!("/s/{second}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("Coq au vin"), "the new link opens the recipe");
+    let (_status, _type, dead) = app.get(&format!("/s/{first}"));
+    assert!(
+        dead.contains("This link was ended"),
+        "a withdrawn link stays dead"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_share_link_page_never_shows_an_attempt() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Katsu Curry",
+            "steps": [{ "kind": "step", "text": "Fry the cutlet.", "photo": null }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Cook it and say something private about the cooking.
+    let (status, attempt) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{attempt}");
+    let attempt_id = attempt["result"]["id"].as_str().unwrap().to_string();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "rating": "again",
+            "note": "Cut the sugar, Marie hated it",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    let (token, _url) = share(&app, &key, &branch_id);
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("Katsu Curry"), "the recipe is there");
+    // The private place is the Attempt note, and it never leaves the instance.
+    assert!(
+        !page.contains("Marie"),
+        "an Attempt note must never reach a Share Link page"
+    );
+    assert!(
+        !page.contains("again"),
+        "a rating must never reach a Share Link page"
+    );
+
+    // Nor through the Operation the page consumes.
+    let (status, read) = app.post_op(
+        "read_shared_recipe",
+        None,
+        &json!({ "token": token }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let text = read.to_string();
+    assert!(!text.contains("Marie"), "no Attempt in the answer: {text}");
+    assert!(
+        !text.contains("attempts"),
+        "no Attempts field exists at all"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_share_carries_the_whole_chain_back_to_the_first_version() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Shortbread" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // A Translation closes the collapse window on the first Version, so the
+    // next save appends rather than replacing it (ADR 0006).
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "language": "fr", "title": "Sablés" }).to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Shortbread",
+            "ingredients": [{ "kind": "ingredient", "text": "250 g butter" }],
+            "name": "More butter",
+            "change_note": "Took the butter up, which is the whole of it.",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    let (token, _url) = share(&app, &key, &branch_id);
+    let (status, read) = app.post_op(
+        "read_shared_recipe",
+        None,
+        &json!({ "token": token }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let thread = read["result"]["thread"].as_array().expect("a Thread");
+    assert_eq!(
+        thread.len(),
+        2,
+        "the chain reaches the first Version: {thread:?}"
+    );
+    assert_eq!(thread[0]["sequence"], json!(1));
+    assert_eq!(thread[1]["name"], json!("More butter"));
+    // The *what changed* line and the Hand travel: that is what makes credit
+    // travel with the recipe (ADR 0018, ADR 0015).
+    assert_eq!(
+        thread[1]["change_note"],
+        json!("Took the butter up, which is the whole of it.")
+    );
+    assert_eq!(thread[1]["hand"], json!("Aurélien"), "a Person, by name");
+
+    // Its Translation travels beside it (ADR 0006).
+    let translations = read["result"]["translations"].as_array().expect("a list");
+    assert_eq!(translations.len(), 1);
+    assert_eq!(translations[0]["language"], json!("fr"));
+
+    // The page shows the Thread rather than hiding it: the sharer opening
+    // their own link must see what they actually published.
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("More butter"), "{page}");
+    assert!(page.contains("Took the butter up"));
+    assert!(page.contains("Aurélien"));
+    // And the standing line is on it, in the same words every time.
+    assert!(
+        page.contains("it cannot reach a copy already sent"),
+        "the standing line is on the page"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_share_link_is_not_a_key_to_the_instance() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, shared_recipe) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Shared" }).to_string(),
+    );
+    let shared_branch = shared_recipe["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_status, private_recipe) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Kept to myself" }).to_string(),
+    );
+    let private_branch = private_recipe["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (token, _url) = share(&app, &key, &shared_branch);
+
+    // The other recipe is not reachable by holding this token — the whole of
+    // the second visibility level is *this* recipe (ADR 0026).
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(!page.contains("Kept to myself"), "{page}");
+
+    // An unshared recipe has no page at all, and a token nobody minted is not
+    // found rather than being coy about it.
+    let (status, _type, _page) = app.get(&format!("/s/{private_branch}"));
+    assert_eq!(status, 404);
+    let (status, _type, _page) =
+        app.get("/s/0000000000000000000000000000000000000000000000000000000000000000");
+    assert_eq!(status, 404);
+
+    // A stranger still cannot read the recipe as an Operation.
+    let (status, refused) = app.post_op(
+        "get_recipe",
+        None,
+        &json!({ "branch_id": shared_branch }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_the_kitchen_holding_a_recipe_may_share_it() {
+    let app = support::spawn_app();
+    let (_mine, my_key, my_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_theirs, their_key, _their_kitchen) = person_with_kitchen(&app, "Marc");
+
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&my_key),
+        &json!({ "kitchen_id": my_kitchen, "title": "Mine" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, refused) = app.post_op(
+        "share_recipe",
+        Some(&their_key),
+        &json!({ "branch_id": branch_id, "public_address": "https://kamosu.example" }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    let (status, refused) = app.post_op(
+        "end_share_link",
+        Some(&their_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_share_link_is_a_token_so_moving_the_instance_does_not_break_it() {
+    let app = support::spawn_app();
+    // Moving the instance is the Operator's act, so this one needs the
+    // Operator rather than any Person.
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Moved house" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (token, url) = share(&app, &key, &branch_id);
+    assert!(url.starts_with("https://kamosu.example/s/"));
+
+    // The Operator moves the instance. What was stored is a token, so the link
+    // already minted renders against the new address rather than the old one.
+    let (status, moved) = app.post_op(
+        "set_public_address",
+        Some(&key),
+        &json!({ "public_address": "https://cuisine.example/" }).to_string(),
+    );
+    assert_eq!(status, 200, "{moved}");
+    // A trailing slash is one spelling, not two.
+    assert_eq!(
+        moved["result"]["public_address"],
+        json!("https://cuisine.example")
+    );
+
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(
+        page.contains(&format!("https://cuisine.example/s/{token}/card")),
+        "the card and the canonical URL follow the address: {page}"
+    );
+
+    // An address that is not one is refused rather than stored.
+    let (status, refused) = app.post_op(
+        "set_public_address",
+        Some(&key),
+        &json!({ "public_address": "cuisine.example" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_card_a_messaging_app_fetches_is_a_real_picture() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Braised Chicken in Red Wine" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (token, _url) = share(&app, &key, &branch_id);
+
+    let (status, content_type, bytes) = app.get_bytes(&format!("/s/{token}/card"), None);
+    assert_eq!(status, 200);
+    assert_eq!(content_type, "image/png");
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "a real PNG");
+    assert!(bytes.len() > 5_000, "a drawn card, not an empty canvas");
+
+    // The page points a messaging app at it, and names the person rather than
+    // the recipe in og:title — the recipe's name is on the picture (#65).
+    let (_status, _type, page) = app.get(&format!("/s/{token}"));
+    assert!(page.contains(&format!("/s/{token}/card")), "{page}");
+    assert!(page.contains(r#"og:title" content="Shared by Aurélien"#));
+    assert!(!page.contains(r#"og:title" content="Braised Chicken"#));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shared_recipes_translations_are_readable_under_the_same_token() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Shortbread",
+            "ingredients": [{ "kind": "ingredient", "text": "250 g butter" }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "language": "fr", "title": "Sablés" }).to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": french,
+            "title": "Sablés",
+            "ingredients": [{ "kind": "ingredient", "text": "250 g de beurre" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    let (token, _url) = share(&app, &key, &branch_id);
+
+    // The shared Branch itself, in English, offering its Translation.
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("Shortbread"), "{page}");
+    assert!(page.contains(r#"lang="en""#), "served in its own Language");
+    assert!(
+        page.contains(&format!("/s/{token}/in/fr")),
+        "the Translation is a link, not just a name: {page}"
+    );
+
+    // And the Translation is genuinely readable — under the same token, since
+    // a token of its own would be a second link to end.
+    let (status, _type, french_page) = app.get(&format!("/s/{token}/in/fr"));
+    assert_eq!(status, 200);
+    assert!(french_page.contains("Sablés"), "{french_page}");
+    assert!(french_page.contains("250 g de beurre"));
+    assert!(french_page.contains(r#"lang="fr""#), "and in French");
+    // Its own words, not the English ones.
+    assert!(french_page.contains("Ingrédients"));
+    assert!(!french_page.contains(">Ingredients<"));
+
+    // A Language nobody wrote this in falls back to the recipe rather than
+    // failing: a hand-edited URL is a mistype, not an attack.
+    let (status, _type, fallback) = app.get(&format!("/s/{token}/in/de"));
+    assert_eq!(status, 200);
+    assert!(fallback.contains("Shortbread"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_card_is_drawn_once_and_kept() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Drawn once" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (token, _url) = share(&app, &key, &branch_id);
+
+    // A stranger may cause work, never work that scales with them (ADR 0032):
+    // asking twice draws once and serves the same bytes.
+    let (first_status, _type, first) = app.get_bytes(&format!("/s/{token}/card"), None);
+    let (second_status, _type, second) = app.get_bytes(&format!("/s/{token}/card"), None);
+    assert_eq!(first_status, 200);
+    assert_eq!(second_status, 200);
+    assert_eq!(first, second, "the same card, byte for byte");
+
+    // And it really is kept, rather than redrawn identically each time.
+    let version_id = created["result"]["head_version_id"].as_str().unwrap();
+    let kept = app
+        .data_dir()
+        .expect("this test owns its data directory")
+        .join("cards")
+        .join(format!("{version_id}.png"));
+    assert!(kept.exists(), "the card was not kept at {kept:?}");
+}

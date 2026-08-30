@@ -10,6 +10,8 @@
 pub mod catalogue;
 pub mod config;
 pub mod core;
+pub mod cover;
+pub mod cover_faces;
 pub mod db;
 pub mod design_tokens;
 pub mod http_min;
@@ -21,6 +23,8 @@ pub mod meaning;
 pub mod operations;
 pub mod pairing;
 pub mod photographs;
+pub mod share_card;
+pub mod share_page;
 pub mod units;
 pub mod web_door;
 pub mod web_import;
@@ -31,18 +35,25 @@ use std::sync::Arc;
 
 /// The whole served application, assembled once.
 ///
-/// Both Doors carry the Catalogue; the design tokens and the interface ride
-/// beside them — stylesheet, fonts, icons and the compiled app, never
-/// Operations. **The interface is merged last** because it owns the fallback: a
-/// path is a screen only once nothing else has claimed it.
+/// Both Doors carry the Catalogue; the design tokens, the Share Link page and
+/// the interface ride beside them — stylesheet, fonts, icons, one
+/// server-rendered page and the compiled app, never Operations. **The interface
+/// is merged last** because it owns the fallback: a path is a screen only once
+/// nothing else has claimed it.
+///
+/// The Share Link page (#65) *consumes* an Operation and is not one, which is
+/// what leaves Parity untouched: `/s/<token>` is no more a route into the
+/// Catalogue than `/assets/app.css` is.
 ///
 /// This exists as one function so the binary and the behaviour suite cannot
 /// assemble the app differently. A test that served a different arrangement
 /// from the one shipped would be testing something nobody runs.
 pub fn app(core: Arc<core::Core>) -> axum::Router {
+    let core_for_shares = core.clone();
     web_door::router(core.clone())
         .merge(mcp_door::router(core))
         .merge(design_tokens::router())
+        .merge(share_page::router(core_for_shares))
         .merge(interface::router())
 }
 

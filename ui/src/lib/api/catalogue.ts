@@ -1036,6 +1036,147 @@ export type GetThreadOutput = {
 	}[];
 };
 
+/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one. The link's Secret is answered exactly once — here, at the moment it is minted — because only its hash is stored. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so setting the address later makes every link already minted render correctly. */
+export type ShareRecipeInput = {
+	branch_id: string;
+	public_address?: string;
+};
+/** What share_recipe answers. */
+export type ShareRecipeOutput = {
+	created_at: string | null;
+	public_address: string | null;
+	share_id: string | null;
+	shared: boolean;
+	shared_by: string | null;
+	url: string | null;
+};
+
+/** End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered. */
+export type EndShareLinkInput = {
+	branch_id: string;
+};
+/** What end_share_link answers. */
+export type EndShareLinkOutput = {
+	created_at: string | null;
+	public_address: string | null;
+	share_id: string | null;
+	shared: boolean;
+	shared_by: string | null;
+	url: string | null;
+};
+
+/** Whether a Recipe is shared, and by whom. The link's URL is answered only at the moment it is minted, since only the Secret's hash is stored — so this says a link exists without being able to reprint it. */
+export type GetShareLinkInput = {
+	branch_id: string;
+};
+/** What get_share_link answers. */
+export type GetShareLinkOutput = {
+	created_at: string | null;
+	public_address: string | null;
+	share_id: string | null;
+	shared: boolean;
+	shared_by: string | null;
+	url: string | null;
+};
+
+/** Set where this instance is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act that every Share Link already minted follows. */
+export type SetPublicAddressInput = {
+	public_address: string;
+};
+/** What set_public_address answers. */
+export type SetPublicAddressOutput = {
+	public_address: string;
+};
+
+/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
+export type ReadSharedRecipeInput = {
+	token: string;
+};
+/** What read_shared_recipe answers. */
+export type ReadSharedRecipeOutput = {
+	ended: boolean;
+	public_address: string | null;
+	recipe: {
+		branch_id: string;
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		language: string;
+		lineage_id: string;
+		readings: ({
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+		version_id: string;
+	} | null;
+	share_id: string;
+	shared_by: string | null;
+	thread: {
+		change_note: string | null;
+		created_at: string;
+		hand: string;
+		name: string | null;
+		sequence: number;
+	}[];
+	translations: {
+		branch_id: string;
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		language: string;
+		lineage_id: string;
+		readings: ({
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+		version_id: string;
+	}[];
+};
+
 /** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
 export type BranchPointInput = {
 	branch_a_id: string;
@@ -1949,6 +2090,36 @@ export interface Operations {
 		output: GetThreadOutput;
 		kind: 'immediate';
 		permission: 'person';
+	};
+	share_recipe: {
+		input: ShareRecipeInput;
+		output: ShareRecipeOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	end_share_link: {
+		input: EndShareLinkInput;
+		output: EndShareLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_share_link: {
+		input: GetShareLinkInput;
+		output: GetShareLinkOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_public_address: {
+		input: SetPublicAddressInput;
+		output: SetPublicAddressOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	read_shared_recipe: {
+		input: ReadSharedRecipeInput;
+		output: ReadSharedRecipeOutput;
+		kind: 'immediate';
+		permission: 'public';
 	};
 	branch_point: {
 		input: BranchPointInput;
@@ -6952,6 +7123,741 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "share_recipe",
+		"summary": "Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one. The link's Secret is answered exactly once — here, at the moment it is minted — because only its hash is stored. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so setting the address later makes every link already minted render correctly.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"public_address": {
+					"description": "Where this instance is reachable from outside, e.g. https://kamosu.example.com — asked at the first Share Link and stored once. Ignored where an address is already stored; `set_public_address` is how one is changed.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"created_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"public_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"share_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"shared": {
+					"description": "Whether a live Share Link exists. This is the whole of Visibility: there is no scale and no third audience.",
+					"type": "boolean"
+				},
+				"shared_by": {
+					"description": "The Name of the Person who turned the link on, looked up live. Never a Kitchen: a Kitchen's Nickname is private to the member who set it and could not appear on a public page.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"url": {
+					"description": "The link itself, answered once, at the moment it is minted.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"shared",
+				"share_id",
+				"url",
+				"shared_by",
+				"created_at",
+				"public_address"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "end_share_link",
+		"summary": "End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"created_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"public_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"share_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"shared": {
+					"description": "Whether a live Share Link exists. This is the whole of Visibility: there is no scale and no third audience.",
+					"type": "boolean"
+				},
+				"shared_by": {
+					"description": "The Name of the Person who turned the link on, looked up live. Never a Kitchen: a Kitchen's Nickname is private to the member who set it and could not appear on a public page.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"url": {
+					"description": "The link itself, answered once, at the moment it is minted.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"shared",
+				"share_id",
+				"url",
+				"shared_by",
+				"created_at",
+				"public_address"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_share_link",
+		"summary": "Whether a Recipe is shared, and by whom. The link's URL is answered only at the moment it is minted, since only the Secret's hash is stored — so this says a link exists without being able to reprint it.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"created_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"public_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"share_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"shared": {
+					"description": "Whether a live Share Link exists. This is the whole of Visibility: there is no scale and no third audience.",
+					"type": "boolean"
+				},
+				"shared_by": {
+					"description": "The Name of the Person who turned the link on, looked up live. Never a Kitchen: a Kitchen's Nickname is private to the member who set it and could not appear on a public page.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"url": {
+					"description": "The link itself, answered once, at the moment it is minted.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"shared",
+				"share_id",
+				"url",
+				"shared_by",
+				"created_at",
+				"public_address"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_public_address",
+		"summary": "Set where this instance is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act that every Share Link already minted follows.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"public_address": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"public_address"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"public_address": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"public_address"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_shared_recipe",
+		"summary": "Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched.",
+		"permission": "public",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"token": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"token"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended": {
+					"description": "Whether this link has been ended. A token nobody minted is not found; a real token whose link was withdrawn answers here, because 'no such page' reads as a mistake to retry.",
+					"type": "boolean"
+				},
+				"public_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipe": {
+					"additionalProperties": false,
+					"properties": {
+						"branch_id": {
+							"type": "string"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"language": {
+							"type": "string"
+						},
+						"lineage_id": {
+							"description": "What a Cover is drawn from, for a recipe with no photograph — the Lineage id and nothing else (#46).",
+							"type": "string"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"branch_id",
+						"lineage_id",
+						"version_id",
+						"language",
+						"content",
+						"readings"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"share_id": {
+					"type": "string"
+				},
+				"shared_by": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"thread": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand": {
+								"description": "The Name of the Person who wrote this Version. What makes credit travel with a recipe.",
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"sequence": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"sequence",
+							"name",
+							"change_note",
+							"hand",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"translations": {
+					"description": "The Branches of this Lineage in another Language that translate the Branch shared (ADR 0006). Carried whole rather than as links: each is a Branch of its own, and a token per Translation would be a second link to end.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"content": {
+								"additionalProperties": false,
+								"properties": {
+									"cook_time_minutes": {
+										"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"ingredients": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"ingredient"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"main_photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"prep_time_minutes": {
+										"description": "Whole minutes of active preparation.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"source": {
+										"additionalProperties": false,
+										"properties": {
+											"link": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"text",
+											"link"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"step"
+													]
+												},
+												"photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"photo"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"title": {
+										"type": "string"
+									},
+									"yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"title",
+									"yield",
+									"prep_time_minutes",
+									"cook_time_minutes",
+									"note",
+									"main_photo",
+									"source",
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"language": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"description": "What a Cover is drawn from, for a recipe with no photograph — the Lineage id and nothing else (#46).",
+								"type": "string"
+							},
+							"readings": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"target": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"unit": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"amount",
+										"unit",
+										"target"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"type": "array"
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"branch_id",
+							"lineage_id",
+							"version_id",
+							"language",
+							"content",
+							"readings"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"ended",
+				"share_id",
+				"shared_by",
+				"public_address",
+				"recipe",
+				"translations",
+				"thread"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "branch_point",
 		"summary": "The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess.",
 		"permission": "person",
@@ -9957,6 +10863,11 @@ export const METHOD_NAMES = {
 	turn_off_meaning_search: 'turnOffMeaningSearch',
 	get_recipe: 'getRecipe',
 	get_thread: 'getThread',
+	share_recipe: 'shareRecipe',
+	end_share_link: 'endShareLink',
+	get_share_link: 'getShareLink',
+	set_public_address: 'setPublicAddress',
+	read_shared_recipe: 'readSharedRecipe',
 	branch_point: 'branchPoint',
 	divergence: 'divergence',
 	set_reading: 'setReading',
@@ -10080,6 +10991,16 @@ export interface KamosuClient {
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;
+	/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one. The link's Secret is answered exactly once — here, at the moment it is minted — because only its hash is stored. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so setting the address later makes every link already minted render correctly. */
+	shareRecipe(input: ShareRecipeInput): Promise<Answer<'share_recipe'>>;
+	/** End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered. */
+	endShareLink(input: EndShareLinkInput): Promise<Answer<'end_share_link'>>;
+	/** Whether a Recipe is shared, and by whom. The link's URL is answered only at the moment it is minted, since only the Secret's hash is stored — so this says a link exists without being able to reprint it. */
+	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
+	/** Set where this instance is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act that every Share Link already minted follows. */
+	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
+	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
+	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
 	/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
 	/** Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */

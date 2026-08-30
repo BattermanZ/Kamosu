@@ -49,10 +49,23 @@ export default defineConfig({
 		// Everything the binary owns, proxied so dev and production serve the same
 		// URLs. `/favicon.svg` is named by app.html; the two root PNGs are asked
 		// for by Safari's own convention. All three would 404 in dev otherwise.
+		//
+		// `^/s/` is the Share Link page (#65), which the server renders itself —
+		// and it is a REGULAR EXPRESSION rather than a prefix on purpose. Vite
+		// matches a plain string as a prefix, so a bare `/s` would swallow
+		// `/settings`, `/shopping` and `/share` and hand three of the app's own
+		// screens to the binary. Anchoring the trailing slash keeps it to the one
+		// path the binary actually owns.
 		proxy: Object.fromEntries(
-			['/api', '/auth', '/assets', '/favicon.svg', '/favicon-32.png', '/apple-touch-icon.png'].map(
-				(path) => [path, { target: BACKEND, changeOrigin: false }],
-			),
+			[
+				'/api',
+				'/auth',
+				'/assets',
+				'/favicon.svg',
+				'/favicon-32.png',
+				'/apple-touch-icon.png',
+				'^/s/',
+			].map((path) => [path, { target: BACKEND, changeOrigin: false }]),
 		),
 	},
 

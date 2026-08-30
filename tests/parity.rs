@@ -69,6 +69,14 @@ fn arguments_for(name: &str) -> Value {
         "set_related_recipe" => {
             json!({ "branch_id": "b_parity", "related_branch_id": "b_related_parity", "related": true })
         }
+        "share_recipe" | "end_share_link" | "get_share_link" => {
+            json!({ "branch_id": "b_parity" })
+        }
+        "set_public_address" => json!({ "public_address": "https://parity.example" }),
+        // A token nobody minted is the honest probe: the Operation is Public,
+        // so what it must demonstrate is that it routes and refuses on the
+        // token alone rather than on a Credential.
+        "read_shared_recipe" => json!({ "token": "parity-no-such-token" }),
         _ => json!({}),
     }
 }
@@ -148,7 +156,14 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "decline_meaning_search"
             | "download_meaning_model"
             | "build_meaning_index"
-            | "turn_off_meaning_search" => ("{}", 401),
+            | "turn_off_meaning_search"
+            | "share_recipe"
+            | "end_share_link"
+            | "get_share_link"
+            | "set_public_address" => ("{}", 401),
+            // Public, and answered on the token alone: a token nobody minted
+            // is not found, which is the routing this check is after.
+            "read_shared_recipe" => (r#"{"token":"parity-no-such-token"}"#, 404),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -285,6 +300,11 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "download_meaning_model"
                 | "build_meaning_index"
                 | "turn_off_meaning_search"
+                | "share_recipe"
+                | "end_share_link"
+                | "get_share_link"
+                | "set_public_address"
+                | "read_shared_recipe"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

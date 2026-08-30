@@ -764,6 +764,57 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX branch_versions_by_version ON branch_versions(version_id);
         "#,
     },
+    Migration {
+        version: 24,
+        description: "Share Links, and the instance's public address (#65, ADR 0026)",
+        sql: r#"
+        -- A Share Link: one permanent, unguessable address for one Branch.
+        -- There are exactly two levels of visibility (ADR 0026) — a recipe is
+        -- seen by its Kitchen, or by anyone holding its link — so this table
+        -- IS the second level, and its presence or absence is the whole of it.
+        -- There is no `visibility` column anywhere because there is no scale.
+        --
+        -- Stored as a hash of the Secret, like every other Secret in Kamosu:
+        -- a stolen database yields no working links. What is stored beside it
+        -- is a **token**, never a URL (#65) — the instance's public address
+        -- lives in one place below, so setting it later makes every link
+        -- already minted render correctly rather than leaving a generation of
+        -- links pointing at whatever the address was on the day.
+        --
+        -- `ended_at` rather than a boolean, and rows are never deleted: ending
+        -- a link is permanent, and turning sharing back on mints a NEW row
+        -- (ADR 0018). The dead row stays so the old Secret keeps resolving to
+        -- "this link was ended" instead of to nothing — the same recipe, and
+        -- an honest answer rather than a 404 that reads like a mistake.
+        --
+        -- `shared_by` is a **Person**, not a Kitchen. A Kitchen's Hand says who
+        -- wrote a Branch; sharing is an act somebody takes, and the page names
+        -- them ("Shared by Aurélien"). A Kitchen's Nickname could never appear
+        -- here in any case — it is private to the member who set it
+        -- (CONTEXT.md, "Kitchen").
+        CREATE TABLE share_links (
+            id          TEXT PRIMARY KEY,
+            branch_id   TEXT NOT NULL REFERENCES branches(id),
+            secret_hash TEXT NOT NULL UNIQUE,
+            shared_by   TEXT NOT NULL REFERENCES people(id),
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            ended_at    TEXT
+        );
+
+        -- One live link per Branch, enforced rather than remembered. Ended rows
+        -- are exempt, which is what lets a Branch accumulate a history of dead
+        -- links while never having two that work.
+        CREATE UNIQUE INDEX share_links_one_live_per_branch
+            ON share_links(branch_id) WHERE ended_at IS NULL;
+
+        -- The instance's public address: where a Share Link is reachable from
+        -- outside. Asked once, at the first Share Link, and kept HERE rather
+        -- than in an environment variable (#65) — an env var would make the
+        -- address a property of how the process happened to be started, and a
+        -- link minted under one spelling would render wrongly under the next.
+        ALTER TABLE instance_setup ADD COLUMN public_address TEXT;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
