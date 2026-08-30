@@ -9380,3 +9380,287 @@ async fn the_converted_line_reaches_an_agent_through_the_mcp_door_too() {
         "the MCP door grew the same answer the web door did: {answered}"
     );
 }
+
+// --- The cooking diary (issue #60) -------------------------------------------
+//
+// The Cooked tab: your Attempts sorted by date rather than by recipe, so *what
+// did I cook that week* has an answer. `list_attempts` is the one Operation
+// behind it, and everything below is asked through a real Door.
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_lists_the_callers_own_cookings_newest_first_naming_the_recipe_of_each() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
+
+    let long_ago = cook_it(&app, &key, &soup, json!({ "rating": "again" }));
+    backdate_attempt_created(&app, &long_ago, 9);
+    let yesterday = cook_it(
+        &app,
+        &key,
+        &curry,
+        json!({ "rating": "tweak", "note": "Trop de sel." }),
+    );
+    backdate_attempt_created(&app, &yesterday, 1);
+    let today = cook_it(&app, &key, &soup, json!({}));
+
+    let (status, listed) = app.post_op("list_attempts", Some(&key), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let entries = listed["result"]["attempts"].as_array().expect("attempts");
+    assert_eq!(entries.len(), 3, "{listed}");
+
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec![today.as_str(), yesterday.as_str(), long_ago.as_str()],
+        "a diary is read newest first — this week before last: {listed}"
+    );
+
+    // Each entry names the recipe it was cooked from, and opens it.
+    assert_eq!(entries[0]["recipe"]["title"], json!("Miso Soup"));
+    assert_eq!(entries[0]["recipe"]["branch_id"], json!(soup));
+    assert_eq!(entries[1]["recipe"]["title"], json!("Katsu Curry"));
+    assert_eq!(entries[1]["recipe"]["branch_id"], json!(curry));
+
+    // And carries the judgement written at the stove: the date, the rating
+    // where one was given, the note where one was written.
+    assert!(entries[1]["created_at"].is_string());
+    assert_eq!(entries[1]["rating"], json!("tweak"));
+    assert_eq!(entries[1]["note"], json!("Trop de sel."));
+    assert_eq!(entries[0]["rating"], json!(null), "a rating is optional");
+    assert_eq!(entries[0]["note"], json!(null), "so is a note");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_holds_cookings_nobody_ever_finished_beside_the_finished_ones() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
+    let bread = recipe_in(&app, &key, &kitchen_id, "Pain");
+
+    let finished = cook_it(&app, &key, &soup, json!({ "rating": "again" }));
+
+    // Still at the stove: In Progress, and still worth offering to resume.
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": curry }).to_string(),
+    );
+    let in_progress = started["result"]["id"].as_str().unwrap().to_string();
+
+    // Walked away from a week ago: never finished, past the resume window —
+    // and still a cooking that happened (ADR 0010).
+    let (_, abandoned) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": bread }).to_string(),
+    );
+    let walked_away = abandoned["result"]["id"].as_str().unwrap().to_string();
+    backdate_attempt_action(&app, &walked_away, 7);
+    backdate_attempt_created(&app, &walked_away, 7);
+
+    let (status, listed) = app.post_op("list_attempts", Some(&key), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let entries = listed["result"]["attempts"].as_array().expect("attempts");
+    assert_eq!(
+        entries.len(),
+        3,
+        "starting is what makes a cooking real, not finishing: {listed}"
+    );
+
+    let of = |id: &str| {
+        entries
+            .iter()
+            .find(|entry| entry["id"] == json!(id))
+            .unwrap_or_else(|| panic!("{id} is in the diary: {listed}"))
+            .clone()
+    };
+
+    assert!(of(&finished)["finished_at"].is_string());
+    assert_eq!(of(&finished)["resumable"], json!(false));
+
+    // Both of these are In Progress — `finished_at IS NULL` is the whole of
+    // that state, and `start_attempt` hands either one straight back.
+    assert_eq!(of(&in_progress)["finished_at"], json!(null));
+    assert_eq!(of(&walked_away)["finished_at"], json!(null));
+
+    // `resumable` differs between them, and says only whether resuming is
+    // still *offered*. The interval decides that and never whether the cooking
+    // happened (ADR 0010), which is why the diary marks both the same way.
+    assert_eq!(of(&in_progress)["resumable"], json!(true));
+    assert_eq!(
+        of(&walked_away)["resumable"],
+        json!(false),
+        "the offer to resume ages out; the cooking it belongs to does not"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_is_the_callers_own_and_never_anybody_elses() {
+    let app = support::spawn_app();
+    let (aurelien, aurelien_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &aurelien_key, &kitchen_id, "Miso Soup");
+
+    let (_marie, marie_key, _marie_kitchen) = person_with_kitchen(&app, "Marie");
+    let invite = app
+        .core
+        .invite_to_kitchen(&aurelien, &kitchen_id)
+        .unwrap()
+        .1;
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&marie_key),
+        &json!({ "secret": invite }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+
+    let his = cook_it(&app, &aurelien_key, &soup, json!({ "rating": "again" }));
+    let hers = cook_it(&app, &marie_key, &soup, json!({ "rating": "no" }));
+
+    let (_, his_diary) = app.post_op("list_attempts", Some(&aurelien_key), "{}");
+    let (_, her_diary) = app.post_op("list_attempts", Some(&marie_key), "{}");
+
+    let ids = |listed: &Value| {
+        listed["result"]["attempts"]
+            .as_array()
+            .expect("attempts")
+            .iter()
+            .map(|entry| entry["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        ids(&his_diary),
+        vec![his.clone()],
+        "a diary is one person's: {his_diary}"
+    );
+    assert_eq!(
+        ids(&her_diary),
+        vec![hers],
+        "the same recipe, the same Kitchen, and still only her own: {her_diary}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_attempt_against_a_recipe_that_left_the_shelf_keeps_the_name_it_was_known_by() {
+    let app = support::spawn_app();
+    let (aurelien, aurelien_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &aurelien_key, &kitchen_id, "Miso Soup");
+
+    let (marie, marie_key, _marie_kitchen) = person_with_kitchen(&app, "Marie");
+    let invite = app
+        .core
+        .invite_to_kitchen(&aurelien, &kitchen_id)
+        .unwrap()
+        .1;
+    app.core.accept_kitchen_invite(&marie, &invite).unwrap();
+
+    let hers = cook_it(&app, &marie_key, &soup, json!({ "rating": "again" }));
+
+    // Marie leaves Aurélien's Kitchen. Leaving is not a deletion: the recipe
+    // stays his, and her Attempts follow her.
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&marie_key),
+        &json!({ "kitchen_id": kitchen_id, "person_id": marie }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+
+    let (status, listed) = app.post_op("list_attempts", Some(&marie_key), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let entries = listed["result"]["attempts"].as_array().expect("attempts");
+    assert_eq!(entries.len(), 1, "the cooking still happened: {listed}");
+    assert_eq!(entries[0]["id"], json!(hers));
+    assert_eq!(
+        entries[0]["recipe"]["title"],
+        json!("Miso Soup"),
+        "the name it was known by, remembered: {listed}"
+    );
+    assert_eq!(
+        entries[0]["recipe"]["branch_id"],
+        json!(null),
+        "text is better than a pointer that opens nothing (#52's rule)"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_follows_a_rename_while_the_recipe_is_still_on_the_shelf() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, &kitchen_id, "Soupe");
+    cook_it(&app, &key, &soup, json!({}));
+
+    backdate_branch_head(&app, &soup);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": soup,
+            "title": "Soupe miso de Marcella",
+            "steps": [{ "kind": "step", "text": "Cuire." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    let (_, listed) = app.post_op("list_attempts", Some(&key), "{}");
+    assert_eq!(
+        listed["result"]["attempts"][0]["recipe"]["title"],
+        json!("Soupe miso de Marcella"),
+        "a recipe still on the shelf is named as the shelf names it now: {listed}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_attempt_is_corrected_and_put_away_from_the_diary() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
+
+    let kept = cook_it(&app, &key, &soup, json!({ "rating": "no" }));
+    let put_away = cook_it(&app, &key, &curry, json!({}));
+
+    // Freely editable, unlike the recipe it was cooked from (ADR 0005).
+    let (status, edited) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": kept, "rating": "again", "note": "Mieux au dashi." }).to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+
+    let (status, deleted) = app.post_op(
+        "delete_attempt",
+        Some(&key),
+        &json!({ "attempt_id": put_away }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    let (_, listed) = app.post_op("list_attempts", Some(&key), "{}");
+    let entries = listed["result"]["attempts"].as_array().expect("attempts");
+    assert_eq!(entries.len(), 1, "{listed}");
+    assert_eq!(entries[0]["id"], json!(kept));
+    assert_eq!(entries[0]["rating"], json!("again"));
+    assert_eq!(entries[0]["note"], json!("Mieux au dashi."));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_needs_a_credential_naming_a_person_and_takes_no_input() {
+    let app = support::spawn_app();
+    let (_person, key, _kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    assert_eq!(app.post_op("list_attempts", None, "{}").0, 401);
+
+    let (status, refused) = app.post_op(
+        "list_attempts",
+        Some(&key),
+        &json!({ "person_id": "p_somebody_else" }).to_string(),
+    );
+    assert_eq!(
+        status, 400,
+        "a diary is the caller's own — there is no whose to ask: {refused}"
+    );
+}

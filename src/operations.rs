@@ -991,6 +991,17 @@ pub fn get_current_attempt(
     core.get_current_attempt(&caller.person_id, lineage_id)
 }
 
+/// The cooking diary (#60). It takes no input because there is no whose to
+/// ask: a diary is the caller's own, and a `person_id` here would be a
+/// permission question wearing a parameter's clothes.
+pub fn list_attempts(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    if !input.as_object().is_some_and(|map| map.is_empty()) {
+        return Err(OpError::bad_request("list_attempts takes no input"));
+    }
+    let caller = caller_of(invocation)?;
+    core.list_attempts(&caller.person_id)
+}
+
 pub fn list_foods(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     if !input.as_object().is_some_and(|map| map.is_empty()) {
         return Err(OpError::bad_request("list_foods takes no input"));

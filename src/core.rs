@@ -3639,6 +3639,75 @@ impl Core {
         })
     }
 
+    /// **The cooking diary** (#60): every Attempt this Person has made, newest
+    /// first, whatever recipe it was against.
+    ///
+    /// Sorted by date rather than by recipe, which is the whole of why this
+    /// exists as a screen: *what did I cook that week* is a question the shelf
+    /// cannot answer however it is filtered. Cookings nobody ever finished are
+    /// in it beside the finished ones, because starting is what makes a
+    /// cooking real (ADR 0010).
+    ///
+    /// Scoped to the caller's own Attempts and so needing no membership check
+    /// of its own — whoever holds one already passed it when they started, the
+    /// same reasoning `get_current_attempt` runs on. The recipe named beside
+    /// each entry is a second question, and that one is asked once per
+    /// *Lineage* rather than once per Attempt: cooking the katsu curry twenty
+    /// times is twenty lines of one diary and one recipe to look up.
+    ///
+    /// Unbounded on purpose. A cap here would silently stop answering the
+    /// question the screen exists for — "and before that?" — and this is a
+    /// personal library: the real one is 86 recipes, and a lifetime of cooking
+    /// them is a few thousand rows.
+    pub fn list_attempts(&self, person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let reading_language = reading_language_of(conn, person_id)?;
+            let mut statement = conn
+                .prepare(&format!(
+                    "SELECT {ATTEMPT_COLUMNS} FROM attempts WHERE person_id = ?1 \
+                     ORDER BY created_at DESC, id DESC"
+                ))
+                .map_err(|e| OpError::internal(format!("cannot read the diary: {e}")))?;
+            let mut entries: Vec<Value> = statement
+                .query_map(params![person_id], attempt_row)
+                .map_err(|e| OpError::internal(format!("cannot read the diary: {e}")))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read the diary: {e}")))?;
+
+            // Keyed by Lineage *and* the Version cooked, because those are the
+            // two things the answer turns on: a Lineage that has left the shelf
+            // is titled from the Version, and two Attempts on one Lineage can
+            // be pinned to different Versions.
+            let mut looked_up: HashMap<(String, String), Value> = HashMap::new();
+            for entry in &mut entries {
+                let lineage_id = entry["lineage_id"]
+                    .as_str()
+                    .expect("lineage_id is always a string")
+                    .to_string();
+                let version_id = entry["version_id"]
+                    .as_str()
+                    .expect("version_id is always a string")
+                    .to_string();
+                let recipe = match looked_up.get(&(lineage_id.clone(), version_id.clone())) {
+                    Some(known) => known.clone(),
+                    None => {
+                        let found = diary_recipe(
+                            conn,
+                            person_id,
+                            &reading_language,
+                            &lineage_id,
+                            &version_id,
+                        )?;
+                        looked_up.insert((lineage_id, version_id), found.clone());
+                        found
+                    }
+                };
+                entry["recipe"] = recipe;
+            }
+            Ok(json!({ "attempts": entries }))
+        })
+    }
+
     /// Every Food this instance knows, each shown in the reader's Reading
     /// Language and falling back to whatever name it does have (#47).
     pub fn list_foods(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
@@ -4990,6 +5059,65 @@ fn attempt_by_id(conn: &Connection, id: &str) -> Result<Value, OpError> {
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
     .ok_or_else(|| OpError::not_found("no such Attempt"))
+}
+
+/// The recipe one diary entry was cooked from: which Branch it opens, and
+/// what to call it (#60).
+///
+/// Two answers, and which one is given turns on a single question — is this
+/// Lineage still on the caller's shelf?
+///
+/// - **It is.** The entry opens the Branch the shelf's own card would open —
+///   the one written in the reader's Language, else the oldest — and is
+///   titled as that Branch is titled *now*. A recipe you renamed on Tuesday
+///   is the recipe you renamed on Tuesday, on every screen that shows it.
+/// - **It is not** — the caller left the Kitchen holding it, and leaving is
+///   not a deletion (#32's story 20). Then there is no Branch to open, and the
+///   title comes off the Version actually cooked: the name it was known by.
+///   This is the rule #52 already settled for a Related Recipe whose other end
+///   has left the shelf — text is better than a pointer that opens nothing.
+fn diary_recipe(
+    conn: &Connection,
+    person_id: &str,
+    reading_language: &str,
+    lineage_id: &str,
+    version_id: &str,
+) -> Result<Value, OpError> {
+    let on_the_shelf: Option<(String, Option<String>)> = conn
+        .query_row(
+            "SELECT branches.id, json_extract(versions.content, '$.title') \
+               FROM branches \
+               JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
+               JOIN versions ON versions.id = branches.head_version_id \
+              WHERE kitchen_members.person_id = ?1 AND branches.lineage_id = ?2 \
+              ORDER BY (branches.language = ?3) DESC, branches.created_at ASC, branches.id ASC \
+              LIMIT 1",
+            params![person_id, lineage_id, reading_language],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the cooked Recipe: {e}")))?;
+
+    // `title` is an `Option` only because `json_extract` is: every Version
+    // carries a non-empty title by construction (`parse_recipe_content`
+    // refuses one without), so the empty string below is the shape of a
+    // hand-edited database rather than anything a Door can produce.
+    let (branch_id, title) = match on_the_shelf {
+        Some((branch_id, title)) => (Some(branch_id), title),
+        None => {
+            let remembered: Option<String> = conn
+                .query_row(
+                    "SELECT json_extract(content, '$.title') FROM versions WHERE id = ?1",
+                    params![version_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read the Version cooked: {e}")))?
+                .flatten();
+            (None, remembered)
+        }
+    };
+    Ok(json!({ "branch_id": branch_id, "title": title.unwrap_or_default() }))
 }
 
 /// The one Attempt a Person may have In Progress on a Lineage at a time

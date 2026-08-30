@@ -1140,6 +1140,32 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_current_attempt,
         },
         Operation {
+            name: "list_attempts",
+            summary: "The cooking diary: every Attempt the caller has made, \
+                      newest first, across every recipe — sorted by date \
+                      rather than by recipe, which is what makes *what did \
+                      I cook that week* answerable. Unfinished and In \
+                      Progress cookings are in it too, because starting is \
+                      what makes a cooking real. Each entry names the \
+                      recipe it was cooked from, and still names it after \
+                      that recipe has left the caller's shelf.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "attempts": { "type": "array", "items": diary_entry_schema() },
+                },
+                "required": ["attempts"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_attempts,
+        },
+        Operation {
             name: "list_foods",
             summary: "List every Food this instance knows, each shown in the \
                       reader's Reading Language where it has a name there.",
@@ -2512,6 +2538,44 @@ fn rating_schema() -> Value {
 fn attempt_or_null_schema() -> Value {
     let mut schema = attempt_schema();
     schema["type"] = json!(["object", "null"]);
+    schema
+}
+
+/// One line of the cooking diary (#60): an ordinary Attempt, plus the recipe
+/// it was cooked from.
+///
+/// Grown from `attempt_schema` rather than written out beside it, so an
+/// Attempt has exactly one declared shape wherever it is served and a field
+/// added there cannot go missing here.
+///
+/// **No mark says whether a cooking is finished, In Progress or walked away
+/// from**, because `finished_at` and `resumable` already say it between them
+/// and a third field could only ever disagree with them: not finished and
+/// still offered is In Progress, not finished and no longer offered is a
+/// cooking somebody walked away from — which happened all the same (ADR 0010).
+fn diary_entry_schema() -> Value {
+    let mut schema = attempt_schema();
+    schema["properties"]["recipe"] = json!({
+        "type": "object",
+        "properties": {
+            // The Branch this entry opens, chosen the way the shelf chooses
+            // which Branch a card opens. **Null** where the recipe has left
+            // the caller's shelf — they left the Kitchen holding it, say. The
+            // Attempt is theirs and stays; the pointer is the part that goes
+            // (the rule #52 settled for Related Recipes).
+            "branch_id": { "type": ["string", "null"] },
+            // The name the recipe goes by now where it is still on the shelf,
+            // and the name it was known by — off the Version actually cooked —
+            // where it is not. Text is better than a broken pointer.
+            "title": { "type": "string" },
+        },
+        "required": ["branch_id", "title"],
+        "additionalProperties": false,
+    });
+    schema["required"]
+        .as_array_mut()
+        .expect("attempt_schema declares its required fields as an array")
+        .push(json!("recipe"));
     schema
 }
 

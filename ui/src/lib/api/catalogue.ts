@@ -1279,6 +1279,35 @@ export type GetCurrentAttemptOutput = {
 	} | null;
 };
 
+/** The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */
+export type ListAttemptsInput = Record<string, never>;
+/** What list_attempts answers. */
+export type ListAttemptsOutput = {
+	attempts: {
+		cooking_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		created_at: string;
+		current_step_index: number;
+		finished_at: string | null;
+		id: string;
+		last_action_at: string;
+		lineage_id: string;
+		note: string | null;
+		person_id: string;
+		photographs: string[];
+		rating: "again" | "tweak" | "no" | null;
+		recipe: {
+			branch_id: string | null;
+			title: string;
+		};
+		resumable: boolean;
+		ticked_ingredients: number[];
+		version_id: string;
+	}[];
+};
+
 /** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
 export type ListFoodsInput = Record<string, never>;
 /** What list_foods answers. */
@@ -1814,6 +1843,12 @@ export interface Operations {
 	get_current_attempt: {
 		input: GetCurrentAttemptInput;
 		output: GetCurrentAttemptOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	list_attempts: {
+		input: ListAttemptsInput;
+		output: ListAttemptsOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -7959,6 +7994,152 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "list_attempts",
+		"summary": "The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempts": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"cooking_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"current_step_index": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"finished_at": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"id": {
+								"type": "string"
+							},
+							"last_action_at": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"person_id": {
+								"type": "string"
+							},
+							"photographs": {
+								"items": {
+									"type": "string"
+								},
+								"type": "array"
+							},
+							"rating": {
+								"enum": [
+									"again",
+									"tweak",
+									"no",
+									null
+								],
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"recipe": {
+								"additionalProperties": false,
+								"properties": {
+									"branch_id": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"branch_id",
+									"title"
+								],
+								"type": "object"
+							},
+							"resumable": {
+								"type": "boolean"
+							},
+							"ticked_ingredients": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"lineage_id",
+							"person_id",
+							"version_id",
+							"current_step_index",
+							"ticked_ingredients",
+							"cooking_yield",
+							"note",
+							"rating",
+							"finished_at",
+							"resumable",
+							"created_at",
+							"last_action_at",
+							"photographs",
+							"recipe"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"attempts"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "list_foods",
 		"summary": "List every Food this instance knows, each shown in the reader's Reading Language where it has a name there.",
 		"permission": "person",
@@ -9066,6 +9247,7 @@ export const METHOD_NAMES = {
 	delete_attempt: 'deleteAttempt',
 	promote_attempt_photograph: 'promoteAttemptPhotograph',
 	get_current_attempt: 'getCurrentAttempt',
+	list_attempts: 'listAttempts',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
 	set_food_name: 'setFoodName',
@@ -9182,6 +9364,8 @@ export interface KamosuClient {
 	promoteAttemptPhotograph(input: PromoteAttemptPhotographInput): Promise<Answer<'promote_attempt_photograph'>>;
 	/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;
+	/** The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */
+	listAttempts(input?: ListAttemptsInput): Promise<Answer<'list_attempts'>>;
 	/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
 	/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */

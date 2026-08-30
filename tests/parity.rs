@@ -138,6 +138,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "finish_attempt"
             | "edit_attempt"
             | "delete_attempt"
+            | "list_attempts"
             | "get_current_attempt"
             | "promote_attempt_photograph" => ("{}", 401),
             _ => ("{}", 200),
@@ -265,6 +266,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "finish_attempt"
                 | "edit_attempt"
                 | "delete_attempt"
+                | "list_attempts"
                 | "get_current_attempt"
                 | "promote_attempt_photograph"
         ) {

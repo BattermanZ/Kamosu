@@ -792,6 +792,9 @@
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
+  .first\:mt-0:first-child {
+    margin-top: var(--spacing-0);
+  }
   .first\:border-l-0:first-child {
     border-left-style: var(--tw-border-style);
     border-left-width: 0px;
