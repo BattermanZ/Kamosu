@@ -749,6 +749,21 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX recipe_opens_by_person ON recipe_opens(person_id, opened_at DESC);
         "#,
     },
+    Migration {
+        version: 23,
+        description: "which Branches hold a Version: the lookup a collapse asks (#82)",
+        sql: r#"
+        -- Every save now asks whether another Branch of the same Lineage names
+        -- the Version it is about to replace, because collapsing one that a
+        -- Copy is holding severs the two Branches for good (#82). The Lineage
+        -- is reached by joining `branches`, so the row this index finds is what
+        -- the join starts from; without it the question is a scan of every
+        -- Version of every recipe on the instance, on the save path. The
+        -- sibling index on `translates_version_id` answers the other half of
+        -- the same condition.
+        CREATE INDEX branch_versions_by_version ON branch_versions(version_id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

@@ -634,9 +634,27 @@ fn person_with_kitchen(app: &support::TestApp, name: &str) -> (String, String, S
     (person, key, kitchen_id)
 }
 
+/// A Person's Home Kitchen — the one `create_person` seats them in. Saving a
+/// recipe into a *second* Kitchen the same Person cooks in is what makes a
+/// Copy, so every test that needs two Branches of one Lineage needs this one
+/// too.
+fn home_kitchen_of(app: &support::TestApp, person_id: &str) -> String {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT home_kitchen_id FROM people WHERE id = ?1",
+                rusqlite::params![person_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap()
+}
+
 /// Push a Branch's current head further into the past, so the next save
 /// falls outside the collapse window instead of being read as a rapid
-/// re-save. The one place these tests reach past Operations into the Core's
+/// re-save. The one place these tests *write* past Operations into the Core's
 /// own store — there is no clock to fast-forward otherwise.
 fn backdate_branch_head(app: &support::TestApp, branch_id: &str) {
     app.core
@@ -1042,18 +1060,7 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
         .mint_access_key(&copier, "browser", false)
         .unwrap()
         .secret;
-    let copier_kitchen: String = app
-        .core
-        .db()
-        .with_conn(|conn| {
-            conn.query_row(
-                "SELECT home_kitchen_id FROM people WHERE id = ?1",
-                rusqlite::params![copier],
-                |row| row.get(0),
-            )
-            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
-        })
-        .unwrap();
+    let copier_kitchen = home_kitchen_of(&app, &copier);
 
     let (_, created) = app.post_op(
         "create_recipe",
@@ -5320,18 +5327,7 @@ fn two_branches_of_one_deep_lineage(
     app: &support::TestApp,
 ) -> (String, String, String, String, String, String) {
     let (person, key, kitchen_a) = person_with_kitchen(app, "Aurélien");
-    let kitchen_b: String = app
-        .core
-        .db()
-        .with_conn(|conn| {
-            conn.query_row(
-                "SELECT home_kitchen_id FROM people WHERE id = ?1",
-                rusqlite::params![person],
-                |row| row.get(0),
-            )
-            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
-        })
-        .unwrap();
+    let kitchen_b = home_kitchen_of(app, &person);
 
     let (_, created) = app.post_op(
         "create_recipe",
@@ -5562,6 +5558,180 @@ async fn branch_point_is_computed_by_walking_both_chains_across_a_deep_chain() {
     assert_eq!(reversed["result"]["version_id"], json!(fork_version));
 }
 
+/// **Issue #82.** A collapse rewrites the row at the head sequence in place,
+/// which is right for a rapid re-save nobody else has seen and wrong the
+/// moment somebody has copied you: a Copy carries the source's chain across
+/// verbatim, so the Copy is holding its own row naming that very Version.
+/// Rewriting it left the two chains with nothing in common — permanently,
+/// silently, and with `get_thread` still answering, which was the worst of it.
+///
+/// Deliberately no `backdate_branch_head` anywhere in this test: every save
+/// here lands *inside* the collapse window, because the window is the whole
+/// condition under test.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rapid_re_save_after_a_copy_appends_instead_of_severing_the_two_branches() {
+    let app = support::spawn_app();
+    let (person, key, kitchen_a) = person_with_kitchen(&app, "Aurélien");
+    let kitchen_b = home_kitchen_of(&app, &person);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_a, "title": "Maison Batterman" }).to_string(),
+    );
+    let branch_t = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let shared_version = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A friend takes a copy: saving into a Kitchen that did not write this
+    // Branch starts one of its own, carrying the whole chain behind it.
+    let (_, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_t, "kitchen_id": kitchen_b, "title": "Chez Marc" })
+            .to_string(),
+    );
+    assert_eq!(copied["result"]["copied"], json!(true));
+    let branch_m = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // The pair is sound before the tweak — this is what the tweak used to
+    // destroy, so it has to be proved rather than assumed.
+    let (status, point) = app.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": branch_t, "branch_b_id": branch_m }).to_string(),
+    );
+    assert_eq!(status, 200, "{point}");
+    assert_eq!(point["result"]["version_id"], json!(shared_version));
+
+    // You tweak yours a minute later. Same Hand, inside the window — but
+    // branch_m's chain names this Version, so it has stopped being the
+    // Version being shaped and become a shared fact.
+    let (_, tweaked) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_t, "title": "Maison Batterman, sans beurre" }).to_string(),
+    );
+    assert_eq!(
+        tweaked["result"]["collapsed"],
+        json!(false),
+        "somebody else is holding this Version, so the save appends: {tweaked}"
+    );
+    assert_eq!(
+        tweaked["result"]["parent_version_id"],
+        json!(shared_version)
+    );
+    assert_eq!(tweaked["result"]["sequence"], json!(2));
+
+    // Still related, and still naming the Version the two Branches actually
+    // share, in both directions.
+    let (status, point) = app.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": branch_t, "branch_b_id": branch_m }).to_string(),
+    );
+    assert_eq!(status, 200, "{point}");
+    assert_eq!(point["result"]["version_id"], json!(shared_version));
+
+    let (status, divergence) = app.post_op(
+        "divergence",
+        Some(&key),
+        &json!({ "branch_id": branch_t, "other_branch_id": branch_m }).to_string(),
+    );
+    assert_eq!(status, 200, "{divergence}");
+    assert_eq!(
+        divergence["result"]["theirs"]["content"]["title"],
+        json!("Chez Marc")
+    );
+
+    // One fork, not two unrelated histories: both chains still hold the
+    // Version they parted at, which is the whole of what the Thread draws
+    // the fork from.
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_t }).to_string(),
+    );
+    let versions = thread["result"]["versions"].as_array().unwrap();
+    let chain_of = |branch: &str| -> Vec<&str> {
+        versions
+            .iter()
+            .filter(|v| v["branch_id"] == json!(branch))
+            .map(|v| v["version_id"].as_str().unwrap())
+            .collect()
+    };
+    assert!(
+        chain_of(&branch_t).contains(&shared_version.as_str()),
+        "the source still holds the Version it was copied at: {thread}"
+    );
+    assert!(
+        chain_of(&branch_m).contains(&shared_version.as_str()),
+        "and so does the Copy — that shared row is the fork: {thread}"
+    );
+
+    // The window itself is untouched. branch_t's head is now a Version
+    // nobody else holds, so the very next save — same Hand, same minute —
+    // collapses exactly as it always did.
+    let (_, again) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_t, "title": "Maison Batterman, sans beurre ni crème" })
+            .to_string(),
+    );
+    assert_eq!(
+        again["result"]["collapsed"],
+        json!(true),
+        "nobody else names this Version, so the rapid re-save still collapses: {again}"
+    );
+    assert_eq!(again["result"]["sequence"], json!(2));
+}
+
+/// The other half of #82's condition, and the reason it is scoped to the
+/// Lineage: a Version is content-addressed and global, so two people who each
+/// start a recipe with the same title hold the very same Version in two
+/// unrelated Lineages. Neither is holding the other's history, and neither
+/// may close the other's collapse window.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_unrelated_recipes_that_happen_to_match_do_not_close_each_others_window() {
+    let app = support::spawn_app();
+    let (_aurelien, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+
+    let (_, mine) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen, "title": "Soupe" }).to_string(),
+    );
+    let (_, theirs) = app.post_op(
+        "create_recipe",
+        Some(&marc_key),
+        &json!({ "kitchen_id": marc_kitchen, "title": "Soupe" }).to_string(),
+    );
+    assert_eq!(
+        mine["result"]["head_version_id"], theirs["result"]["head_version_id"],
+        "same content, same fingerprint — convergence is about content, never authorship"
+    );
+    assert_ne!(
+        mine["result"]["lineage_id"], theirs["result"]["lineage_id"],
+        "two recipes all the same, and nothing relates them"
+    );
+
+    let branch_id = mine["result"]["branch_id"].as_str().unwrap().to_string();
+    let (_, edited) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Soupe de poisson" }).to_string(),
+    );
+    assert_eq!(
+        edited["result"]["collapsed"],
+        json!(true),
+        "Marc's unrelated Soupe is not holding Aurélien's history: {edited}"
+    );
+    assert_eq!(edited["result"]["sequence"], json!(1));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_damaged_chain_is_reported_as_damage_rather_than_guessed() {
     let app = support::spawn_app();
@@ -5672,18 +5842,7 @@ async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_han
         .mint_access_key(&person, "importer", false)
         .unwrap()
         .secret;
-    let home_kitchen_id = app
-        .core
-        .db()
-        .with_conn(|conn| {
-            conn.query_row(
-                "SELECT home_kitchen_id FROM people WHERE id = ?1",
-                rusqlite::params![person],
-                |row| row.get::<_, String>(0),
-            )
-            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
-        })
-        .expect("home kitchen");
+    let home_kitchen_id = home_kitchen_of(&app, &person);
 
     let report = import_and_wait(
         &app,

@@ -1907,9 +1907,28 @@ impl Core {
             // closes the moment somebody translates you: the save appends, and
             // the Translation goes honestly one Version behind instead of
             // silently losing its footing.
+            //
+            // A Copy closes it for the same reason and one degree more
+            // literally (issue #82): a Copy holds the source's chain verbatim,
+            // so it names this Version in a row of its own. Rewrite the
+            // source's row and the two chains never intersect again — the
+            // Branch Point, the Divergence and the fork the Thread draws are
+            // all lost at once, silently and permanently. The window exists so
+            // that a person still shaping a save does not litter their own
+            // history, which is right; the moment another Branch's chain
+            // references that Version it has stopped being the Version being
+            // shaped and become a shared fact. Appending costs one extra
+            // Version, which is honest, because somebody else really is
+            // holding the old one.
             let collapse = within_window
                 && head_hand_id == caller.person_id
-                && !version_is_translated(conn, &lineage_id, branch_id, &head_version_id)?;
+                && !version_is_translated(conn, &lineage_id, branch_id, &head_version_id)?
+                && !version_is_held_by_another_branch(
+                    conn,
+                    &lineage_id,
+                    branch_id,
+                    &head_version_id,
+                )?;
             if collapse {
                 conn.execute(
                     "UPDATE branch_versions SET version_id = ?1, hand_id = ?2, name = ?3, \
@@ -6251,6 +6270,50 @@ fn version_is_translated(
         |row| row.get(0),
     )
     .map_err(|e| OpError::internal(format!("cannot look for Translations of this Version: {e}")))
+}
+
+/// Whether another Branch of this Lineage names this exact Version in its own
+/// chain — the other question a collapse has to ask before replacing it
+/// (issue #82).
+///
+/// A Copy carries the source's chain across verbatim, so from that moment the
+/// Copy holds a row of its own saying *this Version was my sequence n*.
+/// Rewriting the source's row in place would leave that Version named nowhere
+/// on the source, the two chains would stop intersecting, and the Branch Point
+/// walk would fall off the end — permanently, and without a symptom, since
+/// each chain stays internally contiguous and `get_thread` goes on answering
+/// with two histories that appear never to have shared anything.
+///
+/// Scoped to the Lineage, exactly as [`version_is_translated`] is, and the
+/// scoping is load-bearing rather than tidy. A Version is content-addressed
+/// and **global**: two people who each start a recipe called *Soupe* mint the
+/// very same `version_id` in two unrelated Lineages. Asked without the scope,
+/// this would answer yes for that pair and quietly close the collapse window
+/// on both of them, with no Copy anywhere — a rapid re-save littering a
+/// history because somebody else, elsewhere, chose the same title. Every
+/// cross-Branch reference that the Branch Point actually walks is within one
+/// Lineage: a Copy sets the source's `lineage_id` and so does a Translation.
+fn version_is_held_by_another_branch(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    version_id: &str,
+) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM branch_versions \
+              JOIN branches ON branches.id = branch_versions.branch_id \
+             WHERE branch_versions.version_id = ?1 \
+               AND branches.lineage_id = ?2 \
+               AND branch_versions.branch_id <> ?3 )",
+        params![version_id, lineage_id, branch_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| {
+        OpError::internal(format!(
+            "cannot look for other Branches holding this Version: {e}"
+        ))
+    })
 }
 
 /// Whether any other Branch of this Lineage renders a Version of this one.
