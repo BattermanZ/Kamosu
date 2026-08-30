@@ -13,6 +13,7 @@ import { screen, fireEvent, within } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
+import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
 
 /** Every screen visit asks for Sessions and Access Keys beside instance_status
  * (ADR 0031). Tests unconcerned with Access answer both as an anonymous
@@ -21,7 +22,30 @@ const anonymous: Answers = {
 	list_sessions: { refuse: 'unauthorized' },
 	list_access_keys: { refuse: 'unauthorized' },
 	get_reading_preferences: { refuse: 'unauthorized' },
+	meaning_search_status: { refuse: 'unauthorized' },
 };
+
+/** Meaning Search's status, with everything the Catalogue requires present. */
+const meaningStatus = (
+	over: Partial<MeaningSearchStatusOutput> = {},
+): MeaningSearchStatusOutput => ({
+	state: 'unasked',
+	on: false,
+	offer: false,
+	may_change: false,
+	model: 'EmbeddingGemma-300M (4-bit)',
+	terms_url: 'https://ai.google.dev/gemma/terms',
+	prohibited_use_policy_url: 'https://ai.google.dev/gemma/prohibited_use_policy',
+	terms_version: '2026-04-01',
+	accepted_by: null,
+	accepted_via_access_key: null,
+	accepted_at: null,
+	declined_at: null,
+	model_present: false,
+	indexed_at: null,
+	recipes_not_yet_indexed: 0,
+	...over,
+});
 
 /**
  * A signed-in Person who has never touched the setting: reading in English, in
@@ -30,6 +54,11 @@ const anonymous: Answers = {
  */
 const readsInAmerican: Answers = {
 	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
+	// Meaning Search as most instances have it: nobody has been asked, so this
+	// screen shows nothing about it at all. It is not where the feature is
+	// discovered — that is inside *nothing found* (ADR 0029) — so its absence
+	// here is the ordinary case rather than an omission.
+	meaning_search_status: meaningStatus(),
 };
 
 describe('the settings screen', () => {

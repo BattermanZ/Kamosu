@@ -614,6 +614,109 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE attempts ADD COLUMN photographs TEXT NOT NULL DEFAULT '[]';
         "#,
     },
+    Migration {
+        version: 21,
+        description: "Meaning Search: the acceptance, and the index it earns (#63, ADR 0029)",
+        sql: r#"
+        -- Meaning Search's one row. Kamosu ships no model (ADR 0029), so every
+        -- instance begins here, in 'unasked', searching by words and complete.
+        --
+        --   unasked  — nobody has been asked yet, so the offer is live.
+        --   declined — an Operator said no. The offer never appears again.
+        --   accepted — the terms are accepted; the weights may not be here yet.
+        --   on       — accepted, downloaded, indexed, and answering searches.
+        --
+        -- The Hand that accepted is kept, and how it arrived: by login or by
+        -- Access Key. ADR 0029 records who accepted and deliberately does not
+        -- pretend to check who they were — the same house rule ADR 0015 states
+        -- about every Hand in Kamosu. An agent holding a Key its Person minted
+        -- may accept, because minting the Key was the act of authorising it.
+        CREATE TABLE meaning_search (
+            id                      INTEGER PRIMARY KEY CHECK (id = 1),
+            state                   TEXT NOT NULL
+                                    CHECK (state IN ('unasked','declined','accepted','on')),
+            accepted_by             TEXT REFERENCES people(id),
+            accepted_via_access_key INTEGER,
+            accepted_at             TEXT,
+            -- Which issue of the terms, and which weights, were agreed to.
+            -- Kept so that what somebody said yes to can always be told apart
+            -- from what this build asks today — which is the fact a later
+            -- revision of Gemma's terms would have to be answered against.
+            terms_version           TEXT,
+            terms_url               TEXT,
+            model_repository        TEXT,
+            model_revision          TEXT,
+            -- Who declined, and when. A record rather than a switch: what
+            -- turns the offer off is the state, and this is the answer to
+            -- *who decided that* — the same question `accepted_by` answers on
+            -- the other side of it.
+            declined_by             TEXT REFERENCES people(id),
+            declined_at             TEXT,
+            -- What the vectors below were produced by, and when. Written for
+            -- somebody reading this database directly: the stamp that actually
+            -- governs is the one on each row, so nothing reads this back.
+            indexed_with            TEXT,
+            indexed_at              TEXT
+        );
+        INSERT INTO meaning_search (id, state) VALUES (1, 'unasked');
+
+        -- The index. Every row here is **derived** from the recipes and can be
+        -- rebuilt at any time, which is the whole of why turning Meaning Search
+        -- off discards nothing (ADR 0003, ADR 0009).
+        --
+        -- Two roles, and the difference is the promise ADR 0027 makes:
+        --   'block' — what ranking sees. The recipe's own blocks, cut at its
+        --             own Sections, because cutting per line scatters the
+        --             signal across many weak vectors.
+        --   'line'  — what a matched block quotes. These never enter a ranking;
+        --             they only choose which line to show among lines already
+        --             known to be inside a relevant recipe. That separation is
+        --             why display stays precise however coarsely a recipe is
+        --             cut for retrieval.
+        --
+        -- `person_id` is set only on an Attempt's rows: the index reaches each
+        -- Person's own Attempts and nobody else's (ADR 0027). Ownership sits on
+        -- the row rather than being asked at query time, so there is no
+        -- permission check inside a search and no partial rebuild when somebody
+        -- changes their mind.
+        CREATE TABLE meaning_vectors (
+            id          TEXT PRIMARY KEY,
+            role        TEXT NOT NULL CHECK (role IN ('block','line')),
+            block_id    TEXT REFERENCES meaning_vectors(id),
+            lineage_id  TEXT NOT NULL,
+            -- Set on a recipe's rows; null on an Attempt's.
+            branch_id   TEXT,
+            version_id  TEXT,
+            -- Set on an Attempt's rows; null on a recipe's.
+            attempt_id  TEXT,
+            person_id   TEXT,
+            -- What produced this vector: which weights, at which revision, at
+            -- which width. A row stamped with anything else belongs to a
+            -- different embedding space, and comparing it against today's
+            -- would answer nonsense while looking perfectly healthy — so a
+            -- model change prunes rather than mixes.
+            embedding_space TEXT NOT NULL,
+            section     TEXT,
+            -- Exactly the text this vector was made from — a block's body on
+            -- a 'block' row, one line on a 'line' row. Kept rather than
+            -- recomputed because it is what tells a stale row from a current
+            -- one: an Attempt's note can be corrected without the Attempt
+            -- getting a new id, and without this the index would go on
+            -- answering with the sentence somebody rewrote.
+            embedded_text TEXT NOT NULL,
+            -- On a 'line' row: where this line sits, in the same vocabulary a
+            -- word match answers in. A reader cannot tell a meaning match from
+            -- a word match by looking, and should not have to.
+            where_      TEXT,
+            step_number INTEGER,
+            vector      BLOB NOT NULL
+        );
+        CREATE INDEX meaning_vectors_blocks ON meaning_vectors(role, lineage_id);
+        CREATE INDEX meaning_vectors_lines ON meaning_vectors(block_id);
+        CREATE INDEX meaning_vectors_by_branch ON meaning_vectors(branch_id);
+        CREATE INDEX meaning_vectors_by_attempt ON meaning_vectors(attempt_id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

@@ -9,7 +9,22 @@ axum = "0.8.9"
 base64 = "0.23.1"
 caseless = "0.2.2"
 clap = { version = "4.6.6", features = ["derive"] }
+# Meaning Search's engine: FastEmbed loads EmbeddingGemma through ONNX Runtime.
+# `default-features = false` is load-bearing here for the same reason it is on
+# `image` above — the defaults are native-TLS everywhere and an image-model
+# stack Kamosu never asks for. Both TLS paths are pointed at rustls, which
+# Kamosu already speaks through `reqwest`, so no OpenSSL enters the image.
+#
+# The weights themselves are NOT a dependency: ADR 0029 ships no model, and this
+# crate only knows how to load one an Operator chose to download.
+fastembed = { version = "6.0.2", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"] }
 hex = "0.4.3"
+# Held at the major FastEmbed itself depends on, deliberately — this is not a
+# version left behind. Kamosu downloads the model at a **pinned commit**, which
+# FastEmbed exposes no option for, and then points FastEmbed's ordinary `main`
+# lookup at that snapshot. Both halves write the same Hugging Face cache, so
+# they must agree about its layout; a newer major here would be two caches.
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
 # Every format `image` can decode, minus two — and `default-features = false` is
 # the load-bearing part. Without it the listed features are added to the default
 # set rather than replacing it, which is how this once compiled all fifteen

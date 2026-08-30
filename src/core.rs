@@ -156,6 +156,10 @@ pub struct Invocation {
 pub struct Core {
     db: Arc<Db>,
     lanes: jobs::Lanes,
+    /// Meaning Search, which on most instances is an empty slot and stays one
+    /// (ADR 0029). Nothing branches on that outside the two places that must:
+    /// the search itself, and the Operations that turn it on.
+    meaning: Arc<crate::meaning::MeaningSearch>,
 }
 
 impl Core {
@@ -165,11 +169,24 @@ impl Core {
     /// keeping for a week is not worth an environment variable.
     const SWEEP_EVERY: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
+    /// How often the index is brought level with the library.
+    ///
+    /// A recipe edited a minute ago must still be findable by meaning, and
+    /// re-embedding it inside the save would put two seconds of model inference
+    /// inside an Immediate Operation. So the index catches up on its own, on a
+    /// short tick whose cost when nothing changed is one query that finds
+    /// nothing. `build_meaning_index` is the same work asked for by name, for
+    /// somebody who does not want to wait even this long.
+    const REINDEX_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
+
     pub fn open(db: Arc<Db>) -> Core {
         // Terminal commands open a Core without Job workers; they never ask for
         // slow work. A Job asked for here would be refused as busy.
         let (lanes, _) = jobs::lanes();
-        Core { db, lanes }
+        let meaning = Arc::new(crate::meaning::MeaningSearch::new(
+            db.data_dir().to_path_buf(),
+        ));
+        Core { db, lanes, meaning }
     }
 
     /// Open the database *and* start carrying Jobs: both Doors share this entry.
@@ -178,11 +195,20 @@ impl Core {
     pub fn start(db: Arc<Db>) -> Arc<Core> {
         let (lanes, receivers) = jobs::lanes();
         jobs::recover_at_startup(&db, &lanes);
-        let core = Core { db, lanes };
+        let meaning = Arc::new(crate::meaning::MeaningSearch::new(
+            db.data_dir().to_path_buf(),
+        ));
+        let core = Core { db, lanes, meaning };
         let core = Arc::new(core);
         jobs::spawn_workers(core.clone(), receivers);
         spawn_orphan_sweep(core.clone());
+        spawn_meaning_search(core.clone());
         core
+    }
+
+    /// Meaning Search as this instance holds it.
+    pub fn meaning(&self) -> Arc<crate::meaning::MeaningSearch> {
+        self.meaning.clone()
     }
 
     /// The database, shared. An Arc clone keeps Job progress reporting able to
@@ -2579,6 +2605,235 @@ impl Core {
         Ok(copy)
     }
 
+    // ── Meaning Search ───────────────────────────────────────────────────────
+    //
+    // Optional, off by default, and off on most instances forever (ADR 0029).
+    // Every Operation below exists on every instance whether or not the model
+    // does — the Catalogue is the sole source of what Kamosu can do, and one
+    // that varied per server would make an agent's first question unanswerable.
+
+    /// What Meaning Search is doing here, and whether this reader should be
+    /// offered it.
+    ///
+    /// Readable by any Person, because the offer is carried inside *nothing
+    /// found* and every Person can arrive there. Whether the offer is *made* is
+    /// answered here rather than on the screen: only an Operator can turn it on,
+    /// and an offer somebody cannot act on is worse than none.
+    pub fn meaning_search_status(&self, caller: &Caller) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let held = crate::meaning::state(conn)?;
+            let behind = if held.is_on() {
+                crate::meaning::behind(conn)?
+            } else {
+                0
+            };
+            Ok(json!({
+                "state": held.state,
+                "on": held.is_on() && self.meaning.ready(),
+                // True only where the offer can be acted on: an Operator, on an
+                // instance nobody has answered for yet. Never again once
+                // declined — a question answered and asked again is a nag.
+                "offer": held.still_worth_offering() && caller.is_operator,
+                // Whether this caller could turn Meaning Search on or off at
+                // all. Answered here for the same reason `offer` is: a screen
+                // that works it out for itself would be a permission check
+                // written outside the Core.
+                "may_change": caller.is_operator,
+                "model": crate::meaning::MODEL_NAME,
+                "terms_url": crate::meaning::TERMS_URL,
+                "prohibited_use_policy_url": crate::meaning::PROHIBITED_USE_POLICY_URL,
+                // What this build asks about — and, where somebody has already
+                // answered, what they actually agreed to. Saying today's version
+                // back to them would be putting words in their mouth.
+                "terms_version": held
+                    .terms_version
+                    .clone()
+                    .unwrap_or_else(|| crate::meaning::TERMS_VERSION.to_string()),
+                "accepted_by": held.accepted_by,
+                "accepted_via_access_key": held.accepted_via_access_key,
+                "accepted_at": held.accepted_at,
+                "declined_at": held.declined_at,
+                // Whether the weights are actually on disk, which is a different
+                // question from whether anybody agreed to them.
+                "model_present": self.meaning.weights_are_present(),
+                "indexed_at": held.indexed_at,
+                // How many recipes the index has yet to catch up with. It
+                // catches up by itself within the minute; this says so honestly
+                // rather than pretending an edit is already searchable.
+                "recipes_not_yet_indexed": behind,
+            }))
+        })
+    }
+
+    /// Accept the model's terms. The acceptance keeps the **Hand** that made it
+    /// and whether it arrived by login or by Access Key (ADR 0029) — recorded,
+    /// never verified, which is the same thing Kamosu says out loud about every
+    /// Hand it records (ADR 0015).
+    pub fn accept_meaning_search_terms(&self, caller: &Caller) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            crate::meaning::accept(conn, &caller.person_id, caller.via_access_key)?;
+            Ok(json!({ "state": crate::meaning::state(conn)?.state }))
+        })
+    }
+
+    /// Decline. The offer is never made again on this instance.
+    pub fn decline_meaning_search(&self, caller: &Caller) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            crate::meaning::decline(conn, &caller.person_id)?;
+            Ok(json!({ "state": crate::meaning::state(conn)?.state }))
+        })
+    }
+
+    /// Download the model — the one thing Kamosu will not do without being
+    /// asked, because it is 200 MB of somebody else's weights under somebody
+    /// else's licence.
+    ///
+    /// A Job: it is far too slow for a request, and watching it is what
+    /// `get_job` is for.
+    pub fn download_meaning_model(
+        &self,
+        progress: Option<&crate::jobs::JobProgress>,
+    ) -> Result<Value, OpError> {
+        if !self
+            .db()
+            .with_conn(|conn| Ok(crate::meaning::state(conn)?.is_accepted()))?
+        {
+            return Err(OpError::bad_request(
+                "the model's terms have not been accepted on this Kamosu",
+            ));
+        }
+
+        // Which file, and how far into it. One blended percentage would be a
+        // lie about a download whose six artefacts run from 662 bytes to
+        // 197 MB — it would sit still for minutes and then leap.
+        let report = |file: usize, of: usize, done: u64, total: u64| {
+            if let Some(progress) = progress {
+                let percent = done.saturating_mul(100).checked_div(total).unwrap_or(0);
+                progress.report(
+                    percent,
+                    Some(100),
+                    format!(
+                        "downloading {} — file {file} of {of}, {percent}%",
+                        crate::meaning::MODEL_NAME
+                    ),
+                );
+            }
+        };
+        // A download may clear a half-written cache, and a build in flight is
+        // reading the model out of that directory. One at a time.
+        let _building = self.meaning.building();
+        self.meaning.download(&report).map_err(OpError::internal)?;
+
+        if let Some(progress) = progress {
+            progress.report(100, Some(100), "loading the model");
+        }
+        self.meaning.load().map_err(OpError::internal)?;
+
+        Ok(json!({
+            "model": crate::meaning::MODEL_NAME,
+            "repository": crate::meaning::MODEL_REPOSITORY,
+            "revision": crate::meaning::MODEL_REVISION,
+        }))
+    }
+
+    /// Build — or bring level — the index Meaning Search reads.
+    ///
+    /// A Job, and an incremental one: what is embedded is what the index does
+    /// not already hold. The first run is the whole library; every later run is
+    /// whatever changed, which is usually nothing.
+    pub fn build_meaning_index(
+        &self,
+        progress: Option<&crate::jobs::JobProgress>,
+    ) -> Result<Value, OpError> {
+        let embedder = match self.meaning.embedder() {
+            Some(embedder) => embedder,
+            // Not loaded yet, but downloaded: load it here rather than refuse,
+            // so accepting, downloading and indexing is three Operations in a
+            // row and not three Operations and a restart.
+            None if self.meaning.weights_are_present() => {
+                self.meaning.load().map_err(OpError::internal)?
+            }
+            None => {
+                return Err(OpError::bad_request(
+                    "the Meaning Search model has not been downloaded on this Kamosu",
+                ));
+            }
+        };
+
+        let report = |done: usize, total: usize| {
+            if let Some(progress) = progress {
+                progress.report(
+                    done as u64,
+                    Some(total as u64),
+                    format!("reading {done} of {total} recipes"),
+                );
+            }
+        };
+        // Waits for the tick if the tick got there first, rather than racing it
+        // and putting every recipe in the index twice.
+        let _building = self.meaning.building();
+        let indexed = crate::meaning::build(&self.db(), &embedder, &report)?;
+        self.db().with_conn(crate::meaning::turn_on)?;
+        Ok(json!({ "indexed": indexed }))
+    }
+
+    /// Turn Meaning Search off. Everything it discards is derived from the
+    /// recipes, so nothing is lost that cannot be rebuilt (ADR 0003, ADR 0009)
+    /// — which is exactly why this needs no warning and no confirmation.
+    pub fn turn_off_meaning_search(&self) -> Result<Value, OpError> {
+        // Waits for a build in flight rather than pulling the index out from
+        // under it — a build that finished after this ran would turn Meaning
+        // Search straight back on.
+        let _building = self.meaning.building();
+        self.db().with_conn(|conn| {
+            crate::meaning::turn_off(conn)?;
+            self.meaning.unload();
+            Ok(json!({ "state": crate::meaning::state(conn)?.state }))
+        })
+    }
+
+    /// Bring Meaning Search up at startup, if this instance has it. Answers
+    /// whether it is now answering searches.
+    pub(crate) fn wake_meaning_search(&self) -> Result<bool, OpError> {
+        let held = self.db().with_conn(crate::meaning::state)?;
+        if !held.is_on() {
+            return Ok(false);
+        }
+        // An instance can lose its model and be fine (ADR 0029): deleting
+        // `/data/model/` returns it to word search and nothing else notices.
+        // The index is left alone — the same weights coming back make it good
+        // again, and a different revision is pruned on the next build anyway.
+        if !self.meaning.weights_are_present() {
+            self.db().with_conn(crate::meaning::fell_back)?;
+            return Ok(false);
+        }
+        match self.meaning.load() {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                self.db().with_conn(crate::meaning::fell_back)?;
+                Err(OpError::internal(error))
+            }
+        }
+    }
+
+    /// The tick that keeps the index level with the library. Answers how many
+    /// recipes it had to read, which is nearly always none.
+    pub(crate) fn catch_the_index_up(&self) -> Result<usize, OpError> {
+        let Some(embedder) = self.meaning.embedder() else {
+            return Ok(0);
+        };
+        if !self.db().with_conn(crate::meaning::state)?.is_on() {
+            return Ok(0);
+        }
+        // Somebody asked for an index build by name and it is still running.
+        // The work is being done; doing it again beside them would only put
+        // every recipe in the index twice.
+        let Some(_building) = self.meaning.building_now() else {
+            return Ok(0);
+        };
+        crate::meaning::build(&self.db(), &embedder, &|_, _| {})
+    }
+
     /// The shelf, and searching it — one Operation either way (ADR 0027).
     ///
     /// With no `query` this answers the whole shelf: everything the Kitchens
@@ -2588,9 +2843,17 @@ impl Core {
     /// matched so a surprising result can explain itself.
     ///
     /// One Operation rather than two is not tidiness. The Catalogue cannot
-    /// change shape per instance (ADR 0029), and Meaning Search arrives later
-    /// as a second way of finding entries here — not as a second Operation an
-    /// agent would have to know to look for.
+    /// change shape per instance (ADR 0029), so **Meaning Search arrives inside
+    /// this Operation** — a second way of finding entries here, never a second
+    /// Operation an agent would have to know to look for. An instance with no
+    /// model answers exactly the same shape; what changes is how a result can
+    /// match, which a result already says.
+    ///
+    /// The two are **blended into one ranking**, not concatenated: an exact
+    /// title wins outright, and after that a confident meaning match outranks a
+    /// tag, an ingredient, a step, a Note or an Attempt while a barely-passing
+    /// one sits below all of them. Only a title beats meaning. Concatenating
+    /// would make *combined* a label rather than a behaviour.
     ///
     /// **No Kitchen name is returned**, by construction rather than by
     /// convention: a card cannot print a fence that is not there (ADR 0027),
@@ -2603,8 +2866,9 @@ impl Core {
     /// This reads every visible recipe and matches in Rust rather than asking
     /// SQLite. That is honest for a library of this size — the real one is 86
     /// recipes — and it is what keeps the fold below the same fold the rest of
-    /// Kamosu uses. The index that replaces it arrives with Meaning Search,
-    /// which is rebuildable from the recipes and therefore free to change.
+    /// Kamosu uses. The meaning half scans its whole index for the same reason:
+    /// a couple of megabytes of vectors cost less to walk than the one model
+    /// inference that produced the query.
     pub fn search_recipes(
         &self,
         person_id: &str,
@@ -2614,6 +2878,15 @@ impl Core {
     ) -> Result<Value, OpError> {
         let query = query.map(str::trim).filter(|q| !q.is_empty());
         let needle = query.map(folded_for_search);
+
+        // The query is embedded here, outside the database lock, because model
+        // inference is tens of milliseconds and the lock is the whole
+        // instance's. A model that is not loaded is not an error — it is the
+        // ordinary state of an instance that never turned Meaning Search on.
+        let asked: Option<Vec<f32>> = match (query, self.meaning.embedder()) {
+            (Some(query), Some(embedder)) => embedder.embed_query(query).ok(),
+            _ => None,
+        };
 
         self.db().with_conn(|conn| {
             if let Some(kitchen_id) = kitchen_id {
@@ -2678,7 +2951,35 @@ impl Core {
                 }
             }
 
-            let mut entries: Vec<(u8, String, Value)> = Vec::new();
+            // Every Lineage's best block, against this query — over exactly the
+            // Branches the shelf has just decided this reader may see, filters
+            // included. Handing that set down rather than asking the permission
+            // question again is what keeps one Lineage's other Branch, in a
+            // Kitchen you do not cook in, out of your ranking and off your card
+            // (ADR 0026, ADR 0027).
+            let visible: HashSet<&str> = branches
+                .values()
+                .flatten()
+                .map(|branch| branch.branch_id.as_str())
+                .collect();
+            let meaning: HashMap<String, crate::meaning::Hit> = match &asked {
+                Some(asked) if crate::meaning::state(conn)?.is_on() => {
+                    crate::meaning::nearest(conn, asked, person_id, &visible)?
+                }
+                _ => HashMap::new(),
+            };
+
+            // What a match is worth, in one number, so words and meaning are
+            // ordered against each other rather than one after the other. An
+            // exact title scores 1.0, above anything meaning can reach, which
+            // is how "exact title first" survives having a model in the room.
+            let mut entries: Vec<(f32, String, Value)> = Vec::new();
+            // Every Lineage the model had *something* to say about, however
+            // faint. Read only when nothing matched at all — meaning-matching
+            // always has a nearest neighbour, so *nothing found* means *nothing
+            // close enough*, and Kamosu says exactly that and shows it anyway
+            // (ADR 0027).
+            let mut nearby: Vec<(f32, String, Value)> = Vec::new();
             for lineage_id in lineages {
                 // *My recipes* is a history, not an ownership: created,
                 // branched or cooked. The first two are one fact — this
@@ -2693,6 +2994,7 @@ impl Core {
                 let content = version_content(conn, &shown.head_version_id)?;
                 let title = content["title"].as_str().unwrap_or_default().to_string();
 
+                let hit = meaning.get(&lineage_id);
                 let matched = match &needle {
                     None => None,
                     Some(needle) => {
@@ -2719,49 +3021,119 @@ impl Core {
                                 best = Some(found);
                             }
                         }
-                        match best {
-                            Some(matched) => Some(matched),
-                            // Nothing in this recipe carries the words, so it
-                            // is not on this answer at all.
-                            None => continue,
-                        }
+                        best
                     }
                 };
-                let rank = matched.as_ref().map_or(0, |(rank, _)| *rank);
+
+                // The unsearched shelf is every recipe, in one flat rank: this
+                // screen opens on it before anybody has typed anything.
+                if needle.is_none() {
+                    entries.push((
+                        0.0,
+                        folded_for_search(&title),
+                        shelf_entry(
+                            &lineage_id,
+                            shown,
+                            &title,
+                            &reading_language,
+                            &content,
+                            None,
+                        ),
+                    ));
+                    continue;
+                }
+
+                // **The one ranking.** Both halves are scored onto the same
+                // scale and the better of the two both places the entry and
+                // chooses the line it quotes — so a result is always standing
+                // where the line it shows put it.
+                let words = matched
+                    .as_ref()
+                    .map(|(rank, _)| crate::meaning::word_score(*rank));
+                let sense = hit.and_then(|hit| crate::meaning::score(hit.similarity));
+                let by_words = match (words, sense) {
+                    (None, None) => {
+                        // Neither half found it. It is not on this answer — but
+                        // it may still be the closest thing there is, and
+                        // meaning-matching always has a nearest neighbour, so
+                        // *nothing found* means *nothing close enough* and
+                        // Kamosu shows the closest anyway under that label
+                        // (ADR 0027).
+                        if let Some(hit) = hit {
+                            nearby.push((
+                                hit.similarity,
+                                folded_for_search(&title),
+                                shelf_entry(
+                                    &lineage_id,
+                                    shown,
+                                    &title,
+                                    &reading_language,
+                                    &content,
+                                    Some(matched_by(&hit.matched, "meaning")),
+                                ),
+                            ));
+                        }
+                        continue;
+                    }
+                    (Some(words), sense) => sense.is_none_or(|sense| words >= sense),
+                    (None, Some(_)) => false,
+                };
+
+                let (score, quoted) = if by_words {
+                    let (rank, line) = matched.expect("a word match, by the arm above");
+                    (crate::meaning::word_score(rank), matched_by(&line, "words"))
+                } else {
+                    let hit = hit.expect("a meaning match, by the arm above");
+                    (
+                        sense.expect("a meaning match, by the arm above"),
+                        matched_by(&hit.matched, "meaning"),
+                    )
+                };
 
                 entries.push((
-                    rank,
+                    score,
                     folded_for_search(&title),
-                    json!({
-                        "lineage_id": lineage_id,
-                        "branch_id": shown.branch_id,
-                        "title": title,
-                        "language": shown.language,
-                        // Whether this entry is being read in a Language the
-                        // reader did not ask for — the mark, and the whole of
-                        // the mark. There is nothing to say when it is false.
-                        //
-                        // An **Unknown** recipe is never marked: it is honestly
-                        // more than one Language, so it is not in any Language
-                        // the reader failed to ask for. It shows to everyone
-                        // exactly as it is, which is the whole of what Unknown
-                        // buys — no prompt, no badge, no nag (ADR 0006).
-                        "language_fallback": shown.language != reading_language
-                            && !crate::language::is_stated_unknown(&shown.language),
-                        "main_photo": content["main_photo"].clone(),
-                        "yield": content["yield"].clone(),
-                        "matched": matched.map(|(_, matched)| matched),
-                    }),
+                    shelf_entry(
+                        &lineage_id,
+                        shown,
+                        &title,
+                        &reading_language,
+                        &content,
+                        Some(quoted),
+                    ),
                 ));
             }
 
-            // Alphabetical is the shelf's whole order, and within one rank it
-            // stays the order of a search's results too: a list that reorders
-            // itself between visits cannot be learned by the thumb.
-            entries.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            // Best first, and alphabetical inside one score — which for the
+            // unsearched shelf, where every entry scores the same, is the whole
+            // order. A list that reorders itself between visits cannot be
+            // learned by the thumb.
+            entries.sort_by(|a, b| {
+                b.0.partial_cmp(&a.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.1.cmp(&b.1))
+            });
+
+            // Nothing found is not an empty screen. Where Meaning Search is on
+            // there is always a nearest neighbour, so the closest few are shown
+            // under exactly that label rather than silently passed off as
+            // matches — the same refusal that keeps a weak match from wearing a
+            // strong one's clothes (ADR 0027).
+            let closest = entries.is_empty() && !nearby.is_empty();
+            if closest {
+                nearby.sort_by(|a, b| {
+                    b.0.partial_cmp(&a.0)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.1.cmp(&b.1))
+                });
+                entries = nearby.into_iter().take(CLOSEST_SHOWN).collect();
+            }
 
             Ok(json!({
                 "query": query,
+                // True where nothing was close enough and these are the nearest
+                // anyway. The screen says so; it never shows them as matches.
+                "closest": closest,
                 "recipes": entries.into_iter().map(|(_, _, entry)| entry).collect::<Vec<_>>(),
             }))
         })
@@ -4927,6 +5299,51 @@ fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
     Ok(Value::Array(parsed))
 }
 
+/// Bring Meaning Search up, if this instance has it, and then keep its index
+/// level with the library.
+///
+/// Loading the model takes seconds, so it happens beside the first answers
+/// rather than in front of them: an instance serves immediately and searches by
+/// words until the model is ready, which is exactly what it does on every
+/// instance that never turns Meaning Search on at all.
+fn spawn_meaning_search(core: Arc<Core>) {
+    tokio::spawn(async move {
+        {
+            let core = core.clone();
+            let loaded = tokio::task::spawn_blocking(move || core.wake_meaning_search()).await;
+            match loaded {
+                Ok(Ok(true)) => tracing::info!(target: "kamosu::meaning", "Meaning Search is on"),
+                Ok(Ok(false)) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(target: "kamosu::meaning", %error, "Meaning Search stayed off")
+                }
+                Err(error) => {
+                    tracing::warn!(target: "kamosu::meaning", %error, "Meaning Search panicked")
+                }
+            }
+        }
+
+        let mut ticker = tokio::time::interval(Core::REINDEX_EVERY);
+        loop {
+            ticker.tick().await;
+            let core = core.clone();
+            let built = tokio::task::spawn_blocking(move || core.catch_the_index_up()).await;
+            match built {
+                Ok(Ok(0)) => {}
+                Ok(Ok(done)) => {
+                    tracing::info!(target: "kamosu::meaning", done, "index caught up")
+                }
+                Ok(Err(error)) => {
+                    tracing::warn!(target: "kamosu::meaning", %error, "index did not catch up")
+                }
+                Err(error) => {
+                    tracing::warn!(target: "kamosu::meaning", %error, "index catch-up panicked")
+                }
+            }
+        }
+    });
+}
+
 /// Run the orphan sweep on a timer for as long as the instance serves (#46).
 ///
 /// Deliberately not a Job: a Job is work someone asked for and can watch, and
@@ -6161,6 +6578,53 @@ fn written_or_cooked_by(
     .map_err(|e| OpError::internal(format!("cannot read what this Person has cooked: {e}")))
 }
 
+/// How many recipes *nothing found* shows anyway, when Meaning Search is on and
+/// nothing was close enough. Enough that the screen is not empty, few enough
+/// that it never reads as a list of results.
+const CLOSEST_SHOWN: usize = 3;
+
+/// One quoted line, saying which half of searching found it.
+///
+/// A reader cannot tell a meaning match from a word match by looking at the
+/// line, and a surprising result is exactly where trust is won or lost — so the
+/// answer says which it was rather than leaving the screen to guess.
+fn matched_by(line: &Value, by: &str) -> Value {
+    let mut matched = line.clone();
+    matched["by"] = json!(by);
+    matched
+}
+
+/// One entry on the shelf, built the one way, so a match, a near miss and an
+/// unsearched shelf cannot drift into describing the same recipe differently.
+fn shelf_entry(
+    lineage_id: &str,
+    shown: &ShelfBranch,
+    title: &str,
+    reading_language: &str,
+    content: &Value,
+    matched: Option<Value>,
+) -> Value {
+    json!({
+        "lineage_id": lineage_id,
+        "branch_id": shown.branch_id,
+        "title": title,
+        "language": shown.language,
+        // Whether this entry is being read in a Language the reader did not ask
+        // for — the mark, and the whole of the mark. There is nothing to say
+        // when it is false.
+        //
+        // An **Unknown** recipe is never marked: it is honestly more than one
+        // Language, so it is not in any Language the reader failed to ask for.
+        // It shows to everyone exactly as it is, which is the whole of what
+        // Unknown buys — no prompt, no badge, no nag (ADR 0006).
+        "language_fallback": shown.language != reading_language
+            && !crate::language::is_stated_unknown(&shown.language),
+        "main_photo": content["main_photo"].clone(),
+        "yield": content["yield"].clone(),
+        "matched": matched,
+    })
+}
+
 /// What in one recipe carries the words searched for, and the line to quote for
 /// it — a result that cannot explain itself is noise (ADR 0027).
 ///
@@ -6653,7 +7117,7 @@ pub fn generate_secret() -> String {
     hex::encode(random_bytes(32))
 }
 
-fn random_bytes(n: usize) -> Vec<u8> {
+pub(crate) fn random_bytes(n: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; n];
     SysRng
         .try_fill_bytes(&mut bytes)

@@ -14,6 +14,7 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
+	import { MeaningSearch } from '$lib/meaning.svelte';
 	import type {
 		InstanceStatusOutput,
 		ListSessionsOutput,
@@ -44,6 +45,19 @@
 			current = false;
 		};
 	});
+
+	// --- Meaning Search (#63, ADR 0029) -----------------------------------
+	//
+	// Deliberately NOT where it is discovered — a settings screen is where
+	// features go to be undiscovered, which is why the offer lives inside
+	// *nothing found* instead. This section appears only to an Operator, and
+	// only once somebody has answered that offer: it is where they manage what
+	// they chose — turn it off, or change their mind about having declined.
+	// ADR 0029's rule is that the offer is never *made* twice; the nag is what
+	// it forbids, not the door.
+
+	const meaning = new MeaningSearch(kamosu);
+	$effect(() => meaning.ask());
 
 	const names: Record<Locale, () => string> = {
 		en: () => m.language_en(),
@@ -554,6 +568,64 @@
 					{m.kitchen_join()}
 				</button>
 			</form>
+		</Section>
+	{/if}
+
+	<!--
+		Shown only to somebody who could act on it, and only once they have
+		answered the offer — this is where Meaning Search is *managed*, never
+		where it is discovered. A settings screen is where features go to be
+		undiscovered, which is why the offer lives inside nothing-found instead
+		(ADR 0029).
+	-->
+	{#if meaning.status?.may_change && meaning.status.state !== 'unasked'}
+		<Section heading={m.settings_meaning()}>
+			{#if meaning.status.on}
+				<p class="text-body text-ink">
+					{m.settings_meaning_on({ model: meaning.status.model })}
+				</p>
+				{#if meaning.status.recipes_not_yet_indexed > 0}
+					<!--
+						Said rather than hidden: the index catches up by itself
+						within the minute, and pretending an edit made a second
+						ago is already findable by meaning would be a small lie
+						with no upside.
+					-->
+					<p class="mt-1 text-read text-ink-2">
+						{m.settings_meaning_catching_up({ count: meaning.status.recipes_not_yet_indexed })}
+					</p>
+				{/if}
+				<!--
+					No warning and no confirmation, because there is nothing to
+					warn about: everything this discards is derived from the
+					recipes and rebuilds itself (ADR 0003, ADR 0009).
+				-->
+				<button
+					type="button"
+					class="mt-3 text-label text-accent underline"
+					onclick={() => meaning.turnOff()}
+				>
+					{m.settings_meaning_turn_off()}
+				</button>
+			{:else if meaning.working}
+				<p class="text-body text-ink-2" role="status">{meaning.saying}</p>
+			{:else}
+				<p class="text-body text-ink-2">
+					{meaning.status.state === 'declined'
+						? m.settings_meaning_declined()
+						: m.settings_meaning_off()}
+				</p>
+				<button
+					type="button"
+					class="mt-3 text-label text-accent underline"
+					onclick={() => meaning.turnOn()}
+				>
+					{m.recipes_nothing_meaning_turn_on()}
+				</button>
+			{/if}
+			{#if meaning.failed}
+				<p class="mt-2 text-read text-support" role="alert">{meaning.failed}</p>
+			{/if}
 		</Section>
 	{/if}
 

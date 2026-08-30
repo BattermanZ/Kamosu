@@ -12,8 +12,10 @@
 	written to the URL either, or a filter would survive in the back button.
 
 	Searching is one Operation, the same one that answers the unsearched shelf.
-	When Meaning Search arrives it arrives inside that Operation, so nothing
-	here has to learn a second way of asking (ADR 0029).
+	Meaning Search arrived inside that Operation rather than beside it, so
+	nothing here had to learn a second way of asking (ADR 0029) — the answer
+	simply gained two things: a match can say it was found by meaning, and an
+	answer can say that nothing was close enough and these are the nearest.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -21,6 +23,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { waitForJob } from '$lib/api/job';
+	import { MeaningSearch } from '$lib/meaning.svelte';
 	import type {
 		ImportWebLinkOutput,
 		ListKitchensOutput,
@@ -29,6 +32,7 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
+	import MeaningOffer from './MeaningOffer.svelte';
 
 	const kamosu = useKamosu();
 
@@ -42,6 +46,13 @@
 	let kitchens = $state<ListKitchensOutput['kitchens']>([]);
 	let answer = $state<SearchRecipesOutput | undefined>(undefined);
 	let failed = $state(false);
+	/**
+	 * Whether this Kamosu matches on meaning, and whether this reader is the
+	 * one to be asked about it. Both come from the Operation rather than being
+	 * worked out here: only an Operator can turn it on, and it is never offered
+	 * twice to somebody who declined (ADR 0029).
+	 */
+	const meaning = new MeaningSearch(kamosu);
 
 	/**
 	 * A filter naming a Kitchen only appears where there is more than one to
@@ -68,11 +79,19 @@
 		};
 	});
 
+	// Asked on open, and again whenever turning Meaning Search on or declining
+	// it changed the answer — so the offer disappears the moment it is answered.
+	$effect(() => meaning.ask());
+
 	$effect(() => {
 		// Read every input this ask depends on before the delay, so the effect
 		// re-runs when any of them changes rather than only on the first.
 		const query = typed.trim();
 		const asked = filter;
+		// Turning Meaning Search on changes what this same search finds, so the
+		// search is asked again — which is the only confirmation worth giving:
+		// the recipe you were looking for appears.
+		const generation = meaning.generation;
 
 		let current = true;
 		const timer = setTimeout(() => {
@@ -83,7 +102,7 @@
 						kitchen_id: asked.kind === 'kitchen' ? asked.id : null,
 						mine: asked.kind === 'mine',
 					});
-					if (current) {
+					if (current && generation === meaning.generation) {
 						answer = found;
 						failed = false;
 					}
@@ -105,6 +124,13 @@
 	const entries = $derived(answer?.recipes ?? []);
 	/** What the answer was actually for — never what the field says now. */
 	const query = $derived(answer?.query ?? null);
+	/**
+	 * Whether these are matches or merely the nearest there were. Meaning
+	 * Search always has a nearest neighbour, so *nothing found* means *nothing
+	 * close enough* — and showing the closest under that label is not the same
+	 * act as letting them pass as matches (ADR 0027).
+	 */
+	const closest = $derived(answer?.closest ?? false);
 
 	// --- the two things nothing-found offers ------------------------------
 	//
@@ -219,7 +245,7 @@
 		<p class="mt-6 text-body text-support" role="alert">{m.recipes_failed()}</p>
 	{:else if !answer}
 		<p class="mt-6 text-body text-ink-2">{m.loading()}</p>
-	{:else if query !== null && entries.length === 0}
+	{:else if query !== null && (entries.length === 0 || closest)}
 		<!--
 			Nothing found is not an empty screen. It says what was looked
 			through, and offers the two things you were about to do anyway —
@@ -230,7 +256,9 @@
 			<h2 class="font-display text-shelf-heading font-semibold">
 				{m.recipes_nothing_title({ query })}
 			</h2>
-			<p class="mt-2 text-read text-ink-2">{m.recipes_nothing_why()}</p>
+			<p class="mt-2 text-read text-ink-2">
+				{meaning.status?.on ? m.recipes_nothing_why_meaning() : m.recipes_nothing_why()}
+			</p>
 			<div class="mt-4 grid gap-2">
 				<button
 					type="button"
@@ -283,13 +311,32 @@
 			</div>
 			<!--
 				Offered here rather than buried in settings: this is the moment a
-				person can see exactly what they are missing (ADR 0029).
+				person can see exactly what they are missing (ADR 0029). Whether
+				to make the offer at all is the Operation's answer, not this
+				screen's — it is never made to somebody who cannot act on it,
+				and never again to an Operator who declined.
 			-->
-			<p class="mt-4 border-t border-rule pt-3 text-read text-ink-2">
-				{m.recipes_nothing_meaning()}
-				<a href="/settings" class="text-accent">{m.recipes_nothing_meaning_turn_on()}</a>
-			</p>
+			{#if meaning.status?.offer}
+				<MeaningOffer {meaning} status={meaning.status} />
+			{/if}
 		</div>
+
+		{#if closest}
+			<!--
+				The closest anyway, under exactly that label. Meaning-matching
+				always has a nearest neighbour, so an empty screen would be a
+				lie about what Kamosu knows — and an unlabelled list would be a
+				worse one, letting a weak match pass as a good one (ADR 0027).
+			-->
+			<p class="mt-6 mb-3 text-label text-ink-2 uppercase" role="status">
+				{m.recipes_closest()}
+			</p>
+			<ul class="grid grid-cols-2 gap-3">
+				{#each entries as entry (entry.lineage_id)}
+					<Tile {entry} />
+				{/each}
+			</ul>
+		{/if}
 	{:else if entries.length === 0}
 		<Empty>{m.recipes_empty()}</Empty>
 	{:else}

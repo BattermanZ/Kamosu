@@ -796,6 +796,140 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::search_recipes,
         },
         Operation {
+            name: "meaning_search_status",
+            summary: "Whether Meaning Search is on here, what model it would \
+                      use, who accepted that model's terms — and whether this \
+                      caller should be offered it. Answers on every instance, \
+                      including the many that will never turn it on.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: meaning_status_schema(),
+            handler: crate::operations::meaning_search_status,
+        },
+        Operation {
+            name: "accept_meaning_search_terms",
+            summary: "Accept the terms of the model Meaning Search needs. \
+                      Kamosu ships no weights (ADR 0029): the person who \
+                      accepts the terms is the person the terms are about, and \
+                      the acceptance keeps the Hand that made it and whether it \
+                      arrived by login or by Access Key. Available at both \
+                      Doors — a web-only carve-out would be the first hole in \
+                      Parity, and would stop nothing anyway.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            // Deliberately not session-only. An agent acts *as* a Person, and
+            // minting it an Access Key was already the act of authorising that
+            // (ADR 0029, ADR 0031). A read-only Key still cannot: accepting is
+            // a write, so no new guard was needed for that half.
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "state": meaning_state_enum() },
+                "required": ["state"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::accept_meaning_search_terms,
+        },
+        Operation {
+            name: "decline_meaning_search",
+            summary: "Decline the model's terms. Meaning Search stays off and \
+                      the offer is never made again on this instance — a \
+                      question already answered, asked twice, is a nag.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "state": meaning_state_enum() },
+                "required": ["state"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::decline_meaning_search,
+        },
+        Operation {
+            name: "download_meaning_model",
+            summary: "Fetch the Meaning Search model into /data, as a Job. No \
+                      weights ship in the image; this is the only way any \
+                      arrive, and only after the terms have been accepted. The \
+                      download is pinned to one revision and verified against a \
+                      manifest, so a half-finished one is never mistaken for a \
+                      model.",
+            permission: Permission::Operator,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            // The ordinary rule: an Operator's own lane. The risk here is size,
+            // not the fetch — the address is a constant in this binary, not
+            // anything a recipe could talk Kamosu into dialling (ADR 0033).
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "model": { "type": "string" },
+                    "repository": { "type": "string" },
+                    "revision": { "type": "string" },
+                },
+                "required": ["model", "repository", "revision"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::download_meaning_model,
+        },
+        Operation {
+            name: "build_meaning_index",
+            summary: "Read the library into the Meaning Search index, as a Job, \
+                      and turn Meaning Search on. Incremental: what is read is \
+                      what the index does not already hold, so the first run is \
+                      the whole library and every later one is whatever \
+                      changed. The index is derived from the recipes and can be \
+                      rebuilt at any time. Kamosu also does this by itself, \
+                      within the minute, whenever a recipe changes.",
+            permission: Permission::Operator,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "indexed": { "type": "integer" } },
+                "required": ["indexed"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::build_meaning_index,
+        },
+        Operation {
+            name: "turn_off_meaning_search",
+            summary: "Stop matching on meaning and throw the index away. \
+                      Discards nothing that cannot be rebuilt — the index is \
+                      derived from the recipes — and keeps both the acceptance, \
+                      which is history, and the downloaded weights, so turning \
+                      it back on is a rebuild rather than another download.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "state": meaning_state_enum() },
+                "required": ["state"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::turn_off_meaning_search,
+        },
+        Operation {
             name: "get_recipe",
             summary: "Read a Recipe: the Branch as it stands and its whole \
                       chain of Versions, oldest first.",
@@ -1559,6 +1693,65 @@ fn related_recipe_schema() -> Value {
     })
 }
 
+/// The four states Meaning Search can be in, declared once so every Operation
+/// that answers one types it the same way.
+///
+///   `unasked`  — nobody has been asked yet, so the offer is live.
+///   `declined` — an Operator said no. The offer never appears again.
+///   `accepted` — the terms are accepted; the weights may not be here yet.
+///   `on`       — accepted, downloaded, indexed, and answering searches.
+fn meaning_state_enum() -> Value {
+    json!({ "enum": ["unasked", "declined", "accepted", "on"] })
+}
+
+/// What `meaning_search_status` answers: enough for a screen to decide whether
+/// to offer Meaning Search, and enough for an agent to know what it would be
+/// agreeing to before it agrees.
+fn meaning_status_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "state": meaning_state_enum(),
+            // Whether searches are actually matching on meaning right now. Not
+            // the same as `state == "on"`: an instance whose model is still
+            // loading, or whose weights were deleted, is honestly off.
+            "on": { "type": "boolean" },
+            // Whether to make the offer, answered here rather than on a screen:
+            // only an Operator can act on it, and an offer somebody cannot act
+            // on is worse than no offer.
+            "offer": { "type": "boolean" },
+            // Whether this caller could turn Meaning Search on or off at all.
+            // A screen working that out for itself would be a permission check
+            // living outside the Core, which is a bug (ADR 0001).
+            "may_change": { "type": "boolean" },
+            "model": { "type": "string" },
+            "terms_url": { "type": "string" },
+            "prohibited_use_policy_url": { "type": "string" },
+            "terms_version": { "type": "string" },
+            // The Hand that accepted, and how it arrived. Recorded, never
+            // verified — the same thing Kamosu says out loud about every Hand
+            // it keeps (ADR 0015, ADR 0029).
+            "accepted_by": { "type": ["string", "null"] },
+            "accepted_via_access_key": { "type": ["boolean", "null"] },
+            "accepted_at": { "type": ["string", "null"] },
+            "declined_at": { "type": ["string", "null"] },
+            "model_present": { "type": "boolean" },
+            "indexed_at": { "type": ["string", "null"] },
+            // How far behind the library the index is. It catches up by itself
+            // within the minute; saying so beats pretending an edit made a
+            // second ago is already findable by meaning.
+            "recipes_not_yet_indexed": { "type": "integer" },
+        },
+        "required": [
+            "state", "on", "offer", "may_change", "model", "terms_url",
+            "prohibited_use_policy_url", "terms_version", "accepted_by",
+            "accepted_via_access_key", "accepted_at", "declined_at",
+            "model_present", "indexed_at", "recipes_not_yet_indexed"
+        ],
+        "additionalProperties": false,
+    })
+}
+
 /// The shape the shelf is served in — one entry per Lineage, read back by
 /// `search_recipes` whether or not anything was searched for (ADR 0027).
 ///
@@ -1575,6 +1768,13 @@ fn shelf_schema() -> Value {
             // The screen needs it to name the query in "nothing matched X"
             // without trusting that its own field still says what it asked.
             "query": { "type": ["string", "null"] },
+            // True where nothing was close enough and what follows is the
+            // nearest anyway. Meaning-matching always has a nearest neighbour,
+            // so "nothing found" means "nothing close enough" — Kamosu says
+            // exactly that and shows the closest under that label, rather than
+            // letting a weak match pass as a good one (ADR 0027). Always false
+            // where Meaning Search is off: with no model there is no nearest.
+            "closest": { "type": "boolean" },
             "recipes": {
                 "type": "array",
                 "items": {
@@ -1612,6 +1812,13 @@ fn shelf_schema() -> Value {
                                     ],
                                 },
                                 "line": { "type": "string" },
+                                // Which half of searching found this. A reader
+                                // cannot tell the two apart by looking at the
+                                // line, and the surprising result is exactly
+                                // where trust is won or lost — so the answer
+                                // says which it was rather than leaving the
+                                // screen to guess (ADR 0027).
+                                "by": { "enum": ["words", "meaning"] },
                                 // Which step this is, counted as the recipe
                                 // page counts them — over the Steps alone,
                                 // Sections taking no number — so a result can
@@ -1619,7 +1826,7 @@ fn shelf_schema() -> Value {
                                 // Null for every other kind of match.
                                 "step_number": { "type": ["integer", "null"] },
                             },
-                            "required": ["where", "line", "step_number"],
+                            "required": ["where", "line", "step_number", "by"],
                             "additionalProperties": false,
                         },
                     },
@@ -1631,7 +1838,7 @@ fn shelf_schema() -> Value {
                 },
             },
         },
-        "required": ["query", "recipes"],
+        "required": ["query", "closest", "recipes"],
         "additionalProperties": false,
     })
 }

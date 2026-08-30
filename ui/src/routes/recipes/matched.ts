@@ -8,6 +8,12 @@
  *
  * A title match is deliberately unlabelled: the title is already on the tile's
  * band, so quoting it back under the tile would say the same thing twice.
+ *
+ * A **meaning** match is labelled as one, and only as one. Its quoted line does
+ * not contain the words that were typed — that is the whole point of it — so
+ * without saying *close in meaning* the card reads as a search gone wrong. That
+ * one label says everything the where-label would have said and the thing the
+ * where-label could not, which is why it replaces it rather than joining it.
  */
 
 import { m } from '$lib/paraglide/messages';
@@ -19,6 +25,10 @@ export type Matched = NonNullable<Entry['matched']>;
 /** The label above a quoted line, or null where the line should not be quoted. */
 export function matchedLabel(matched: Matched | null): string | null {
 	if (!matched) return null;
+	// A meaning match always quotes a real line of the recipe — never its
+	// title, which the tile's band already carries — so there is no case here
+	// where the quote would repeat itself.
+	if (matched.by === 'meaning') return m.recipes_matched_meaning();
 	switch (matched.where) {
 		case 'title':
 			return null;

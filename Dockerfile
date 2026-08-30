@@ -1,6 +1,12 @@
 # Kamosu ships as one executable in one distroless image (ADR 0028): no shell,
 # no Node, no browser, no model. The binary checks its own health because there
 # is no curl to do it. One mount (/data) and one port (5266) are the whole install.
+#
+# **No model** is the literal truth and not a simplification (ADR 0029): the
+# ONNX Runtime that Meaning Search would use is linked into the binary, and the
+# weights are not here at all. An Operator who wants them accepts Google's terms
+# through an ordinary Operation and Kamosu downloads them into /data — so this
+# image carries nobody else's licence, and installs with no network at all.
 
 # The interface is built here and compiled *into* the binary below, never copied
 # beside it. Node exists in this stage and nowhere else: the artefact is the

@@ -17,6 +17,7 @@ pub mod interface;
 pub mod jobs;
 pub mod language;
 pub mod mcp_door;
+pub mod meaning;
 pub mod operations;
 pub mod pairing;
 pub mod photographs;

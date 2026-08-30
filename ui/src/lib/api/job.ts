@@ -27,11 +27,25 @@ const ENDED = ['completed', 'failed', 'cancelled'] as const;
  *
  * A Job that failed is raised as the error it is, so a caller writes one happy
  * path rather than checking a status by hand and forgetting the other two.
+ *
+ * `whileWaiting` is handed each poll's answer, so a caller that wants to show
+ * how far the work has got reads the same row every other caller reads. Some
+ * Jobs are long — downloading a model is hundreds of megabytes — so
+ * `giveUpAfter` is the caller's to set rather than a constant that fits the
+ * shortest one.
  */
 export async function waitForJob(
 	kamosu: KamosuClient,
 	jobId: string,
-	{ every = 400, giveUpAfter = 120_000 } = {},
+	{
+		every = 400,
+		giveUpAfter = 120_000,
+		whileWaiting,
+	}: {
+		every?: number;
+		giveUpAfter?: number;
+		whileWaiting?: (job: GetJobOutput) => void;
+	} = {},
 ): Promise<GetJobOutput> {
 	const until = Date.now() + giveUpAfter;
 	for (;;) {
@@ -40,6 +54,7 @@ export async function waitForJob(
 			if (job.status === 'completed') return job;
 			throw new Error(job.error ?? `the job ${job.status}`);
 		}
+		whileWaiting?.(job);
 		if (Date.now() > until) throw new Error('the job is still running');
 		await new Promise((wake) => setTimeout(wake, every));
 	}

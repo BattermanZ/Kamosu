@@ -140,7 +140,13 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "delete_attempt"
             | "list_attempts"
             | "get_current_attempt"
-            | "promote_attempt_photograph" => ("{}", 401),
+            | "promote_attempt_photograph"
+            | "meaning_search_status"
+            | "accept_meaning_search_terms"
+            | "decline_meaning_search"
+            | "download_meaning_model"
+            | "build_meaning_index"
+            | "turn_off_meaning_search" => ("{}", 401),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -269,6 +275,12 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "list_attempts"
                 | "get_current_attempt"
                 | "promote_attempt_photograph"
+                | "meaning_search_status"
+                | "accept_meaning_search_terms"
+                | "decline_meaning_search"
+                | "download_meaning_model"
+                | "build_meaning_index"
+                | "turn_off_meaning_search"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

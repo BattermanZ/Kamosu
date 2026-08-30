@@ -1154,6 +1154,60 @@ pub fn delete_food(core: &Core, _invocation: &Invocation, input: Value) -> Resul
     Ok(json!({ "deleted": true }))
 }
 
+// ── Meaning Search (#63, ADR 0029) ───────────────────────────────────────────
+//
+// All six exist on every instance, whether or not that instance has a model.
+// The Catalogue is the sole source of what Kamosu can do, and one that changed
+// shape per server would make an agent's first question unanswerable.
+
+pub fn meaning_search_status(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.meaning_search_status(caller_of(invocation)?)
+}
+
+pub fn accept_meaning_search_terms(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.accept_meaning_search_terms(caller_of(invocation)?)
+}
+
+pub fn decline_meaning_search(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.decline_meaning_search(caller_of(invocation)?)
+}
+
+pub fn download_meaning_model(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.download_meaning_model(invocation.job.as_ref())
+}
+
+pub fn build_meaning_index(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.build_meaning_index(invocation.job.as_ref())
+}
+
+pub fn turn_off_meaning_search(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.turn_off_meaning_search()
+}
+
 fn caller_of(invocation: &Invocation) -> Result<&Caller, OpError> {
     invocation.caller.as_ref().ok_or_else(|| {
         OpError::unauthorized("this Operation requires a Credential naming a Person")

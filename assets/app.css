@@ -500,6 +500,9 @@
   .gap-4 {
     gap: var(--spacing-4);
   }
+  .gap-x-4 {
+    column-gap: var(--spacing-4);
+  }
   .self-start {
     align-self: flex-start;
   }

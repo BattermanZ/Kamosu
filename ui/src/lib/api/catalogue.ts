@@ -771,6 +771,7 @@ export type SearchRecipesInput = {
 };
 /** What search_recipes answers. */
 export type SearchRecipesOutput = {
+	closest: boolean;
 	query: string | null;
 	recipes: {
 		branch_id: string;
@@ -779,6 +780,7 @@ export type SearchRecipesOutput = {
 		lineage_id: string;
 		main_photo: string | null;
 		matched: {
+			by: "words" | "meaning";
 			line: string;
 			step_number: number | null;
 			where: "title" | "tag" | "ingredient" | "step" | "section" | "note" | "attempt";
@@ -789,6 +791,64 @@ export type SearchRecipesOutput = {
 			noun: string;
 		} | null;
 	}[];
+};
+
+/** Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
+export type MeaningSearchStatusInput = Record<string, never>;
+/** What meaning_search_status answers. */
+export type MeaningSearchStatusOutput = {
+	accepted_at: string | null;
+	accepted_by: string | null;
+	accepted_via_access_key: boolean | null;
+	declined_at: string | null;
+	indexed_at: string | null;
+	may_change: boolean;
+	model: string;
+	model_present: boolean;
+	offer: boolean;
+	on: boolean;
+	prohibited_use_policy_url: string;
+	recipes_not_yet_indexed: number;
+	state: "unasked" | "declined" | "accepted" | "on";
+	terms_url: string;
+	terms_version: string;
+};
+
+/** Accept the terms of the model Meaning Search needs. Kamosu ships no weights (ADR 0029): the person who accepts the terms is the person the terms are about, and the acceptance keeps the Hand that made it and whether it arrived by login or by Access Key. Available at both Doors — a web-only carve-out would be the first hole in Parity, and would stop nothing anyway. */
+export type AcceptMeaningSearchTermsInput = Record<string, never>;
+/** What accept_meaning_search_terms answers. */
+export type AcceptMeaningSearchTermsOutput = {
+	state: "unasked" | "declined" | "accepted" | "on";
+};
+
+/** Decline the model's terms. Meaning Search stays off and the offer is never made again on this instance — a question already answered, asked twice, is a nag. */
+export type DeclineMeaningSearchInput = Record<string, never>;
+/** What decline_meaning_search answers. */
+export type DeclineMeaningSearchOutput = {
+	state: "unasked" | "declined" | "accepted" | "on";
+};
+
+/** Fetch the Meaning Search model into /data, as a Job. No weights ship in the image; this is the only way any arrive, and only after the terms have been accepted. The download is pinned to one revision and verified against a manifest, so a half-finished one is never mistaken for a model. */
+export type DownloadMeaningModelInput = Record<string, never>;
+/** What download_meaning_model eventually produces, read back through `get_job`. */
+export type DownloadMeaningModelOutput = {
+	model: string;
+	repository: string;
+	revision: string;
+};
+
+/** Read the library into the Meaning Search index, as a Job, and turn Meaning Search on. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes. */
+export type BuildMeaningIndexInput = Record<string, never>;
+/** What build_meaning_index eventually produces, read back through `get_job`. */
+export type BuildMeaningIndexOutput = {
+	indexed: number;
+};
+
+/** Stop matching on meaning and throw the index away. Discards nothing that cannot be rebuilt — the index is derived from the recipes — and keeps both the acceptance, which is history, and the downloaded weights, so turning it back on is a rebuild rather than another download. */
+export type TurnOffMeaningSearchInput = Record<string, never>;
+/** What turn_off_meaning_search answers. */
+export type TurnOffMeaningSearchOutput = {
+	state: "unasked" | "declined" | "accepted" | "on";
 };
 
 /** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
@@ -1791,6 +1851,42 @@ export interface Operations {
 		output: SearchRecipesOutput;
 		kind: 'immediate';
 		permission: 'person';
+	};
+	meaning_search_status: {
+		input: MeaningSearchStatusInput;
+		output: MeaningSearchStatusOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	accept_meaning_search_terms: {
+		input: AcceptMeaningSearchTermsInput;
+		output: AcceptMeaningSearchTermsOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	decline_meaning_search: {
+		input: DeclineMeaningSearchInput;
+		output: DeclineMeaningSearchOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	download_meaning_model: {
+		input: DownloadMeaningModelInput;
+		output: DownloadMeaningModelOutput;
+		kind: 'job';
+		permission: 'operator';
+	};
+	build_meaning_index: {
+		input: BuildMeaningIndexInput;
+		output: BuildMeaningIndexOutput;
+		kind: 'job';
+		permission: 'operator';
+	};
+	turn_off_meaning_search: {
+		input: TurnOffMeaningSearchInput;
+		output: TurnOffMeaningSearchOutput;
+		kind: 'immediate';
+		permission: 'operator';
 	};
 	get_recipe: {
 		input: GetRecipeInput;
@@ -5468,6 +5564,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"closest": {
+					"type": "boolean"
+				},
 				"query": {
 					"type": [
 						"string",
@@ -5499,6 +5598,12 @@ export const CATALOGUE = [
 							"matched": {
 								"additionalProperties": false,
 								"properties": {
+									"by": {
+										"enum": [
+											"words",
+											"meaning"
+										]
+									},
 									"line": {
 										"type": "string"
 									},
@@ -5524,7 +5629,8 @@ export const CATALOGUE = [
 								"required": [
 									"where",
 									"line",
-									"step_number"
+									"step_number",
+									"by"
 								],
 								"type": [
 									"object",
@@ -5571,7 +5677,245 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"query",
+				"closest",
 				"recipes"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "meaning_search_status",
+		"summary": "Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"accepted_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"accepted_by": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"accepted_via_access_key": {
+					"type": [
+						"boolean",
+						"null"
+					]
+				},
+				"declined_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"indexed_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"may_change": {
+					"type": "boolean"
+				},
+				"model": {
+					"type": "string"
+				},
+				"model_present": {
+					"type": "boolean"
+				},
+				"offer": {
+					"type": "boolean"
+				},
+				"on": {
+					"type": "boolean"
+				},
+				"prohibited_use_policy_url": {
+					"type": "string"
+				},
+				"recipes_not_yet_indexed": {
+					"type": "integer"
+				},
+				"state": {
+					"enum": [
+						"unasked",
+						"declined",
+						"accepted",
+						"on"
+					]
+				},
+				"terms_url": {
+					"type": "string"
+				},
+				"terms_version": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"state",
+				"on",
+				"offer",
+				"may_change",
+				"model",
+				"terms_url",
+				"prohibited_use_policy_url",
+				"terms_version",
+				"accepted_by",
+				"accepted_via_access_key",
+				"accepted_at",
+				"declined_at",
+				"model_present",
+				"indexed_at",
+				"recipes_not_yet_indexed"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "accept_meaning_search_terms",
+		"summary": "Accept the terms of the model Meaning Search needs. Kamosu ships no weights (ADR 0029): the person who accepts the terms is the person the terms are about, and the acceptance keeps the Hand that made it and whether it arrived by login or by Access Key. Available at both Doors — a web-only carve-out would be the first hole in Parity, and would stop nothing anyway.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"state": {
+					"enum": [
+						"unasked",
+						"declined",
+						"accepted",
+						"on"
+					]
+				}
+			},
+			"required": [
+				"state"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "decline_meaning_search",
+		"summary": "Decline the model's terms. Meaning Search stays off and the offer is never made again on this instance — a question already answered, asked twice, is a nag.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"state": {
+					"enum": [
+						"unasked",
+						"declined",
+						"accepted",
+						"on"
+					]
+				}
+			},
+			"required": [
+				"state"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "download_meaning_model",
+		"summary": "Fetch the Meaning Search model into /data, as a Job. No weights ship in the image; this is the only way any arrive, and only after the terms have been accepted. The download is pinned to one revision and verified against a manifest, so a half-finished one is never mistaken for a model.",
+		"permission": "operator",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"model": {
+					"type": "string"
+				},
+				"repository": {
+					"type": "string"
+				},
+				"revision": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"model",
+				"repository",
+				"revision"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "build_meaning_index",
+		"summary": "Read the library into the Meaning Search index, as a Job, and turn Meaning Search on. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes.",
+		"permission": "operator",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"indexed": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"indexed"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "turn_off_meaning_search",
+		"summary": "Stop matching on meaning and throw the index away. Discards nothing that cannot be rebuilt — the index is derived from the recipes — and keeps both the acceptance, which is history, and the downloaded weights, so turning it back on is a rebuild rather than another download.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"state": {
+					"enum": [
+						"unasked",
+						"declined",
+						"accepted",
+						"on"
+					]
+				}
+			},
+			"required": [
+				"state"
 			],
 			"type": "object"
 		}
@@ -9373,6 +9717,12 @@ export const METHOD_NAMES = {
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
 	search_recipes: 'searchRecipes',
+	meaning_search_status: 'meaningSearchStatus',
+	accept_meaning_search_terms: 'acceptMeaningSearchTerms',
+	decline_meaning_search: 'declineMeaningSearch',
+	download_meaning_model: 'downloadMeaningModel',
+	build_meaning_index: 'buildMeaningIndex',
+	turn_off_meaning_search: 'turnOffMeaningSearch',
 	get_recipe: 'getRecipe',
 	get_thread: 'getThread',
 	branch_point: 'branchPoint',
@@ -9478,6 +9828,18 @@ export interface KamosuClient {
 	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;
 	/** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
 	searchRecipes(input: SearchRecipesInput): Promise<Answer<'search_recipes'>>;
+	/** Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
+	meaningSearchStatus(input?: MeaningSearchStatusInput): Promise<Answer<'meaning_search_status'>>;
+	/** Accept the terms of the model Meaning Search needs. Kamosu ships no weights (ADR 0029): the person who accepts the terms is the person the terms are about, and the acceptance keeps the Hand that made it and whether it arrived by login or by Access Key. Available at both Doors — a web-only carve-out would be the first hole in Parity, and would stop nothing anyway. */
+	acceptMeaningSearchTerms(input?: AcceptMeaningSearchTermsInput): Promise<Answer<'accept_meaning_search_terms'>>;
+	/** Decline the model's terms. Meaning Search stays off and the offer is never made again on this instance — a question already answered, asked twice, is a nag. */
+	declineMeaningSearch(input?: DeclineMeaningSearchInput): Promise<Answer<'decline_meaning_search'>>;
+	/** Fetch the Meaning Search model into /data, as a Job. No weights ship in the image; this is the only way any arrive, and only after the terms have been accepted. The download is pinned to one revision and verified against a manifest, so a half-finished one is never mistaken for a model. */
+	downloadMeaningModel(input?: DownloadMeaningModelInput): Promise<Answer<'download_meaning_model'>>;
+	/** Read the library into the Meaning Search index, as a Job, and turn Meaning Search on. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes. */
+	buildMeaningIndex(input?: BuildMeaningIndexInput): Promise<Answer<'build_meaning_index'>>;
+	/** Stop matching on meaning and throw the index away. Discards nothing that cannot be rebuilt — the index is derived from the recipes — and keeps both the acceptance, which is history, and the downloaded weights, so turning it back on is a rebuild rather than another download. */
+	turnOffMeaningSearch(input?: TurnOffMeaningSearchInput): Promise<Answer<'turn_off_meaning_search'>>;
 	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */

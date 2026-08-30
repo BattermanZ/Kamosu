@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
 import { renderScreen } from '../../testing/render';
+import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
 
 // Both offers end by opening the recipe they produced. Where that goes is the
 // router's business, not this screen's, so it is stubbed and the assertions
@@ -31,6 +32,31 @@ const kitchen = {
 	is_home: true,
 	members: [{ person_id: 'p_1', name: 'Aurélien' }],
 };
+
+/**
+ * Meaning Search as most instances have it: never asked about, so the offer is
+ * live for an Operator and searching matches on words alone (ADR 0029). Every
+ * render below needs an answer to this, because the screen asks on open — the
+ * tests that are *about* Meaning Search override what they care about.
+ */
+const meaningOff = (over: Partial<MeaningSearchStatusOutput> = {}): MeaningSearchStatusOutput => ({
+	state: 'unasked',
+	on: false,
+	offer: false,
+	may_change: false,
+	model: 'EmbeddingGemma-300M (4-bit)',
+	terms_url: 'https://ai.google.dev/gemma/terms',
+	prohibited_use_policy_url: 'https://ai.google.dev/gemma/prohibited_use_policy',
+	terms_version: '2026-04-01',
+	accepted_by: null,
+	accepted_via_access_key: null,
+	accepted_at: null,
+	declined_at: null,
+	model_present: false,
+	indexed_at: null,
+	recipes_not_yet_indexed: 0,
+	...over,
+});
 
 /** One entry on the shelf, with everything the Catalogue requires present. */
 const entry = (over: Record<string, unknown> = {}) => ({
@@ -49,8 +75,10 @@ describe('the recipes screen', () => {
 	it('shows the shelf it was given, one card per Lineage', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
 			search_recipes: {
 				query: null,
+				closest: false,
 				recipes: [
 					entry({ lineage_id: 'l_1', title: 'Airfried Cauliflower' }),
 					entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' }),
@@ -66,7 +94,8 @@ describe('the recipes screen', () => {
 	it('explains why nothing matched, and offers the two things you were about to do', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: 'osso buco', recipes: [] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
 		});
 
 		// It names what was searched for — from the answer, not from the field.
@@ -82,13 +111,103 @@ describe('the recipes screen', () => {
 			screen.getByRole('button', { name: /Add a recipe called .osso buco./ }),
 		).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /Import from a link/ })).toBeInTheDocument();
-		expect(screen.getByRole('link', { name: /Turn it on/ })).toBeInTheDocument();
+
+		// And no offer to turn Meaning Search on, because this reader cannot:
+		// only an Operator can, and an offer somebody cannot act on is worse
+		// than none (ADR 0029). Whether to make it is the Operation's answer.
+		expect(screen.queryByRole('button', { name: /Turn it on/ })).not.toBeInTheDocument();
+	});
+
+	it('offers Meaning Search inside nothing-found, saying what accepting costs', async () => {
+		renderScreen(Recipes, {
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff({ offer: true }),
+			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
+		});
+
+		await screen.findByText(/Nothing matched .osso buco./);
+
+		// The offer says what is actually being agreed to before the button
+		// rather than after it: Kamosu ships no weights, so this downloads
+		// somebody else's under somebody else's terms (ADR 0029).
+		expect(screen.getByText(/EmbeddingGemma/)).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: /Gemma terms/ })).toHaveAttribute(
+			'href',
+			'https://ai.google.dev/gemma/terms',
+		);
+		expect(screen.getByRole('link', { name: /prohibited use policy/ })).toHaveAttribute(
+			'href',
+			'https://ai.google.dev/gemma/prohibited_use_policy',
+		);
+		expect(screen.getByRole('button', { name: /Turn it on/ })).toBeInTheDocument();
+	});
+
+	it('declines Meaning Search through the Operation, so it is never offered again', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			list_kitchens: { kitchens: [kitchen] },
+			// Asked once, then answered: the second reading is what the screen
+			// sees after declining, and it carries no offer.
+			meaning_search_status: (() => {
+				let asked = 0;
+				return () =>
+					asked++ === 0
+						? meaningOff({ offer: true })
+						: meaningOff({ state: 'declined', declined_at: '2026-08-30T00:00:00Z' });
+			})(),
+			decline_meaning_search: { state: 'declined' },
+			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: /No thanks/ }));
+
+		await vi.waitFor(() => {
+			expect(kamosu.calls.map((call) => call.operation)).toContain('decline_meaning_search');
+		});
+		await vi.waitFor(() => {
+			expect(screen.queryByRole('button', { name: /Turn it on/ })).not.toBeInTheDocument();
+		});
+	});
+
+	it('shows the closest anyway, under exactly that label, rather than an empty screen', async () => {
+		renderScreen(Recipes, {
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff({ state: 'on', on: true, model_present: true }),
+			search_recipes: {
+				query: 'something with squid',
+				// Meaning-matching always has a nearest neighbour, so "nothing
+				// found" means "nothing close enough". Kamosu says exactly that
+				// and shows the closest under that label — never letting a weak
+				// match pass as a good one (ADR 0027).
+				closest: true,
+				recipes: [
+					entry({
+						title: 'Calamari',
+						matched: {
+							where: 'ingredient',
+							line: '500 g calamari',
+							step_number: null,
+							by: 'meaning',
+						},
+					}),
+				],
+			},
+		});
+
+		expect(await screen.findByText(/Nothing matched .something with squid./)).toBeInTheDocument();
+		expect(screen.getByText('The closest anyway')).toBeInTheDocument();
+		expect(screen.getByText('Calamari')).toBeInTheDocument();
+		// The quoted line does not carry the words that were typed — that is
+		// the whole point of a meaning match — so the card says which half of
+		// searching found it, or it reads as a search gone wrong.
+		expect(screen.getByText('Close in meaning')).toBeInTheDocument();
+		expect(screen.getByText('500 g calamari')).toBeInTheDocument();
 	});
 
 	it('adds the recipe it offered to add, rather than pointing at a screen to add it on', async () => {
 		const { kamosu } = renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: 'osso buco', recipes: [] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
 			create_recipe: {
 				branch_id: 'b_new',
 				lineage_id: 'l_new',
@@ -120,7 +239,8 @@ describe('the recipes screen', () => {
 	it('reads the link it offered to import, waiting on the Job it is', async () => {
 		const { kamosu } = renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: 'osso buco', recipes: [] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
 			import_web_link: { job_id: 'j_1' },
 			get_job: {
 				id: 'j_1',
@@ -169,7 +289,8 @@ describe('the recipes screen', () => {
 	it('says the shelf is empty rather than that a search failed, when nothing was searched for', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: null, recipes: [] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [] },
 		});
 
 		expect(await screen.findByText(/The shelf is empty/)).toBeInTheDocument();
@@ -179,18 +300,30 @@ describe('the recipes screen', () => {
 	it('quotes the line that matched, and says where it came from', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
 			search_recipes: {
 				query: 'chocolate',
+				closest: false,
 				recipes: [
 					entry({
 						title: 'Chilli con carne',
-						matched: { where: 'ingredient', line: '50 g dark chocolate', step_number: null },
+						matched: {
+							where: 'ingredient',
+							line: '50 g dark chocolate',
+							step_number: null,
+							by: 'words',
+						},
 					}),
 					entry({
 						lineage_id: 'l_2',
 						branch_id: 'b_2',
 						title: 'Braised Beef',
-						matched: { where: 'step', line: 'Stir in a square of chocolate.', step_number: 2 },
+						matched: {
+							where: 'step',
+							line: 'Stir in a square of chocolate.',
+							step_number: 2,
+							by: 'words',
+						},
 					}),
 				],
 			},
@@ -205,9 +338,15 @@ describe('the recipes screen', () => {
 	it('does not quote a title match — the title is already on the card', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
 			search_recipes: {
 				query: 'miso',
-				recipes: [entry({ matched: { where: 'title', line: 'Miso Soup', step_number: null } })],
+				closest: false,
+				recipes: [
+					entry({
+						matched: { where: 'title', line: 'Miso Soup', step_number: null, by: 'words' },
+					}),
+				],
 			},
 		});
 
@@ -218,8 +357,10 @@ describe('the recipes screen', () => {
 	it('marks a recipe shown in a Language its reader did not ask for', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
 			search_recipes: {
 				query: null,
+				closest: false,
 				recipes: [
 					entry({ title: 'Îles Flottantes', language: 'fr', language_fallback: true }),
 					entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' }),
@@ -238,8 +379,10 @@ describe('the recipes screen', () => {
 	it('marks nothing on a recipe whose Language is unknown', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
 			search_recipes: {
 				query: null,
+				closest: false,
 				recipes: [
 					entry({
 						title: 'Sukiyaki Udon',
@@ -261,7 +404,8 @@ describe('the recipes screen', () => {
 	it('names no Kitchen on a card, and offers a Kitchen filter only where there are several', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },
-			search_recipes: { query: null, recipes: [entry()] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
 		});
 
 		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
@@ -275,7 +419,8 @@ describe('the recipes screen', () => {
 			list_kitchens: {
 				kitchens: [kitchen, { ...kitchen, id: 'k_marc', name: 'Chez Marc', is_home: false }],
 			},
-			search_recipes: { query: null, recipes: [entry()] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
 		});
 
 		const marc = await screen.findByRole('button', { name: 'Chez Marc' });

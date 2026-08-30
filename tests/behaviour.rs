@@ -10001,3 +10001,298 @@ async fn the_amounts_a_step_uses_carry_the_one_subordinate_line_already_worked_o
         "`a pinch of salt` was never read, so nothing is guessed beneath it"
     );
 }
+
+// --- Meaning Search (#63, ADR 0029) ------------------------------------------
+//
+// Everything here is about the instance that ships: no model, Meaning Search
+// off, and complete. The half that needs 220 MB of weights and a real library
+// is `tests/meaning_corpus.rs`, which is `#[ignore]`d for exactly that reason.
+
+/// A second Person who is not the Operator, with an Access Key of their own.
+fn a_person_who_is_not_the_operator(app: &support::TestApp) -> String {
+    let person = app.core.create_person("Camille").expect("person");
+    app.core
+        .mint_access_key(&person, "camille's agent", false)
+        .unwrap()
+        .secret
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fresh_instance_searches_by_words_and_says_so() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+
+    let (status, held) = app.post_op("meaning_search_status", Some(&key), "{}");
+    assert_eq!(status, 200, "{held}");
+    let held = &held["result"];
+    // Kamosu ships no model, so this is where every instance begins — and where
+    // most of them stay, complete (ADR 0029).
+    assert_eq!(held["state"], json!("unasked"));
+    assert_eq!(held["on"], json!(false));
+    assert_eq!(held["model_present"], json!(false));
+    assert_eq!(held["accepted_by"], json!(null));
+    // The offer is live, and it names what would be agreed to before anybody
+    // agrees to it.
+    assert_eq!(held["offer"], json!(true));
+    assert_eq!(
+        held["terms_url"],
+        json!("https://ai.google.dev/gemma/terms")
+    );
+    assert!(held["model"].as_str().is_some_and(|m| m.contains("Gemma")));
+
+    // And searching is the same one Operation it always was, answering the same
+    // shape. The Catalogue cannot change per instance, so nothing here is
+    // conditional on there being a model.
+    let (_, made) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Miso Soup" }).to_string(),
+    );
+    assert_eq!(made["ok"], json!(true), "{made}");
+    let (status, found) = app.post_op(
+        "search_recipes",
+        Some(&key),
+        &json!({ "query": "miso" }).to_string(),
+    );
+    assert_eq!(status, 200, "{found}");
+    assert_eq!(found["result"]["recipes"][0]["title"], json!("Miso Soup"));
+    assert_eq!(
+        found["result"]["recipes"][0]["matched"]["by"],
+        json!("words")
+    );
+    // With no model there is no nearest neighbour, and Kamosu does not invent
+    // one: nothing found is nothing found.
+    let (_, nothing) = app.post_op(
+        "search_recipes",
+        Some(&key),
+        &json!({ "query": "osso buco alla milanese" }).to_string(),
+    );
+    assert_eq!(nothing["result"]["recipes"], json!([]));
+    assert_eq!(nothing["result"]["closest"], json!(false));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_offer_is_only_made_to_somebody_who_could_act_on_it() {
+    let app = support::spawn_app();
+    let (_operator_key, _) = operator_with_kitchen(&app);
+    let camille = a_person_who_is_not_the_operator(&app);
+
+    // Camille can read the status — she will meet *nothing found* like anybody
+    // else — but is never offered a thing only an Operator can do. An offer
+    // somebody cannot act on is worse than no offer at all.
+    let (status, held) = app.post_op("meaning_search_status", Some(&camille), "{}");
+    assert_eq!(status, 200, "{held}");
+    assert_eq!(held["result"]["state"], json!("unasked"));
+    assert_eq!(held["result"]["offer"], json!(false));
+
+    // And the Operations themselves refuse her, in the Core rather than in a
+    // Door: the same refusal arrives at both.
+    for name in [
+        "accept_meaning_search_terms",
+        "decline_meaning_search",
+        "download_meaning_model",
+        "build_meaning_index",
+        "turn_off_meaning_search",
+    ] {
+        let (status, refused) = app.post_op(name, Some(&camille), "{}");
+        assert_eq!(status, 401, "{name} must require an Operator: {refused}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn accepting_the_terms_keeps_the_hand_that_accepted_and_how_it_arrived() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    // Accepted through an Access Key — deliberately allowed. An agent acts *as*
+    // its Person, and minting it a Key was already the act of authorising that;
+    // a web-door-only carve-out would be the first hole in Parity and would
+    // stop nothing anyway (ADR 0029).
+    let (status, accepted) = app.post_op("accept_meaning_search_terms", Some(&key), "{}");
+    assert_eq!(status, 200, "{accepted}");
+    assert_eq!(accepted["result"]["state"], json!("accepted"));
+
+    let (_, held) = app.post_op("meaning_search_status", Some(&key), "{}");
+    let held = &held["result"];
+    assert_eq!(held["state"], json!("accepted"));
+    assert!(held["accepted_by"].is_string(), "the Hand is kept: {held}");
+    assert_eq!(held["accepted_via_access_key"], json!(true));
+    assert!(held["accepted_at"].is_string());
+    // Which issue of the terms was agreed to, so a later revision is a new
+    // question rather than a silent assumption.
+    assert_eq!(held["terms_version"], json!("2026-04-01"));
+    // Nothing has been downloaded by agreeing to anything.
+    assert_eq!(held["model_present"], json!(false));
+    assert_eq!(held["on"], json!(false));
+    // The offer is spent: it was answered.
+    assert_eq!(held["offer"], json!(false));
+
+    // Accepting again is not an error and does not rewrite the first
+    // acceptance — the record is of who agreed, and that already happened.
+    let first = held["accepted_at"].clone();
+    let (status, again) = app.post_op("accept_meaning_search_terms", Some(&key), "{}");
+    assert_eq!(status, 200, "{again}");
+    let (_, still) = app.post_op("meaning_search_status", Some(&key), "{}");
+    assert_eq!(still["result"]["accepted_at"], first);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_read_only_access_key_cannot_accept_the_terms() {
+    let app = support::spawn_app();
+    let first = json!({
+        "name": "Aurélien",
+        "password": "a password only its person knows",
+        "session_name": "test browser",
+    });
+    let (status, created) = app.post_auth("/auth/first-person", &first.to_string());
+    assert_eq!(status, 200, "{created}");
+    let operator_id = created["result"]["person"]["id"].as_str().unwrap();
+    let read_only = app
+        .core
+        .mint_access_key(operator_id, "a watcher", true)
+        .unwrap()
+        .secret;
+
+    // No new guard was needed for this: accepting is a write, and a read-only
+    // Key is refused every write in the Catalogue (ADR 0029, ADR 0031).
+    let (status, refused) = app.post_op("accept_meaning_search_terms", Some(&read_only), "{}");
+    assert_eq!(status, 401, "{refused}");
+    let (_, held) = app.post_op("meaning_search_status", Some(&read_only), "{}");
+    assert_eq!(held["result"]["state"], json!("unasked"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn declining_means_the_offer_is_never_made_again() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    let (status, declined) = app.post_op("decline_meaning_search", Some(&key), "{}");
+    assert_eq!(status, 200, "{declined}");
+    assert_eq!(declined["result"]["state"], json!("declined"));
+
+    let (_, held) = app.post_op("meaning_search_status", Some(&key), "{}");
+    let held = &held["result"];
+    assert_eq!(held["state"], json!("declined"));
+    assert!(held["declined_at"].is_string());
+    // The whole of what declining buys: a question already answered is never
+    // asked again.
+    assert_eq!(held["offer"], json!(false));
+    assert_eq!(held["on"], json!(false));
+
+    // And the instance is complete without it: word search is untouched.
+    let (status, found) = app.post_op(
+        "search_recipes",
+        Some(&key),
+        &json!({ "query": "anything" }).to_string(),
+    );
+    assert_eq!(status, 200, "{found}");
+    assert_eq!(found["result"]["closest"], json!(false));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn nothing_downloads_or_indexes_before_the_terms_are_accepted() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    // The one thing Kamosu will not do without being asked: fetch somebody
+    // else's weights under somebody else's licence. Asked before accepting, the
+    // Job runs and fails saying exactly that — a Job's failure is read back the
+    // way every Job's outcome is (ADR 0032).
+    let (status, asked) = app.post_op("download_meaning_model", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
+    let failure = wait_terminal(&app, Some(&key), &job_id);
+    assert_eq!(failure["status"], json!("failed"), "{failure}");
+    assert!(
+        failure["error"]
+            .as_str()
+            .is_some_and(|why| why.contains("terms")),
+        "the reason names the terms: {failure}"
+    );
+
+    // And nothing can be indexed against a model that is not there.
+    let (_, asked) = app.post_op("build_meaning_index", Some(&key), "{}");
+    let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
+    let failure = wait_terminal(&app, Some(&key), &job_id);
+    assert_eq!(failure["status"], json!("failed"), "{failure}");
+    assert!(
+        failure["error"]
+            .as_str()
+            .is_some_and(|why| why.contains("downloaded")),
+        "the reason names the missing model: {failure}"
+    );
+
+    let (_, held) = app.post_op("meaning_search_status", Some(&key), "{}");
+    assert_eq!(held["result"]["state"], json!("unasked"));
+    assert_eq!(held["result"]["on"], json!(false));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_meaning_search_operations_are_the_same_six_at_the_mcp_door() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    // Parity is a fact of assembly rather than a rule anybody remembers
+    // (ADR 0001), and `tests/parity.rs` proves it for the whole Catalogue. What
+    // this adds is that accepting a licence — the one place a web-only carve-out
+    // would have been tempting — really is available to an agent (ADR 0029).
+    let call = |name: &str| {
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": name, "arguments": {} },
+        });
+        let (status, answered) = app.post_mcp(&payload.to_string(), Some(&key));
+        assert_eq!(status, 200, "{name}: {answered}");
+        answered["result"]["structuredContent"].clone()
+    };
+
+    let accepted = call("accept_meaning_search_terms");
+    assert_eq!(accepted["state"], json!("accepted"), "{accepted}");
+
+    let held = call("meaning_search_status");
+    assert_eq!(held["state"], json!("accepted"));
+    assert_eq!(held["accepted_via_access_key"], json!(true));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turning_off_what_was_never_on_invents_no_acceptance() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    // Turning off an instance nobody has answered for must not quietly record
+    // an acceptance with nobody's Hand on it — and, because the offer is live
+    // exactly while nobody has answered, must not spend the offer either.
+    let (status, off) = app.post_op("turn_off_meaning_search", Some(&key), "{}");
+    assert_eq!(status, 200, "{off}");
+    assert_eq!(off["result"]["state"], json!("unasked"), "{off}");
+
+    let (_, held) = app.post_op("meaning_search_status", Some(&key), "{}");
+    assert_eq!(held["result"]["state"], json!("unasked"));
+    assert_eq!(held["result"]["accepted_by"], json!(null));
+    assert_eq!(
+        held["result"]["offer"],
+        json!(true),
+        "the offer has not been answered, so it is still there"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn declining_is_an_answer_to_the_offer_and_nothing_else() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    let (_, accepted) = app.post_op("accept_meaning_search_terms", Some(&key), "{}");
+    assert_eq!(accepted["result"]["state"], json!("accepted"));
+
+    // Declining terms already accepted is not a decline. It would be turning
+    // Meaning Search off while claiming otherwise — and there is an Operation
+    // that actually does that, so this one says no rather than pretending.
+    let (status, refused) = app.post_op("decline_meaning_search", Some(&key), "{}");
+    assert_eq!(status, 400, "{refused}");
+
+    let (_, held) = app.post_op("meaning_search_status", Some(&key), "{}");
+    assert_eq!(held["result"]["state"], json!("accepted"));
+    assert_eq!(held["result"]["declined_at"], json!(null));
+}
