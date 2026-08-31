@@ -714,11 +714,48 @@ describe('the recipe screen', () => {
 		expect(ketchup).toHaveClass('text-line');
 
 		// A line with a Reading and nothing to convert keeps the echo, because
-		// a blank slot would tell this cook less than the echo does.
+		// a blank slot would tell this cook less than the echo does — and this
+		// echo does say something: the line says `1.4 kg`, Kamosu read `1400 g`.
 		const chicken = screen.getByText('1.4 kg whole chicken').closest('li') as HTMLElement;
 		expect(
 			Array.from(chicken.querySelectorAll('.text-read')).map((node) => node.textContent?.trim()),
 		).toEqual(['1400 g chicken']);
+	});
+
+	it('says nothing beneath a line whose Reading only repeats it', async () => {
+		// Since #71 Kamosu reads every line it can, so most Readings are the
+		// line again in fewer words. An echo of one would be a repetition
+		// ADR 0016 forbids — and, appearing on exactly the lines Kamosu
+		// managed to read, the badge ADR 0002 refuses.
+		renderRecipe(
+			solo(
+				{
+					ingredients: [
+						{ kind: 'ingredient' as const, text: '2 gousses d’ail' },
+						{ kind: 'ingredient' as const, text: 'Za’tar' },
+						{ kind: 'ingredient' as const, text: '200 g de farine' },
+					],
+				},
+				[
+					{ amount: '2', unit: 'gousses', target: 'ail' },
+					{ amount: null, unit: null, target: 'Za’tar' },
+					// The one a person corrected: the line says 200 g of flour,
+					// Kamosu has been told it is 250 g of wheat flour.
+					{ amount: '250', unit: 'g', target: 'farine de blé' },
+				],
+				{ ingredients: [null, null, null], steps: SECTIONED_STEPS.map(() => null) },
+			),
+		);
+
+		const beneath = async (text: string) => {
+			const row = (await screen.findByText(text)).closest('li') as HTMLElement;
+			return Array.from(row.querySelectorAll('.text-read')).map((node) => node.textContent?.trim());
+		};
+
+		expect(await beneath('2 gousses d’ail')).toEqual([]);
+		expect(await beneath('Za’tar')).toEqual([]);
+		// The corrected Reading earns its slot: it says what the line does not.
+		expect(await beneath('200 g de farine')).toEqual(['250 g farine de blé']);
 	});
 
 	it('never puts two small lines under one written line', async () => {

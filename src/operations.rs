@@ -1288,6 +1288,14 @@ pub fn build_meaning_index(
     core.build_meaning_index(invocation.job.as_ref())
 }
 
+pub fn read_ingredient_lines(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.read_ingredient_lines(invocation.job.as_ref())
+}
+
 pub fn turn_off_meaning_search(
     core: &Core,
     _invocation: &Invocation,

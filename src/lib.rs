@@ -23,6 +23,7 @@ pub mod meaning;
 pub mod operations;
 pub mod pairing;
 pub mod photographs;
+pub mod reading;
 pub mod share_card;
 pub mod share_page;
 pub mod units;

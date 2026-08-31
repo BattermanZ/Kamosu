@@ -1818,13 +1818,23 @@ impl Core {
             // reading exactly as it did before, its Reading carries forward
             // onto the new Version rather than being silently lost. A line
             // that actually changed loses its Reading, which is ADR 0002's
-            // "re-reading the edited line refreshes the Reading" (the
-            // refresh itself is deferred: nothing here re-parses it). This
-            // holds identically for a Copy's first save: it is starting
-            // exactly at this head.
+            // "re-reading the edited line refreshes the Reading" — and the
+            // refresh itself happens directly below. This holds identically
+            // for a Copy's first save: it is starting exactly at this head.
             let head_content: Value = serde_json::from_str(&head_content)
                 .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
             carry_forward_readings(conn, &head_version_id, &head_content, &version_id, &content)?;
+            // ADR 0002's other half, which the comment above used to defer:
+            // a line this save actually wrote is read now (#71). A line it
+            // did not write keeps whatever it had, so a Reading somebody
+            // cleared on purpose stays cleared.
+            read_unread_lines(
+                conn,
+                &version_id,
+                &language,
+                &content,
+                Some(&lines_this_save_wrote(&head_content, &content)),
+            );
 
             if target_kitchen_id != owning_kitchen_id {
                 // Copy: your Kitchen did not write this Branch, so the change
@@ -2784,7 +2794,7 @@ impl Core {
                 progress.report(
                     done as u64,
                     Some(total as u64),
-                    format!("reading {done} of {total} recipes"),
+                    format!("reading the lines of {done} of {total} recipes"),
                 );
             }
         };
@@ -2794,6 +2804,90 @@ impl Core {
         let indexed = crate::meaning::build(&self.db(), &embedder, &report)?;
         self.db().with_conn(crate::meaning::turn_on)?;
         Ok(json!({ "indexed": indexed }))
+    }
+
+    /// **Read the Ingredient Lines of every recipe on this instance** that
+    /// nothing has read yet, as a Job (#71).
+    ///
+    /// A save reads the lines it wrote, so an instance that has only ever been
+    /// written to is already read and this finds nothing. What it is for is the
+    /// library that existed before Kamosu could read a line at all, and the
+    /// day this module gets better at reading them: a Reading is derived from
+    /// the written line and can always be worked out again (ADR 0003), which
+    /// is what makes running this safe to repeat.
+    ///
+    /// It reads the head of every Branch and no earlier Version. A Reading
+    /// belongs to the Version it was laid over, and re-reading a history
+    /// nobody is looking at would be work with no reader.
+    ///
+    /// **A line that already carries a Reading is left exactly as it is**,
+    /// whether Kamosu wrote it or a person corrected it (ADR 0003).
+    ///
+    /// **What this does not defend, said plainly** (ADR 0034's habit): a
+    /// Reading somebody *cleared* is indistinguishable from a line nothing has
+    /// read, because clearing one deletes its row and leaves no headstone. So
+    /// this fills it back in. The automatic path never does — a save reads only
+    /// the lines it wrote — and this is the Operator asking, in as many words,
+    /// for the unread lines to be read. Recording a deliberate emptiness would
+    /// mean a third state for every line in the library, to serve the cook who
+    /// cleared a Reading and then asked for a re-read; the honest trade is to
+    /// say so here rather than to build it.
+    pub fn read_ingredient_lines(
+        &self,
+        progress: Option<&crate::jobs::JobProgress>,
+    ) -> Result<Value, OpError> {
+        // **The database lock is never held across the whole walk** — the
+        // same rule Meaning Search's build follows, and for a sharper reason
+        // here: reporting progress takes the very lock this holds, so holding
+        // it across the loop would not merely block the instance, it would
+        // deadlock against itself on the first report.
+        let heads = self.db().with_conn(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT branches.head_version_id, branches.language, versions.content \
+                       FROM branches JOIN versions ON versions.id = branches.head_version_id",
+                )
+                .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?;
+            let heads = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?;
+            Ok(heads)
+        })?;
+
+        let total = heads.len();
+        let mut read = 0u64;
+        for (done, (version_id, language, content)) in heads.into_iter().enumerate() {
+            if let Some(progress) = progress {
+                progress.report(
+                    done as u64,
+                    Some(total as u64),
+                    format!("reading the lines of {done} of {total} recipes"),
+                );
+            }
+            // One recipe whose content will not parse is one recipe left
+            // unread, never a failed Job (#71).
+            let Ok(content) = serde_json::from_str::<Value>(&content) else {
+                continue;
+            };
+            read += self.db().with_conn(|conn| {
+                Ok(read_unread_lines(
+                    conn,
+                    &version_id,
+                    &language,
+                    &content,
+                    None,
+                ))
+            })?;
+        }
+        Ok(json!({ "read": read }))
     }
 
     /// Turn Meaning Search off. Everything it discards is derived from the
@@ -5113,6 +5207,107 @@ fn carry_forward_readings(
     Ok(())
 }
 
+/// **Read the Ingredient Lines of a Version that nothing has read yet** (#71),
+/// laying a Reading over each line Kamosu can make sense of and leaving the
+/// rest alone. Answers how many Readings it wrote.
+///
+/// `lines` names the ones it may touch, or every line when it is `None`.
+/// A save passes the lines that actually changed, because a line nobody
+/// edited must keep whatever it has — including nothing, where somebody
+/// cleared its Reading on purpose. Regenerating that would silently discard a
+/// correction, which ADR 0003 refuses in as many words.
+///
+/// A line that already carries a Reading is never overwritten here, whoever
+/// wrote it: `INSERT OR IGNORE` is doing real work, not defending against a
+/// race.
+///
+/// **This returns no error, and that is the point** (#71): reading a line may
+/// never fail a save, an import or a recipe. A line Kamosu cannot read is not
+/// an error, and neither is a whole recipe of them — so a Food that will not
+/// resolve, or a row the database refuses, costs that one line its Reading and
+/// nothing else. A signature that could fail would leave the promise resting
+/// on every caller remembering to ignore it.
+///
+/// **What it does not reach**: `start_translation`, which mints a Branch
+/// holding the *source* recipe's words under the Language it is to be
+/// translated *into*. Reading those words would file English foods under
+/// French. The translated lines are read the moment they are written, by the
+/// ordinary save path, which is where they arrive.
+fn read_unread_lines(
+    conn: &Connection,
+    version_id: &str,
+    language: &str,
+    content: &Value,
+    lines: Option<&HashSet<usize>>,
+) -> u64 {
+    let no_lines = Vec::new();
+    let ingredients = content["ingredients"].as_array().unwrap_or(&no_lines);
+    let mut written = 0;
+    for (index, line) in ingredients.iter().enumerate() {
+        if lines.is_some_and(|allowed| !allowed.contains(&index)) {
+            continue;
+        }
+        if line["kind"] != "ingredient" {
+            continue;
+        }
+        let Some(text) = line["text"].as_str() else {
+            continue;
+        };
+        let Some(reading) = crate::reading::read_line(text) else {
+            continue;
+        };
+        let food_id = match reading
+            .target
+            .as_deref()
+            .map(|word| resolve_food_for_word(conn, language, word, None))
+            .transpose()
+        {
+            Ok(food_id) => food_id,
+            // One unresolvable Food is one unread line, never a failed save.
+            Err(_) => continue,
+        };
+        match conn.execute(
+            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                version_id,
+                index as i64,
+                reading.amount,
+                reading.unit,
+                reading.target,
+                food_id
+            ],
+        ) {
+            Ok(inserted) => written += inserted as u64,
+            Err(error) => tracing::warn!(
+                target: "kamosu::reading",
+                %error, version_id, index,
+                "a line was left unread"
+            ),
+        }
+    }
+    written
+}
+
+/// Which Ingredient Lines this save actually wrote — the ones that changed and
+/// the ones that are new. Exactly the lines [`read_unread_lines`] may read,
+/// and the complement of the ones [`carry_forward_readings`] just carried.
+///
+/// Compared by position, which is the same approximation of Pairing
+/// `carry_forward_readings` makes and has to be: a line inserted above shifts
+/// every line below it, and both functions then treat those as written afresh
+/// — losing a carried Reading and reading a new one in the same breath. That
+/// is coherent rather than lossy, and it stops being an approximation when
+/// Pairing does.
+fn lines_this_save_wrote(old_content: &Value, new_content: &Value) -> HashSet<usize> {
+    let no_lines = Vec::new();
+    let old_lines = old_content["ingredients"].as_array().unwrap_or(&no_lines);
+    let new_lines = new_content["ingredients"].as_array().unwrap_or(&no_lines);
+    (0..new_lines.len())
+        .filter(|index| old_lines.get(*index) != new_lines.get(*index))
+        .collect()
+}
+
 /// Every Reading recorded against one Version, laid out as one slot per
 /// Ingredient Line — `null` wherever no Reading has been recorded, which is
 /// an entirely ordinary and permanent state for a line (ADR 0002).
@@ -6709,6 +6904,21 @@ fn insert_new_lineage_and_branch(
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot record first Version: {e}")))?;
+    // Every line of a first Version written *here* is Kamosu's to read (#71).
+    // An imported recipe is an ordinary recipe (ADR 0025), so a Crouton file
+    // and a typed recipe arrive read the same way.
+    //
+    // **A Bundle will not be**, when #67 builds one: a Bundle carries its own
+    // Readings and they are carried, never recomputed (ADR 0003, ADR 0021).
+    // Whoever wires that up writes the arriving Readings before reaching here,
+    // and the `INSERT OR IGNORE` below then correctly reads only the lines the
+    // Bundle had nothing to say about.
+    //
+    // A recipe whose own content will not parse is a recipe left unread, never
+    // a failed write.
+    if let Ok(content) = serde_json::from_str::<Value>(content_text) {
+        read_unread_lines(conn, version_id, language, &content, None);
+    }
     Ok(())
 }
 

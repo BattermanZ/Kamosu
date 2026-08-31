@@ -50,6 +50,15 @@
 	and a blank slot would tell her less than the echo does. Both are quiet, both
 	are visibly Kamosu's rather than the cook's, and neither is ever a badge.
 
+	SINCE #71 THE ECHO IS SILENT WHERE IT WOULD ONLY REPEAT THE LINE, which is
+	the rule the conversion already obeyed. The echo was chosen while a Reading
+	existed only because somebody had typed one — it was the only way to see
+	what Kamosu held. Now Kamosu reads every line it can, so an unfiltered echo
+	would set `Za’tar` under `Za’tar` on most rows, and would appear on exactly
+	the lines Kamosu managed to read: the badge ADR 0002 refuses, arrived at
+	sideways. The echo that survives is the one that earns its place — a Reading
+	somebody CORRECTED, saying something the written line does not.
+
 	A Step's slot holds the oven temperature in the other system, on the
 	conventional ladder — an addition beside the sentence, never written into it.
 -->
@@ -208,6 +217,16 @@
 	 * read where she does not, and nothing at all where there is neither. Never
 	 * both (#49, ADR 0016).
 	 *
+	 * **The echo is silent where it would only repeat the line above it**, which
+	 * is the same rule the conversion already obeys. It was written when a
+	 * Reading existed only because somebody had typed one, so an echo was the
+	 * only way to see what Kamosu held; since #71 Kamosu reads every line it
+	 * can, and an echo that parrots the line is two things it must not be — a
+	 * repetition ADR 0016 says must be absent, and a mark on exactly the lines
+	 * Kamosu managed to read, which is the badge ADR 0002 refuses. What is
+	 * left is the echo that earns its place: the Reading somebody **corrected**,
+	 * which says something the line does not.
+	 *
 	 * Like `readingAt`, the overlay is consulted only in your own recipe: the
 	 * two Branches have their own lists, so index 2 on the other side is a
 	 * different ingredient entirely.
@@ -218,7 +237,27 @@
 			side === 'mine' && fixed.has(index)
 				? (fixed.get(index)?.measured ?? null)
 				: (measured.ingredients[index] ?? null);
-		return converted ?? reading(readingAt(index));
+		if (converted) return converted;
+		const echo = reading(readingAt(index));
+		const written = content?.ingredients?.[index]?.text ?? '';
+		return echo && saysMoreThan(echo, written) ? echo : '';
+	}
+
+	/**
+	 * Whether an echo is worth showing under the line it was read from: it is,
+	 * only where some word of it is not already up there. Compared as bare
+	 * letters and digits, because the echo drops the punctuation and the
+	 * articles the line keeps — `2 gousses ail` is entirely inside
+	 * `2 gousses d’ail` and says nothing new, while a corrected `250 g farine
+	 * de blé` under `200 g de farine` says two things.
+	 */
+	function saysMoreThan(echo: string, line: string): boolean {
+		const bare = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '');
+		const written = bare(line);
+		return bare(echo)
+			.split(/\s+/)
+			.filter(Boolean)
+			.some((word) => !written.includes(word));
 	}
 
 	/**

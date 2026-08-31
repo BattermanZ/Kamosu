@@ -1300,6 +1300,31 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::set_reading,
         },
         Operation {
+            name: "read_ingredient_lines",
+            summary: "Read every Ingredient Line in the library that nothing \
+                      has read yet, as a Job, laying a Reading over each one \
+                      Kamosu can make sense of. Touches no written line and \
+                      makes no Version. A line already carrying a Reading is \
+                      left alone, so a correction is never overwritten, and a \
+                      line Kamosu cannot read is left unread, which is an \
+                      ordinary state for a line rather than a failure. Kamosu \
+                      also reads the lines of every recipe as it is written or \
+                      imported, so this is for a library that predates it.",
+            permission: Permission::Operator,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "read": { "type": "integer" } },
+                "required": ["read"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::read_ingredient_lines,
+        },
+        Operation {
             name: "start_attempt",
             summary: "Start cooking a Recipe: creates the Attempt, or hands \
                       back the one already In Progress for this Lineage — \

@@ -1366,6 +1366,13 @@ export type SetReadingOutput = {
 	} | null;
 };
 
+/** Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
+export type ReadIngredientLinesInput = Record<string, never>;
+/** What read_ingredient_lines eventually produces, read back through `get_job`. */
+export type ReadIngredientLinesOutput = {
+	read: number;
+};
+
 /** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 export type StartAttemptInput = {
 	branch_id: string;
@@ -2138,6 +2145,12 @@ export interface Operations {
 		output: SetReadingOutput;
 		kind: 'immediate';
 		permission: 'person';
+	};
+	read_ingredient_lines: {
+		input: ReadIngredientLinesInput;
+		output: ReadIngredientLinesOutput;
+		kind: 'job';
+		permission: 'operator';
 	};
 	start_attempt: {
 		input: StartAttemptInput;
@@ -8779,6 +8792,29 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "read_ingredient_lines",
+		"summary": "Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it.",
+		"permission": "operator",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"read": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"read"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "start_attempt",
 		"summary": "Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may.",
 		"permission": "person",
@@ -10871,6 +10907,7 @@ export const METHOD_NAMES = {
 	branch_point: 'branchPoint',
 	divergence: 'divergence',
 	set_reading: 'setReading',
+	read_ingredient_lines: 'readIngredientLines',
 	start_attempt: 'startAttempt',
 	advance_attempt: 'advanceAttempt',
 	finish_attempt: 'finishAttempt',
@@ -11007,6 +11044,8 @@ export interface KamosuClient {
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
 	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). Amount, Unit and target left out together clears the Reading, taking the line back to fully unread. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
+	/** Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
+	readIngredientLines(input?: ReadIngredientLinesInput): Promise<Answer<'read_ingredient_lines'>>;
 	/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 	startAttempt(input: StartAttemptInput): Promise<Answer<'start_attempt'>>;
 	/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */

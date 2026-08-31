@@ -1501,7 +1501,8 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
     // Genuine text from Aurélien's 86-recipe Crouton corpus
     // (samples/crouton/): "2 tbsp soy sauce" carries a quantity, "pinch of
     // salt" and "Za'tar" are two of the 239 real Ingredient Lines that do
-    // not (ADR 0002).
+    // not (ADR 0002). The last is real too — the corpus keeps whole cooking
+    // steps inside ingredient entries, and no reading of one is honest.
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
@@ -1513,19 +1514,29 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
                 { "kind": "ingredient", "text": "2 tbsp soy sauce" },
                 { "kind": "ingredient", "text": "pinch of salt" },
                 { "kind": "ingredient", "text": "Za’tar" },
+                { "kind": "ingredient", "text": "I use single cream instead of double cream? Yes it also works very well" },
             ],
         })
         .to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
-    // Freshly created: nothing has been read yet, so every line — including
-    // the one with an obvious quantity — carries no Reading. An unread line
-    // is not an error; it is a working line.
+    // Kamosu reads the lines it wrote (#71), and what it reads is a Reading
+    // and never a rewrite. A Section is not an Ingredient Line and gets none;
+    // the two lines carrying no quantity are read as far as they honestly go,
+    // which is the Food and nothing more; and the line that is a paragraph
+    // rather than a food is left unread. **An unread line is not an error, it
+    // is a working line** — and nothing here says which lines those were.
     assert_eq!(
         created["result"]["versions"][0]["readings"],
-        json!([null, null, null, null]),
-        "no parser runs yet (ADR 0002); every line starts unread"
+        json!([
+            null,
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
+            { "amount": null, "unit": "pinch", "target": "salt" },
+            { "amount": null, "unit": null, "target": "Za’tar" },
+            null,
+        ]),
+        "Kamosu reads what it can and declines the rest (ADR 0002)"
     );
 
     // Reading the soy sauce line (index 1) attaches a Reading beside the
@@ -1571,10 +1582,11 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         json!([
             null,
             { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
-            null,
+            { "amount": null, "unit": "pinch", "target": "salt" },
+            { "amount": null, "unit": null, "target": "Za’tar" },
             null,
         ]),
-        "pinch of salt and Za'tar stay unread — no quantity is not an error"
+        "correcting a Reading changes that Reading and nothing else"
     );
 
     // Correcting the Reading never mints a Version: still exactly one.
@@ -1595,9 +1607,18 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         Some(&key),
         &json!({ "branch_id": branch_id }).to_string(),
     );
+    // Cleared means cleared: the line goes back to fully unread and stays
+    // there. Nothing re-reads it behind the cook's back, because a Reading
+    // somebody removed on purpose is authored data (ADR 0003).
     assert_eq!(
         fetched_again["result"]["versions"][0]["readings"],
-        json!([null, null, null, null])
+        json!([
+            null,
+            null,
+            { "amount": null, "unit": "pinch", "target": "salt" },
+            { "amount": null, "unit": null, "target": "Za’tar" },
+            null,
+        ])
     );
     assert_eq!(
         fetched_again["result"]["versions"]
@@ -1746,9 +1767,10 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
         versions[1]["readings"],
         json!([
             { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
-            null,
+            { "amount": "2", "unit": "litres", "target": "stock" },
         ]),
-        "the soy sauce Reading survived the save; the rewritten stock line lost its own"
+        "the soy sauce Reading carried forward untouched; the rewritten stock \
+         line lost its own and was read afresh, now saying two litres"
     );
     // The earlier Version keeps exactly what it always had.
     assert_eq!(
@@ -1758,6 +1780,249 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
             { "amount": "1", "unit": "litre", "target": "stock" },
         ])
     );
+}
+
+// --- Reading Ingredient Lines (issue #71, ADR 0036) --------------------------
+
+/// **Reading a line is Kamosu's reading and nothing more** (ADR 0021): it
+/// arrives with the recipe, it makes no Version, and the words on the page are
+/// the words that were typed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_a_line_lays_a_reading_over_it_and_never_mints_a_version() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Crêpes",
+            "ingredients": [
+                { "kind": "ingredient", "text": "200 g de farine" },
+                { "kind": "ingredient", "text": "20 cl de crème fraîche" },
+                { "kind": "ingredient", "text": "2 gousses d’ail" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // The French half of ADR 0036: the article is glue and never part of the
+    // Food, the elided `d'` is cut the same way, and `cl` is a Unit because
+    // `units.rs` already spells the Units of all three Languages. No library
+    // measured for #71 read any of these three lines.
+    assert_eq!(
+        created["result"]["versions"][0]["readings"],
+        json!([
+            { "amount": "200", "unit": "g", "target": "farine" },
+            { "amount": "20", "unit": "cl", "target": "crème fraîche" },
+            { "amount": "2", "unit": "gousses", "target": "ail" },
+        ])
+    );
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        fetched["result"]["versions"].as_array().unwrap().len(),
+        1,
+        "reading three lines minted no Version of its own (ADR 0021)"
+    );
+    let written: Vec<&str> = fetched["result"]["versions"][0]["content"]["ingredients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        written,
+        [
+            "200 g de farine",
+            "20 cl de crème fraîche",
+            "2 gousses d’ail"
+        ],
+        "the written line is the truth and reading it changed no character of it"
+    );
+}
+
+/// **A Reading names a Food, and a Food is #47's to mint** — same rules,
+/// same instance-wide list, whether the word was typed or read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_line_creates_its_food_by_the_ordinary_rules() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    for title in ["Crêpes", "Gâteau"] {
+        let (status, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({
+                "kitchen_id": kitchen_id,
+                "title": title,
+                "language": "fr",
+                "ingredients": [{ "kind": "ingredient", "text": "200 g de farine" }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{created}");
+    }
+
+    // Two recipes, one Food: the second recipe's *farine* matched the first
+    // rather than minting its own, which is the whole of why a shopping list
+    // can add them together.
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let farine: Vec<&Value> = listed["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|food| {
+            food["names"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n["name"] == "farine")
+        })
+        .collect();
+    assert_eq!(
+        farine.len(),
+        1,
+        "one Food, matched not minted twice: {listed}"
+    );
+    assert_eq!(
+        farine[0]["names"][0]["language"], "fr",
+        "a Food read off a French Branch is named in French"
+    );
+}
+
+/// **A line Kamosu cannot read never fails the save**, and a recipe made
+/// entirely of such lines is an ordinary recipe (#71, ADR 0002).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_of_lines_nothing_can_read_saves_and_serves_exactly_as_written() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let unreadable = [
+        "Add the orzo and mix well to coat it in the sauce, then bring to a low boil",
+        "———",
+        "?",
+    ];
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Notes to self",
+            "ingredients": unreadable
+                .iter()
+                .map(|text| json!({ "kind": "ingredient", "text": text }))
+                .collect::<Vec<_>>(),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "an unread line is a working line: {created}");
+    assert_eq!(
+        created["result"]["versions"][0]["readings"],
+        json!([null, null, null]),
+        "nothing was read, and nothing pretended to be"
+    );
+
+    let (status, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": created["result"]["branch_id"].as_str().unwrap() }).to_string(),
+    );
+    assert_eq!(status, 200, "{fetched}");
+    let written: Vec<&str> = fetched["result"]["versions"][0]["content"]["ingredients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(written, unreadable, "every line came back exactly as typed");
+}
+
+/// **`read_ingredient_lines` is for the library that predates the reader**:
+/// it reads what nothing has read, and leaves alone everything anybody — a
+/// person or Kamosu — has already read (ADR 0003).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_reads_what_is_unread_and_leaves_a_correction_alone() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Chicken Katsu Curry",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 cup panko" },
+                { "kind": "ingredient", "text": "800 ml water" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // A person disagrees with how Kamosu read the panko line. That correction
+    // is authored data and no later reading may touch it.
+    let (status, corrected) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 0,
+            "amount": "2", "unit": "cups", "target": "panko breadcrumbs",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{corrected}");
+
+    let (status, asked) = app.post_op("read_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = wait_terminal(&app, Some(&key), job_id);
+    assert_eq!(finished["status"], "completed", "{finished}");
+    assert_eq!(
+        finished["result"]["read"], 0,
+        "both lines were read as they were written, so there was nothing left to read"
+    );
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        fetched["result"]["versions"][0]["readings"],
+        json!([
+            { "amount": "2", "unit": "cups", "target": "panko breadcrumbs" },
+            { "amount": "800", "unit": "ml", "target": "water" },
+        ]),
+        "the correction survived; the line Kamosu read is still as it read it"
+    );
+    assert_eq!(
+        fetched["result"]["versions"].as_array().unwrap().len(),
+        1,
+        "reading the whole library mints no Version anywhere (ADR 0021)"
+    );
+}
+
+/// The Job is the Operator's, because it walks every recipe on the instance
+/// and not one Kitchen's (ADR 0032's neighbourhood: what a stranger may cause
+/// is bounded, and this is not something a stranger may cause at all).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_is_the_operators_alone() {
+    let app = support::spawn_app();
+    let (_operator_key, _kitchen) = operator_with_kitchen(&app);
+    let (_person, key, _kitchen_id) = person_with_kitchen(&app, "Someone else");
+
+    let (status, refused) = app.post_op("read_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], "unauthorized");
 }
 
 // --- Foods (issue #47) --------------------------------------------------------
@@ -9848,6 +10113,10 @@ fn recipe_read_and_ready_to_cook(app: &support::TestApp, cook_name: &str) -> (St
                 { "kind": "ingredient", "text": "1 cup panko" },
                 { "kind": "ingredient", "text": "800 ml water" },
                 { "kind": "ingredient", "text": "a pinch of salt" },
+                // A whole sentence where an ingredient should be — the real
+                // corpus keeps several — which Kamosu declines to read rather
+                // than mint a Food out of a paragraph.
+                { "kind": "ingredient", "text": "I use single cream instead of double cream? Yes it also works very well" },
             ],
             "steps": [
                 { "kind": "section", "text": "Assemble" },
@@ -9922,24 +10191,24 @@ async fn a_step_uses_the_ingredients_its_readings_name_and_nothing_is_stored() {
         "a step that adds nothing new says so — nothing to add, just the pot"
     );
 
-    // The salt was never read, so no Step can use it. That is ADR 0002 working:
-    // the line is still on the page, still shops, and simply never appears in a
-    // step-scoped panel.
+    // No Step names the salt, and the last line was never read at all, so
+    // neither can reach a step-scoped panel. That is ADR 0002 working: both
+    // lines are still on the page, both still shop, and neither is marked.
     for slot in cooking["steps"].as_array().unwrap() {
         if let Some(uses) = slot["uses"].as_array() {
             assert!(
-                !uses.contains(&json!(4)),
-                "an unread line cannot be derived onto a Step"
+                !uses.contains(&json!(4)) && !uses.contains(&json!(5)),
+                "a line no Step names cannot be derived onto one, read or not"
             );
         }
     }
 
     // Nothing here is stored: it is worked out from `readings` and `content`,
-    // which is what makes it survive a parser being replaced.
+    // which is what makes it survive the reader itself being replaced.
     assert_eq!(
-        fetched["result"]["versions"][0]["readings"][4],
+        fetched["result"]["versions"][0]["readings"][5],
         json!(null),
-        "the unread line stays unread"
+        "a line Kamosu cannot read stays unread, and is a working line anyway"
     );
 }
 
