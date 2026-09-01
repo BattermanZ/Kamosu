@@ -1621,6 +1621,276 @@ export type ListAttemptsOutput = {
 	}[];
 };
 
+/** Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
+export type GetShoppingListInput = Record<string, never>;
+/** What get_shopping_list answers. */
+export type GetShoppingListOutput = {
+	chosen: {
+		branch_id: string;
+		gone: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	rows: {
+		id: string;
+		kind: "food" | "line" | "loose";
+		lines: {
+			branch_id: string;
+			recipe: string;
+			text: string;
+		}[];
+		name: string;
+		name_language: string | null;
+		parts: {
+			kind: "about" | "count" | "as_written" | "no_amount";
+			sources: string[];
+			text: string;
+		}[];
+	}[];
+};
+
+/** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
+export type AddToShoppingListInput = {
+	branch_id: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+};
+/** What add_to_shopping_list answers. */
+export type AddToShoppingListOutput = {
+	chosen: {
+		branch_id: string;
+		gone: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	rows: {
+		id: string;
+		kind: "food" | "line" | "loose";
+		lines: {
+			branch_id: string;
+			recipe: string;
+			text: string;
+		}[];
+		name: string;
+		name_language: string | null;
+		parts: {
+			kind: "about" | "count" | "as_written" | "no_amount";
+			sources: string[];
+			text: string;
+		}[];
+	}[];
+};
+
+/** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
+export type RemoveFromShoppingListInput = {
+	branch_id: string;
+};
+/** What remove_from_shopping_list answers. */
+export type RemoveFromShoppingListOutput = {
+	chosen: {
+		branch_id: string;
+		gone: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	rows: {
+		id: string;
+		kind: "food" | "line" | "loose";
+		lines: {
+			branch_id: string;
+			recipe: string;
+			text: string;
+		}[];
+		name: string;
+		name_language: string | null;
+		parts: {
+			kind: "about" | "count" | "as_written" | "no_amount";
+			sources: string[];
+			text: string;
+		}[];
+	}[];
+};
+
+/** Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
+export type SetShoppingYieldInput = {
+	branch_id: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+};
+/** What set_shopping_yield answers. */
+export type SetShoppingYieldOutput = {
+	chosen: {
+		branch_id: string;
+		gone: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	rows: {
+		id: string;
+		kind: "food" | "line" | "loose";
+		lines: {
+			branch_id: string;
+			recipe: string;
+			text: string;
+		}[];
+		name: string;
+		name_language: string | null;
+		parts: {
+			kind: "about" | "count" | "as_written" | "no_amount";
+			sources: string[];
+			text: string;
+		}[];
+	}[];
+};
+
+/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from, because a note accumulates and three trips appended with no divider are a wall. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
+export type ShoppingListAsTextInput = Record<string, never>;
+/** What shopping_list_as_text answers. */
+export type ShoppingListAsTextOutput = {
+	text: string;
+};
+
+/** Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
+export type EmptyShoppingListInput = Record<string, never>;
+/** What empty_shopping_list answers. */
+export type EmptyShoppingListOutput = {
+	chosen: {
+		branch_id: string;
+		gone: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	rows: {
+		id: string;
+		kind: "food" | "line" | "loose";
+		lines: {
+			branch_id: string;
+			recipe: string;
+			text: string;
+		}[];
+		name: string;
+		name_language: string | null;
+		parts: {
+			kind: "about" | "count" | "as_written" | "no_amount";
+			sources: string[];
+			text: string;
+		}[];
+	}[];
+};
+
+/** Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
+export type AddLooseItemInput = {
+	text: string;
+};
+/** What add_loose_item answers. */
+export type AddLooseItemOutput = {
+	chosen: {
+		branch_id: string;
+		gone: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	rows: {
+		id: string;
+		kind: "food" | "line" | "loose";
+		lines: {
+			branch_id: string;
+			recipe: string;
+			text: string;
+		}[];
+		name: string;
+		name_language: string | null;
+		parts: {
+			kind: "about" | "count" | "as_written" | "no_amount";
+			sources: string[];
+			text: string;
+		}[];
+	}[];
+};
+
+/** Take one typed line off your Shopping List. Answers the whole list. */
+export type RemoveLooseItemInput = {
+	item_id: string;
+};
+/** What remove_loose_item answers. */
+export type RemoveLooseItemOutput = {
+	chosen: {
+		branch_id: string;
+		gone: boolean;
+		shopping_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+		title: string;
+		written_yield: {
+			amount: string;
+			noun: string;
+		} | null;
+	}[];
+	rows: {
+		id: string;
+		kind: "food" | "line" | "loose";
+		lines: {
+			branch_id: string;
+			recipe: string;
+			text: string;
+		}[];
+		name: string;
+		name_language: string | null;
+		parts: {
+			kind: "about" | "count" | "as_written" | "no_amount";
+			sources: string[];
+			text: string;
+		}[];
+	}[];
+};
+
 /** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
 export type ListFoodsInput = Record<string, never>;
 /** What list_foods answers. */
@@ -2246,6 +2516,54 @@ export interface Operations {
 	list_attempts: {
 		input: ListAttemptsInput;
 		output: ListAttemptsOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_shopping_list: {
+		input: GetShoppingListInput;
+		output: GetShoppingListOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	add_to_shopping_list: {
+		input: AddToShoppingListInput;
+		output: AddToShoppingListOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_from_shopping_list: {
+		input: RemoveFromShoppingListInput;
+		output: RemoveFromShoppingListOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_shopping_yield: {
+		input: SetShoppingYieldInput;
+		output: SetShoppingYieldOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	shopping_list_as_text: {
+		input: ShoppingListAsTextInput;
+		output: ShoppingListAsTextOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	empty_shopping_list: {
+		input: EmptyShoppingListInput;
+		output: EmptyShoppingListOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	add_loose_item: {
+		input: AddLooseItemInput;
+		output: AddLooseItemOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_loose_item: {
+		input: RemoveLooseItemInput;
+		output: RemoveLooseItemOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -10142,6 +10460,1320 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "get_shopping_list",
+		"summary": "Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"chosen": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"gone",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"rows": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"food",
+									"line",
+									"loose"
+								]
+							},
+							"lines": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"recipe": {
+											"type": "string"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"recipe",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"name_language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parts": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"about",
+												"count",
+												"as_written",
+												"no_amount"
+											]
+										},
+										"sources": {
+											"items": {
+												"type": "string"
+											},
+											"type": "array"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"sources"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"name",
+							"name_language",
+							"parts",
+							"lines"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"chosen",
+				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "add_to_shopping_list",
+		"summary": "Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"chosen": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"gone",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"rows": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"food",
+									"line",
+									"loose"
+								]
+							},
+							"lines": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"recipe": {
+											"type": "string"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"recipe",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"name_language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parts": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"about",
+												"count",
+												"as_written",
+												"no_amount"
+											]
+										},
+										"sources": {
+											"items": {
+												"type": "string"
+											},
+											"type": "array"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"sources"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"name",
+							"name_language",
+							"parts",
+							"lines"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"chosen",
+				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_from_shopping_list",
+		"summary": "Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"chosen": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"gone",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"rows": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"food",
+									"line",
+									"loose"
+								]
+							},
+							"lines": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"recipe": {
+											"type": "string"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"recipe",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"name_language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parts": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"about",
+												"count",
+												"as_written",
+												"no_amount"
+											]
+										},
+										"sources": {
+											"items": {
+												"type": "string"
+											},
+											"type": "array"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"sources"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"name",
+							"name_language",
+							"parts",
+							"lines"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"chosen",
+				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "set_shopping_yield",
+		"summary": "Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"chosen": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"gone",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"rows": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"food",
+									"line",
+									"loose"
+								]
+							},
+							"lines": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"recipe": {
+											"type": "string"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"recipe",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"name_language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parts": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"about",
+												"count",
+												"as_written",
+												"no_amount"
+											]
+										},
+										"sources": {
+											"items": {
+												"type": "string"
+											},
+											"type": "array"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"sources"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"name",
+							"name_language",
+							"parts",
+							"lines"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"chosen",
+				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "shopping_list_as_text",
+		"summary": "Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from, because a note accumulates and three trips appended with no divider are a wall. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"text": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"text"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "empty_shopping_list",
+		"summary": "Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"chosen": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"gone",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"rows": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"food",
+									"line",
+									"loose"
+								]
+							},
+							"lines": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"recipe": {
+											"type": "string"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"recipe",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"name_language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parts": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"about",
+												"count",
+												"as_written",
+												"no_amount"
+											]
+										},
+										"sources": {
+											"items": {
+												"type": "string"
+											},
+											"type": "array"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"sources"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"name",
+							"name_language",
+							"parts",
+							"lines"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"chosen",
+				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "add_loose_item",
+		"summary": "Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"text": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"text"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"chosen": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"gone",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"rows": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"food",
+									"line",
+									"loose"
+								]
+							},
+							"lines": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"recipe": {
+											"type": "string"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"recipe",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"name_language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parts": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"about",
+												"count",
+												"as_written",
+												"no_amount"
+											]
+										},
+										"sources": {
+											"items": {
+												"type": "string"
+											},
+											"type": "array"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"sources"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"name",
+							"name_language",
+							"parts",
+							"lines"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"chosen",
+				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_loose_item",
+		"summary": "Take one typed line off your Shopping List. Answers the whole list.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"item_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"item_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"chosen": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"gone": {
+								"type": "boolean"
+							},
+							"shopping_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							},
+							"written_yield": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"gone",
+							"shopping_yield",
+							"written_yield"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"rows": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"kind": {
+								"enum": [
+									"food",
+									"line",
+									"loose"
+								]
+							},
+							"lines": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"recipe": {
+											"type": "string"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"branch_id",
+										"recipe",
+										"text"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"name": {
+								"type": "string"
+							},
+							"name_language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parts": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"enum": [
+												"about",
+												"count",
+												"as_written",
+												"no_amount"
+											]
+										},
+										"sources": {
+											"items": {
+												"type": "string"
+											},
+											"type": "array"
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"kind",
+										"text",
+										"sources"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"id",
+							"kind",
+							"name",
+							"name_language",
+							"parts",
+							"lines"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"chosen",
+				"rows"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "list_foods",
 		"summary": "List every Food this instance knows, each shown in the reader's Reading Language where it has a name there.",
 		"permission": "person",
@@ -11264,6 +12896,14 @@ export const METHOD_NAMES = {
 	promote_attempt_photograph: 'promoteAttemptPhotograph',
 	get_current_attempt: 'getCurrentAttempt',
 	list_attempts: 'listAttempts',
+	get_shopping_list: 'getShoppingList',
+	add_to_shopping_list: 'addToShoppingList',
+	remove_from_shopping_list: 'removeFromShoppingList',
+	set_shopping_yield: 'setShoppingYield',
+	shopping_list_as_text: 'shoppingListAsText',
+	empty_shopping_list: 'emptyShoppingList',
+	add_loose_item: 'addLooseItem',
+	remove_loose_item: 'removeLooseItem',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
 	set_food_name: 'setFoodName',
@@ -11410,6 +13050,22 @@ export interface KamosuClient {
 	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;
 	/** The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */
 	listAttempts(input?: ListAttemptsInput): Promise<Answer<'list_attempts'>>;
+	/** Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
+	getShoppingList(input?: GetShoppingListInput): Promise<Answer<'get_shopping_list'>>;
+	/** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
+	addToShoppingList(input: AddToShoppingListInput): Promise<Answer<'add_to_shopping_list'>>;
+	/** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
+	removeFromShoppingList(input: RemoveFromShoppingListInput): Promise<Answer<'remove_from_shopping_list'>>;
+	/** Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
+	setShoppingYield(input: SetShoppingYieldInput): Promise<Answer<'set_shopping_yield'>>;
+	/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from, because a note accumulates and three trips appended with no divider are a wall. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
+	shoppingListAsText(input?: ShoppingListAsTextInput): Promise<Answer<'shopping_list_as_text'>>;
+	/** Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
+	emptyShoppingList(input?: EmptyShoppingListInput): Promise<Answer<'empty_shopping_list'>>;
+	/** Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
+	addLooseItem(input: AddLooseItemInput): Promise<Answer<'add_loose_item'>>;
+	/** Take one typed line off your Shopping List. Answers the whole list. */
+	removeLooseItem(input: RemoveLooseItemInput): Promise<Answer<'remove_loose_item'>>;
 	/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
 	/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */

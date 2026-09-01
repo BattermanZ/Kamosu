@@ -1553,6 +1553,182 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             handler: crate::operations::list_attempts,
         },
+        // ── The Shopping List (#73, ADR 0024) ────────────────────────────────
+        //
+        // Every Operation here that changes the choosing answers the WHOLE
+        // list, computed again. That is not a convenience: the rows are
+        // computed and stored nowhere, so there is no smaller answer that
+        // would still be true, and a screen redrawing from one answer cannot
+        // hold a row the Core has since worked out differently.
+        Operation {
+            name: "get_shopping_list",
+            summary: "Your Shopping List: the recipes you chose, and the rows \
+                      worked out from them. Everyone has exactly one; it has \
+                      no name and is never archived. The rows are computed on \
+                      every read and stored nowhere, so editing a chosen \
+                      recipe or correcting a Reading changes the list at once. \
+                      A row names a Food in your Reading Language and merges \
+                      every mention of it; amounts add where the Units \
+                      honestly convert, saying about, and ride side by side \
+                      where they do not. Nothing here is ticked off.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: shopping_list_schema(),
+            handler: crate::operations::get_shopping_list,
+        },
+        Operation {
+            name: "add_to_shopping_list",
+            summary: "Choose a recipe to shop for, at a Yield or as it is \
+                      written. It holds the Branch at its latest Version, \
+                      never a Lineage and never pinned, so a recipe edited \
+                      between the planning and the shopping is right in the \
+                      shop. Choosing one already on the list is not an error \
+                      and makes no second entry: it moves that entry to the \
+                      Yield given here, or back to the recipe as written when \
+                      none is. Answers the whole list.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "yield": yield_schema(),
+                },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: shopping_list_schema(),
+            handler: crate::operations::add_to_shopping_list,
+        },
+        Operation {
+            name: "remove_from_shopping_list",
+            summary: "Take a recipe off your Shopping List. Works whether or \
+                      not it can still be read, which is exactly the entry \
+                      somebody most wants gone. Answers the whole list.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: shopping_list_schema(),
+            handler: crate::operations::remove_from_shopping_list,
+        },
+        Operation {
+            name: "set_shopping_yield",
+            summary: "Say how much of a chosen recipe you are shopping for — \
+                      an amount and its noun, or null for the recipe as \
+                      written. Every amount it contributes moves with it. \
+                      Answers the whole list.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "yield": yield_schema(),
+                },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: shopping_list_schema(),
+            handler: crate::operations::set_shopping_yield,
+        },
+        Operation {
+            name: "shopping_list_as_text",
+            summary: "Your Shopping List as plain text, ready to be carried \
+                      out of Kamosu. Nothing is ticked off here, because the \
+                      list leaves and something else holds the ticks — Apple \
+                      Notes, through a Shortcut. The text opens with a header \
+                      line, the date and the recipes it was built from, \
+                      because a note accumulates and three trips appended with \
+                      no divider are a wall. This only reads: emptying the \
+                      list afterwards is a separate Operation, offered and \
+                      never done on the way out.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "text": { "type": "string" } },
+                "required": ["text"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::shopping_list_as_text,
+        },
+        Operation {
+            name: "empty_shopping_list",
+            summary: "Empty your Shopping List — every recipe chosen and \
+                      every typed line at once. Offered after the list has \
+                      left as text and never done on the way out: a list that \
+                      emptied itself when it was sent would be silent and \
+                      unrecoverable. Answers the whole list.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: shopping_list_schema(),
+            handler: crate::operations::empty_shopping_list,
+        },
+        Operation {
+            name: "add_loose_item",
+            summary: "Type a line straight onto your Shopping List — bin \
+                      bags, coffee. Kept exactly as typed and never read, so \
+                      it carries no amount and merges with nothing: typing \
+                      flour beside a recipe that wants flour gives two lines. \
+                      Answers the whole list.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "text": { "type": "string" } },
+                "required": ["text"],
+                "additionalProperties": false,
+            }),
+            output_schema: shopping_list_schema(),
+            handler: crate::operations::add_loose_item,
+        },
+        Operation {
+            name: "remove_loose_item",
+            summary: "Take one typed line off your Shopping List. Answers the \
+                      whole list.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "item_id": { "type": "string" } },
+                "required": ["item_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: shopping_list_schema(),
+            handler: crate::operations::remove_loose_item,
+        },
         Operation {
             name: "list_foods",
             summary: "List every Food this instance knows, each shown in the \
@@ -3249,6 +3425,123 @@ fn diary_entry_schema() -> Value {
         .expect("attempt_schema declares its required fields as an array")
         .push(json!("recipe"));
     schema
+}
+
+/// **The whole Shopping List** — the only shape any of its six Operations
+/// answers (#73, ADR 0024).
+///
+/// One schema rather than six, because there is one answer: the choosing as
+/// stored, and the rows worked out from it. Every Operation that changes the
+/// choosing hands back the list it produced, so no screen and no agent ever
+/// has to guess at what its own change did.
+///
+/// **Nothing here carries a tick.** A row is derived from a Food and however
+/// many recipes mention it, and it changes shape the moment a Yield moves, so
+/// there is no name to staple a tick to (ADR 0019, ADR 0024). The list leaves
+/// as text and something else carries it round the shop.
+fn shopping_list_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            // The choosing, in the order it was made.
+            "chosen": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "branch_id": { "type": "string" },
+                        // The live title while the recipe can be read, and
+                        // otherwise the name it was known by when it was
+                        // chosen (ADR 0024).
+                        "title": { "type": "string" },
+                        // Whether it can no longer be read — deleted, or a
+                        // Kitchen this Person no longer cooks in. The entry
+                        // stays and contributes nothing, because a thing that
+                        // quietly disappears from a shopping list is a thing
+                        // that does not get bought.
+                        "gone": { "type": "boolean" },
+                        "shopping_yield": yield_schema(),
+                        "written_yield": yield_schema(),
+                    },
+                    "required": [
+                        "branch_id", "title", "gone", "shopping_yield", "written_yield"
+                    ],
+                    "additionalProperties": false,
+                },
+            },
+            // The rows, computed. One list in one order: a Loose Item and a
+            // line nobody read sort among the Foods rather than into a block
+            // of their own.
+            "rows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        // `food` merges every mention of one Food. `line` is
+                        // an Ingredient Line with no Food to merge under, kept
+                        // exactly as written. `loose` is a line typed straight
+                        // onto the list. The last two merge with nothing.
+                        "kind": { "enum": ["food", "line", "loose"] },
+                        "name": { "type": "string" },
+                        // The Language the name is in, so a Food named only in
+                        // another Language can be marked as borrowed. Null on
+                        // a row that is somebody's own words.
+                        "name_language": { "type": ["string", "null"] },
+                        // Between one and several amounts. More than one is
+                        // the row the arithmetic could not close: two true
+                        // amounts beat one wrong one.
+                        "parts": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    // `about` is an amount Kamosu converted
+                                    // and rounded; `count` is a number of
+                                    // things; `as_written` is a cook's own
+                                    // Unit, untouched; `no_amount` is a line
+                                    // nobody put a number on.
+                                    "kind": {
+                                        "enum": ["about", "count", "as_written", "no_amount"]
+                                    },
+                                    "text": { "type": "string" },
+                                    // The recipes that fed this amount, so a
+                                    // row that had to break open can say which
+                                    // dish wants which.
+                                    "sources": {
+                                        "type": "array",
+                                        "items": { "type": "string" },
+                                    },
+                                },
+                                "required": ["kind", "text", "sources"],
+                                "additionalProperties": false,
+                            },
+                        },
+                        // The written lines this row was made from, always one
+                        // tap away (ADR 0002, ADR 0019). Empty on a Loose Item,
+                        // which was made from nothing.
+                        "lines": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "branch_id": { "type": "string" },
+                                    "recipe": { "type": "string" },
+                                    "text": { "type": "string" },
+                                },
+                                "required": ["branch_id", "recipe", "text"],
+                                "additionalProperties": false,
+                            },
+                        },
+                    },
+                    "required": ["id", "kind", "name", "name_language", "parts", "lines"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["chosen", "rows"],
+        "additionalProperties": false,
+    })
 }
 
 fn empty_input() -> Value {

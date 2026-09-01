@@ -340,7 +340,7 @@ impl Measures {
 /// only by `to_lowercase` would silently miss half the Foods it names. **Both
 /// sides go through this**: the tables are folded at lookup time too, so a
 /// literal written here can never be a spelling nothing can reach.
-fn fold(word: &str) -> String {
+pub fn fold(word: &str) -> String {
     use caseless::Caseless;
     use unicode_normalization::UnicodeNormalization;
     let cased: String = word.chars().nfd().default_case_fold().nfd().collect();
@@ -698,11 +698,8 @@ fn convert(
         // becomes a weight — the one cross-family crossing there is, and the
         // whole reason a Cup Weight exists.
         (Measures::Metric, Family::Volume) if source.system == System::Customary => {
-            match cup_weight_grams {
-                Some(per_cup) => {
-                    let grams = base / unit_by_id("cup").base * per_cup;
-                    in_metric_mass(grams)
-                }
+            match crossed_into_grams(base, source, measures, cup_weight_grams) {
+                Some(grams) => in_metric_mass(grams),
                 // A blank Cup Weight is not a gap to close. It is a line that
                 // offers millilitres instead, and says nothing about grams.
                 None => in_metric_volume(base),
@@ -763,6 +760,100 @@ fn at(base_quantity: f64, id: &'static str, per: f64) -> Measured {
         quantity: base_quantity / per,
         unit: Some(unit_by_id(id)),
         as_written: None,
+    }
+}
+
+/// **Which bucket one contribution to a Shopping Row belongs in** (#73).
+///
+/// `Some(grams)` puts it with the masses; `None` puts it with the volumes. It
+/// is the same crossing [`convert`] makes and no other: a customary volume of a
+/// Food with a Cup Weight becomes a weight for a metric kitchen, which has
+/// scales, and nothing ever crosses the other way, because an American kitchen
+/// is not short of a cup.
+///
+/// `base` is the amount already in the Unit's own base — grams for a Mass,
+/// millilitres for a Volume.
+///
+/// It takes `measures` for the reason [`convert`] does: which bucket an amount
+/// belongs in is a fact about the kitchen reading the list, not about the
+/// recipe. A metric reader adds `2 cups flour` to `500 g flour` and gets one
+/// weight; an American reader keeps them apart, because they are two things she
+/// measures with two different tools.
+pub fn in_grams(
+    base: f64,
+    unit: &'static Unit,
+    measures: Measures,
+    cup_weight_grams: Option<f64>,
+) -> Option<f64> {
+    match unit.family {
+        Family::Mass => Some(base),
+        Family::Volume => crossed_into_grams(base, unit, measures, cup_weight_grams),
+    }
+}
+
+/// **The one crossing between families Kamosu makes, decided in one place.**
+///
+/// A metric kitchen has scales, so a *customary* volume of a Food with a Cup
+/// Weight becomes a weight — and that is the whole of it. A metric volume is
+/// left alone for the reason ADR 0016 gives: Kamosu converts *between* systems
+/// and never re-expresses within one, and a reader with a jug is not short of a
+/// millilitre. An American keeps her cups, so nothing crosses for her either.
+///
+/// Two callers need this answered and they need the same answer: [`convert`],
+/// wording one line under a recipe, and [`in_grams`], deciding which amount a
+/// Shopping Row adds a contribution into. Two spellings of it would be two
+/// chances for a cup of flour to weigh one thing on a recipe page and another
+/// in a shop.
+fn crossed_into_grams(
+    base: f64,
+    unit: &Unit,
+    measures: Measures,
+    cup_weight_grams: Option<f64>,
+) -> Option<f64> {
+    let per_cup = cup_weight_grams?;
+    (unit.family == Family::Volume
+        && measures == Measures::Metric
+        && unit.system == System::Customary)
+        .then(|| base / unit_by_id("cup").base * per_cup)
+}
+
+/// A Shopping Row's mass, worded for one reader (#73).
+pub fn worded_mass(grams: f64, measures: Measures, language: &str) -> String {
+    let measured = match measures {
+        Measures::Us => in_customary_mass(grams),
+        _ => in_metric_mass(grams),
+    };
+    word_it(measured, language)
+}
+
+/// A Shopping Row's volume, worded for one reader (#73).
+pub fn worded_volume(millilitres: f64, measures: Measures, language: &str) -> String {
+    let measured = match measures {
+        Measures::Us => in_customary_volume(millilitres),
+        _ => in_metric_volume(millilitres),
+    };
+    word_it(measured, language)
+}
+
+/// A number with no Unit of Kamosu's own beside it: a count of eggs, or the
+/// figure in front of a word Kamosu does not know. Written the way an unknown
+/// measure is written everywhere else — in eighths, because a cook's own
+/// measure is as likely to be halved as anything else.
+pub fn plain_number(quantity: f64) -> String {
+    as_fraction(round_to(quantity, None))
+}
+
+/// **What a row says where nobody wrote an amount** (ADR 0024) — 28% of real
+/// Ingredient Lines (#5). Not a blank and not a zero: a statement that the
+/// recipe never said, so the thing still gets bought.
+///
+/// French and Spanish say *no amount written* rather than reaching for *un
+/// peu* or *un poco*, which would be Kamosu guessing at a size nobody gave it.
+pub fn no_amount_written(language: &str) -> &'static str {
+    match language {
+        "fr" => "sans quantité",
+        "es" => "sin cantidad",
+        _ => "some",
     }
 }
 

@@ -161,7 +161,15 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "share_recipe"
             | "end_share_link"
             | "get_share_link"
-            | "set_public_address" => ("{}", 401),
+            | "set_public_address"
+            | "get_shopping_list"
+            | "add_to_shopping_list"
+            | "remove_from_shopping_list"
+            | "set_shopping_yield"
+            | "shopping_list_as_text"
+            | "empty_shopping_list"
+            | "add_loose_item"
+            | "remove_loose_item" => ("{}", 401),
             // Public, and answered on the token alone: a token nobody minted
             // is not found, which is the routing this check is after.
             "read_shared_recipe" => (r#"{"token":"parity-no-such-token"}"#, 404),
@@ -307,6 +315,14 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "get_share_link"
                 | "set_public_address"
                 | "read_shared_recipe"
+                | "get_shopping_list"
+                | "add_to_shopping_list"
+                | "remove_from_shopping_list"
+                | "set_shopping_yield"
+                | "shopping_list_as_text"
+                | "empty_shopping_list"
+                | "add_loose_item"
+                | "remove_loose_item"
         ) {
             // Asked without what they need — a real id or a Credential — they
             // refuse as errors rather than pretending success.

@@ -105,6 +105,18 @@
 	let saving = $state(false);
 	let changeNote = $state('');
 	let saved = $state<'no' | 'yes' | 'failed'>('no');
+	/**
+	 * Whether this recipe is on the reader's own Shopping List (#73).
+	 *
+	 * Read here rather than folded into `get_recipe`, for the reason
+	 * `note_recipe_opened` is its own Operation: a Shopping List is one
+	 * **Person's**, and a recipe is a Kitchen's, so a recipe reading its
+	 * reader's private list on the side would tie the two together. Nothing
+	 * waits on it; if it never answers, the button simply offers to add, and
+	 * adding twice makes no second entry.
+	 */
+	let onTheList = $state(false);
+	let shopping = $state(false);
 
 	$effect(() => {
 		let current = true;
@@ -126,6 +138,15 @@
 				// may never be the reason a cook cannot read a recipe — a
 				// read-only Key is refused here every time, and reads on.
 				void kamosu.noteRecipeOpened({ branch_id: branchId }).catch(() => {});
+
+				void kamosu
+					.getShoppingList({})
+					.then((list) => {
+						if (current) {
+							onTheList = list.chosen.some((entry) => entry.branch_id === branchId);
+						}
+					})
+					.catch(() => {});
 
 				// Any Branch of the Lineage answers the same Thread, so this is how
 				// the screen learns a second one exists at all. ADR 0014 designed
@@ -736,6 +757,37 @@
 		>
 			{m.share_title()}
 		</a>
+		<!--
+			Onto the Shopping List (#73, ADR 0024). A button and not a link: it
+			is one act that finishes here, and pressing it again takes the
+			recipe back off. What it stores is the choosing — the Branch, at
+			whatever Version it is on when the list is next read.
+		-->
+		<button
+			type="button"
+			disabled={shopping}
+			class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] border border-rule p-4 text-center font-display text-body {onTheList
+				? 'text-ink-2'
+				: 'text-accent'}"
+			onclick={async () => {
+				shopping = true;
+				try {
+					if (onTheList) {
+						await kamosu.removeFromShoppingList({ branch_id: branchId });
+						onTheList = false;
+					} else {
+						await kamosu.addToShoppingList({ branch_id: branchId });
+						onTheList = true;
+					}
+				} catch (error: unknown) {
+					if (!(error instanceof OperationError)) throw error;
+				} finally {
+					shopping = false;
+				}
+			}}
+		>
+			{onTheList ? m.shopping_on_your_list() : m.shopping_add_this()}
+		</button>
 	{/if}
 
 	<!-- Carried across and not yet saved. It becomes real only when an ordinary

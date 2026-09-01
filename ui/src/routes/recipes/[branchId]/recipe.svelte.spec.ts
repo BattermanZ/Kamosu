@@ -1061,4 +1061,32 @@ describe('correcting a Reading beside a Divergence', () => {
 		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
 		expect(screen.queryByText('What Kamosu read')).not.toBeInTheDocument();
 	});
+
+	it('puts the recipe on the reader’s Shopping List, and takes it back off', async () => {
+		// The list is a Person's, not a Kitchen's (ADR 0024), so the recipe
+		// screen asks for it separately rather than reading it off the recipe.
+		const { kamosu } = renderRecipe({
+			...forked(),
+			get_shopping_list: { chosen: [], rows: [] },
+			add_to_shopping_list: { chosen: [], rows: [] },
+			remove_from_shopping_list: { chosen: [], rows: [] },
+		});
+		await screen.findByText('Maison Batterman');
+
+		const button = await screen.findByRole('button', { name: /Add to shopping list/i });
+		await fireEvent.click(button);
+		expect(kamosu.calls.find((call) => call.operation === 'add_to_shopping_list')?.input).toEqual({
+			branch_id: 'mine',
+		});
+
+		// What it stores is the choosing, so the button now offers the way back.
+		const on = await screen.findByRole('button', { name: /On your shopping list/i });
+		await fireEvent.click(on);
+		expect(
+			kamosu.calls.find((call) => call.operation === 'remove_from_shopping_list')?.input,
+		).toEqual({ branch_id: 'mine' });
+		expect(
+			await screen.findByRole('button', { name: /Add to shopping list/i }),
+		).toBeInTheDocument();
+	});
 });

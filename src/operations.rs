@@ -1360,3 +1360,101 @@ pub fn probe_job(_core: &Core, invocation: &Invocation, input: Value) -> Result<
 
     Ok(json!({ "steps": steps, "message": "finished" }))
 }
+
+// ── The Shopping List (#73, ADR 0024) ────────────────────────────────────────
+//
+// Every one of these answers the whole list. The choosing is what is stored;
+// the rows are worked out from it on every read and kept nowhere, so the list
+// a change produced is the only honest thing to hand back.
+
+pub fn get_shopping_list(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.shopping_list(&caller.person_id)
+}
+
+pub fn shopping_list_as_text(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.shopping_list_as_text(&caller.person_id)
+}
+
+pub fn empty_shopping_list(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.empty_shopping_list(&caller.person_id)
+}
+
+pub fn add_to_shopping_list(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("add_to_shopping_list takes { branch_id, yield? }"))?;
+    let caller = caller_of(invocation)?;
+    core.add_to_shopping_list(&caller.person_id, branch_id, input.get("yield"))
+}
+
+pub fn remove_from_shopping_list(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("remove_from_shopping_list takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.remove_from_shopping_list(&caller.person_id, branch_id)
+}
+
+pub fn set_shopping_yield(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("set_shopping_yield takes { branch_id, yield }"))?;
+    let caller = caller_of(invocation)?;
+    core.set_shopping_yield(&caller.person_id, branch_id, input.get("yield"))
+}
+
+pub fn add_loose_item(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let text = input
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("add_loose_item takes { text }"))?;
+    let caller = caller_of(invocation)?;
+    core.add_loose_item(&caller.person_id, text)
+}
+
+pub fn remove_loose_item(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let item_id = input
+        .get("item_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("remove_loose_item takes { item_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.remove_loose_item(&caller.person_id, item_id)
+}

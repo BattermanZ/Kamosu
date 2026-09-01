@@ -12006,3 +12006,755 @@ async fn a_version_written_before_a_field_existed_still_answers_the_declared_sha
         "supplying the field on the way out must not re-fingerprint the Version"
     );
 }
+
+// --- The Shopping List (issue #73, ADR 0024) ---------------------------------
+
+/// Two real recipes from Aurélien's Crouton corpus, cut to the lines that make
+/// a Shopping List interesting, and chosen at once.
+///
+/// Every line below is verbatim from `samples/crouton/`. Between them they
+/// produce all four states one row can be in: an amount that added and says
+/// *about*, two amounts that will not add and ride side by side, a line
+/// carrying no quantity that rides as *some*, and a line with no Food to merge
+/// under at all.
+fn two_real_recipes(app: &support::TestApp, key: &str, kitchen_id: &str) -> (String, String) {
+    let (_, chicken) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Korean Fried Chicken",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp minced garlic" },
+                { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "Some cooking oil (for deep frying)" },
+            ],
+        })
+        .to_string(),
+    );
+    let (_, coq) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Braised Chicken in Red Wine (Coq au Vin)",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "section", "text": "For the braise" },
+                { "kind": "ingredient", "text": "4 cloves minced garlic" },
+                { "kind": "ingredient", "text": "1 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "olive oil" },
+            ],
+        })
+        .to_string(),
+    );
+    (
+        chicken["result"]["branch_id"].as_str().unwrap().to_string(),
+        coq["result"]["branch_id"].as_str().unwrap().to_string(),
+    )
+}
+
+/// One row off a list, by the name it carries.
+fn row<'a>(list: &'a Value, name: &str) -> &'a Value {
+    list["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|row| row["name"] == json!(name))
+        .unwrap_or_else(|| panic!("no row named {name} in {list}"))
+}
+
+/// What one row's amounts say, in order.
+fn amounts(row: &Value) -> Vec<String> {
+    row["parts"]
+        .as_array()
+        .expect("parts")
+        .iter()
+        .map(|part| part["text"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_list_leaves_as_text_under_a_header_line_and_kamosu_lets_go_of_it() {
+    // ADR 0024's other end. Nothing is ticked inside Kamosu *because* the list
+    // leaves and something else holds the ticks, so a list with no way out
+    // would have made the missing tick a refusal rather than a boundary.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    for branch_id in [&chicken, &coq] {
+        app.post_op(
+            "add_to_shopping_list",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+    }
+    app.post_op(
+        "add_loose_item",
+        Some(&key),
+        &json!({ "text": "bin bags" }).to_string(),
+    );
+
+    let (status, sent) = app.post_op("shopping_list_as_text", Some(&key), "{}");
+    assert_eq!(status, 200, "{sent}");
+    let text = sent["result"]["text"].as_str().expect("text").to_string();
+    let mut lines = text.lines();
+
+    // The header line is a divider before it is a label: the note accumulates,
+    // and three trips appended with no divider are a wall.
+    let header = lines.next().expect("a header line");
+    let today: String = header.split(' ').next().unwrap().to_string();
+    assert_eq!(
+        today.len(),
+        10,
+        "the header opens with a date, in {header:?}"
+    );
+    assert!(
+        header.contains("Korean Fried Chicken")
+            && header.contains("Braised Chicken in Red Wine (Coq au Vin)"),
+        "the header names the recipes it was built from, in {header:?}"
+    );
+
+    // A row that added says one amount; the row that could not says both, each
+    // under the dish that wanted it — which is the whole answer to *which dish
+    // goes short* travelling out of Kamosu with the list.
+    assert!(
+        text.contains("\nsoy sauce — about 45 ml"),
+        "an added row carries its one amount, in {text:?}"
+    );
+    assert!(
+        text.contains("\nminced garlic\n"),
+        "the row that could not be added breaks open, in {text:?}"
+    );
+    assert!(
+        text.contains("Korean Fried Chicken: about 30 ml"),
+        "each amount is labelled with the dish that wanted it, in {text:?}"
+    );
+    assert!(
+        text.contains(": 4 cloves"),
+        "and so is the one that would not convert, in {text:?}"
+    );
+
+    // A line typed by hand goes over exactly as typed, with no amount slot.
+    assert!(
+        text.contains("\nbin bags\n") || text.ends_with("\nbin bags\n"),
+        "a Loose Item travels whole and alone, in {text:?}"
+    );
+    assert!(
+        !text.contains("[ ]") && !text.contains("- ["),
+        "nothing is ticked, here least of all: {text:?}"
+    );
+
+    // Reading it changed nothing: Kamosu offers to empty and does not act.
+    let (_, after) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        after["result"]["chosen"].as_array().unwrap().len(),
+        2,
+        "sending the list does not empty it"
+    );
+
+    let (status, emptied) = app.post_op("empty_shopping_list", Some(&key), "{}");
+    assert_eq!(status, 200, "{emptied}");
+    assert_eq!(
+        emptied["result"],
+        json!({ "chosen": [], "rows": [] }),
+        "and the offer, once taken, takes the choosing and the typed lines together"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn choosing_a_recipe_already_on_the_list_moves_its_yield_rather_than_ignoring_it() {
+    // The Catalogue promises "choose a recipe to shop for, at a Yield", and
+    // that choosing one already on the list is not an error. Silently keeping
+    // the old figure would shop for four while saying nothing.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+    let (_, as_written) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        amounts(row(&as_written["result"], "soy sauce")),
+        vec!["about 30 ml"],
+        "the recipe as written, for four"
+    );
+
+    // Add it again, for eight. One entry, and the amounts move.
+    let (status, doubled) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken, "yield": { "amount": "8", "noun": "servings" } })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{doubled}");
+    assert_eq!(
+        doubled["result"]["chosen"].as_array().unwrap().len(),
+        1,
+        "choosing it twice makes no second entry"
+    );
+    assert_eq!(
+        doubled["result"]["chosen"][0]["shopping_yield"],
+        json!({ "amount": "8", "noun": "servings" }),
+        "and the Yield asked for is the Yield stored"
+    );
+    assert_eq!(
+        amounts(row(&doubled["result"], "soy sauce")),
+        vec!["about 60 ml"],
+        "every amount it contributes moves with it"
+    );
+
+    // And adding it once more with no Yield puts it back to the recipe as
+    // written, which is what asking for it with no Yield means.
+    let (_, plain) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+    assert_eq!(plain["result"]["chosen"][0]["shopping_yield"], json!(null));
+    assert_eq!(
+        amounts(row(&plain["result"], "soy sauce")),
+        vec!["about 30 ml"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shopping_row_merges_every_mention_of_one_food_and_says_what_it_cannot_add() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    // The list starts empty and is always there: nobody creates one.
+    let (status, empty) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(status, 200, "{empty}");
+    assert_eq!(empty["result"], json!({ "chosen": [], "rows": [] }));
+
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": coq }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    let list = &list["result"];
+
+    // **Amounts add where the Units honestly convert, saying about.** Two
+    // tablespoons of soy sauce and one more make three, in this reader's
+    // measures — one row, one number, out of two recipes.
+    assert_eq!(amounts(row(list, "soy sauce")), vec!["about 45 ml"]);
+    assert_eq!(
+        row(list, "soy sauce")["parts"][0]["sources"],
+        json!([
+            "Korean Fried Chicken",
+            "Braised Chicken in Red Wine (Coq au Vin)"
+        ]),
+        "a row says which recipes fed each of its amounts"
+    );
+
+    // **Where they do not convert, the row carries both** — two true amounts
+    // beat one wrong one. Nothing here turns cloves into millilitres.
+    assert_eq!(
+        amounts(row(list, "minced garlic")),
+        vec!["about 30 ml", "4 cloves"]
+    );
+
+    // **A line with no amount contributes some rather than being dropped** —
+    // 28% of real Ingredient Lines carry no quantity (#5).
+    let oil = row(list, "olive oil");
+    assert_eq!(amounts(oil), vec!["some"]);
+    assert_eq!(oil["parts"][0]["kind"], json!("no_amount"));
+
+    // **The written lines are always one tap away** (ADR 0002, ADR 0019),
+    // whole and unrewritten, each under the recipe it came from.
+    assert_eq!(
+        row(list, "minced garlic")["lines"],
+        json!([
+            {
+                "branch_id": chicken,
+                "recipe": "Korean Fried Chicken",
+                "text": "2 tbsp minced garlic",
+            },
+            {
+                "branch_id": coq,
+                "recipe": "Braised Chicken in Red Wine (Coq au Vin)",
+                "text": "4 cloves minced garlic",
+            },
+        ])
+    );
+
+    // A Section heads a list of ingredients; it is not a thing to buy.
+    assert!(
+        !list["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["name"] == json!("For the braise")),
+        "a Section is not a Shopping Row"
+    );
+
+    // **Nothing is ticked inside Kamosu** (ADR 0024): a computed row has no
+    // name to staple a tick to, so no answer here carries one.
+    assert!(
+        !list.to_string().contains("ticked"),
+        "a Shopping Row carries nothing to tick"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_rows_are_computed_every_time_so_editing_a_recipe_changes_the_list_at_once() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+
+    // Correcting a Reading makes no Version and enters no history (ADR 0021),
+    // and the list simply says something else next time it is read — which a
+    // stored row could not do without going stale first.
+    app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": chicken,
+            "line_index": 1,
+            "amount": "500",
+            "unit": "ml",
+            "target": "soy sauce",
+        })
+        .to_string(),
+    );
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        amounts(row(&list["result"], "soy sauce")),
+        vec!["about 500 ml"]
+    );
+
+    // A new Version of the recipe reaches the list too: the choosing holds a
+    // Branch at its LATEST Version, never a pinned one (ADR 0024), so a recipe
+    // edited between the planning and the shopping is right in the shop.
+    app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": chicken,
+            "title": "Korean Fried Chicken",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp minced garlic" },
+                { "kind": "ingredient", "text": "2 tbsp soy sauce" },
+                { "kind": "ingredient", "text": "Some cooking oil (for deep frying)" },
+                { "kind": "ingredient", "text": "300 g potato starch" },
+            ],
+        })
+        .to_string(),
+    );
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        amounts(row(&list["result"], "potato starch")),
+        vec!["about 300 g"]
+    );
+    assert_eq!(
+        amounts(row(&list["result"], "soy sauce")),
+        vec!["about 500 ml"],
+        "a Reading is carried onto each new Version, so a correction is not undone by an edit"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_yield_being_shopped_for_moves_every_amount_with_it() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken, "yield": { "amount": "8", "noun": "servings" } })
+            .to_string(),
+    );
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        amounts(row(&list["result"], "soy sauce")),
+        vec!["about 60 ml"]
+    );
+    assert_eq!(
+        list["result"]["chosen"][0],
+        json!({
+            "branch_id": chicken,
+            "title": "Korean Fried Chicken",
+            "gone": false,
+            "shopping_yield": { "amount": "8", "noun": "servings" },
+            "written_yield": { "amount": "4", "noun": "servings" },
+        })
+    );
+
+    // Back to the recipe as written.
+    let (status, list) = app.post_op(
+        "set_shopping_yield",
+        Some(&key),
+        &json!({ "branch_id": chicken, "yield": Value::Null }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    assert_eq!(
+        amounts(row(&list["result"], "soy sauce")),
+        vec!["about 30 ml"]
+    );
+    assert_eq!(list["result"]["chosen"][0]["shopping_yield"], Value::Null);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_loose_item_is_kept_exactly_as_typed_and_merges_with_nothing() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+
+    let (status, list) = app.post_op(
+        "add_loose_item",
+        Some(&key),
+        &json!({ "text": "500g soy sauce" }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+
+    // Never interpreted: the text is a row's whole name, it carries no amount,
+    // and it did NOT join the soy sauce row that a recipe already put there.
+    // Typing flour beside a recipe that wants flour gives two lines, and that
+    // is the accepted cost of never guessing at a number about to be shopped
+    // by (ADR 0024).
+    let typed = row(&list["result"], "500g soy sauce");
+    assert_eq!(typed["kind"], json!("loose"));
+    assert_eq!(typed["parts"], json!([]));
+    assert_eq!(typed["lines"], json!([]), "it was made from nothing");
+    assert_eq!(
+        amounts(row(&list["result"], "soy sauce")),
+        vec!["about 2 tbsp"],
+        "the recipe's own row is untouched by a Loose Item that reads like it"
+    );
+
+    let item_id = typed["id"].as_str().unwrap().to_string();
+    let (status, list) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({ "item_id": item_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    assert!(
+        !list["result"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["name"] == json!("500g soy sauce"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_that_can_no_longer_be_read_stays_on_the_list_and_says_so() {
+    let app = support::spawn_app();
+    let (aurelien, key, _kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+
+    // Aurélien joins Marc's Kitchen and chooses a recipe of Marc's to shop for.
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&marc_key),
+        &json!({ "kitchen_id": marc_kitchen }).to_string(),
+    );
+    let secret = invite["result"]["secret"].as_str().unwrap().to_string();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    let (_, made) = app.post_op(
+        "create_recipe",
+        Some(&marc_key),
+        &json!({
+            "kitchen_id": marc_kitchen,
+            "title": "Ratatouille aux anchois",
+            "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
+        })
+        .to_string(),
+    );
+    let branch_id = made["result"]["branch_id"].as_str().unwrap().to_string();
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(list["result"]["chosen"][0]["gone"], json!(false));
+    assert_eq!(list["result"]["rows"].as_array().unwrap().len(), 1);
+
+    // Marc withdraws the sharing.
+    app.post_op(
+        "remove_kitchen_member",
+        Some(&marc_key),
+        &json!({ "kitchen_id": marc_kitchen, "person_id": aurelien }).to_string(),
+    );
+
+    // **The entry stays, keeps the name it was known by, contributes nothing,
+    // and says it can no longer be read** (ADR 0024). A thing that quietly
+    // disappears from a shopping list is a thing that does not get bought.
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        list["result"]["chosen"][0],
+        json!({
+            "branch_id": branch_id,
+            "title": "Ratatouille aux anchois",
+            "gone": true,
+            "shopping_yield": Value::Null,
+            "written_yield": Value::Null,
+        })
+    );
+    assert_eq!(
+        list["result"]["rows"],
+        json!([]),
+        "a recipe that cannot be read contributes no rows"
+    );
+
+    // And it can still be taken off — which is exactly the entry somebody most
+    // wants gone.
+    let (status, list) = app.post_op(
+        "remove_from_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    assert_eq!(list["result"]["chosen"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn there_is_exactly_one_list_per_person_and_it_is_nobody_elses() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_marc, marc_key, _marc_kitchen) = person_with_kitchen(&app, "Marc");
+    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    // Choosing the same recipe twice makes no second entry: a list is a set.
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+    let (_, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+    assert_eq!(list["result"]["chosen"].as_array().unwrap().len(), 1);
+
+    // A Shopping List is one **Person's** (ADR 0024) — not a Kitchen's, and
+    // not shared with anyone who cooks in the same one.
+    let (_, marcs) = app.post_op("get_shopping_list", Some(&marc_key), "{}");
+    assert_eq!(marcs["result"], json!({ "chosen": [], "rows": [] }));
+
+    // Nor may anyone choose a recipe they cannot see.
+    let (status, refused) = app.post_op(
+        "add_to_shopping_list",
+        Some(&marc_key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_names_its_food_in_the_readers_own_language_and_measures() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "fr", "reading_measures": "metric" }).to_string(),
+    );
+
+    // Two recipes, one English and one French, both wanting flour. The Food
+    // learns a name in each Language, which is what makes them one row
+    // (ADR 0024, and the whole reason a per-Language Food name exists).
+    let (_, english) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "language": "en",
+            "title": "Yogurt Flatbread",
+            "ingredients": [{ "kind": "ingredient", "text": "2 cups flour" }],
+        })
+        .to_string(),
+    );
+    let (_, french) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "language": "fr",
+            "title": "Pâte à pizza",
+            "ingredients": [{ "kind": "ingredient", "text": "500 g farine" }],
+        })
+        .to_string(),
+    );
+    // One Food, learning both names, is what a merged row rests on.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let food: String = conn
+                .query_row(
+                    "SELECT food_id FROM food_names WHERE language = 'en' AND name = 'flour'",
+                    [],
+                    |row| row.get(0),
+                )
+                .expect("the English Food");
+            conn.execute(
+                "INSERT OR REPLACE INTO food_names (food_id, language, name, name_folded) \
+                 VALUES (?1, 'fr', 'farine', 'farine')",
+                rusqlite::params![food],
+            )
+            .expect("name it in French");
+            conn.execute(
+                "UPDATE readings SET food_id = ?1 WHERE target = 'farine'",
+                rusqlite::params![food],
+            )
+            .expect("point the French Reading at it");
+            Ok(())
+        })
+        .expect("one Food, two names");
+
+    for branch in [&english, &french] {
+        app.post_op(
+            "add_to_shopping_list",
+            Some(&key),
+            &json!({ "branch_id": branch["result"]["branch_id"] }).to_string(),
+        );
+    }
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    let list = &list["result"];
+
+    // **One row, named in this reader's Reading Language** — every mention of
+    // flour across every recipe on the list became one thing to buy.
+    let flour = row(list, "farine");
+    assert_eq!(flour["name_language"], json!("fr"));
+    assert_eq!(flour["lines"].as_array().unwrap().len(), 2);
+
+    // And added in her measures, across a Cup Weight: two cups of flour is
+    // 250 g, plus the 500 g the other recipe weighed out (ADR 0016).
+    assert_eq!(amounts(flour), vec!["environ 750 g"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_with_no_food_to_merge_under_is_kept_exactly_as_written() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Real corpus text: the Crouton export keeps whole paragraphs inside
+    // ingredient entries, and no reading of one is honest. There is no Food to
+    // merge it under, so it stands exactly as written — losing nothing,
+    // because whatever amount it holds is in the line (ADR 0002, ADR 0024).
+    let (_, made) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Gochujang And Halloumi Orzo Pasta",
+            "ingredients": [
+                { "kind": "ingredient", "text": "Can I substitute the wine as I don’t drink alcohol? Yes you can just use water instead" },
+            ],
+        })
+        .to_string(),
+    );
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": made["result"]["branch_id"] }).to_string(),
+    );
+
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    let kept = &list["result"]["rows"][0];
+    assert_eq!(kept["kind"], json!("line"));
+    assert_eq!(
+        kept["name"],
+        json!(
+            "Can I substitute the wine as I don’t drink alcohol? Yes you can just use water instead"
+        )
+    );
+    assert_eq!(kept["parts"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_list_in_one_order_whatever_a_row_was_made_from() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    for branch in [&chicken, &coq] {
+        app.post_op(
+            "add_to_shopping_list",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+    }
+    app.post_op(
+        "add_loose_item",
+        Some(&key),
+        &json!({ "text": "bin bags" }).to_string(),
+    );
+
+    // A Loose Item sorts among the Foods rather than into a block of its own:
+    // a heading over the rows that merged would teach that the others are
+    // somehow less true, which is ADR 0015's trap wearing a heading.
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    let names: Vec<&str> = list["result"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "bin bags",
+            "minced garlic",
+            "olive oil",
+            "Some cooking oil",
+            "soy sauce",
+        ]
+    );
+}

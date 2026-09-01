@@ -815,6 +815,64 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE instance_setup ADD COLUMN public_address TEXT;
         "#,
     },
+    Migration {
+        version: 25,
+        description: "the Shopping List: the choosing, and nothing computed (#73, ADR 0024)",
+        sql: r#"
+        -- **The choosing is stored; the rows are computed** (ADR 0024). There
+        -- is no table of Shopping Rows here and there never will be: a stored
+        -- row is a second copy of a fact the recipe already holds, and it goes
+        -- stale the first time anybody corrects a Reading.
+        --
+        -- There is no `shopping_lists` table either. One Person has exactly
+        -- one list, it has no name, it is never archived, and it is always
+        -- there — so a row saying "this list exists" would carry no fact.
+        -- The list IS these two tables keyed on the Person.
+        CREATE TABLE shopping_choices (
+            person_id  TEXT NOT NULL REFERENCES people(id),
+            -- A **Branch**, never a Lineage, and never a pinned Version
+            -- (ADR 0024): a shopping trip is about one particular text, and a
+            -- friend's ratatouille may want anchovies where yours does not.
+            -- Always that Branch's latest Version, so a recipe edited on
+            -- Monday is right on Tuesday.
+            branch_id  TEXT NOT NULL REFERENCES branches(id),
+            -- The Yield being shopped for, as the recipe's own two fields:
+            -- {"amount", "noun"}, exactly as `attempts.cooking_yield` holds
+            -- the Yield being cooked. NULL is the recipe as written, which is
+            -- what a recipe added without a thought about it means.
+            shopping_yield TEXT,
+            -- **The name the recipe was known by when it was chosen.** Read
+            -- only once the recipe can no longer be reached — the Kitchen
+            -- holding it is no longer one this Person cooks in, or the Branch
+            -- is gone. A thing that quietly disappears from a shopping list is
+            -- a thing that does not get bought (ADR 0024), so the entry stays,
+            -- keeps this name, contributes nothing, and says so.
+            known_as   TEXT NOT NULL,
+            chosen_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (person_id, branch_id)
+        );
+
+        -- The list's own query: this Person's choosing, in the order they made
+        -- it, which is the order the screen shows the recipes in.
+        CREATE INDEX shopping_choices_by_person ON shopping_choices(person_id, chosen_at);
+
+        -- A **Loose Item**: a line typed straight onto the list, belonging to
+        -- no recipe. Kept exactly as typed and never interpreted, so it has no
+        -- Food, no amount and merges with nothing (ADR 0024) — reading `500g
+        -- flour` out of something typed at the door means guessing at a number
+        -- about to be shopped by. There is no `folded` column for the same
+        -- reason: nothing here is ever matched against anything.
+        CREATE TABLE shopping_loose_items (
+            id         TEXT PRIMARY KEY,
+            person_id  TEXT NOT NULL REFERENCES people(id),
+            text       TEXT NOT NULL,
+            added_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        CREATE INDEX shopping_loose_items_by_person
+            ON shopping_loose_items(person_id, added_at);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

@@ -5,6 +5,7 @@
 //! Authorisation lives here, beneath both Doors, keyed on a Credential. A
 //! permission check written inside a Door is a bug.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ use crate::db::Db;
 use crate::jobs::{self, JobProgress, JobRecord};
 use crate::language::LANGUAGES;
 use crate::photographs;
+use crate::shopping;
 use crate::units;
 
 /// What went wrong with an Operation, in words a caller can act on. The Doors map
@@ -5000,6 +5002,198 @@ impl Core {
             }))
         })
     }
+
+    // ── The Shopping List (#73, ADR 0024) ────────────────────────────────────
+    //
+    // **The choosing is stored; the rows are computed.** Every Operation below
+    // that changes the choosing answers the whole list, worked out again from
+    // scratch — which is not a convenience for the screen but the guarantee
+    // itself: there is no other copy of a row anywhere to fall out of step.
+
+    /// Choose a recipe to shop for, at the Yield being shopped for or as it is
+    /// written. Choosing one already on the list moves nothing and is not an
+    /// error — a list is a set, and asking twice for the ratatouille is not two
+    /// ratatouilles.
+    pub fn add_to_shopping_list(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        shopping_yield: Option<&Value>,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let head = branch_head(conn, branch_id)?;
+            ensure_member(conn, &head.kitchen_id, person_id)?;
+            let title = branch_title(conn, &head.head_version_id)?;
+            conn.execute(
+                // Choosing one already on the list makes no second entry — and
+                // it does not quietly ignore what was asked for either. The
+                // Yield is part of the choosing this call declares, so *add
+                // the coq au vin for eight* moves a list that already holds it
+                // to eight, and adding it with no Yield puts it back to the
+                // recipe as written. Keeping the old figure would shop for
+                // four while saying nothing, which is the one failure a
+                // shopping list must never have.
+                "INSERT INTO shopping_choices (person_id, branch_id, shopping_yield, known_as) \
+                 VALUES (?1, ?2, ?3, ?4) \
+                 ON CONFLICT (person_id, branch_id) DO UPDATE SET \
+                     known_as = excluded.known_as, \
+                     shopping_yield = excluded.shopping_yield",
+                params![
+                    person_id,
+                    branch_id,
+                    stored_yield(shopping_yield)?,
+                    title.as_str()
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot choose a recipe to shop for: {e}")))?;
+            shopping_list(conn, person_id)
+        })
+    }
+
+    /// **The list as the text that leaves** (ADR 0024).
+    ///
+    /// Nothing is ticked inside Kamosu, and this is why that is not a gap:
+    /// Kamosu decides what to buy, and something else — Apple Notes, through a
+    /// Shortcut — carries it round the shop and holds the ticks. A list with
+    /// no way out would have made the missing tick a refusal instead of a
+    /// boundary.
+    ///
+    /// It is a read like any other. Emptying the list is a separate Operation
+    /// that the caller may or may not go on to ask for: Kamosu offers and does
+    /// not act, because a list that emptied itself on the way out would be
+    /// silent and unrecoverable.
+    pub fn shopping_list_as_text(&self, person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let reader = Reader::of(conn, person_id)?;
+            let list = shopping_list(conn, person_id)?;
+            // The date the note is dividing on is today where the instance is,
+            // and SQLite is already the one clock every stored time in Kamosu
+            // is read from — so it is asked here too rather than a second
+            // clock being introduced to disagree with it.
+            let today: String = conn
+                .query_row("SELECT strftime('%Y-%m-%d','now')", [], |row| row.get(0))
+                .map_err(|e| OpError::internal(format!("cannot read today's date: {e}")))?;
+            Ok(json!({ "text": shopping::as_text(&list, &today, &reader.language) }))
+        })
+    }
+
+    /// **Empty the list**, once it has left as text.
+    ///
+    /// Offered after sending and never done on the way out (ADR 0024): a list
+    /// that emptied itself when it was sent would be silent and unrecoverable,
+    /// and Kamosu offers rather than acts — the same rule that makes a Merge
+    /// Suggestion evidence and never an instruction.
+    ///
+    /// It takes the choosing and the Loose Items together, because a half-empty
+    /// list is not a state anybody asked for.
+    pub fn empty_shopping_list(&self, person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM shopping_choices WHERE person_id = ?1",
+                params![person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot empty the Shopping List: {e}")))?;
+            conn.execute(
+                "DELETE FROM shopping_loose_items WHERE person_id = ?1",
+                params![person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot empty the Shopping List: {e}")))?;
+            shopping_list(conn, person_id)
+        })
+    }
+
+    /// Take a recipe off the list. Works whether or not it can still be read:
+    /// an entry that has gone away is exactly the one somebody most wants gone.
+    ///
+    /// Removing something that is not there is not an error, here or for a
+    /// Loose Item: what is written offline is added, moved and removed on one
+    /// afternoon and replayed later (ADR 0013), and a replayed removal that
+    /// failed because it had already worked would be Kamosu inventing a
+    /// problem out of its own success.
+    pub fn remove_from_shopping_list(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM shopping_choices WHERE person_id = ?1 AND branch_id = ?2",
+                params![person_id, branch_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot take a recipe off the list: {e}")))?;
+            shopping_list(conn, person_id)
+        })
+    }
+
+    /// Say how much of a chosen recipe is being shopped for. `None` is the
+    /// recipe as written.
+    pub fn set_shopping_yield(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        shopping_yield: Option<&Value>,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let head = branch_head(conn, branch_id)?;
+            ensure_member(conn, &head.kitchen_id, person_id)?;
+            let changed = conn
+                .execute(
+                    "UPDATE shopping_choices SET shopping_yield = ?3, known_as = ?4 \
+                      WHERE person_id = ?1 AND branch_id = ?2",
+                    params![
+                        person_id,
+                        branch_id,
+                        stored_yield(shopping_yield)?,
+                        branch_title(conn, &head.head_version_id)?
+                    ],
+                )
+                .map_err(|e| OpError::internal(format!("cannot set the Yield: {e}")))?;
+            if changed == 0 {
+                return Err(OpError::not_found("this recipe is not on your list"));
+            }
+            shopping_list(conn, person_id)
+        })
+    }
+
+    /// Type a **Loose Item** onto the list. Kept exactly as typed and never
+    /// interpreted (ADR 0024): typing *flour* beside a recipe that wants flour
+    /// gives two lines, which is the accepted cost of never guessing at a
+    /// number somebody is about to shop by.
+    pub fn add_loose_item(&self, person_id: &str, text: &str) -> Result<Value, OpError> {
+        let text = required_text(text, "text")?.to_string();
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO shopping_loose_items (id, person_id, text) VALUES (?1, ?2, ?3)",
+                params![
+                    format!("i_{}", hex::encode(random_bytes(8))),
+                    person_id,
+                    text
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot add a Loose Item: {e}")))?;
+            shopping_list(conn, person_id)
+        })
+    }
+
+    /// Take a Loose Item off the list. Removing one that is already gone is not
+    /// an error, for the reason `remove_from_shopping_list` gives: the two are
+    /// siblings and a caller should not have to remember which of them is
+    /// strict.
+    pub fn remove_loose_item(&self, person_id: &str, item_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM shopping_loose_items WHERE id = ?1 AND person_id = ?2",
+                params![item_id, person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot remove a Loose Item: {e}")))?;
+            shopping_list(conn, person_id)
+        })
+    }
+
+    /// The whole list: the choosing, and the rows worked out from it.
+    pub fn shopping_list(&self, person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| shopping_list(conn, person_id))
+    }
 }
 
 /// How much a Merge is about to move, in the two numbers that differ.
@@ -5379,23 +5573,11 @@ fn measured_for_version(
 
     let mut ingredients = vec![Value::Null; ingredient_lines.len()];
     for reading in readings_to_measure(conn, version_id)? {
-        let Measurable {
-            line_index,
-            amount,
-            unit,
-            cup_weight,
-        } = reading;
-        if let Some(slot) = usize::try_from(line_index)
+        if let Some(slot) = usize::try_from(reading.line_index)
             .ok()
             .and_then(|index| ingredients.get_mut(index))
         {
-            *slot = Measurable {
-                line_index,
-                amount,
-                unit,
-                cup_weight,
-            }
-            .worded(reader, scale);
+            *slot = reading.worded(reader, scale);
         }
     }
 
@@ -5539,7 +5721,8 @@ fn readings_to_measure(conn: &Connection, version_id: &str) -> Result<Vec<Measur
             "SELECT readings.line_index, readings.amount, readings.unit, readings.target, \
                     foods.cup_weight_grams, \
                     (SELECT group_concat(food_names.name, char(31)) FROM food_names \
-                      WHERE food_names.food_id = readings.food_id) \
+                      WHERE food_names.food_id = readings.food_id), \
+                    readings.food_id \
                FROM readings LEFT JOIN foods ON foods.id = readings.food_id \
               WHERE readings.version_id = ?1",
         )
@@ -5553,6 +5736,7 @@ fn readings_to_measure(conn: &Connection, version_id: &str) -> Result<Vec<Measur
                 row.get::<_, Option<String>>(3)?,
                 row.get::<_, Option<f64>>(4)?,
                 row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
             ))
         })
         .map_err(|e| OpError::internal(format!("cannot read Readings to measure: {e}")))?
@@ -5562,7 +5746,7 @@ fn readings_to_measure(conn: &Connection, version_id: &str) -> Result<Vec<Measur
     Ok(rows
         .into_iter()
         .map(
-            |(line_index, amount, unit, target, override_weight, names)| {
+            |(line_index, amount, unit, target, override_weight, names, food_id)| {
                 let cup_weight = override_weight.or_else(|| {
                     let names = names.unwrap_or_default();
                     units::shipped_cup_weight(
@@ -5577,6 +5761,7 @@ fn readings_to_measure(conn: &Connection, version_id: &str) -> Result<Vec<Measur
                     amount,
                     unit,
                     cup_weight,
+                    food_id,
                 }
             },
         )
@@ -5609,6 +5794,11 @@ struct Measurable {
     amount: Option<String>,
     unit: Option<String>,
     cup_weight: Option<f64>,
+    /// The Food this Reading points at, where it found one. Unused when a
+    /// recipe is merely being read; a Shopping Row is built on it (#73), and
+    /// it rides here rather than in a reader of its own so that a cup of flour
+    /// cannot weigh one thing on a recipe page and another in a shop.
+    food_id: Option<String>,
 }
 
 impl Measurable {
@@ -5650,16 +5840,28 @@ fn cooking_scale(
     let Some(attempt) = in_progress_attempt(conn, lineage_id, person_id)? else {
         return Ok(1.0);
     };
-    let cooking = &attempt["cooking_yield"];
-    let written = &content["yield"];
-    let same_noun = cooking["noun"].as_str() == written["noun"].as_str();
-    let cooking_amount = cooking["amount"].as_str().and_then(units::parse_amount);
+    Ok(yield_scale(&attempt["cooking_yield"], &content["yield"]))
+}
+
+/// **How far a Yield somebody means is from the Yield as written**, or 1.0.
+///
+/// One rule, two callers: the Yield being *cooked* on an In Progress Attempt
+/// (#61) and the Yield being *shopped for* on a Shopping List (#73). They are
+/// the same question — how much of this recipe do you mean — and two spellings
+/// of it would be two chances to round a worktop's amounts differently from a
+/// shop's.
+///
+/// It is 1.0 whenever the two Yields cannot honestly be compared: a Yield
+/// nobody wrote, an amount that is not a number (`a dozen`), or two different
+/// nouns — four *servings* against two *loaves* is not a ratio, and inventing
+/// one would put a wrong number on a worktop.
+fn yield_scale(wanted: &Value, written: &Value) -> f64 {
+    let same_noun = wanted["noun"].as_str() == written["noun"].as_str();
+    let wanted_amount = wanted["amount"].as_str().and_then(units::parse_amount);
     let written_amount = written["amount"].as_str().and_then(units::parse_amount);
-    match (same_noun, cooking_amount, written_amount) {
-        (true, Some(cooking), Some(written)) if written > 0.0 && cooking > 0.0 => {
-            Ok(cooking / written)
-        }
-        _ => Ok(1.0),
+    match (same_noun, wanted_amount, written_amount) {
+        (true, Some(wanted), Some(written)) if written > 0.0 && wanted > 0.0 => wanted / written,
+        _ => 1.0,
     }
 }
 
@@ -8344,6 +8546,341 @@ fn required_text<'a>(value: &'a str, field: &str) -> Result<&'a str, OpError> {
         return Err(OpError::bad_request(format!("{field} is required")));
     }
     Ok(value)
+}
+
+// ── The Shopping List, worked out (#73, ADR 0024) ────────────────────────────
+
+/// What is stored for a Yield being shopped for: the recipe's own two fields,
+/// or nothing at all for the recipe as written.
+///
+/// Stored as JSON in one column exactly as `attempts.cooking_yield` is, because
+/// it is the same fact — how much of this recipe somebody means — and two
+/// spellings of one fact is how the two drift apart.
+fn stored_yield(shopping_yield: Option<&Value>) -> Result<Option<String>, OpError> {
+    match shopping_yield {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => {
+            let amount = value.get("amount").and_then(Value::as_str);
+            let noun = value.get("noun").and_then(Value::as_str);
+            match (amount, noun) {
+                (Some(amount), Some(noun)) => {
+                    Ok(Some(json!({ "amount": amount, "noun": noun }).to_string()))
+                }
+                _ => Err(OpError::bad_request(
+                    "a Yield is { amount, noun }, or null for the recipe as written",
+                )),
+            }
+        }
+    }
+}
+
+/// The title of one Version, which is what a recipe is called right now.
+fn branch_title(conn: &Connection, version_id: &str) -> Result<String, OpError> {
+    Ok(version_content(conn, version_id)?["title"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string())
+}
+
+/// One entry in the choosing, once it has been looked up.
+struct Chosen {
+    branch_id: String,
+    /// What the recipe is called: its live title where it can still be read,
+    /// and otherwise the name it was known by when it was chosen.
+    title: String,
+    /// Whether it can still be read at all (ADR 0024). A Kitchen this Person no
+    /// longer cooks in, or a Branch that is gone: either way the entry stays,
+    /// keeps its name, contributes nothing, and says so — because a thing that
+    /// quietly disappears from a shopping list is a thing that does not get
+    /// bought.
+    gone: bool,
+    shopping_yield: Value,
+    written_yield: Value,
+    /// The recipe's own content, where it could be read.
+    content: Option<Value>,
+    head_version_id: Option<String>,
+}
+
+/// **The whole Shopping List**: the choosing as stored, and the rows worked out
+/// from it on every single read (ADR 0024).
+///
+/// Nothing computed here is written anywhere. Correct a Reading, edit a recipe,
+/// move a Yield, change your Reading Measures — the next read simply says
+/// something else, which is what a stored row could never do without going
+/// stale first.
+fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
+    let reader = Reader::of(conn, person_id)?;
+    let chosen = chosen_recipes(conn, person_id)?;
+
+    // Two kinds of row (ADR 0024): a Food row that merges every mention of one
+    // Food, and a verbatim line that merges with nothing.
+    //
+    // The Foods are held as a map beside the order they were first met, rather
+    // than as a list searched from the top for every line: a list of a few
+    // recipes is already several hundred Ingredient Lines, and the order still
+    // has to be the order they arrived in so that two reads of one list agree.
+    let mut foods: HashMap<String, Vec<shopping::Contribution>> = HashMap::new();
+    let mut food_order: Vec<String> = Vec::new();
+    let mut verbatim: Vec<Value> = Vec::new();
+
+    for entry in &chosen {
+        let (Some(content), Some(version_id)) = (&entry.content, &entry.head_version_id) else {
+            continue;
+        };
+        let scale = yield_scale(&entry.shopping_yield, &entry.written_yield);
+        // The very same reader the recipe page's subordinate lines are built
+        // from, Cup Weights and all — because a cup of flour must not weigh one
+        // thing on a recipe page and another in a shop.
+        let readings = readings_to_measure(conn, version_id)?;
+        let empty = Vec::new();
+        for (line_index, line) in content["ingredients"]
+            .as_array()
+            .unwrap_or(&empty)
+            .iter()
+            .enumerate()
+        {
+            // A Section heads a list; it is not a thing to buy.
+            if line.get("kind").and_then(Value::as_str) == Some("section") {
+                continue;
+            }
+            let text = line.get("text").and_then(Value::as_str).unwrap_or_default();
+            let reading = readings
+                .iter()
+                .find(|reading| reading.line_index == line_index as i64);
+
+            // An Ingredient Line nobody ever read, and one whose Reading found
+            // no Food, are the same thing on a list: there is no Food to merge
+            // it under, so the line stands exactly as written (ADR 0024). It
+            // loses nothing — the amount, where there was one, is in the line.
+            let Some(reading) = reading.filter(|reading| reading.food_id.is_some()) else {
+                verbatim.push(json!({
+                    "id": format!("{}:{line_index}", entry.branch_id),
+                    "kind": "line",
+                    "name": text,
+                    "name_language": Value::Null,
+                    "parts": Vec::<Value>::new(),
+                    "lines": [{ "branch_id": entry.branch_id, "recipe": entry.title, "text": text }],
+                }));
+                continue;
+            };
+
+            let food_id = reading.food_id.clone().expect("filtered to a Food above");
+            let contribution = shopping::Contribution {
+                recipe: entry.title.clone(),
+                text: text.to_string(),
+                branch_id: entry.branch_id.clone(),
+                // An amount Kamosu could not read is an amount nobody stated,
+                // as far as adding up goes — and the written line, one tap
+                // away, still says whatever it says.
+                amount: reading
+                    .amount
+                    .as_deref()
+                    .and_then(units::parse_amount)
+                    .map(|amount| amount * scale),
+                unit: reading.unit.clone(),
+                cup_weight_grams: reading.cup_weight,
+            };
+            match foods.entry(food_id.clone()) {
+                Entry::Occupied(mut gathered) => gathered.get_mut().push(contribution),
+                Entry::Vacant(empty) => {
+                    empty.insert(vec![contribution]);
+                    food_order.push(food_id);
+                }
+            }
+        }
+    }
+
+    let named_foods = food_names_of(conn, &food_order)?;
+    let mut rows = verbatim;
+    for food_id in food_order {
+        let contributions = foods.remove(&food_id).expect("gathered above");
+        let named = named_foods.get(&food_id).cloned().unwrap_or_default();
+        let shown = shown_name(&named, &reader.language);
+        rows.push(json!({
+            "id": food_id,
+            "kind": "food",
+            // A Shopping Row is the one place a Food's name is read instead of
+            // an Ingredient Line (ADR 0024), which is what makes flour and
+            // farine one row.
+            //
+            // A Food with no name at all should not exist — one is created
+            // from whatever word a Reading found — but if ever one does, the
+            // row falls back to the line that put it here rather than printing
+            // an amount beside nothing. A blank row is the one thing a shopping
+            // list cannot afford: it cannot be bought and it cannot be asked
+            // about.
+            "name": shown
+                .map(|(_, name)| name.as_str())
+                .unwrap_or_else(|| contributions
+                    .first()
+                    .map(|first| first.text.as_str())
+                    .unwrap_or_default()),
+            // Which Language that name is in, so a name borrowed from another
+            // Language can be marked as borrowed (CONTEXT.md, "Shopping Row").
+            "name_language": shown.map(|(language, _)| language.as_str()),
+            "parts": shopping::parts_json(&shopping::parts_for(
+                &contributions,
+                reader.measures,
+                &reader.language,
+            )),
+            "lines": contributions
+                .iter()
+                .map(|contribution| json!({
+                    "branch_id": contribution.branch_id,
+                    "recipe": contribution.recipe,
+                    "text": contribution.text,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+    for item in loose_items(conn, person_id)? {
+        rows.push(item);
+    }
+
+    // One list, one order: a Loose Item and a line nobody read sort among the
+    // Foods rather than into a block of their own, because a heading over the
+    // rows that merged would teach that the others are somehow less true.
+    rows.sort_by_key(|row| shopping::sort_key(row["name"].as_str().unwrap_or_default()));
+
+    Ok(json!({
+        "chosen": chosen
+            .iter()
+            .map(|entry| json!({
+                "branch_id": entry.branch_id,
+                "title": entry.title,
+                "gone": entry.gone,
+                "shopping_yield": entry.shopping_yield,
+                "written_yield": entry.written_yield,
+            }))
+            .collect::<Vec<_>>(),
+        "rows": rows,
+    }))
+}
+
+/// The choosing as stored, in the order it was made, each entry looked up.
+fn chosen_recipes(conn: &Connection, person_id: &str) -> Result<Vec<Chosen>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT branch_id, shopping_yield, known_as FROM shopping_choices \
+              WHERE person_id = ?1 ORDER BY chosen_at ASC, branch_id ASC",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the Shopping List: {e}")))?;
+    let stored: Vec<(String, Option<String>, String)> = statement
+        .query_map(params![person_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read the Shopping List: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the Shopping List: {e}")))?;
+
+    let mut chosen = Vec::with_capacity(stored.len());
+    for (branch_id, shopping_yield, known_as) in stored {
+        let shopping_yield = shopping_yield
+            .as_deref()
+            .and_then(|stored| serde_json::from_str(stored).ok())
+            .unwrap_or(Value::Null);
+        // A Branch always at its latest Version, never pinned (ADR 0024): a
+        // list describes what is about to be bought, so a recipe edited
+        // between Sunday and Tuesday is right on Tuesday.
+        let head = branch_head(conn, &branch_id).ok();
+        let readable = match &head {
+            Some(head) => is_member(conn, &head.kitchen_id, person_id)?,
+            None => false,
+        };
+        let content = match (&head, readable) {
+            (Some(head), true) => Some(version_content(conn, &head.head_version_id)?),
+            _ => None,
+        };
+        chosen.push(Chosen {
+            title: content
+                .as_ref()
+                .and_then(|content| content["title"].as_str())
+                // The name it was known by, which is the whole point of
+                // storing one (ADR 0024).
+                .unwrap_or(&known_as)
+                .to_string(),
+            written_yield: content
+                .as_ref()
+                .map(|content| content["yield"].clone())
+                .unwrap_or(Value::Null),
+            head_version_id: head.as_ref().map(|head| head.head_version_id.clone()),
+            gone: !readable,
+            branch_id,
+            shopping_yield,
+            content,
+        });
+    }
+    Ok(chosen)
+}
+
+/// Every name of *many* Foods at once, by Food.
+///
+/// A Shopping Row names a Food rather than an Ingredient Line (ADR 0024), so
+/// building a list asks this question once per row — and asking it one Food at
+/// a time made a list of three recipes several hundred queries deep. The
+/// choosing is small and the answer is one statement, so it is read in a single
+/// pass and handed to the rows already gathered.
+fn food_names_of(
+    conn: &Connection,
+    food_ids: &[String],
+) -> Result<HashMap<String, Vec<(String, String)>>, OpError> {
+    let mut names: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    if food_ids.is_empty() {
+        return Ok(names);
+    }
+    // One placeholder per Food. The ids are Kamosu's own, never a cook's text,
+    // and they still go in as bound parameters rather than as SQL.
+    let placeholders = std::iter::repeat_n("?", food_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut statement = conn
+        .prepare(&format!(
+            "SELECT food_id, language, name FROM food_names WHERE food_id IN ({placeholders})"
+        ))
+        .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+    let rows = statement
+        .query_map(rusqlite::params_from_iter(food_ids), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
+    for (food_id, language, name) in rows {
+        names.entry(food_id).or_default().push((language, name));
+    }
+    Ok(names)
+}
+
+/// This Person's Loose Items, as rows. They carry no amount and no Food, so
+/// there is nothing to compute: what is stored is what is shown, exactly as it
+/// was typed (ADR 0024).
+fn loose_items(conn: &Connection, person_id: &str) -> Result<Vec<Value>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, text FROM shopping_loose_items \
+              WHERE person_id = ?1 ORDER BY added_at ASC, id ASC",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Loose Items: {e}")))?;
+    statement
+        .query_map(params![person_id], |row| {
+            let id: String = row.get(0)?;
+            let text: String = row.get(1)?;
+            Ok(json!({
+                "id": id,
+                "kind": "loose",
+                "name": text,
+                "name_language": Value::Null,
+                "parts": Vec::<Value>::new(),
+                "lines": Vec::<Value>::new(),
+            }))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read Loose Items: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Loose Items: {e}")))
 }
 
 #[cfg(test)]

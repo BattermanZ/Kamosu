@@ -26,6 +26,7 @@ pub mod photographs;
 pub mod reading;
 pub mod share_card;
 pub mod share_page;
+pub mod shopping;
 pub mod units;
 pub mod web_door;
 pub mod web_import;
