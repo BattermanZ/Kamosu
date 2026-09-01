@@ -375,6 +375,7 @@ describe('the Thread screen', () => {
 							cook_time_minutes: null,
 							note: null,
 							main_photo: null,
+							nutrition: null,
 							source: null,
 							ingredients: [{ kind: 'ingredient', text: '1.4 kg whole chicken' }],
 							steps: [{ kind: 'step', text: 'Marinate the chicken.', photo: null }],

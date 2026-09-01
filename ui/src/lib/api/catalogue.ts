@@ -375,6 +375,10 @@ export type CreateRecipeInput = {
 	language?: "en" | "fr" | "es" | "unknown";
 	main_photo?: string | null;
 	note?: string | null;
+	nutrition?: {
+		basis: "per_serving" | "per_100g";
+		calories: number;
+	} | null;
 	prep_time_minutes?: number | null;
 	source?: {
 		link: string | null;
@@ -440,6 +444,10 @@ export type CreateRecipeOutput = {
 			}[];
 			main_photo: string | null;
 			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
 			prep_time_minutes: number | null;
 			source: {
 				link: string | null;
@@ -495,6 +503,10 @@ export type SaveRecipeVersionInput = {
 	main_photo?: string | null;
 	name?: string;
 	note?: string | null;
+	nutrition?: {
+		basis: "per_serving" | "per_100g";
+		calories: number;
+	} | null;
 	prep_time_minutes?: number | null;
 	source?: {
 		link: string | null;
@@ -539,6 +551,10 @@ export type StartTranslationInput = {
 	main_photo?: string | null;
 	name?: string;
 	note?: string | null;
+	nutrition?: {
+		basis: "per_serving" | "per_100g";
+		calories: number;
+	} | null;
 	prep_time_minutes?: number | null;
 	source?: {
 		link: string | null;
@@ -605,6 +621,10 @@ export type StartTranslationOutput = {
 			}[];
 			main_photo: string | null;
 			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
 			prep_time_minutes: number | null;
 			source: {
 				link: string | null;
@@ -671,6 +691,10 @@ export type ImportInput = {
 		language?: "en" | "fr" | "es" | "unknown";
 		main_photo?: string | null;
 		note?: string | null;
+		nutrition?: {
+			basis: "per_serving" | "per_100g";
+			calories: number;
+		} | null;
 		prep_time_minutes?: number | null;
 		source?: {
 			link: string | null;
@@ -942,6 +966,10 @@ export type GetRecipeOutput = {
 			}[];
 			main_photo: string | null;
 			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
 			prep_time_minutes: number | null;
 			source: {
 				link: string | null;
@@ -1106,6 +1134,10 @@ export type ReadSharedRecipeOutput = {
 			}[];
 			main_photo: string | null;
 			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
 			prep_time_minutes: number | null;
 			source: {
 				link: string | null;
@@ -1150,6 +1182,10 @@ export type ReadSharedRecipeOutput = {
 			}[];
 			main_photo: string | null;
 			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
 			prep_time_minutes: number | null;
 			source: {
 				link: string | null;
@@ -1211,6 +1247,11 @@ export type DivergenceOutput = {
 			same: boolean;
 			theirs: unknown;
 		};
+		nutrition: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
 		prep_time_minutes: {
 			mine: unknown;
 			same: boolean;
@@ -1258,6 +1299,10 @@ export type DivergenceOutput = {
 			}[];
 			main_photo: string | null;
 			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
 			prep_time_minutes: number | null;
 			source: {
 				link: string | null;
@@ -1314,6 +1359,10 @@ export type DivergenceOutput = {
 			}[];
 			main_photo: string | null;
 			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
 			prep_time_minutes: number | null;
 			source: {
 				link: string | null;
@@ -3745,6 +3794,31 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"nutrition": {
+					"additionalProperties": false,
+					"properties": {
+						"basis": {
+							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+							"enum": [
+								"per_serving",
+								"per_100g"
+							]
+						},
+						"calories": {
+							"description": "Calories, zero or more.",
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": [
+						"calories",
+						"basis"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"prep_time_minutes": {
 					"description": "Whole minutes of active preparation.",
 					"type": [
@@ -4077,6 +4151,31 @@ export const CATALOGUE = [
 											"null"
 										]
 									},
+									"nutrition": {
+										"additionalProperties": false,
+										"properties": {
+											"basis": {
+												"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+												"enum": [
+													"per_serving",
+													"per_100g"
+												]
+											},
+											"calories": {
+												"description": "Calories, zero or more.",
+												"minimum": 0,
+												"type": "number"
+											}
+										},
+										"required": [
+											"calories",
+											"basis"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
 									"prep_time_minutes": {
 										"description": "Whole minutes of active preparation.",
 										"type": [
@@ -4166,6 +4265,7 @@ export const CATALOGUE = [
 									"note",
 									"main_photo",
 									"source",
+									"nutrition",
 									"ingredients",
 									"steps"
 								],
@@ -4408,6 +4508,31 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"nutrition": {
+					"additionalProperties": false,
+					"properties": {
+						"basis": {
+							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+							"enum": [
+								"per_serving",
+								"per_100g"
+							]
+						},
+						"calories": {
+							"description": "Calories, zero or more.",
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": [
+						"calories",
+						"basis"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"prep_time_minutes": {
 					"description": "Whole minutes of active preparation.",
 					"type": [
@@ -4625,6 +4750,31 @@ export const CATALOGUE = [
 				"note": {
 					"type": [
 						"string",
+						"null"
+					]
+				},
+				"nutrition": {
+					"additionalProperties": false,
+					"properties": {
+						"basis": {
+							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+							"enum": [
+								"per_serving",
+								"per_100g"
+							]
+						},
+						"calories": {
+							"description": "Calories, zero or more.",
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": [
+						"calories",
+						"basis"
+					],
+					"type": [
+						"object",
 						"null"
 					]
 				},
@@ -4965,6 +5115,31 @@ export const CATALOGUE = [
 											"null"
 										]
 									},
+									"nutrition": {
+										"additionalProperties": false,
+										"properties": {
+											"basis": {
+												"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+												"enum": [
+													"per_serving",
+													"per_100g"
+												]
+											},
+											"calories": {
+												"description": "Calories, zero or more.",
+												"minimum": 0,
+												"type": "number"
+											}
+										},
+										"required": [
+											"calories",
+											"basis"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
 									"prep_time_minutes": {
 										"description": "Whole minutes of active preparation.",
 										"type": [
@@ -5054,6 +5229,7 @@ export const CATALOGUE = [
 									"note",
 									"main_photo",
 									"source",
+									"nutrition",
 									"ingredients",
 									"steps"
 								],
@@ -5349,6 +5525,31 @@ export const CATALOGUE = [
 							"note": {
 								"type": [
 									"string",
+									"null"
+								]
+							},
+							"nutrition": {
+								"additionalProperties": false,
+								"properties": {
+									"basis": {
+										"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+										"enum": [
+											"per_serving",
+											"per_100g"
+										]
+									},
+									"calories": {
+										"description": "Calories, zero or more.",
+										"minimum": 0,
+										"type": "number"
+									}
+								},
+								"required": [
+									"calories",
+									"basis"
+								],
+								"type": [
+									"object",
 									"null"
 								]
 							},
@@ -6596,6 +6797,31 @@ export const CATALOGUE = [
 											"null"
 										]
 									},
+									"nutrition": {
+										"additionalProperties": false,
+										"properties": {
+											"basis": {
+												"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+												"enum": [
+													"per_serving",
+													"per_100g"
+												]
+											},
+											"calories": {
+												"description": "Calories, zero or more.",
+												"minimum": 0,
+												"type": "number"
+											}
+										},
+										"required": [
+											"calories",
+											"basis"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
 									"prep_time_minutes": {
 										"description": "Whole minutes of active preparation.",
 										"type": [
@@ -6685,6 +6911,7 @@ export const CATALOGUE = [
 									"note",
 									"main_photo",
 									"source",
+									"nutrition",
 									"ingredients",
 									"steps"
 								],
@@ -7453,6 +7680,31 @@ export const CATALOGUE = [
 										"null"
 									]
 								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
 								"prep_time_minutes": {
 									"description": "Whole minutes of active preparation.",
 									"type": [
@@ -7542,6 +7794,7 @@ export const CATALOGUE = [
 								"note",
 								"main_photo",
 								"source",
+								"nutrition",
 								"ingredients",
 								"steps"
 							],
@@ -7705,6 +7958,31 @@ export const CATALOGUE = [
 											"null"
 										]
 									},
+									"nutrition": {
+										"additionalProperties": false,
+										"properties": {
+											"basis": {
+												"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+												"enum": [
+													"per_serving",
+													"per_100g"
+												]
+											},
+											"calories": {
+												"description": "Calories, zero or more.",
+												"minimum": 0,
+												"type": "number"
+											}
+										},
+										"required": [
+											"calories",
+											"basis"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
 									"prep_time_minutes": {
 										"description": "Whole minutes of active preparation.",
 										"type": [
@@ -7794,6 +8072,7 @@ export const CATALOGUE = [
 									"note",
 									"main_photo",
 									"source",
+									"nutrition",
 									"ingredients",
 									"steps"
 								],
@@ -7982,6 +8261,22 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"nutrition": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
 						"prep_time_minutes": {
 							"additionalProperties": false,
 							"properties": {
@@ -8054,6 +8349,7 @@ export const CATALOGUE = [
 						"cook_time_minutes",
 						"source",
 						"note",
+						"nutrition",
 						"main_photo"
 					],
 					"type": "object"
@@ -8187,6 +8483,31 @@ export const CATALOGUE = [
 										"null"
 									]
 								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
 								"prep_time_minutes": {
 									"description": "Whole minutes of active preparation.",
 									"type": [
@@ -8276,6 +8597,7 @@ export const CATALOGUE = [
 								"note",
 								"main_photo",
 								"source",
+								"nutrition",
 								"ingredients",
 								"steps"
 							],
@@ -8499,6 +8821,31 @@ export const CATALOGUE = [
 										"null"
 									]
 								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
 								"prep_time_minutes": {
 									"description": "Whole minutes of active preparation.",
 									"type": [
@@ -8588,6 +8935,7 @@ export const CATALOGUE = [
 								"note",
 								"main_photo",
 								"source",
+								"nutrition",
 								"ingredients",
 								"steps"
 							],

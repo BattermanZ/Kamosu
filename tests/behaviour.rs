@@ -6163,6 +6163,7 @@ async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_han
         "note",
         "main_photo",
         "source",
+        "nutrition",
         "ingredients",
         "steps",
     ];
@@ -7081,6 +7082,67 @@ mod web_link_importer {
         );
         assert_eq!(status, 401, "{refused}");
         assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+    }
+
+    // Nutrition, imported only where the page gave a number (#72, spec item
+    // 172). schema.org's `NutritionInformation` is defined per serving, so
+    // that is the basis an imported figure lands with — the importer states
+    // what the page stated and infers nothing further.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_page_stating_calories_lands_them_and_a_page_stating_none_leaves_the_field_empty() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+
+        let base = spawn_pages_server(&[
+            (
+                "stated",
+                r#"<html><head><script type="application/ld+json">
+                {"@type": "Recipe", "name": "Chocolate chunk cookies",
+                 "recipeIngredient": ["120g butter softened"],
+                 "nutrition": {"@type": "NutritionInformation", "calories": "308 calories"}}
+                </script></head><body></body></html>"#
+                    .to_string(),
+            ),
+            (
+                "silent",
+                r#"<html><head><script type="application/ld+json">
+                {"@type": "Recipe", "name": "Plain Loaf",
+                 "recipeIngredient": ["500g strong white flour"]}
+                </script></head><body></body></html>"#
+                    .to_string(),
+            ),
+        ]);
+
+        let content = |name: &str| {
+            let report = import_web_link_and_wait(&app, &key, &format!("{base}/pages/{name}"));
+            let branch_id = report["arrived"][0]["branch_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{report}"))
+                .to_string();
+            let (_, recipe) = app.post_op(
+                "get_recipe",
+                Some(&key),
+                &json!({ "branch_id": branch_id }).to_string(),
+            );
+            recipe["result"]["versions"][0]["content"].clone()
+        };
+
+        assert_eq!(
+            content("stated")["nutrition"],
+            json!({ "calories": 308.0, "basis": "per_serving" }),
+            "a page that stated a number has it landed, per serving"
+        );
+        assert_eq!(
+            content("silent")["nutrition"],
+            Value::Null,
+            "a page that stated none leaves the field empty rather than \
+             inventing a plausible figure"
+        );
     }
 }
 
@@ -11553,4 +11615,394 @@ async fn the_card_is_drawn_once_and_kept() {
         .join("cards")
         .join(format!("{version_id}.png"));
     assert!(kept.exists(), "the card was not kept at {kept:?}");
+}
+
+// --- Nutrition (issue #72) ---------------------------------------------------
+//
+// v1's whole of nutrition: one figure the cook types onto the recipe, with a
+// flag saying what it counts — a serving, or 100 g. Kamosu never works it out
+// from the Ingredient Lines, because a plausible-but-wrong calorie figure is
+// worse than no figure at all (#12 defers CIQUAL and the compute button past
+// v1). The figure is one of the recipe's own words, so it rides in the
+// fingerprint exactly as the Yield and the Note do (ADR 0021).
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_carries_a_typed_nutrition_figure_with_the_basis_it_counts() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Typed at creation, per serving.
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Chocolate chunk cookies",
+            "nutrition": { "calories": 308, "basis": "per_serving" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    assert_eq!(
+        created["result"]["versions"][0]["content"]["nutrition"],
+        json!({ "calories": 308.0, "basis": "per_serving" })
+    );
+
+    // Retyped as a per-100 g figure, which is the other thing a packet says.
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &branch_id);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Chocolate chunk cookies",
+            "nutrition": { "calories": 481.5, "basis": "per_100g" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        read_back["result"]["versions"][1]["content"]["nutrition"],
+        json!({ "calories": 481.5, "basis": "per_100g" })
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn changing_only_the_nutrition_figure_mints_a_version() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Soupe",
+            "nutrition": { "calories": 120, "basis": "per_serving" },
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let first_version = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Nothing but the figure moves. It is still a new Version: the figure is
+    // one of the recipe's own words, so the fingerprint covers it exactly as
+    // it covers the Note (ADR 0021).
+    backdate_branch_head(&app, &branch_id);
+    let (_, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Soupe",
+            "nutrition": { "calories": 121, "basis": "per_serving" },
+        })
+        .to_string(),
+    );
+    assert_ne!(saved["result"]["version_id"], json!(first_version));
+
+    // And the basis alone is enough on its own: 120 per serving and 120 per
+    // 100 g are two different claims about the same dish.
+    backdate_branch_head(&app, &branch_id);
+    let second_version = saved["result"]["version_id"].as_str().unwrap().to_string();
+    let (_, again) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Soupe",
+            "nutrition": { "calories": 121, "basis": "per_100g" },
+        })
+        .to_string(),
+    );
+    assert_ne!(again["result"]["version_id"], json!(second_version));
+
+    // Clearing it is a change too, and leaves an ordinary recipe behind
+    // rather than an error: a recipe with no nutrition figure is the state
+    // every recipe starts in.
+    backdate_branch_head(&app, &branch_id);
+    let (status, cleared) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Soupe" }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+    assert_ne!(
+        cleared["result"]["version_id"],
+        again["result"]["version_id"]
+    );
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        read_back["result"]["versions"][3]["content"]["nutrition"],
+        Value::Null
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nothing_computes_nutrition_from_the_ingredient_lines_or_the_foods_they_name() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    // Ingredient Lines that read cleanly — quantity, Unit and Food all found,
+    // which is the state a computing importer would have everything it needed
+    // for. v1 still stores no figure: CIQUAL and the compute button are
+    // deferred past v1 (#12), and a figure invented here would be wrong in a
+    // way nobody could see.
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Plain Loaf",
+            "ingredients": [
+                { "kind": "ingredient", "text": "500 g strong white flour" },
+                { "kind": "ingredient", "text": "300 ml water" },
+                { "kind": "ingredient", "text": "10 g salt" },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let content = &created["result"]["versions"][0]["content"];
+    assert_eq!(
+        content["nutrition"],
+        Value::Null,
+        "three lines Kamosu read perfectly still produce no nutrition figure"
+    );
+
+    // The Readings really did land — so the emptiness above is a decision,
+    // not an unread recipe quietly failing to give a computation its input.
+    let readings = created["result"]["versions"][0]["readings"]
+        .as_array()
+        .expect("a Reading slot per Ingredient Line");
+    assert_eq!(readings.len(), 3, "{created}");
+    assert!(
+        readings.iter().all(|reading| !reading.is_null()),
+        "every line here carries a Reading: {readings:?}"
+    );
+
+    // And the Foods those Readings made carry the slot the deferred CIQUAL
+    // binding will one day fill, empty (CONTEXT.md, "Food").
+    let (status, foods) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(status, 200, "{foods}");
+    let listed = foods["result"]["foods"].as_array().expect("foods");
+    assert!(!listed.is_empty(), "{foods}");
+    for food in listed {
+        assert_eq!(
+            food["nutrition"],
+            Value::Null,
+            "a Food's nutrition is never computed either: {food}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_nutrition_figure_that_does_not_say_what_it_counts_is_refused() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // A number with no basis is not a fact about the dish, so it is refused
+    // rather than defaulted: guessing "per serving" would silently mislabel
+    // every packet figure somebody typed off the side of a box.
+    for bad in [
+        json!({ "calories": 308 }),
+        json!({ "calories": 308, "basis": "per_portion" }),
+        json!({ "basis": "per_serving" }),
+        json!({ "calories": -1, "basis": "per_serving" }),
+        json!({ "calories": "308", "basis": "per_serving" }),
+        json!(308),
+    ] {
+        let (status, refused) = app.post_op(
+            "save_recipe_version",
+            Some(&key),
+            &json!({ "branch_id": branch_id, "title": "Soupe", "nutrition": bad }).to_string(),
+        );
+        assert_eq!(status, 400, "{bad} was accepted: {refused}");
+    }
+}
+
+/// The other half of "a Food's nutrition never travels" (#72, spec item 161),
+/// held at the Catalogue rather than at a Bundle that does not exist yet
+/// (#66 builds it).
+///
+/// A Bundle is one recipe's worth of Vault (ADR 0020), so what it can carry is
+/// bounded by what a recipe declares: its Versions' content, and the Readings
+/// beside them. The property that keeps this instance's Food knowledge out of
+/// a file somebody else opens is that **neither of those two shapes reaches a
+/// Food at all** — a Version's content carries the recipe's own words, and a
+/// Reading carries the three words it read off one line and no pointer to the
+/// Food they resolve to (ADR 0019: nothing is stapled to a line).
+///
+/// Asserting it here means #66 inherits the guarantee instead of re-deciding
+/// it, and a field added later that would carry a Food's Cup Weight or its
+/// nutrition into a Bundle fails this test rather than a review. The recipe's
+/// own Nutrition figure is deliberately not covered: that one is a word of the
+/// recipe and travels with it, which is exactly the distinction CONTEXT.md
+/// draws between the two things called nutrition.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn what_a_bundle_could_carry_never_reaches_a_food() {
+    let catalogue = kamosu::catalogue::declarations();
+    let recipe = catalogue
+        .as_array()
+        .expect("the Catalogue is a list of declarations")
+        .iter()
+        .find(|op| op["name"] == json!("get_recipe"))
+        .expect("get_recipe is declared");
+    let version = &recipe["output_schema"]["properties"]["versions"]["items"]["properties"];
+
+    // A Reading names no Food. This is the only edge that could lead from a
+    // recipe to one, and it does not exist.
+    let reading: Vec<&String> = version["readings"]["items"]["properties"]
+        .as_object()
+        .expect("a Reading declares its fields")
+        .keys()
+        .collect();
+    assert_eq!(
+        reading,
+        ["amount", "target", "unit"],
+        "a Reading declares something beyond the three words it read: {reading:?}"
+    );
+
+    // And neither shape declares anything a Food holds.
+    for (where_, properties) in [
+        ("a Version's content", &version["content"]["properties"]),
+        ("a Reading", &version["readings"]["items"]["properties"]),
+    ] {
+        let fields: Vec<&String> = properties.as_object().unwrap().keys().collect();
+        for forbidden in ["food", "food_id", "foods", "cup_weight_grams"] {
+            assert!(
+                !fields.iter().any(|field| field.as_str() == forbidden),
+                "{where_} declares '{forbidden}': a Bundle would carry what this \
+                 instance learned about a Food. Fields: {fields:?}"
+            );
+        }
+    }
+
+    // The Food's own nutrition slot is reachable only through the Operations
+    // that read this instance's own Foods — and it is empty there too, since
+    // nothing in v1 writes it (the CIQUAL binding is deferred past v1, #12).
+    let get_food = catalogue
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|op| op["name"] == json!("get_food"))
+        .expect("get_food is declared");
+    assert_eq!(
+        get_food["output_schema"]["properties"]["nutrition"],
+        json!({ "type": "null" }),
+        "a Food's nutrition is declared as the empty slot it is in v1"
+    );
+}
+
+/// A recipe written before a field existed still answers the shape the
+/// Catalogue declares (#72).
+///
+/// A Version is immutable and named by the fingerprint of its own bytes
+/// (ADR 0004, ADR 0021), so `nutrition` — the first field ever added to a
+/// Recipe's content — could not be written into the rows already stored: that
+/// would re-fingerprint the library. The rows therefore stay as they were
+/// written, and the field is supplied on the way out. Without that, every
+/// recipe written before this change answers content missing a field the
+/// Catalogue says is required, and the generated client is handed a shape its
+/// own declaration forbids.
+///
+/// This test writes the pre-change row directly, because that is the only way
+/// to have one: nothing in the code path can produce a Version without the
+/// field any more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_version_written_before_a_field_existed_still_answers_the_declared_shape() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Written Before Nutrition" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let version_id = created["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Age the stored row back to what it would have held before #72: the same
+    // content with the key simply absent. The Version keeps its id, exactly as
+    // a real pre-change row does — the fingerprint is not recomputed.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let stored: String = conn
+                .query_row(
+                    "SELECT content FROM versions WHERE id = ?1",
+                    rusqlite::params![version_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let mut content: Value = serde_json::from_str(&stored).unwrap();
+            content.as_object_mut().unwrap().remove("nutrition");
+            conn.execute(
+                "UPDATE versions SET content = ?1 WHERE id = ?2",
+                rusqlite::params![content.to_string(), version_id],
+            )
+            .unwrap();
+            Ok(())
+        })
+        .expect("aged the row");
+
+    let (status, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read_back}");
+    let content = &read_back["result"]["versions"][0]["content"];
+    assert!(
+        content.get("nutrition").is_some(),
+        "a Version written before the field existed answers without it: {content}"
+    );
+    assert_eq!(content["nutrition"], Value::Null);
+
+    // Every other declared field is answered too, and the Version keeps the id
+    // it was fingerprinted under.
+    for declared in [
+        "title",
+        "yield",
+        "prep_time_minutes",
+        "cook_time_minutes",
+        "note",
+        "main_photo",
+        "source",
+        "nutrition",
+        "ingredients",
+        "steps",
+    ] {
+        assert!(
+            content.get(declared).is_some(),
+            "content is missing declared field '{declared}': {content}"
+        );
+    }
+    assert_eq!(
+        read_back["result"]["versions"][0]["version_id"],
+        json!(version_id),
+        "supplying the field on the way out must not re-fingerprint the Version"
+    );
 }

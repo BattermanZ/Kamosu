@@ -217,6 +217,7 @@ export function draftVersion(
 		note: content.note,
 		main_photo: content.main_photo,
 		source: content.source,
+		nutrition: content.nutrition,
 		ingredients: draftList(divergence.ingredients, 'ingredients', taken).map(({ kind, text }) => ({
 			kind,
 			text,

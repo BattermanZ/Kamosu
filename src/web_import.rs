@@ -56,8 +56,9 @@ pub struct ParsedRecipe {
     /// favicon (ADR 0025) — never itself fetched by this function.
     pub image_url: Option<String>,
     /// Present only where the page's own structured data gave a number
-    /// (ADR 0025) — storage lands in #72; kept here so the extractor's
-    /// promise not to invent nutrition is directly testable today.
+    /// (ADR 0025). `import_web_link` lands it on the recipe as its Nutrition
+    /// figure, per serving — schema.org defines `NutritionInformation` that
+    /// way — and lands nothing at all where this is `None` (#72).
     pub nutrition_calories: Option<f64>,
 }
 

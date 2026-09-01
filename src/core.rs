@@ -3466,7 +3466,9 @@ impl Core {
                         "name": row.get::<_, Option<String>>(4)?,
                         "change_note": row.get::<_, Option<String>>(5)?,
                         "created_at": row.get::<_, String>(6)?,
-                        "content": serde_json::from_str::<Value>(&content).unwrap_or(Value::Null),
+                        "content": serde_json::from_str::<Value>(&content)
+                            .map(content_as_declared)
+                            .unwrap_or(Value::Null),
                         // What this Version renders, and the Language it stood
                         // in when it was written — both on the occurrence, so
                         // the history is exact at every point in it (ADR 0006).
@@ -3788,6 +3790,7 @@ impl Core {
                     "cook_time_minutes": field("cook_time_minutes"),
                     "source": field("source"),
                     "note": field("note"),
+                    "nutrition": field("nutrition"),
                     "main_photo": field("main_photo"),
                 },
             }))
@@ -5725,8 +5728,8 @@ fn fingerprint_content(content: &Value) -> String {
 }
 
 /// Build and validate the stored shape of a Recipe's content out of raw
-/// request input (#43): the title, the optional Yield, Prep/Cook Time, Note
-/// and Source, and the Ingredient Line and Step lists — each a flat, ordered
+/// request input (#43): the title, the optional Yield, Prep/Cook Time, Note,
+/// Source and Nutrition figure, and the Ingredient Line and Step lists — each a flat, ordered
 /// sequence in which a Section is a real entry rather than a faked line
 /// (CONTEXT.md, "Section"). Every field but the title is optional and
 /// normalises to `null` or `[]` when absent, so `{ "title": "..." }` alone is
@@ -5766,6 +5769,10 @@ fn parse_recipe_content(input: &Value) -> Result<Value, OpError> {
         None | Some(Value::Null) => Value::Null,
         Some(value) => parse_source(value)?,
     };
+    let nutrition = match input.get("nutrition") {
+        None | Some(Value::Null) => Value::Null,
+        Some(value) => parse_nutrition(value)?,
+    };
     let ingredients = parse_line_list(input.get("ingredients"), "ingredients", "ingredient")?;
     let steps = parse_step_list(input.get("steps"))?;
 
@@ -5777,9 +5784,40 @@ fn parse_recipe_content(input: &Value) -> Result<Value, OpError> {
         "note": note,
         "main_photo": main_photo,
         "source": source,
+        "nutrition": nutrition,
         "ingredients": ingredients,
         "steps": steps,
     }))
+}
+
+/// Nutrition, all of it v1 has: one figure and what that figure counts
+/// (CONTEXT.md, "Nutrition"). Kamosu never works the number out from the
+/// Ingredient Lines or the Foods they name — #12 defers CIQUAL and the
+/// compute button past v1 — so this is only ever what somebody typed, or
+/// what a source page's own structured data stated (#70, ADR 0025).
+///
+/// The basis is the whole reason the figure is readable at all: 308 means
+/// nothing until it says whether it counts a serving or 100 g, and the two
+/// are not convertible without a weight the recipe does not carry. So it is
+/// required alongside the number rather than defaulted to either — a default
+/// would silently label half the library wrong.
+fn parse_nutrition(value: &Value) -> Result<Value, OpError> {
+    let object = value.as_object().ok_or_else(|| {
+        OpError::bad_request("nutrition must be an object with calories and a basis")
+    })?;
+    let calories = object
+        .get("calories")
+        .and_then(Value::as_f64)
+        .filter(|calories| *calories >= 0.0)
+        .ok_or_else(|| OpError::bad_request("nutrition.calories must be a number, zero or more"))?;
+    let basis = object
+        .get("basis")
+        .and_then(Value::as_str)
+        .filter(|basis| matches!(*basis, "per_serving" | "per_100g"))
+        .ok_or_else(|| {
+            OpError::bad_request("nutrition.basis must be 'per_serving' or 'per_100g'")
+        })?;
+    Ok(json!({ "calories": calories, "basis": basis }))
 }
 
 /// A Yield: one amount and what it is an amount of — "4 servings", "24
@@ -6539,6 +6577,46 @@ fn branch_head(conn: &Connection, branch_id: &str) -> Result<BranchHead, OpError
     .ok_or_else(|| OpError::not_found("no such Branch"))
 }
 
+/// A Version's stored content in the shape the Catalogue declares, filling in
+/// any field that did not exist when it was written.
+///
+/// A Version is immutable and its id is the fingerprint of its own bytes
+/// (ADR 0004, ADR 0021), so a field added to the recipe later — `nutrition`
+/// was the first, in #72 — can never be written into a row already stored:
+/// doing that would re-fingerprint the library, which is the exact thing the
+/// content-addressing exists to prevent. What is stored therefore stays as it
+/// was written, and the missing field is supplied here, on the way out.
+///
+/// Without this a recipe written before the field existed answers content the
+/// Catalogue says must carry it, and the generated client — the whole point of
+/// which is that the frontend and the Core cannot disagree about an
+/// Operation's shape (AGENTS.md, "The interface") — is handed a shape its own
+/// declaration forbids.
+///
+/// The empty value per field is the same one `parse_recipe_content` normalises
+/// an absent input to, so a recipe read here and saved straight back reads
+/// identically either way.
+fn content_as_declared(mut content: Value) -> Value {
+    let Some(object) = content.as_object_mut() else {
+        return content;
+    };
+    for (field, empty) in [
+        ("title", json!("")),
+        ("yield", Value::Null),
+        ("prep_time_minutes", Value::Null),
+        ("cook_time_minutes", Value::Null),
+        ("note", Value::Null),
+        ("main_photo", Value::Null),
+        ("source", Value::Null),
+        ("nutrition", Value::Null),
+        ("ingredients", json!([])),
+        ("steps", json!([])),
+    ] {
+        object.entry(field).or_insert(empty);
+    }
+    content
+}
+
 /// One Version's stored content, as written. A Version is content-addressed and
 /// global, so this needs no Branch: two Branches that reached identical content
 /// hold the very same row.
@@ -6552,11 +6630,13 @@ fn version_content(conn: &Connection, version_id: &str) -> Result<Value, OpError
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?
         .ok_or_else(|| OpError::not_found("no such Version"))?;
-    serde_json::from_str(&content).map_err(|e| {
-        OpError::internal(format!(
-            "Version {version_id} holds unreadable content: {e}"
-        ))
-    })
+    serde_json::from_str(&content)
+        .map(content_as_declared)
+        .map_err(|e| {
+            OpError::internal(format!(
+                "Version {version_id} holds unreadable content: {e}"
+            ))
+        })
 }
 
 /// Record that the cook just did something — starting, resuming or
@@ -7280,6 +7360,7 @@ fn shared_version(
         .map_err(|e| OpError::internal(format!("cannot read a Version: {e}")))?
         .ok_or_else(|| OpError::not_found("no such Version"))?;
     let content: Value = serde_json::from_str(&content)
+        .map(content_as_declared)
         .map_err(|e| OpError::internal(format!("a Version's content is unreadable: {e}")))?;
 
     let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);

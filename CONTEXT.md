@@ -210,6 +210,10 @@ _Avoid_: Active time, preparation
 How long a recipe takes from the end of prep until it is ready, in whole minutes — including resting, proving, marinating and chilling. Cooking is not only what happens over heat. Optional.
 _Avoid_: Bake time, waiting time, rest time, total time
 
+**Nutrition**:
+One figure a recipe carries, and what that figure counts: calories per serving of the Yield as written, or calories per 100 g. Optional, and commonly absent. It is typed by the cook, or taken from a source page's own structured data where the page stated a number — never worked out from the Ingredient Lines or the Foods they name, because a plausible-but-wrong calorie figure is worse than an empty field. The basis is part of the figure rather than a setting: 308 says nothing until it says what it counts, and the two bases do not convert into one another without a weight a recipe does not carry. It is one of the recipe's own words, so it rides in the fingerprint and travels with the recipe. The nutrition a **Food** records is a different thing under the same word — per-ingredient, instance-wide, and never travelling — and neither is computed from the other in v1.
+_Avoid_: Calories, macros, nutritional information, nutrients, energy
+
 **Main Photo**:
 The single Photograph that stands for a recipe wherever it is listed. Optional — and commonly absent. Distinct from a Step's photo, which shows one moment in the cooking.
 _Avoid_: Hero image, thumbnail, picture, cover (that names the generated stand-in)

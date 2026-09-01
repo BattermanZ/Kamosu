@@ -2386,6 +2386,29 @@ fn recipe_content_properties() -> Value {
             "required": ["text", "link"],
             "additionalProperties": false,
         },
+        // v1's whole of nutrition (CONTEXT.md, "Nutrition"): a figure the cook
+        // types, or one a source page's own structured data stated — never
+        // computed from the Ingredient Lines or the Foods they name. The basis
+        // is required alongside the number because 308 says nothing until it
+        // says what it counts, and the two bases do not convert into each
+        // other without a weight the recipe does not carry.
+        "nutrition": {
+            "type": ["object", "null"],
+            "properties": {
+                "calories": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Calories, zero or more.",
+                },
+                "basis": {
+                    "enum": ["per_serving", "per_100g"],
+                    "description": "What the figure counts: one serving of the \
+                                     Yield as written, or 100 g.",
+                },
+            },
+            "required": ["calories", "basis"],
+            "additionalProperties": false,
+        },
         "ingredients": {
             "type": "array",
             "items": {
@@ -2505,10 +2528,11 @@ fn divergence_schema() -> Value {
             "theirs": divergence_branch_schema(),
             "ingredients": { "type": "array", "items": divergence_row_schema() },
             "steps": { "type": "array", "items": divergence_row_schema() },
-            // Title, Yield, times, Source, Note and the Main Photo are single
-            // values. Tags are absent on purpose: they are how a Kitchen files,
-            // not what a recipe is, and marking them would put a "take theirs"
-            // offer under a difference between two filing systems (ADR 0035).
+            // Title, Yield, times, Source, Note, Nutrition and the Main Photo
+            // are single values. Tags are absent on purpose: they are how a
+            // Kitchen files, not what a recipe is, and marking them would put
+            // a "take theirs" offer under a difference between two filing
+            // systems (ADR 0035).
             "fields": {
                 "type": "object",
                 "properties": {
@@ -2518,11 +2542,12 @@ fn divergence_schema() -> Value {
                     "cook_time_minutes": divergence_field_schema(),
                     "source": divergence_field_schema(),
                     "note": divergence_field_schema(),
+                    "nutrition": divergence_field_schema(),
                     "main_photo": divergence_field_schema(),
                 },
                 "required": [
                     "title", "yield", "prep_time_minutes", "cook_time_minutes",
-                    "source", "note", "main_photo",
+                    "source", "note", "nutrition", "main_photo",
                 ],
                 "additionalProperties": false,
             },
@@ -2544,7 +2569,7 @@ fn recipe_content_schema() -> Value {
         "properties": recipe_content_properties(),
         "required": [
             "title", "yield", "prep_time_minutes", "cook_time_minutes",
-            "note", "main_photo", "source", "ingredients", "steps",
+            "note", "main_photo", "source", "nutrition", "ingredients", "steps",
         ],
         "additionalProperties": false,
     })

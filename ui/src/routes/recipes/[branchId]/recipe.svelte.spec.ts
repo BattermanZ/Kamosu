@@ -18,6 +18,9 @@ import RecipeTestHarness from './RecipeTestHarness.svelte';
 /** One slot of a Version's `readings`: what Kamosu understood, or nothing. */
 type Slot = GetRecipeOutput['versions'][number]['readings'][number];
 
+/** A recipe's Nutrition figure, or nothing — the Catalogue's own shape (#72). */
+type Nutrition = GetRecipeOutput['versions'][number]['content']['nutrition'];
+
 const line = (text: string, index: number) => ({
 	kind: 'ingredient',
 	text,
@@ -44,6 +47,7 @@ const branch = (
 		cook_time_minutes: 30,
 		note: null,
 		main_photo: null,
+		nutrition: null as Nutrition,
 		source: { text: 'mykoreankitchen.com', link: null },
 		ingredients,
 		steps,
@@ -173,6 +177,7 @@ function divergence() {
 			cook_time_minutes: { same: true, mine: 30, theirs: 30 },
 			source: { same: true, mine: null, theirs: null },
 			note: { same: true, mine: null, theirs: null },
+			nutrition: { same: true, mine: null, theirs: null },
 			main_photo: { same: true, mine: null, theirs: null },
 		},
 	};
@@ -371,6 +376,44 @@ describe('a Divergence', () => {
 			'1 Tbsp rice vinegar',
 		]);
 		expect(input.change_note).toBe('Took ¾ cup potato starch from Chez Marc.');
+	});
+
+	it('carries the nutrition figure through a save rather than erasing it', async () => {
+		// `save_recipe_version` replaces the whole recipe, so a field this
+		// screen forgets to send is a field the save deletes. The nutrition
+		// figure is one of the recipe's own words (#72), and taking one line
+		// across from another Branch is not a reason to lose it.
+		const answers = forked({
+			save_recipe_version: {
+				branch_id: 'mine',
+				version_id: 'v_new',
+				parent_version_id: 'v_mine',
+				sequence: 2,
+				copied: false,
+				collapsed: false,
+				language: 'en',
+				language_offer: null,
+				translates_version_id: null,
+			},
+		});
+		const d = (answers as Record<string, unknown>).divergence as ReturnType<typeof divergence>;
+		d.mine.content.nutrition = { calories: 308, basis: 'per_serving' };
+		const { kamosu } = renderRecipe(answers);
+		await screen.findByText('Maison Batterman');
+
+		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
+		await fireEvent.click(await screen.findByText('¾ cup potato starch'));
+		await fireEvent.click(screen.getByRole('button', { name: /Write this into mine/i }));
+		await fireEvent.click(screen.getByRole('button', { name: /Save a Version/i }));
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: /^Save a Version$/i }).at(-1) as HTMLElement,
+		);
+
+		const saved = kamosu.calls.find((call) => call.operation === 'save_recipe_version');
+		expect((saved?.input as { nutrition: unknown }).nutrition).toEqual({
+			calories: 308,
+			basis: 'per_serving',
+		});
 	});
 
 	it('marks a single value the two Branches do not agree on', async () => {
@@ -927,6 +970,7 @@ describe('the recipe screen', () => {
 		renderRecipe(
 			solo({
 				main_photo: null,
+				nutrition: null,
 				source: null,
 				note: null,
 				yield: null,

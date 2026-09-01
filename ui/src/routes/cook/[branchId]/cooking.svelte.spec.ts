@@ -103,6 +103,7 @@ function answers(over: Answers = {}): Answers {
 						cook_time_minutes: 30,
 						note: null,
 						main_photo: null,
+						nutrition: null,
 						source: null,
 						ingredients: INGREDIENTS,
 						steps: STEPS,

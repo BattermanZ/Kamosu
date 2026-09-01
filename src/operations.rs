@@ -668,6 +668,21 @@ pub fn import_web_link(
         .yield_amount_noun
         .as_ref()
         .map(|(amount, noun)| json!({ "amount": amount, "noun": noun }));
+    // Nutrition rides only where the page's own structured data stated a
+    // number (#72, ADR 0025) — never worked out from the Ingredient Lines
+    // just read, because a plausible-but-wrong calorie figure is worse than
+    // an empty field.
+    //
+    // The basis is the one thing here not read off the page: schema.org
+    // defines every `NutritionInformation` value as being for one serving, so
+    // `per_serving` is what the vocabulary the page chose to speak already
+    // means. A page that states a number states a per-serving number whether
+    // or not it says so, and the alternative — landing the figure with no
+    // basis — is not available, since a figure that does not say what it
+    // counts is refused (`parse_nutrition`).
+    let nutrition = parsed
+        .nutrition_calories
+        .map(|calories| json!({ "calories": calories, "basis": "per_serving" }));
 
     let candidate = json!({
         "foreign_id": effective_url,
@@ -678,6 +693,7 @@ pub fn import_web_link(
         "note": Value::Null,
         "main_photo": main_photo,
         "source": { "text": parsed.source_text, "link": effective_url },
+        "nutrition": nutrition,
         "ingredients": ingredients,
         "steps": steps,
     });
