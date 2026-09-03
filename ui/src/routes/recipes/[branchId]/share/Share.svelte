@@ -12,6 +12,15 @@
 	It sits above the switch rather than beneath it, because it is what the act
 	means rather than a footnote to it.
 
+	WHAT TRAVELS WITH IT IS SAID PLAINLY, on the screen, above the switch (#50,
+	ADR 0008): "this recipe includes Pizza Dough, which will be readable through
+	this link". A Component travels with its parent as a Passenger, because a
+	recipe that cannot tell you how to make its own dough is incomplete — and
+	that is a thing a person is owed BEFORE they turn sharing on, in the same
+	place and the same voice as the standing line, rather than as a dialog to
+	dismiss. It does not change the dough's own Visibility: the dough gets no
+	page and no link of its own, and is read only through this one.
+
 	THE LINK IS SHOWN ONCE, at the moment it is minted, and the screen says so.
 	Kamosu keeps only the Secret's hash, exactly as it does for every other
 	Secret (ADR 0031), so afterwards this screen can say a link exists and
@@ -34,6 +43,12 @@
 	const kamosu = useKamosu();
 
 	let link = $state<GetShareLinkOutput | undefined>(undefined);
+	/**
+	 * The recipes this one is made of, which a link carries with it (#50). Read
+	 * from the recipe rather than from the link, because it is true whether or
+	 * not sharing is on — it is what turning it on would mean.
+	 */
+	let passengers = $state<string[]>([]);
 	/** The link itself, held only for as long as this screen is open. */
 	let minted = $state<string | undefined>(undefined);
 	let address = $state('');
@@ -47,6 +62,20 @@
 			try {
 				const read = await kamosu.getShareLink({ branch_id: branchId });
 				if (current) link = read;
+
+				const recipe = await kamosu.getRecipe({ branch_id: branchId });
+				if (!current) return;
+				// Named once each, in the order the recipe meets them. A
+				// Component this instance does not hold has no name to give and
+				// nothing to carry, so it is not promised.
+				passengers = [
+					...new Set(
+						(recipe.versions.at(-1)?.components ?? [])
+							.filter((component) => component.held && !component.stopped)
+							.map((component) => component.title)
+							.filter((title): title is string => Boolean(title)),
+					),
+				];
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
 				if (current) failed = m.share_failed();
@@ -110,6 +139,17 @@
 	<!-- The standing line: the same words every time, on this screen and on the
 	     export-a-bundle path alike. -->
 	<p class="border-l-2 border-accent py-1 pl-4 text-read text-ink-2">{m.share_standing()}</p>
+
+	<!--
+		What a link carries besides this recipe (#50, ADR 0008). Beside the
+		standing line and in the same voice: it is part of what sharing means,
+		not a footnote to it, and it is on screen whether the link is on or off.
+	-->
+	{#if passengers.length}
+		<p class="mt-3 border-l-2 border-support-2 py-1 pl-4 text-read text-ink-2">
+			{m.share_carries_components({ recipes: passengers.join(', ') })}
+		</p>
+	{/if}
 
 	{#if failed}
 		<p class="mt-4 text-read text-support" role="alert">{failed}</p>

@@ -56,6 +56,10 @@ const branch = (
 	// Nothing to say beneath either side's lines: this reader measures the way
 	// the recipe is already written (#49).
 	measured: { ingredients: ingredients.map(() => null), steps: steps.map(() => null) },
+	// Neither side composes anything. Both sides carry their own (#50): ADR
+	// 0014 holds the two recipes as equals, so a dough that unfolded in one and
+	// not the other would make one of them the lesser.
+	components: [],
 });
 
 const MY_INGREDIENTS = [
@@ -205,6 +209,8 @@ function forked(extra: Answers = {}) {
 					created_at: '2026-08-09T00:00:00Z',
 					translates_version_id: null,
 					language: 'en',
+					// A recipe that composes nothing, which is nearly all of them (#50).
+					components: [],
 					content: divergence().mine.content,
 					readings: MY_INGREDIENTS.map(() => null),
 					measured: {
@@ -658,6 +664,8 @@ describe('the recipe screen', () => {
 					created_at: '2026-08-09T00:00:00Z',
 					translates_version_id: null,
 					language: 'en',
+					// A recipe that composes nothing, which is nearly all of them (#50).
+					components: [],
 					content: {
 						...base,
 						ingredients: SECTIONED,
@@ -669,10 +677,10 @@ describe('the recipe screen', () => {
 					// carry none — `set_reading` refuses one on a section.
 					readings: readings ?? [
 						null,
-						{ amount: '1400', unit: 'g', target: 'chicken' },
+						{ amount: '1400', unit: 'g', target: 'chicken', lineage_id: null },
 						null,
 						null,
-						{ amount: '3', unit: 'tbsp', target: 'ketchup' },
+						{ amount: '3', unit: 'tbsp', target: 'ketchup', lineage_id: null },
 					],
 					// The one subordinate line the Core worked out for this
 					// reader (#49). Null throughout by default: an American
@@ -780,11 +788,11 @@ describe('the recipe screen', () => {
 					],
 				},
 				[
-					{ amount: '2', unit: 'gousses', target: 'ail' },
-					{ amount: null, unit: null, target: 'Za’tar' },
+					{ amount: '2', unit: 'gousses', target: 'ail', lineage_id: null },
+					{ amount: null, unit: null, target: 'Za’tar', lineage_id: null },
 					// The one a person corrected: the line says 200 g of flour,
 					// Kamosu has been told it is 250 g of wheat flour.
-					{ amount: '250', unit: 'g', target: 'farine de blé' },
+					{ amount: '250', unit: 'g', target: 'farine de blé', lineage_id: null },
 				],
 				{ ingredients: [null, null, null], steps: SECTIONED_STEPS.map(() => null) },
 			),
@@ -831,7 +839,7 @@ describe('the recipe screen', () => {
 			...solo({}, undefined, CONVERTED),
 			set_reading: {
 				line_index: 2,
-				reading: { amount: '500', unit: 'ml', target: 'frying oil' },
+				reading: { amount: '500', unit: 'ml', target: 'frying oil', lineage_id: null },
 				measured: 'about 2⅛ cups',
 			},
 		});
@@ -912,7 +920,7 @@ describe('the recipe screen', () => {
 			...solo(),
 			set_reading: {
 				line_index: 2,
-				reading: { amount: '500', unit: 'ml', target: 'frying oil' },
+				reading: { amount: '500', unit: 'ml', target: 'frying oil', lineage_id: null },
 				measured: null,
 			},
 		});
@@ -933,6 +941,7 @@ describe('the recipe screen', () => {
 			amount: '500',
 			unit: 'ml',
 			target: 'frying oil',
+			lineage_id: null,
 		});
 
 		// Correcting a Reading is not an edit to the recipe: no Version is made,
@@ -961,6 +970,12 @@ describe('the recipe screen', () => {
 			amount: null,
 			unit: null,
 			target: null,
+			// The WHOLE Reading, every time — the pointer at a Recipe included
+			// (#50, ADR 0008). Leaving it out would not leave it alone: the
+			// Operation replaces what is there, so an omitted Lineage is a
+			// cleared one, and a Component would quietly become an ordinary
+			// ingredient the first time somebody fixed its amount.
+			lineage_id: null,
 		});
 		expect(screen.queryByText('1400 g chicken')).not.toBeInTheDocument();
 		expect(screen.getByText('1.4 kg whole chicken')).toBeInTheDocument();
@@ -990,6 +1005,164 @@ describe('the recipe screen', () => {
 		expect(screen.queryByText(/min cook/i)).not.toBeInTheDocument();
 		expect(screen.queryByText(/^From /i)).not.toBeInTheDocument();
 	});
+
+	// ── Components (#50, ADR 0008) ───────────────────────────────────────────
+	//
+	// A Component is an ordinary Ingredient Line whose Reading names a Recipe
+	// rather than a Food. Everything the screen shows about one — which recipe,
+	// how much of it, and the three sentences for when there is nothing to
+	// unfold — is worded in the Core, so what these tests hold is the LAYOUT
+	// Aurélien chose on 3 September 2026: B, the annexe.
+
+	/** A recipe whose first line names another recipe. */
+	function withComponent(
+		component: Partial<GetRecipeOutput['versions'][number]['components'][number]> = {},
+	): Answers {
+		const answers = solo({}, [
+			null,
+			{ amount: '500', unit: 'g', target: null, lineage_id: 'l_dough' },
+			null,
+			null,
+			null,
+		]);
+		const recipe = answers.get_recipe as GetRecipeOutput;
+		recipe.versions[0].components = [
+			{
+				path: [1],
+				lineage_id: 'l_dough',
+				held: true,
+				stopped: false,
+				branch_id: 'b_dough',
+				title: 'Neapolitan Pizza Dough',
+				share: 0.5,
+				said: 'Neapolitan Pizza Dough · ½ of the recipe',
+				content: {
+					title: 'Neapolitan Pizza Dough',
+					yield: { amount: '1', noun: 'kg' },
+					prep_time_minutes: null,
+					cook_time_minutes: null,
+					note: null,
+					main_photo: null,
+					nutrition: null as Nutrition,
+					source: null,
+					ingredients: [{ kind: 'ingredient', text: '600 g tipo 00 flour' }],
+					steps: [{ kind: 'step', text: 'Knead for ten minutes.', photo: null }],
+				},
+				readings: [{ amount: '600', unit: 'g', target: 'flour', lineage_id: null }],
+				measured: { ingredients: ['about 300 g'], steps: [null] },
+				...component,
+			} as GetRecipeOutput['versions'][number]['components'][number],
+		];
+		return answers;
+	}
+
+	it('leaves a Component closed, saying which recipe it names and how much of it', async () => {
+		renderRecipe(withComponent());
+
+		// ADR 0008: closed by default. The row says what is behind it and the
+		// recipe itself is a tap away — so the dough's fifteen steps are not
+		// sitting between two ingredients nobody asked to move apart.
+		const said = await screen.findByRole('button', {
+			name: /Neapolitan Pizza Dough · ½ of the recipe/,
+		});
+		expect(said).toHaveAttribute('aria-expanded', 'false');
+		expect(screen.queryByText('600 g tipo 00 flour')).not.toBeInTheDocument();
+		expect(screen.queryByText('Knead for ten minutes.')).not.toBeInTheDocument();
+
+		// The written line is untouched and still its own tap, as every line is.
+		expect(await screen.findByText(SECTIONED[1].text)).toBeInTheDocument();
+	});
+
+	it('unfolds a Component in place and sets its method at the foot of the page', async () => {
+		renderRecipe(withComponent());
+		await fireEvent.click(
+			await screen.findByRole('button', { name: /Neapolitan Pizza Dough · ½ of the recipe/ }),
+		);
+
+		// Its INGREDIENT LINES unfold here, already scaled by how much of that
+		// recipe this line asks for — so the list stays a list you can shop from.
+		const inner = await screen.findByText('600 g tipo 00 flour');
+		expect(inner).toBeInTheDocument();
+		expect(screen.getByText('about 300 g')).toHaveClass('text-read');
+
+		// Its STEPS are NOT among them. Treatment B puts them at the foot, under
+		// a heading of their own, and the row says where they went.
+		const method = await screen.findByText('Knead for ten minutes.');
+		const heading = screen.getByText(/Neapolitan Pizza Dough · its own method/i);
+		expect(inner.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(heading.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+		// The outer Method never grew the dough's Steps: composition says WHAT
+		// and never WHEN (ADR 0008).
+		const ownMethod = screen.getByText(SECTIONED_STEPS.find((row) => row.kind === 'step')!.text);
+		expect(
+			ownMethod.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		// And the row links to it, because the foot of the page is a long way off.
+		const link = screen.getByRole('link', { name: /at the foot of the page/i });
+		expect(link).toHaveAttribute('href', '#annexe-1');
+	});
+
+	it('folds a Component away again, method and all', async () => {
+		renderRecipe(withComponent());
+		const said = await screen.findByRole('button', {
+			name: /Neapolitan Pizza Dough · ½ of the recipe/,
+		});
+		await fireEvent.click(said);
+		expect(await screen.findByText('Knead for ten minutes.')).toBeInTheDocument();
+
+		await fireEvent.click(said);
+		// The foot of the page holds exactly what the list above says is open.
+		expect(screen.queryByText('Knead for ten minutes.')).not.toBeInTheDocument();
+		expect(screen.queryByText('600 g tipo 00 flour')).not.toBeInTheDocument();
+	});
+
+	it('leaves a sentence rather than a hole where the recipe is not here', async () => {
+		renderRecipe(
+			withComponent({
+				held: false,
+				branch_id: null,
+				title: null,
+				share: null,
+				said: 'Kamosu does not have this recipe.',
+				content: null,
+				readings: null,
+				measured: null,
+			}),
+		);
+
+		// The written line still reads correctly — it was always the truth
+		// (ADR 0002) — and beneath it one sentence, with nothing to tap: a
+		// missing recipe is not a door.
+		expect(await screen.findByText(SECTIONED[1].text)).toBeInTheDocument();
+		const said = await screen.findByText('Kamosu does not have this recipe.');
+		expect(said).toHaveClass('text-read');
+		expect(said.tagName).toBe('SPAN');
+		expect(said.closest('button')).toBeNull();
+	});
+
+	it('says plainly where unfolding stopped at a repeat', async () => {
+		renderRecipe(
+			withComponent({
+				stopped: true,
+				branch_id: null,
+				share: null,
+				said: 'Pizza Margherita is already open above — Kamosu stops here.',
+				content: null,
+				readings: null,
+				measured: null,
+			}),
+		);
+
+		// A cycle is never refused (ADR 0008); it stops, and says so. Nothing to
+		// open, because there is nothing behind it.
+		const said = await screen.findByText(
+			'Pizza Margherita is already open above — Kamosu stops here.',
+		);
+		expect(said.tagName).toBe('SPAN');
+		expect(said.closest('button')).toBeNull();
+	});
 });
 
 /**
@@ -1018,7 +1191,7 @@ describe('correcting a Reading beside a Divergence', () => {
 			forked({
 				set_reading: {
 					line_index: 0,
-					reading: { amount: '¾', unit: 'cup', target: 'potato starch' },
+					reading: { amount: '¾', unit: 'cup', target: 'potato starch', lineage_id: null },
 					measured: null,
 				},
 			}),

@@ -61,6 +61,35 @@
 
 	A Step's slot holds the oven temperature in the other system, on the
 	conventional ladder — an addition beside the sentence, never written into it.
+
+	A COMPONENT UNFOLDS IN PLACE, ITS STEPS AT THE FOOT (#50, ADR 0008). An
+	Ingredient whose Reading names a Lineage rather than a Food is a Component —
+	the dough inside a pizza — and it is an ordinary Ingredient Line in every
+	respect but two: the square in front of it is matcha rather than indigo, and
+	it opens.
+
+	What it opens into was chosen by Aurélien on 3 September 2026 against two
+	treatments drawn on real recipes, recorded on #50. He was offered A · the
+	nest, which put the inner recipe's Steps inside the row with its
+	Ingredients, and chose B · the annexe:
+
+	  · its INGREDIENT LINES unfold here, indented under the row behind a matcha
+	    rule, already scaled by how much of that recipe this line asks for — so
+	    the list stays a list you can shop from;
+	  · its STEPS are set at the FOOT of the page, after this recipe's Method,
+	    under a heading of their own. Never spliced into the method: composition
+	    says WHAT and never WHEN, and Kamosu does not know the dough is made the
+	    day before.
+
+	What decided it was the library rather than taste. Every dough in the real
+	86-recipe export runs to twelve or fifteen Steps, so the nest put fifteen
+	steps between `Dough for 2 pizzas` and `250 g mozzarella` in the case the
+	whole feature is written about.
+
+	NONE OF THE ARITHMETIC OR THE WORDING IS HERE. How much of the inner recipe
+	is wanted, its scaled amounts, and the one line beneath a Component's
+	written line all arrive worded from the Core — which is why the Share Link
+	page and an agent at the MCP door say exactly what this screen says.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -197,11 +226,67 @@
 	const measured = $derived(
 		here?.measured ?? recipe?.versions.at(-1)?.measured ?? { ingredients: [], steps: [] },
 	);
+	/**
+	 * The Components of the recipe you are standing in, unfolded by the Core
+	 * (#50, ADR 0008) — flat, depth first, each carrying the `path` of line
+	 * indexes that reaches it. Both sides of a Divergence carry their own, so a
+	 * dough unfolds whichever recipe you are standing in.
+	 */
+	const components = $derived(here?.components ?? recipe?.versions.at(-1)?.components ?? []);
+
+	/** One Component, or nothing: the entry sitting at `index` of the list at `at`. */
+	function componentAt(at: number[], index: number) {
+		return components.find(
+			(component) =>
+				component.path.length === at.length + 1 &&
+				at.every((step, depth) => component.path[depth] === step) &&
+				component.path[at.length] === index,
+		);
+	}
+
+	/**
+	 * **Every Component's Steps, in the order the page meets them** — the foot
+	 * of the page under treatment B. A Component with no Steps, one this
+	 * instance does not hold, and one that stopped at a repeat all contribute
+	 * nothing: there is no method to set.
+	 */
+	/**
+	 * Which Components are open. **Closed by default** (ADR 0008): the row says
+	 * which recipe it names and how much of it, and the recipe itself is a tap
+	 * away. Keyed by path, so a Component inside a Component opens on its own.
+	 *
+	 * Crossing to the other Kitchen's recipe closes everything, for the reason
+	 * `open` and `correcting` are cleared there: the two Branches have their own
+	 * lists, so a path that means the dough here means another line over there.
+	 */
+	let unfoldedComponents = $state(new Set<string>());
+	const pathKey = (path: number[]) => path.join('.');
+	function toggleComponent(path: number[]) {
+		const next = new Set(unfoldedComponents);
+		const key = pathKey(path);
+		if (next.has(key)) next.delete(key);
+		else next.add(key);
+		unfoldedComponents = next;
+	}
+	const isOpen = (path: number[]) => unfoldedComponents.has(pathKey(path));
+
+	/**
+	 * **Every open Component's Steps, in the order the page meets them** — the
+	 * foot of the page under treatment B. Folding a Component away takes its
+	 * method with it, so the foot of the page holds exactly what the list above
+	 * says is open. A Component with no Steps, one this instance does not hold,
+	 * and one that stopped at a repeat all contribute nothing.
+	 */
+	const annexes = $derived(
+		components.filter((component) => component.content?.steps.length && isOpen(component.path)),
+	);
 
 	// ---- correcting a Reading --------------------------------------------
 
 	/** One slot of `readings`: what Kamosu understood of a line, or nothing. */
 	type Slot = GetRecipeOutput['versions'][number]['readings'][number];
+	/** One Component of the recipe being read, unfolded by the Core (ADR 0008). */
+	type Component = GetRecipeOutput['versions'][number]['components'][number];
 	/**
 	 * A line corrected here: the Reading as it now stands, and the one
 	 * subordinate line it now produces. They travel together because
@@ -337,12 +422,14 @@
 		side = side === 'mine' ? 'theirs' : 'mine';
 		open = new Set();
 		correcting = null;
+		unfoldedComponents = new Set();
 	}
 
 	function toggleMarks() {
 		marks = !marks;
 		open = new Set();
 		correcting = null;
+		unfoldedComponents = new Set();
 	}
 
 	function toggle(key: string) {
@@ -505,8 +592,18 @@
 		-->
 		{#snippet ingredientLine(text: string, at: number)}
 			{@const readable = correctable && at >= 0}
+			{@const component = componentAt([], at)}
 			<li class="flex gap-3 border-b border-rule py-3">
-				<span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
+				<!--
+					Matcha rather than indigo where the line names a recipe (#50). The
+					token was reserved for exactly this. It has a job: every line on
+					this page is already tappable, to correct its Reading, so
+					tappability alone cannot say there is a recipe behind this one.
+				-->
+				<span
+					class="ingredient-marker shrink-0 {component ? 'bg-support-2' : 'bg-accent'}"
+					aria-hidden="true"
+				></span>
 				<div class="min-w-0 flex-1">
 					{#if readable}
 						<button
@@ -515,19 +612,26 @@
 							aria-expanded={correcting === at}
 							onclick={() => toggleCorrector(at)}
 						>
-							{@render written(text, at)}
+							{@render written(text, at, Boolean(component))}
 						</button>
 					{:else}
-						{@render written(text, at)}
+						{@render written(text, at, Boolean(component))}
+					{/if}
+					{#if component}
+						{@render componentLine(component)}
 					{/if}
 					{#if readable && correcting === at}
 						<Correcting
 							{branchId}
 							lineIndex={at}
 							reading={readingAt(at)}
+							componentTitle={component?.title}
 							onDone={(next, converted) => corrected(at, next, converted)}
 							onCancel={() => (correcting = null)}
 						/>
+					{/if}
+					{#if component && isOpen(component.path)}
+						{@render unfolded(component)}
 					{/if}
 				</div>
 			</li>
@@ -535,14 +639,61 @@
 
 		<!--
 			The written Line, and beneath it the one subordinate line — smaller,
-			quieter, and simply absent where there is nothing to say. Nothing
-			here says whether it is a conversion or an echo, and nothing says
-			whether Kamosu read the line at all (ADR 0002).
+			quieter, and simply absent where there is nothing to say. Nothing here
+			says whether it is a conversion or an echo, and nothing says whether
+			Kamosu read the line at all (ADR 0002).
+
+			A COMPONENT'S SLOT IS FILLED BY `componentLine` INSTEAD, outside this
+			snippet — it is a target, and this one is rendered inside the button
+			that opens the corrector. A button inside a button is invalid HTML and
+			gives one row two overlapping targets, which on a phone is a coin toss.
 		-->
-		{#snippet written(text: string, at: number)}
+		{#snippet written(text: string, at: number, isComponent: boolean)}
 			<span class="block text-line">{text}</span>
-			{#if beneathLine(at)}
+			{#if !isComponent && beneathLine(at)}
 				<span class="block text-read text-ink-2">{beneathLine(at)}</span>
+			{/if}
+		{/snippet}
+
+		<!--
+			A COMPONENT'S OWN LINE: which recipe it names and how much of it, or the
+			one sentence saying why there is no unfolding. It sits in the same slot
+			every Ingredient Line has for its conversion (#49, ADR 0016) — a
+			Component says something DIFFERENT there, not something extra beside it
+			— and it is worded by the Core, so this screen, the Share Link page and
+			an agent at the MCP door all say it alike.
+
+			IT IS ALSO THE WAY IN, where there is something to open. The written
+			line above keeps its own tap, which every line on this page has, so the
+			recipe's NAME is what opens the recipe — the more obvious of the two
+			anyway. A Component with nothing behind it is not a target: a missing
+			recipe and a stopped repeat are sentences, not doors.
+		-->
+		{#snippet componentLine(component: Component)}
+			{#if component.content}
+				<button
+					type="button"
+					class="flex w-full items-start gap-1 text-left text-read text-support-2"
+					aria-expanded={isOpen(component.path)}
+					onclick={() => toggleComponent(component.path)}
+				>
+					<span class="min-w-0 flex-1">{component.said}</span>
+					<svg
+						viewBox="0 0 24 24"
+						aria-hidden="true"
+						class="mt-1 h-3 w-3 shrink-0"
+						style={isOpen(component.path) ? 'transform: rotate(90deg)' : ''}
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<path d="m9 5 7 7-7 7" />
+					</svg>
+				</button>
+			{:else}
+				<span class="block text-read text-support-2">{component.said}</span>
 			{/if}
 		{/snippet}
 
@@ -556,6 +707,108 @@
 		{#snippet beside(at: number)}
 			{#if at >= 0 && measured.steps[at]}
 				<span class="mt-1 block text-read text-ink-2">{measured.steps[at]}</span>
+			{/if}
+		{/snippet}
+
+		<!--
+			A COMPONENT UNFOLDED: the inner recipe's own Ingredient Lines, indented
+			under the row that names them behind a matcha rule, on the recessed
+			ground — visibly another recipe's inside without being a card.
+
+			Its Steps are NOT here. They are set at the foot of the page by
+			`annexe`, which is the treatment Aurélien chose (#50), and it is what
+			keeps this a list rather than a method with a shopping list around it.
+
+			The amounts beneath each line are already scaled by how much of that
+			recipe this line asks for and converted to this reader's measures —
+			both worked out in the Core, by the same code that words every other
+			Ingredient Line's slot. A Component inside a Component nests here too;
+			`componentAt` finds it by its path.
+		-->
+		{#snippet unfolded(component: Component)}
+			{#if component.content}
+				<ul class="mt-3 border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
+					{#each component.content.ingredients as item, index (index)}
+						{@const within = componentAt(component.path, index)}
+						{#if item.kind === 'section'}
+							<li class="border-b border-rule py-3 pb-1 last:border-b-0">
+								<h4 class="font-display text-label text-ink-2 uppercase">{item.text}</h4>
+							</li>
+						{:else}
+							<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
+								<span
+									class="ingredient-marker shrink-0 {within ? 'bg-support-2' : 'bg-accent'}"
+									aria-hidden="true"
+								></span>
+								<div class="min-w-0 flex-1">
+									<span class="block text-line">{item.text}</span>
+									{#if within}
+										<span class="block text-read text-support-2">{within.said}</span>
+									{:else if component.measured?.ingredients[index]}
+										<span class="block text-read text-ink-2">
+											{component.measured.ingredients[index]}
+										</span>
+									{/if}
+									{#if within}
+										{@render unfolded(within)}
+									{/if}
+								</div>
+							</li>
+						{/if}
+					{/each}
+				</ul>
+				<!--
+					WHERE THE METHOD WENT. Under treatment B a Component is in two
+					places, and the second one is a long way down the page — so the
+					row says where, and the saying is a link that takes you there.
+					Absent for a Component with no Steps: there is nothing at the foot
+					to point at.
+				-->
+				{#if component.content.steps.length}
+					<a
+						href="#annexe-{pathKey(component.path)}"
+						class="mt-2 block text-read text-support-2 underline underline-offset-2"
+					>
+						{m.recipe_component_method_below()}
+					</a>
+				{/if}
+			{/if}
+		{/snippet}
+
+		<!--
+			THE ANNEXE (#50): one Component's own Steps, at the foot of the page,
+			under a heading in this page's own Section grammar but in matcha — so it
+			reads as belonging to the Component rather than to this recipe's method.
+
+			Never spliced into the Method above it. Composition says WHAT and never
+			WHEN: Kamosu does not know the dough is made the day before, and where
+			the timing matters the cook writes a Step saying so.
+		-->
+		{#snippet annexe(component: Component)}
+			{#if component.content}
+				{@const number = numbering()}
+				<div id="annexe-{pathKey(component.path)}" class="mt-8 scroll-mt-12">
+					<h2 class="mx-gutter mb-1 font-display text-label font-semibold text-support-2 uppercase">
+						{component.title} · {m.recipe_component_method()}
+					</h2>
+					<p class="mx-gutter mb-2 text-read text-ink-2">{component.said}</p>
+					<ol class="mx-gutter border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
+						{#each component.content.steps as item, index (index)}
+							{#if item.kind === 'section'}
+								<li class="border-b border-rule py-4 pb-1">
+									<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
+								</li>
+							{:else}
+								<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
+									<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
+										{number(false)}
+									</span>
+									<p class="min-w-0 flex-1 text-body">{item.text}</p>
+								</li>
+							{/if}
+						{/each}
+					</ol>
+				</div>
 			{/if}
 		{/snippet}
 
@@ -577,11 +830,20 @@
 					{:else if row.state === 'same'}
 						{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
 					{:else}
+						<!--
+							A CHANGED LINE THAT NAMES A RECIPE still says which one, in
+							the same slot (#50). It does not unfold: a marked row is
+							already carrying two Kitchens' words and a take-his offer,
+							and a dough opened inside that is #55's question rather
+							than this ticket's. The sentence is what stops the row
+							going silent about what it is.
+						-->
+						{@const marked = own ? componentAt([], own.index) : undefined}
 						<MarkedRow
 							{row}
 							{side}
 							{otherKitchen}
-							beneath={own ? beneathLine(own.index) : ''}
+							beneath={marked?.said ?? (own ? beneathLine(own.index) : '')}
 							open={open.has(key)}
 							taken={taken.get(key)}
 							onToggle={() => toggle(key)}
@@ -674,6 +936,11 @@
 				{/each}
 			{/if}
 		</ol>
+
+		<!-- The annexe (#50): every Component's Steps, in the order the page met them. -->
+		{#each annexes as component (component.path.join('.'))}
+			{@render annexe(component)}
+		{/each}
 
 		{#if content.note}
 			<div class="mx-gutter mt-6 border-l-2 border-accent py-1 pl-4 text-body whitespace-pre-wrap">

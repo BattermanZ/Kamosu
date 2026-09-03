@@ -96,6 +96,8 @@ function answers(over: Answers = {}): Answers {
 					created_at: '2026-08-30T09:00:00Z',
 					translates_version_id: null,
 					language: 'en',
+					// A recipe that composes nothing, which is nearly all of them (#50).
+					components: [],
 					content: {
 						title: 'Chicken Katsu Curry',
 						yield: { amount: '4', noun: 'servings' },
@@ -110,13 +112,13 @@ function answers(over: Answers = {}): Answers {
 					},
 					readings: [
 						null,
-						{ amount: '2', unit: null, target: 'chicken' },
-						{ amount: '1', unit: 'cup', target: 'panko' },
-						{ amount: '800', unit: 'ml', target: 'water' },
+						{ amount: '2', unit: null, target: 'chicken', lineage_id: null },
+						{ amount: '1', unit: 'cup', target: 'panko', lineage_id: null },
+						{ amount: '800', unit: 'ml', target: 'water', lineage_id: null },
 						// `a pinch of salt`: Kamosu knows what the line is ABOUT and
 						// could not read a quantity out of it. 28% of real Ingredient
 						// Lines carry no quantity, and such a line is a working line.
-						{ amount: null, unit: null, target: 'salt' },
+						{ amount: null, unit: null, target: 'salt', lineage_id: null },
 					],
 					measured: {
 						// Nothing beneath the salt, because there is nothing Kamosu

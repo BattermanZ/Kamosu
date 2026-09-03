@@ -368,6 +368,8 @@ describe('the Thread screen', () => {
 						created_at: '2026-03-03T00:00:00Z',
 						translates_version_id: null,
 						language: 'en',
+						// A recipe that composes nothing, which is nearly all of them (#50).
+						components: [],
 						content: {
 							title: 'Korean Fried Chicken',
 							yield: null,

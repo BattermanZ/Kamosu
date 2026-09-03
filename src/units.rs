@@ -600,6 +600,174 @@ pub fn shipped_cup_weight<'a>(names: impl IntoIterator<Item = &'a str>) -> Optio
         .find_map(|name| BY_STAPLE.get(&fold(name)).copied())
 }
 
+// --- How much of a Component is wanted ---------------------------------------
+
+/// **How much of an inner recipe a Component's line asks for**, worked out from
+/// the Reading over the line and the inner recipe's Yield — and stored nowhere
+/// (ADR 0008). `1.0` is the whole recipe.
+///
+/// `None` is not a failure. It is the ordinary answer whenever the two cannot
+/// be compared — `2 poignées de pâte` against a Yield in kilograms, or an inner
+/// recipe with no Yield at all — and it means the inner recipe is shown as
+/// written, with Kamosu saying it could not work it out. Refusing to guess here
+/// is the same refusal [`measured_line`] makes one layer up.
+///
+/// It lives in this module rather than beside the unfolding because the
+/// question is a Units question: *is this quantity commensurable with that
+/// one, and by what factor* — the same closed set of Units, the same base
+/// values, the same silence outside them (ADR 0016, ADR 0036).
+pub fn how_much_of(
+    amount: Option<&str>,
+    unit: Option<&str>,
+    yield_amount: Option<&str>,
+    yield_noun: Option<&str>,
+) -> Option<f64> {
+    // No quantity on the line means the whole recipe. 28% of real Ingredient
+    // rows carry none, so this is the common case rather than the edge one.
+    let Some(amount) = amount else {
+        return Some(1.0);
+    };
+    let wanted = parse_amount(amount)?;
+    if wanted <= 0.0 {
+        return None;
+    }
+    // An inner recipe with no Yield gives nothing to divide by.
+    let made = parse_amount(yield_amount?)?;
+    if made <= 0.0 {
+        return None;
+    }
+    let noun = yield_noun?.trim();
+
+    // Mass against mass, volume against volume — through the same base values
+    // everything else here converts on, so `500 g` of a dough yielding `1 kg`
+    // is half of it and `3 tbsp` of an oil yielding `250 ml` is about a fifth.
+    if let Some(from) = unit.and_then(recognise)
+        && let Some(to) = recognise(noun)
+        && from.family == to.family
+    {
+        return Some((wanted * from.base) / (made * to.base));
+    }
+
+    // **The Yield's own noun, used as a Unit**: `12 cookies' worth` of a recipe
+    // that yields `24 cookies`. A line whose quantity carries no Unit at all
+    // takes the Yield's noun, because a bare number beside a recipe can mean
+    // nothing else.
+    match unit {
+        None => Some(wanted / made),
+        Some(written) if same_noun(written, noun) => Some(wanted / made),
+        // A Unit Kamosu knows, measured against a noun it does not — `500 g`
+        // of a dough that yields `4 servings`. There is no honest factor here
+        // and inventing one would silently mis-scale a whole recipe.
+        Some(_) => None,
+    }
+}
+
+/// Whether a Reading's Unit word and a Yield's noun are the same noun.
+/// `servings` and `serving` are one word; so are `pizzas` and `pizza`. Folded
+/// first, so capitals and punctuation are already gone.
+fn same_noun(written: &str, noun: &str) -> bool {
+    let trim = |word: &str| fold(word).trim_end_matches('s').to_string();
+    !noun.is_empty() && trim(written) == trim(noun)
+}
+
+/// **The one line beneath a Component's written line**: which Recipe it names,
+/// and how much of it — or the one sentence saying why there is no unfolding.
+///
+/// **Worded here rather than by either screen**, for the reason [`measured_line`]
+/// is: the recipe page is rendered twice, once as a Svelte screen and once as a
+/// Rust Share Link page, and an agent reads the same recipe at the MCP door. One
+/// gradient rendered twice is the drift `assets/app.css` exists to prevent; one
+/// sentence worded three times would be the same mistake in prose. So the Core
+/// says it once and every reading of it prints what it said.
+///
+/// The Language is the reader's on a screen and the recipe's on a Share Link,
+/// which is the same rule the rest of that page follows: a stranger arriving
+/// from a link has told Kamosu nothing, and the one thing known about what they
+/// are reading is what it is written in.
+///
+/// **What belongs here is prose computed from data, not every label.** The
+/// heading over a Component's Steps is a page label like *Ingredients* and
+/// *Method*, and those already live twice on purpose — once in
+/// `share_page::Words` because that page is Rust, once in Paraglide because the
+/// app is TypeScript. A third copy of one of them here would be the drift, not
+/// the cure.
+///
+/// The vulgar fractions are the ones already on the measuring cups in
+/// [`FRACTIONS`], reused rather than reinvented — a half is a half whether it is
+/// half a cup or half a dough. A ratio with no glyph falls back to a plain
+/// decimal, which is honest about being a number nobody would write on a jug.
+pub fn component_line(
+    held: bool,
+    stopped: bool,
+    title: Option<&str>,
+    share: Option<f64>,
+    language: &str,
+) -> String {
+    let title = title.unwrap_or("");
+    match language {
+        "fr" => component_words(held, stopped, title, share, FR_COMPONENT),
+        "es" => component_words(held, stopped, title, share, ES_COMPONENT),
+        _ => component_words(held, stopped, title, share, EN_COMPONENT),
+    }
+}
+
+/// One Language's four sentences: not held, stopped at a repeat, held but with
+/// no factor, and held with one. The fourth carries `{title}` and `{share}`.
+struct ComponentWords {
+    missing: &'static str,
+    stopped: &'static str,
+    unscaled: &'static str,
+    whole: &'static str,
+    part: &'static str,
+}
+
+const EN_COMPONENT: ComponentWords = ComponentWords {
+    missing: "Kamosu does not have this recipe.",
+    stopped: "{title} is already open above — Kamosu stops here.",
+    unscaled: "{title} — Kamosu could not work out how much, so this is the recipe as written.",
+    whole: "{title} · the whole recipe",
+    part: "{title} · {share} of the recipe",
+};
+
+const FR_COMPONENT: ComponentWords = ComponentWords {
+    missing: "Kamosu n'a pas cette recette.",
+    stopped: "{title} est déjà ouverte plus haut — Kamosu s'arrête ici.",
+    unscaled: "{title} — Kamosu n'a pas pu établir la quantité : voici la recette telle qu'elle est écrite.",
+    whole: "{title} · la recette entière",
+    part: "{title} · {share} de la recette",
+};
+
+const ES_COMPONENT: ComponentWords = ComponentWords {
+    missing: "Kamosu no tiene esta receta.",
+    stopped: "{title} ya está abierta más arriba — Kamosu se detiene aquí.",
+    unscaled: "{title} — Kamosu no pudo calcular la cantidad: esta es la receta tal como está escrita.",
+    whole: "{title} · la receta entera",
+    part: "{title} · {share} de la receta",
+};
+
+fn component_words(
+    held: bool,
+    stopped: bool,
+    title: &str,
+    share: Option<f64>,
+    words: ComponentWords,
+) -> String {
+    if !held {
+        return words.missing.to_string();
+    }
+    if stopped {
+        return words.stopped.replace("{title}", title);
+    }
+    match share {
+        None => words.unscaled.replace("{title}", title),
+        Some(share) if (share - 1.0).abs() < 0.005 => words.whole.replace("{title}", title),
+        Some(share) => words
+            .part
+            .replace("{title}", title)
+            .replace("{share}", &as_fraction(share)),
+    }
+}
+
 // --- The one subordinate line ------------------------------------------------
 
 /// What the subordinate line ends up saying, before it is worded.

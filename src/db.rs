@@ -873,6 +873,36 @@ pub const MIGRATIONS: &[Migration] = &[
             ON shopping_loose_items(person_id, added_at);
         "#,
     },
+    Migration {
+        version: 26,
+        description: "the Component: a Reading whose target is a Recipe (#50, ADR 0008)",
+        sql: r#"
+        -- **A Reading's target is either a Food or a Lineage** (ADR 0008,
+        -- ADR 0021). `target` holds the Food's written word; this holds the
+        -- Lineage a Component names. Exactly one of the two is set, which the
+        -- Core enforces — there is no third state where a line claims to be
+        -- both a flour and a dough.
+        --
+        -- **DELIBERATELY NO FOREIGN KEY, and this is the whole point of the
+        -- column.** A Lineage id is global by construction (ADR 0004), so it
+        -- means the same thing on every instance — and a Component must go on
+        -- naming its recipe when this instance does not hold it: deleted with
+        -- no ceremony, arrived in a Bundle without its passenger, or never
+        -- received at all. `REFERENCES lineages(id)` would refuse to store
+        -- exactly the pointer ADR 0008 exists to keep, and turn "the row still
+        -- reads correctly" into a write that fails. The dangling pointer is
+        -- the feature: the written line carries the human meaning either way
+        -- (ADR 0002), so an unresolvable Component degrades into a sentence
+        -- rather than a hole.
+        ALTER TABLE readings ADD COLUMN lineage_id TEXT;
+
+        -- Answering "which lines of this Version are Components" without
+        -- reading every Reading of it. Unfolding walks this on every read of
+        -- every recipe, to whatever depth the composition goes.
+        CREATE INDEX readings_by_lineage ON readings(lineage_id)
+            WHERE lineage_id IS NOT NULL;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

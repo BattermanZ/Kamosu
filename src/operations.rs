@@ -25,7 +25,7 @@
 use serde_json::Value;
 use serde_json::json;
 
-use crate::core::{Caller, Core, Invocation, OpError};
+use crate::core::{Caller, Core, Invocation, OpError, Reading};
 use crate::jobs;
 
 /// The instance status: the version and whether setup has happened.
@@ -815,7 +815,7 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
         .and_then(Value::as_str)
         .ok_or_else(|| {
             OpError::bad_request(
-                "set_reading takes { branch_id, line_index, amount?, unit?, target? }",
+                "set_reading takes { branch_id, line_index, amount?, unit?, target?, lineage_id? }",
             )
         })?;
     let line_index = input
@@ -823,20 +823,24 @@ pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result
         .and_then(Value::as_i64)
         .ok_or_else(|| {
             OpError::bad_request(
-                "set_reading takes { branch_id, line_index, amount?, unit?, target? }",
+                "set_reading takes { branch_id, line_index, amount?, unit?, target?, lineage_id? }",
             )
         })?;
     let amount = input.get("amount").and_then(Value::as_str);
     let unit = input.get("unit").and_then(Value::as_str);
     let target = input.get("target").and_then(Value::as_str);
+    let lineage_id = input.get("lineage_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.set_reading(
         &caller.person_id,
         branch_id,
         line_index,
-        amount,
-        unit,
-        target,
+        Reading {
+            amount,
+            unit,
+            target,
+            lineage_id,
+        },
     )
 }
 

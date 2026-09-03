@@ -36,6 +36,22 @@ pub struct OpError {
     pub message: String,
 }
 
+/// **A whole Reading, as somebody sends one in.** The four fields travel
+/// together because they describe one understanding of one line — the same
+/// whole-state convention `save_recipe_version` uses for a whole recipe — so
+/// correcting the unit means sending the amount and the target with it, and
+/// all four absent clears the Reading entirely (ADR 0021).
+///
+/// `target` and `lineage_id` are the one slot in two spellings: a Reading's
+/// target is either a Food's written word or the Lineage of a Recipe, never
+/// both (ADR 0008).
+pub struct Reading<'a> {
+    pub amount: Option<&'a str>,
+    pub unit: Option<&'a str>,
+    pub target: Option<&'a str>,
+    pub lineage_id: Option<&'a str>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
     /// The Credential was presented but does not resolve: unknown, revoked or spent.
@@ -3523,6 +3539,24 @@ impl Core {
                 // ever stored — and so both Doors say the same thing.
                 let readings = version["readings"].as_array().cloned().unwrap_or_default();
                 version["cooking"] = cooking_for_version(&version["content"], &readings);
+                // A Component unfolded (ADR 0008): the inner recipe, already
+                // scaled by how much of it this line asks for, to whatever
+                // depth the composition goes. Empty for nearly every recipe.
+                //
+                // The chain starts with this Lineage in it, so a recipe naming
+                // itself is a repeat like any other rather than a special case.
+                let mut walk = Unfolding {
+                    open: vec![lineage_id.clone()],
+                    ..Unfolding::default()
+                };
+                unfold_components(
+                    conn,
+                    &Unfolds::ForReader { person_id, reader: &reader },
+                    &version_id,
+                    scale,
+                    &mut walk,
+                )?;
+                version["components"] = json!(walk.found);
             }
 
             Ok(json!({
@@ -3825,20 +3859,32 @@ impl Core {
     /// yet (#47, ADR 0022). Which Food it resolved to is internal
     /// bookkeeping alone — the Reading's own shape stays the bare word,
     /// exactly as `set_reading` has always answered.
+    ///
+    /// **`lineage_id` is the other kind of target**: the Lineage of a
+    /// Recipe, which makes this Ingredient a Component (ADR 0008). It is
+    /// exclusive with `target` — a Reading points at a Food or at a Recipe,
+    /// never at both — and it names a Lineage rather than a Version, so it goes
+    /// on resolving to whatever Branch of the dough its reader holds.
     pub fn set_reading(
         &self,
         person_id: &str,
         branch_id: &str,
         line_index: i64,
-        amount: Option<&str>,
-        unit: Option<&str>,
-        target: Option<&str>,
+        sent: Reading<'_>,
     ) -> Result<Value, OpError> {
+        let Reading {
+            amount,
+            unit,
+            target,
+            lineage_id,
+        } = sent;
         if line_index < 0 {
             return Err(OpError::bad_request("line_index must be zero or more"));
         }
         self.db().with_conn(|conn| {
-            let (kitchen_id, language, head_version_id, content, lineage_id): (String, String, String, String, String) = conn
+            // The Branch's OWN Lineage, which is what the cooking scale is read
+            // against — not the one this Reading may point at.
+            let (kitchen_id, language, head_version_id, content, of_this_branch): (String, String, String, String, String) = conn
                 .query_row(
                     "SELECT branches.kitchen_id, branches.language, branches.head_version_id, versions.content, branches.lineage_id \
                        FROM branches JOIN versions ON versions.id = branches.head_version_id \
@@ -3865,8 +3911,19 @@ impl Core {
             let amount = amount.map(str::trim).filter(|v| !v.is_empty());
             let unit = unit.map(str::trim).filter(|v| !v.is_empty());
             let target = target.map(str::trim).filter(|v| !v.is_empty());
+            let lineage_id = lineage_id.map(str::trim).filter(|v| !v.is_empty());
 
-            if amount.is_none() && unit.is_none() && target.is_none() {
+            // **A Reading's target is either a Food or a Lineage** (ADR 0008).
+            // Refused rather than silently preferred one: a line claiming to be
+            // both a flour and a dough is a caller's mistake, and quietly
+            // dropping half of what they sent would hide it.
+            if target.is_some() && lineage_id.is_some() {
+                return Err(OpError::bad_request(
+                    "a Reading points at a Food or at a Recipe, never both: send `target` or `lineage_id`",
+                ));
+            }
+
+            if amount.is_none() && unit.is_none() && target.is_none() && lineage_id.is_none() {
                 conn.execute(
                     "DELETE FROM readings WHERE version_id = ?1 AND line_index = ?2",
                     params![head_version_id, line_index],
@@ -3892,14 +3949,19 @@ impl Core {
                 })
                 .transpose()?;
 
+            // **A Lineage this instance does not hold is accepted.** ADR 0008
+            // is explicit that a Component must survive its recipe being
+            // deleted, arriving without its passenger, or never being received
+            // — so there is nothing to check here, and checking would refuse
+            // the very pointer the decision exists to keep.
             conn.execute(
-                "INSERT INTO readings (version_id, line_index, amount, unit, target, food_id) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+                "INSERT INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
                  ON CONFLICT (version_id, line_index) DO UPDATE SET \
                     amount = excluded.amount, unit = excluded.unit, target = excluded.target, \
-                    food_id = excluded.food_id, \
+                    food_id = excluded.food_id, lineage_id = excluded.lineage_id, \
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
-                params![head_version_id, line_index, amount, unit, target, food_id],
+                params![head_version_id, line_index, amount, unit, target, food_id, lineage_id],
             )
             .map_err(|e| OpError::internal(format!("cannot save Reading: {e}")))?;
 
@@ -3912,12 +3974,17 @@ impl Core {
                 &head_version_id,
                 line_index,
                 &Reader::of(conn, person_id)?,
-                cooking_scale(conn, &lineage_id, person_id, &content)?,
+                cooking_scale(conn, &of_this_branch, person_id, &content)?,
             )?;
 
             Ok(json!({
                 "line_index": line_index,
-                "reading": { "amount": amount, "unit": unit, "target": target },
+                "reading": {
+                    "amount": amount,
+                    "unit": unit,
+                    "target": target,
+                    "lineage_id": lineage_id,
+                },
                 "measured": measured,
             }))
         })
@@ -5525,7 +5592,9 @@ fn readings_for_version(
 ) -> Result<Vec<Value>, OpError> {
     let mut slots = vec![Value::Null; line_count];
     let mut statement = conn
-        .prepare("SELECT line_index, amount, unit, target FROM readings WHERE version_id = ?1")
+        .prepare(
+            "SELECT line_index, amount, unit, target, lineage_id FROM readings WHERE version_id = ?1",
+        )
         .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?;
     let rows = statement
         .query_map(params![version_id], |row| {
@@ -5534,20 +5603,341 @@ fn readings_for_version(
                 row.get::<_, Option<String>>(1)?,
                 row.get::<_, Option<String>>(2)?,
                 row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })
         .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?;
-    for (line_index, amount, unit, target) in rows {
+    for (line_index, amount, unit, target, lineage_id) in rows {
         if let Some(slot) = usize::try_from(line_index)
             .ok()
             .and_then(|index| slots.get_mut(index))
         {
-            *slot = json!({ "amount": amount, "unit": unit, "target": target });
+            // A Reading's target is either a Food or a Lineage (ADR 0008), and
+            // the two sit in the one slot rather than beside each other: a
+            // Component is not a line carrying extra, it is a line pointing
+            // somewhere else.
+            *slot = json!({
+                "amount": amount,
+                "unit": unit,
+                "target": target,
+                "lineage_id": lineage_id,
+            });
         }
     }
     Ok(slots)
+}
+
+/// **How one unfolding resolves and words what it finds** — the whole of what
+/// differs between reading your own recipe and carrying a Passenger, so that
+/// everything else about unfolding is written once.
+///
+/// The two used to be two walks, and the walk is the part with the teeth in it:
+/// the same SQL, the same repeat guard, the same shape. A fix to the cycle
+/// guard that landed in one and not the other would be the worst kind of bug
+/// here, because both sides look right in isolation.
+enum Unfolds<'a> {
+    /// **A Person reading their own recipe.** A Component resolves against every
+    /// Kitchen they cook in, its sentence is in their Language, and the inner
+    /// recipe carries the scaled, converted subordinate lines their measures ask
+    /// for (#49).
+    ForReader {
+        person_id: &'a str,
+        reader: &'a Reader,
+    },
+    /// **A Share Link carrying a Passenger** (ADR 0008). There is no reader to
+    /// resolve against — a stranger holding the link holds nothing — so the
+    /// dough that travels is the one the sharing **Kitchen** holds, and the
+    /// sentence is in the recipe's own Language, which is the rule the whole of
+    /// that page follows.
+    ///
+    /// It carries no subordinate line, because that page carries none at all:
+    /// Kamosu converts to a kitchen and a stranger has none.
+    AsPassenger {
+        kitchen_id: &'a str,
+        language: &'a str,
+    },
+}
+
+impl Unfolds<'_> {
+    /// Which Branch of a Lineage this unfolding can see, if any.
+    fn resolve(&self, conn: &Connection, lineage_id: &str) -> Result<Option<Held>, OpError> {
+        match self {
+            Unfolds::ForReader { person_id, .. } => {
+                branch_of_lineage_for(conn, lineage_id, person_id)
+            }
+            Unfolds::AsPassenger { kitchen_id, .. } => {
+                branch_of_lineage_in_kitchen(conn, lineage_id, kitchen_id)
+            }
+        }
+    }
+
+    /// The Language the Component's own line is worded in.
+    fn language(&self) -> &str {
+        match self {
+            Unfolds::ForReader { reader, .. } => &reader.language,
+            Unfolds::AsPassenger { language, .. } => language,
+        }
+    }
+
+    /// The inner recipe's subordinate lines, where this unfolding carries them.
+    fn measured(
+        &self,
+        conn: &Connection,
+        content: &Value,
+        version_id: &str,
+        scale: f64,
+    ) -> Result<Value, OpError> {
+        match self {
+            Unfolds::ForReader { reader, .. } => {
+                measured_for_version(conn, content, version_id, reader, scale)
+            }
+            Unfolds::AsPassenger { .. } => Ok(Value::Null),
+        }
+    }
+}
+
+/// **A Version's Components, unfolded** (ADR 0008) — an entry for every
+/// Ingredient Line whose Reading names a Lineage rather than a Food, and for
+/// every such line inside those, to whatever depth the composition goes.
+/// Nothing at all for a recipe that composes nothing, which is nearly all of
+/// them.
+///
+/// **Flat, depth first, each entry carrying the `path` of line indexes that
+/// reaches it.** A tree would be the obvious shape and cannot be declared: ADR
+/// 0008 sets no depth limit beyond the repeat guard, and the Catalogue is what
+/// the typed client is generated from, so a shape that cannot be declared is a
+/// shape the interface silently stops checking. Depth-first order is also the
+/// order the page sets a Component's Steps at its foot.
+///
+/// Three things happen here that are worth knowing before changing any of it.
+///
+/// **The pointer resolves to a Branch, late.** A Component names a Lineage and
+/// never a Version, so it lands on whatever Branch of that dough is in view
+/// *now* — which is why editing the dough reaches every recipe using it without
+/// minting a Version of any of them. Where it resolves to nothing, `held` is
+/// false and there is nothing else to say: the written line already carries the
+/// human meaning (ADR 0002), so the screen leaves a sentence rather than a
+/// hole. Deleted, never received and held by nobody in view are one case, on
+/// purpose — no cascade, no ceremony, no "3 recipes use this".
+///
+/// **How much is computed and stored nowhere.** `share` is the Reading's
+/// quantity over the inner recipe's Yield, worked out at display time by
+/// [`units::how_much_of`], carrying the Yield being cooked — ADR 0008's "scaling
+/// the outer recipe rescales the Reading, and the factor follows for free" — and
+/// it compounds down the chain, so half of a dough that is itself half a starter
+/// is a quarter of the starter. A `null` share means Kamosu could not compare
+/// the two, and the inner recipe is then handed over exactly as written.
+///
+/// **A cycle is never refused; unfolding stops.** `walk.open` is the chain of
+/// Lineages already open *above* this point, not everything ever seen: two
+/// different lines may name the same dough without that being a loop. Meeting
+/// one that is already open sets `stopped` and goes no deeper. It is a
+/// display-time guard rather than a save-time check because a loop can be
+/// assembled from two halves on two servers and arrive already formed — a check
+/// at the door could not have held that line and would only give false
+/// confidence.
+fn unfold_components(
+    conn: &Connection,
+    how: &Unfolds<'_>,
+    version_id: &str,
+    scale: f64,
+    walk: &mut Unfolding,
+) -> Result<(), OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT line_index, amount, unit, lineage_id FROM readings \
+              WHERE version_id = ?1 AND lineage_id IS NOT NULL ORDER BY line_index",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Components: {e}")))?;
+    let rows: Vec<(i64, Option<String>, Option<String>, String)> = statement
+        .query_map(params![version_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read Components: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Components: {e}")))?;
+
+    for (line_index, amount, unit, lineage_id) in rows {
+        walk.path.push(line_index);
+
+        // A repeat, met before anything is read: say so, and go no deeper.
+        let stopped = walk.open.contains(&lineage_id);
+        let found = if stopped {
+            None
+        } else {
+            how.resolve(conn, &lineage_id)?
+        };
+
+        let Some(Held {
+            branch_id,
+            version_id: inner_version_id,
+            content,
+        }) = found
+        else {
+            // A stopped repeat IS held — it is open further up this very page —
+            // and simply goes no deeper. A Lineage nothing in view holds is not.
+            let title = if stopped {
+                how.resolve(conn, &lineage_id)?
+                    .map_or(Value::Null, |held| held.content["title"].clone())
+            } else {
+                Value::Null
+            };
+            walk.found.push(json!({
+                "path": walk.path.clone(),
+                "lineage_id": lineage_id,
+                "held": stopped,
+                "stopped": stopped,
+                "branch_id": Value::Null,
+                "title": title.clone(),
+                "share": Value::Null,
+                "said": units::component_line(
+                    stopped, stopped, title.as_str(), None, how.language(),
+                ),
+                "content": Value::Null,
+                "readings": Value::Null,
+                "measured": Value::Null,
+            }));
+            walk.path.pop();
+            continue;
+        };
+
+        let share = units::how_much_of(
+            amount.as_deref(),
+            unit.as_deref(),
+            content["yield"]["amount"].as_str(),
+            content["yield"]["noun"].as_str(),
+        )
+        .map(|of_it| of_it * scale);
+        // No factor means the inner recipe AS WRITTEN, which is a scale of one
+        // and not the outer scale: Kamosu has just said it could not work out
+        // how much, so scaling the dough by the pizza's factor anyway would be
+        // the guess it declined to make one line above.
+        let inner_scale = share.unwrap_or(1.0);
+
+        let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
+        let readings = readings_for_version(conn, &inner_version_id, line_count)?;
+        let measured = how.measured(conn, &content, &inner_version_id, inner_scale)?;
+
+        walk.found.push(json!({
+            "path": walk.path.clone(),
+            "lineage_id": lineage_id.clone(),
+            "held": true,
+            "stopped": false,
+            "branch_id": branch_id,
+            "title": content["title"],
+            "share": share,
+            "said": units::component_line(
+                true, false, content["title"].as_str(), share, how.language(),
+            ),
+            "content": content,
+            "readings": readings,
+            "measured": measured,
+        }));
+
+        walk.open.push(lineage_id);
+        unfold_components(conn, how, &inner_version_id, inner_scale, walk)?;
+        walk.open.pop();
+        walk.path.pop();
+    }
+    Ok(())
+}
+
+/// **Where an unfolding has got to**: the chain of Lineages open above this
+/// point, the line indexes that reach it, and what has been unfolded so far.
+///
+/// The three travel together because they are one walk. `open` is what makes a
+/// cycle stop rather than be refused, and it is the chain *above* rather than
+/// everything visited: two different lines may name the same dough without that
+/// being a loop.
+#[derive(Default)]
+struct Unfolding {
+    open: Vec<String>,
+    path: Vec<i64>,
+    /// Every Component met so far, depth first, in the order the page meets them.
+    found: Vec<Value>,
+}
+
+/// The Branch of one Lineage this reader holds, and its head Version's content.
+struct Held {
+    branch_id: String,
+    version_id: String,
+    content: Value,
+}
+
+/// **Which Branch of a Lineage this reader holds.** A Component names a Lineage,
+/// so it resolves to whatever Branch of it the reader has — and where they hold
+/// two, the oldest wins, so a Component reads the same on every screen rather
+/// than following whichever row the database happened to return first.
+fn branch_of_lineage_for(
+    conn: &Connection,
+    lineage_id: &str,
+    person_id: &str,
+) -> Result<Option<Held>, OpError> {
+    held_from(
+        conn,
+        "SELECT branches.id, branches.head_version_id, versions.content \
+           FROM branches \
+           JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
+           JOIN versions ON versions.id = branches.head_version_id \
+          WHERE branches.lineage_id = ?1 AND kitchen_members.person_id = ?2 \
+          ORDER BY branches.created_at ASC, branches.id ASC LIMIT 1",
+        lineage_id,
+        person_id,
+    )
+}
+
+/// **Which Branch of a Lineage one Kitchen holds** — how a Passenger is chosen.
+///
+/// A Share Link has no reader to resolve against: a stranger holding the link
+/// holds nothing, and the whole point of a Passenger is that they can read the
+/// dough anyway (ADR 0008). So the dough that travels is the one the **sharing
+/// Kitchen** holds, fixed when the page is read, which is also the only answer
+/// that does not leak — resolving against the reader would be resolving against
+/// nobody, and resolving against every Kitchen on the instance would carry a
+/// dough its own Kitchen never shared.
+fn branch_of_lineage_in_kitchen(
+    conn: &Connection,
+    lineage_id: &str,
+    kitchen_id: &str,
+) -> Result<Option<Held>, OpError> {
+    held_from(
+        conn,
+        "SELECT branches.id, branches.head_version_id, versions.content \
+           FROM branches JOIN versions ON versions.id = branches.head_version_id \
+          WHERE branches.lineage_id = ?1 AND branches.kitchen_id = ?2 \
+          ORDER BY branches.created_at ASC, branches.id ASC LIMIT 1",
+        lineage_id,
+        kitchen_id,
+    )
+}
+
+/// The one row-to-[`Held`] step both resolvers share. They differ only in what
+/// "holds" means; how a held recipe is read does not.
+fn held_from(
+    conn: &Connection,
+    sql: &str,
+    lineage_id: &str,
+    against: &str,
+) -> Result<Option<Held>, OpError> {
+    let found: Option<(String, String, String)> = conn
+        .query_row(sql, params![lineage_id, against], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot resolve a Component: {e}")))?;
+    let Some((branch_id, version_id, content)) = found else {
+        return Ok(None);
+    };
+    let content: Value = serde_json::from_str(&content)
+        .map(content_as_declared)
+        .map_err(|e| OpError::internal(format!("cannot read a Component's content: {e}")))?;
+    Ok(Some(Held {
+        branch_id,
+        version_id,
+        content,
+    }))
 }
 
 /// **The one subordinate line under each Ingredient Line and Step**, worked out
@@ -6742,6 +7132,26 @@ impl BranchHead {
         scale: f64,
     ) -> Result<Value, OpError> {
         let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
+        let reader = Reader::of(conn, person_id)?;
+        // Its Components, unfolded (#50, ADR 0008). Both sides of the switch
+        // carry their own, because ADR 0014's whole shape is two WHOLE recipes
+        // with a switch between them — a dough that unfolds in your pizza and
+        // not in Marc's would make his the lesser of two recipes the switch
+        // exists to hold as equals.
+        let mut walk = Unfolding {
+            open: vec![self.lineage_id.clone()],
+            ..Unfolding::default()
+        };
+        unfold_components(
+            conn,
+            &Unfolds::ForReader {
+                person_id,
+                reader: &reader,
+            },
+            &self.head_version_id,
+            scale,
+            &mut walk,
+        )?;
         Ok(json!({
             "branch_id": self.branch_id,
             "kitchen_id": self.kitchen_id,
@@ -6758,9 +7168,10 @@ impl BranchHead {
                 conn,
                 content,
                 &self.head_version_id,
-                &Reader::of(conn, person_id)?,
+                &reader,
                 scale,
             )?,
+            "components": walk.found,
         }))
     }
 }
@@ -7578,6 +7989,29 @@ fn shared_version(
     let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
     let readings = readings_for_version(conn, version_id, line_count)?;
 
+    // The Passengers (ADR 0008): every Component this recipe composes, carried
+    // through the link because a recipe that cannot tell you how to make its
+    // own dough is incomplete. Resolved against the Kitchen holding what is
+    // being shared, and changing nothing about the dough's own Visibility.
+    let kitchen_id = branch_kitchen(conn, branch_id)?;
+    let mut walk = Unfolding {
+        open: vec![lineage_id.clone()],
+        ..Unfolding::default()
+    };
+    unfold_components(
+        conn,
+        &Unfolds::AsPassenger {
+            kitchen_id: &kitchen_id,
+            language,
+        },
+        version_id,
+        // A stranger holding a link is cooking nothing, so there is no Yield
+        // being cooked to carry into the factor.
+        1.0,
+        &mut walk,
+    )?;
+    let components = walk.found;
+
     Ok(json!({
         "branch_id": branch_id,
         "lineage_id": lineage_id,
@@ -7585,6 +8019,7 @@ fn shared_version(
         "language": language,
         "content": content,
         "readings": readings,
+        "components": components,
     }))
 }
 

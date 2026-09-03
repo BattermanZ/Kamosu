@@ -128,6 +128,18 @@ struct Words {
     min_prep: &'static str,
     min_cook: &'static str,
     not_yet: &'static str,
+    /// The heading over a Component's own Steps (#50), beside `ingredients` and
+    /// `method` because it is the same kind of thing: a label this page writes.
+    ///
+    /// A Component's own LINE is not here. That one is prose computed from the
+    /// recipe's data — which recipe, and how much of it — so
+    /// `read_shared_recipe` hands it over already worded, by
+    /// `units::component_line`, in the recipe's own Language. Same rule as
+    /// `measured` (#49): what is computed is worded once in the Core, what is a
+    /// label follows each rendering's own convention.
+    component_method: &'static str,
+    /// "Its method is at the foot of the page ↓" — the row's link to the annexe.
+    component_method_below: &'static str,
 }
 
 const EN: Words = Words {
@@ -152,6 +164,8 @@ const EN: Words = Words {
     min_prep: "min prep",
     min_cook: "min cook",
     not_yet: "Not built yet",
+    component_method: "its own method",
+    component_method_below: "Its method is at the foot of the page ↓",
 };
 
 const FR: Words = Words {
@@ -176,6 +190,8 @@ const FR: Words = Words {
     min_prep: "min prép.",
     min_cook: "min cuisson",
     not_yet: "Pas encore disponible",
+    component_method: "sa propre préparation",
+    component_method_below: "Sa préparation est en bas de page ↓",
 };
 
 const ES: Words = Words {
@@ -200,6 +216,8 @@ const ES: Words = Words {
     min_prep: "min prep.",
     min_cook: "min cocción",
     not_yet: "Aún no disponible",
+    component_method: "su propia preparación",
+    component_method_below: "Su preparación está al pie de la página ↓",
 };
 
 fn words(language: &str) -> &'static Words {
@@ -399,6 +417,15 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
     let title = text_at(content, "title").unwrap_or("");
     let sharer = text_at(shared, "shared_by").unwrap_or("");
 
+    // The Passengers of the rendering being read (#50, ADR 0008) — the
+    // Translation's own where a Translation is on screen, since each Branch
+    // composes what it composes.
+    let no_passengers = Vec::new();
+    let carried = recipe["components"]
+        .as_array()
+        .unwrap_or(&no_passengers)
+        .as_slice();
+
     let head = open_graph(token, shared, title, sharer, language);
     let translations = translations_of(shared, token, language, words);
     let thread = thread_of(shared, words);
@@ -418,6 +445,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
       <ul>{ingredients}</ul>
       <h2 class="mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">{method_heading}</h2>
       <ol>{steps}</ol>
+      {annexes}
       {note}
       {translations}
       <!--
@@ -446,9 +474,10 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         source_on_paper = source_on_paper(content, words),
         meta = meta(content, words),
         ingredients_heading = escape(words.ingredients),
-        ingredients = ingredients(content),
+        ingredients = ingredients(content, carried, words),
         method_heading = escape(words.method),
         steps = steps(content),
+        annexes = annexes(carried, words),
         note = note(content),
         translations = translations,
         keep = escape(words.keep),
@@ -626,26 +655,142 @@ fn meta(content: &Value, words: &Words) -> String {
 /// says it is: the truth. The Reading still travels in `read_shared_recipe`
 /// for an agent reading the same share at the MCP door, where it is structure
 /// rather than noise.
-fn ingredients(content: &Value) -> String {
+fn ingredients(content: &Value, carried: &[Value], words: &Words) -> String {
+    lines(content, &[], carried, words)
+}
+
+/// The Ingredients list, with any **Component** on it unfolded in place (#50,
+/// ADR 0008): the inner recipe's own lines, indented under the row that names
+/// them behind a matcha rule, so the list stays a list you can shop from. Its
+/// Steps are not here — they are set at the foot of the page by [`annexes`],
+/// which is the treatment Aurélien chose on 3 September 2026.
+///
+/// `here` is the path of line indexes this list sits at: empty for the recipe
+/// itself, `[0]` inside the Component on its first line. `carried` is every
+/// Passenger of the whole page, flat, each carrying its own path — so finding
+/// this list's Components is a matter of matching the prefix.
+fn lines(content: &Value, here: &[i64], carried: &[Value], words: &Words) -> String {
     let empty = Vec::new();
     content["ingredients"]
         .as_array()
         .unwrap_or(&empty)
         .iter()
-        .map(|item| {
+        .enumerate()
+        .map(|(index, item)| {
             let text = text_at(item, "text").unwrap_or("");
             if text_at(item, "kind") == Some("section") {
                 return section_row(text);
             }
-            format!(
-                r#"<li class="flex gap-3 border-b border-rule py-3">
+            match component_at(carried, here, index as i64) {
+                Some(component) => component_row(component, text, carried, words),
+                None => format!(
+                    r#"<li class="flex gap-3 border-b border-rule py-3">
   <span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
   <span class="min-w-0 flex-1 text-line">{}</span>
 </li>"#,
-                escape(text)
-            )
+                    escape(text)
+                ),
+            }
         })
         .collect()
+}
+
+/// The Passenger sitting at one line of one list, or nothing — which is the
+/// answer for every line of nearly every recipe.
+fn component_at<'a>(carried: &'a [Value], here: &[i64], index: i64) -> Option<&'a Value> {
+    carried.iter().find(|component| {
+        component["path"].as_array().is_some_and(|path| {
+            path.len() == here.len() + 1
+                && path
+                    .iter()
+                    .take(here.len())
+                    .map(Value::as_i64)
+                    .eq(here.iter().copied().map(Some))
+                && path.last().and_then(Value::as_i64) == Some(index)
+        })
+    })
+}
+
+/// **A Component's row**: the written line exactly as any other, led by a
+/// matcha square rather than an indigo one, with one quiet line beneath saying
+/// which recipe it names and how much of it — and, where it is held, the inner
+/// recipe's own Ingredient Lines indented beneath that.
+///
+/// The written line is never rewritten and never replaced (ADR 0002), which is
+/// what makes all three failures survivable: a Component whose recipe is
+/// missing, one whose Yield gave no factor, and one that would loop each leave
+/// a sentence where the unfolding would have been.
+fn component_row(component: &Value, written: &str, carried: &[Value], words: &Words) -> String {
+    let said = escape(text_at(component, "said").unwrap_or(""));
+
+    // **Closed by default** (ADR 0008), and with no script: `<details>` is the
+    // disclosure HTML already has, so a stranger's page opens a Component the
+    // same way the app does without this page growing a single line of
+    // JavaScript (ADR 0012's instinct, one layer down).
+    //
+    // A Component with nothing behind it is not a door: a missing recipe and a
+    // repeat that stopped are sentences, and a `<summary>` promising to open
+    // something empty would be the one control on this page that lies.
+    let Some(content) = component["content"].as_object() else {
+        return format!(
+            r#"<li class="flex gap-3 border-b border-rule py-3">
+  <span class="ingredient-marker shrink-0 bg-support-2" aria-hidden="true"></span>
+  <div class="min-w-0 flex-1">
+    <span class="block text-line">{written}</span>
+    <span class="block text-read text-support-2">{said}</span>
+  </div>
+</li>"#,
+            written = escape(written),
+            said = said,
+        );
+    };
+
+    let here: Vec<i64> = component["path"].as_array().map_or(Vec::new(), |path| {
+        path.iter().filter_map(Value::as_i64).collect()
+    });
+    let has_steps = content
+        .get("steps")
+        .and_then(Value::as_array)
+        .is_some_and(|steps| !steps.is_empty());
+    // Where the method went. Under treatment B a Component is in two places and
+    // the second is a long way down the page, so the row says where — and on a
+    // page with no script the saying is an ordinary anchor.
+    let to_the_foot = if has_steps {
+        format!(
+            r##"<a href="#annexe-{anchor}" class="mt-2 block text-read text-support-2 underline underline-offset-2">{words}</a>"##,
+            anchor = anchor_of(&here),
+            words = escape(words.component_method_below),
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r#"<li class="flex gap-3 border-b border-rule py-3">
+  <span class="ingredient-marker shrink-0 bg-support-2" aria-hidden="true"></span>
+  <div class="min-w-0 flex-1">
+    <span class="block text-line">{written}</span>
+    <details>
+      <summary class="cursor-pointer text-read text-support-2">{said}</summary>
+      <ul class="mt-3 border-l-2 border-support-2 bg-ground-2 py-1 pl-3">{within}</ul>
+      {to_the_foot}
+    </details>
+  </div>
+</li>"#,
+        written = escape(written),
+        said = said,
+        within = lines(&component["content"], &here, carried, words),
+        to_the_foot = to_the_foot,
+    )
+}
+
+/// One Component's anchor, from the path of line indexes that reaches it — the
+/// same key the app builds, so the two pages link the same way.
+fn anchor_of(path: &[i64]) -> String {
+    path.iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 /// A Section, in either list: the quiet uppercase heading over a rule (#81).
@@ -681,6 +826,53 @@ fn steps(content: &Value) -> String {
 </li>"#,
                 number = number,
                 text = escape(text),
+            )
+        })
+        .collect()
+}
+
+/// **The annexe** (#50, ADR 0008): a Component's own Steps, set at the foot of
+/// the page after the recipe's Method, under a heading of their own — the
+/// treatment Aurélien chose on 3 September 2026.
+///
+/// Composition says *what*, never *when*, so the dough's Steps are never
+/// spliced into the pizza's method: Kamosu does not know the dough is made the
+/// day before, and where the timing matters the cook writes a Step saying so.
+/// They are set in the order the page meets them, which is the order the Core
+/// already unfolded them in.
+///
+/// A Component with no Steps, one this instance does not hold, and one that
+/// stopped at a repeat all contribute nothing here — there is no method to set.
+fn annexes(carried: &[Value], words: &Words) -> String {
+    carried
+        .iter()
+        .filter(|component| {
+            component["content"]["steps"]
+                .as_array()
+                .is_some_and(|steps| !steps.is_empty())
+        })
+        .map(|component| {
+            format!(
+                r#"<div id="annexe-{anchor}" class="mt-8">
+  <h2 class="mb-1 font-display text-label font-semibold text-support-2 uppercase">{title} · {method}</h2>
+  <p class="mb-2 text-read text-ink-2">{said}</p>
+  <ol class="border-l-2 border-support-2 bg-ground-2 py-1 pl-3">{steps}</ol>
+</div>"#,
+                anchor = anchor_of(
+                    &component["path"]
+                        .as_array()
+                        .map_or(Vec::new(), |path| path
+                            .iter()
+                            .filter_map(Value::as_i64)
+                            .collect::<Vec<_>>()),
+                ),
+                title = escape(text_at(component, "title").unwrap_or("")),
+                method = escape(words.component_method),
+                // How much of that recipe is wanted, repeated at the foot — the
+                // annexe is a long way from the row that named it, and the
+                // screen says it here too.
+                said = escape(text_at(component, "said").unwrap_or("")),
+                steps = steps(&component["content"]),
             )
         })
         .collect()

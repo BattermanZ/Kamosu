@@ -20,6 +20,19 @@
 	a field left blank here is a field cleared, not a field left alone. All three
 	blank clears the Reading entirely, which is what "Kamosu read nothing here"
 	sends: a line with no Reading is an ordinary state, not a failure (ADR 0002).
+
+	ON A COMPONENT, THE POINTER IS CARRIED AND THE TARGET FIELD IS NOT OFFERED
+	(#50, ADR 0008). A Reading's target is either a Food's written word or the
+	Lineage of a Recipe, never both, and the Core refuses a Reading claiming to
+	be both. So a line naming a recipe says which one instead of offering a word
+	to type, and its amount and Unit are corrected as on any other line — which
+	is what changes how much of that recipe is wanted.
+
+	Because the whole Reading is sent every time, leaving the Lineage out would
+	not leave it alone: it would clear it, and a Component would quietly become
+	an ordinary ingredient the first time somebody fixed its amount. So it is
+	carried explicitly. "Kamosu read nothing here" still clears everything, the
+	pointer included, which is how a Component is un-made.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -43,11 +56,16 @@
 		 */
 		onDone: (reading: Slot, measured: string | null) => void;
 		onCancel: () => void;
+		/** The Recipe this line names, where it names one and this instance has it. */
+		componentTitle?: string | null;
 	}
 
-	let { branchId, lineIndex, reading, onDone, onCancel }: Props = $props();
+	let { branchId, lineIndex, reading, componentTitle, onDone, onCancel }: Props = $props();
 
 	const kamosu = useKamosu();
+
+	/** Whether this line names a Recipe rather than a Food (ADR 0008). */
+	const isComponent = $derived(Boolean(reading?.lineage_id));
 
 	/**
 	 * The three fields are a draft, seeded ONCE from the Reading as it stands
@@ -75,7 +93,12 @@
 	 *  distinguishes the two, and an empty string is not a quantity. */
 	const orNothing = (value: string) => (value.trim() === '' ? null : value.trim());
 
-	async function send(next: { amount: string | null; unit: string | null; target: string | null }) {
+	async function send(next: {
+		amount: string | null;
+		unit: string | null;
+		target: string | null;
+		lineage_id: string | null;
+	}) {
 		saving = true;
 		failed = false;
 		try {
@@ -97,8 +120,15 @@
 	}
 
 	const save = () =>
-		send({ amount: orNothing(amount), unit: orNothing(unit), target: orNothing(target) });
-	const clear = () => send({ amount: null, unit: null, target: null });
+		send({
+			amount: orNothing(amount),
+			unit: orNothing(unit),
+			// The two are exclusive, and the Core refuses a Reading claiming to
+			// be both. A Component keeps its pointer and offers no word to type.
+			target: isComponent ? null : orNothing(target),
+			lineage_id: reading?.lineage_id ?? null,
+		});
+	const clear = () => send({ amount: null, unit: null, target: null, lineage_id: null });
 </script>
 
 <div class="mt-3 border border-accent bg-card p-3">
@@ -120,13 +150,19 @@
 				class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
 			/>
 		</label>
-		<label class="col-span-2 block">
-			<span class="block text-label text-ink-2 uppercase">{m.reading_target()}</span>
-			<input
-				bind:value={target}
-				class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
-			/>
-		</label>
+		{#if isComponent}
+			<p class="col-span-2 text-read text-support-2">
+				{m.reading_names_recipe({ title: componentTitle ?? '' })}
+			</p>
+		{:else}
+			<label class="col-span-2 block">
+				<span class="block text-label text-ink-2 uppercase">{m.reading_target()}</span>
+				<input
+					bind:value={target}
+					class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
+				/>
+			</label>
+		{/if}
 	</div>
 
 	<div class="mt-3 flex gap-2">

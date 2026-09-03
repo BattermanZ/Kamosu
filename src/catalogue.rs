@@ -1264,9 +1264,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       together as the whole new Reading (never a per-field \
                       patch, the same convention save_recipe_version uses \
                       for the whole recipe). Mints no Version and appears in \
-                      no history (ADR 0021). Amount, Unit and target left \
-                      out together clears the Reading, taking the line back \
-                      to fully unread.",
+                      no history (ADR 0021). All of them left out together \
+                      clears the Reading, taking the line back to fully \
+                      unread. The target is either a Food's written word or — \
+                      as `lineage_id` — the Recipe this line names, which \
+                      makes the Ingredient a Component (ADR 0008); never \
+                      both, and a Lineage this instance does not hold is \
+                      accepted, because a Component goes on naming its recipe \
+                      when the recipe is gone.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1280,6 +1285,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "amount": { "type": ["string", "null"] },
                     "unit": { "type": ["string", "null"] },
                     "target": { "type": ["string", "null"] },
+                    // **The other kind of target** (ADR 0008): the Lineage of a
+                    // Recipe, which makes this Ingredient a Component. It is
+                    // exclusive with `target` — a Reading points at a Food or
+                    // at a Recipe, never both — and it may name a Lineage this
+                    // instance does not hold, because a Component has to go on
+                    // naming its recipe when the recipe is gone.
+                    "lineage_id": { "type": ["string", "null"] },
                 },
                 "required": ["branch_id", "line_index"],
                 "additionalProperties": false,
@@ -2316,13 +2328,19 @@ fn recipe_schema() -> Value {
                         "readings": reading_list_schema(),
                         "measured": measured_schema(),
                         "cooking": cooking_schema(),
+                        // The Components this Version composes, unfolded
+                        // (ADR 0008). Beside the content rather than inside it:
+                        // what is stored is a Reading pointing at a Lineage,
+                        // and everything here is worked out from that at
+                        // display time.
+                        "components": { "type": "array", "items": component_schema() },
                         "translates_version_id": { "type": ["string", "null"] },
                         "language": { "type": ["string", "null"] },
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
                         "name", "change_note", "created_at", "content", "readings",
-                        "measured", "cooking", "translates_version_id", "language"
+                        "measured", "cooking", "components", "translates_version_id", "language"
                     ],
                     "additionalProperties": false,
                 },
@@ -2693,10 +2711,15 @@ fn divergence_branch_schema() -> Value {
             "content": recipe_content_schema(),
             "readings": reading_list_schema(),
             "measured": measured_schema(),
+            // Both sides carry their own Components (#50, ADR 0008). ADR 0014's
+            // whole shape is two WHOLE recipes with a switch between them, so a
+            // dough that unfolds on one side and not the other would make one
+            // of them the lesser recipe.
+            "components": { "type": "array", "items": component_schema() },
         },
         "required": [
             "branch_id", "kitchen_id", "kitchen_name", "hand_id", "language",
-            "head_version_id", "content", "readings", "measured",
+            "head_version_id", "content", "readings", "measured", "components",
         ],
         "additionalProperties": false,
     })
@@ -3089,13 +3112,39 @@ fn shared_version_schema_of(type_: Value) -> Value {
             "language": { "type": "string" },
             "content": recipe_content_schema(),
             "readings": reading_list_schema(),
+            // **The Passengers** (ADR 0008): every Component this recipe
+            // composes, carried through the link because a recipe that cannot
+            // tell you how to make its own dough is incomplete. The dough's own
+            // Visibility is untouched by travelling — it gets no page and no
+            // link of its own, and is read only through this one.
+            //
+            // The same shape `get_recipe` answers, minus `measured`: a Share
+            // Link's rows carry no subordinate line at all, because Kamosu
+            // converts to a kitchen and a stranger holding a link has none.
+            "components": {
+                "type": "array",
+                "items": passenger_schema(),
+            },
         },
         "required": [
             "branch_id", "lineage_id", "version_id", "language",
-            "content", "readings",
+            "content", "readings", "components",
         ],
         "additionalProperties": false,
     })
+}
+
+/// One Passenger: a Component as a Share Link carries it — [`component_schema`]
+/// with its subordinate lines declared as the empty slot they are.
+///
+/// Declared `null` rather than removed, the way a Food's `nutrition` is
+/// (`get_food`): the shape a Passenger has is the shape a Component has, with
+/// one slot this page never fills. Removing the key would make two shapes where
+/// there is one, and a reader would have to know which of them they held.
+fn passenger_schema() -> Value {
+    let mut schema = component_schema();
+    schema["properties"]["measured"] = json!({ "type": "null" });
+    schema
 }
 
 /// Everything the public Share Link page draws.
@@ -3162,9 +3211,109 @@ fn reading_schema() -> Value {
         "properties": {
             "amount": { "type": ["string", "null"] },
             "unit": { "type": ["string", "null"] },
+            // **A Reading's target is either a Food or a Lineage** (ADR 0008,
+            // ADR 0021), and these two properties are that one slot. `target`
+            // is the Food's written word and carries no id, because two
+            // instances mint their *farine* separately and an id's only
+            // confident statement about two identical Foods would be "not the
+            // same". A Lineage id is the opposite: global by construction
+            // (ADR 0004), so it needs nothing added and travels as it is.
             "target": { "type": ["string", "null"] },
+            "lineage_id": {
+                "type": ["string", "null"],
+                "description": "The Recipe this line names, which makes the Ingredient a \
+                                 Component. It may name a Lineage this instance does not \
+                                 hold — deleted, never received, or held by nobody here — \
+                                 and the line still reads correctly, because the written \
+                                 line was always the truth.",
+            },
         },
-        "required": ["amount", "unit", "target"],
+        "required": ["amount", "unit", "target", "lineage_id"],
+        "additionalProperties": false,
+    })
+}
+
+/// **The Components of one Version, unfolded** — one entry per Ingredient Line
+/// whose Reading names a Lineage rather than a Food (ADR 0008), depth first, in
+/// the order the page meets them. Empty for nearly every recipe.
+///
+/// **It is a flat list carrying a `path`, not a tree.** A Component may hold
+/// Components and ADR 0008 sets no depth limit beyond the repeat guard, so a
+/// nested declaration would either lie about the depth or stop being a
+/// declaration — and `generate-client.mjs` deliberately throws on a shape it
+/// cannot render rather than degrading it to `unknown`, which is exactly the
+/// silent loss of checking ADR 0012 bought Svelte to avoid. A `path` of line
+/// indexes says where each entry sits at any depth, in a shape that is fully
+/// declared. It also happens to be the shape the page wants: a Component's
+/// Steps are set at the foot in document order, and that is this list.
+///
+/// **Nothing here is stored.** The whole structure is worked out at display
+/// time from the Readings and the inner recipes' own Yields, which is why
+/// editing a dough reaches every recipe using it without minting a Version of
+/// any of them.
+fn component_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            // Line indexes from the recipe being read down to this Component:
+            // `[3]` is the fourth line of the recipe, `[3, 1]` the second line
+            // of the recipe THAT line names.
+            "path": { "type": "array", "items": { "type": "integer" } },
+            "lineage_id": { "type": "string" },
+            // Whether this instance has the recipe at all. False is an
+            // ordinary state and not an error — deleted, never received, or
+            // held by nobody here are one case. Everything below is then null
+            // and the line reads as written (ADR 0002).
+            "held": { "type": "boolean" },
+            // Unfolding stopped here because this Recipe is already open
+            // further up. A cycle is never refused (ADR 0008): it stops, and
+            // says so.
+            "stopped": { "type": "boolean" },
+            "branch_id": { "type": ["string", "null"] },
+            "title": { "type": ["string", "null"] },
+            // **How much of the inner recipe is wanted**, computed from the
+            // Reading's quantity over that recipe's Yield and stored nowhere.
+            // Null means Kamosu could not compare the two — `2 poignées` of a
+            // dough that yields `1 kg`, or a recipe with no Yield at all — and
+            // the inner recipe is then handed over as written rather than
+            // silently mis-scaled.
+            "share": { "type": ["number", "null"] },
+            // **The one line beneath the Component's written line**, already
+            // worded — which recipe it names and how much of it, or the one
+            // sentence saying why there is no unfolding. Worded in the Core
+            // for the reason `measured` is (#49): the recipe page is rendered
+            // twice, once as a Svelte screen and once as a Rust Share Link,
+            // and an agent reads the same recipe at the MCP door. One sentence
+            // worded three times would be three chances to drift.
+            "said": { "type": "string" },
+            "content": {
+                "type": ["object", "null"],
+                "properties": recipe_content_properties(),
+                "required": [
+                    "title", "yield", "prep_time_minutes", "cook_time_minutes",
+                    "note", "main_photo", "source", "nutrition", "ingredients", "steps",
+                ],
+                "additionalProperties": false,
+            },
+            "readings": { "type": ["array", "null"], "items": reading_schema() },
+            // The inner recipe's own subordinate lines, already scaled by
+            // `share` and converted to this reader's measures — the same one
+            // slot every Ingredient Line has (#49, ADR 0016), so a Component's
+            // lines are worded by the same code as everything else.
+            "measured": {
+                "type": ["object", "null"],
+                "properties": {
+                    "ingredients": { "type": "array", "items": { "type": ["string", "null"] } },
+                    "steps": { "type": "array", "items": { "type": ["string", "null"] } },
+                },
+                "required": ["ingredients", "steps"],
+                "additionalProperties": false,
+            },
+        },
+        "required": [
+            "path", "lineage_id", "held", "stopped", "branch_id", "title",
+            "share", "said", "content", "readings", "measured"
+        ],
         "additionalProperties": false,
     })
 }

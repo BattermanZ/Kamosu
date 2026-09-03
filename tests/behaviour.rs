@@ -1531,9 +1531,9 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         created["result"]["versions"][0]["readings"],
         json!([
             null,
-            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
-            { "amount": null, "unit": "pinch", "target": "salt" },
-            { "amount": null, "unit": null, "target": "Za’tar" },
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce", "lineage_id": null },
+            { "amount": null, "unit": "pinch", "target": "salt", "lineage_id": null },
+            { "amount": null, "unit": null, "target": "Za’tar", "lineage_id": null },
             null,
         ]),
         "Kamosu reads what it can and declines the rest (ADR 0002)"
@@ -1558,7 +1558,7 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         read["result"],
         json!({
             "line_index": 1,
-            "reading": { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
+            "reading": { "amount": "2", "unit": "tbsp", "target": "soy sauce", "lineage_id": null },
             // This Person reads in American measures, which is what the line
             // is already written in — so there is nothing to say beneath it
             // (#49, ADR 0016).
@@ -1581,9 +1581,9 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         version["readings"],
         json!([
             null,
-            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
-            { "amount": null, "unit": "pinch", "target": "salt" },
-            { "amount": null, "unit": null, "target": "Za’tar" },
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce", "lineage_id": null },
+            { "amount": null, "unit": "pinch", "target": "salt", "lineage_id": null },
+            { "amount": null, "unit": null, "target": "Za’tar", "lineage_id": null },
             null,
         ]),
         "correcting a Reading changes that Reading and nothing else"
@@ -1615,8 +1615,8 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         json!([
             null,
             null,
-            { "amount": null, "unit": "pinch", "target": "salt" },
-            { "amount": null, "unit": null, "target": "Za’tar" },
+            { "amount": null, "unit": "pinch", "target": "salt", "lineage_id": null },
+            { "amount": null, "unit": null, "target": "Za’tar", "lineage_id": null },
             null,
         ])
     );
@@ -1766,8 +1766,8 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
     assert_eq!(
         versions[1]["readings"],
         json!([
-            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
-            { "amount": "2", "unit": "litres", "target": "stock" },
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce", "lineage_id": null },
+            { "amount": "2", "unit": "litres", "target": "stock", "lineage_id": null },
         ]),
         "the soy sauce Reading carried forward untouched; the rewritten stock \
          line lost its own and was read afresh, now saying two litres"
@@ -1776,8 +1776,8 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
     assert_eq!(
         versions[0]["readings"],
         json!([
-            { "amount": "2", "unit": "tbsp", "target": "soy sauce" },
-            { "amount": "1", "unit": "litre", "target": "stock" },
+            { "amount": "2", "unit": "tbsp", "target": "soy sauce", "lineage_id": null },
+            { "amount": "1", "unit": "litre", "target": "stock", "lineage_id": null },
         ])
     );
 }
@@ -1816,9 +1816,9 @@ async fn reading_a_line_lays_a_reading_over_it_and_never_mints_a_version() {
     assert_eq!(
         created["result"]["versions"][0]["readings"],
         json!([
-            { "amount": "200", "unit": "g", "target": "farine" },
-            { "amount": "20", "unit": "cl", "target": "crème fraîche" },
-            { "amount": "2", "unit": "gousses", "target": "ail" },
+            { "amount": "200", "unit": "g", "target": "farine", "lineage_id": null },
+            { "amount": "20", "unit": "cl", "target": "crème fraîche", "lineage_id": null },
+            { "amount": "2", "unit": "gousses", "target": "ail", "lineage_id": null },
         ])
     );
 
@@ -1999,8 +1999,8 @@ async fn reading_the_library_reads_what_is_unread_and_leaves_a_correction_alone(
     assert_eq!(
         fetched["result"]["versions"][0]["readings"],
         json!([
-            { "amount": "2", "unit": "cups", "target": "panko breadcrumbs" },
-            { "amount": "800", "unit": "ml", "target": "water" },
+            { "amount": "2", "unit": "cups", "target": "panko breadcrumbs", "lineage_id": null },
+            { "amount": "800", "unit": "ml", "target": "water", "lineage_id": null },
         ]),
         "the correction survived; the line Kamosu read is still as it read it"
     );
@@ -11883,6 +11883,12 @@ async fn what_a_bundle_could_carry_never_reaches_a_food() {
 
     // A Reading names no Food. This is the only edge that could lead from a
     // recipe to one, and it does not exist.
+    //
+    // It names a **Lineage**, and that is not the same hole. ADR 0021 says so
+    // in as many words: a Food travels as its names and no id, because two
+    // instances mint their *farine* separately; a Lineage is global by
+    // construction (ADR 0004), so it means the same thing everywhere and
+    // carries nothing this instance learned about anything.
     let reading: Vec<&String> = version["readings"]["items"]["properties"]
         .as_object()
         .expect("a Reading declares its fields")
@@ -11890,16 +11896,30 @@ async fn what_a_bundle_could_carry_never_reaches_a_food() {
         .collect();
     assert_eq!(
         reading,
-        ["amount", "target", "unit"],
-        "a Reading declares something beyond the three words it read: {reading:?}"
+        ["amount", "lineage_id", "target", "unit"],
+        "a Reading declares something beyond what it read off the line and the \
+         Recipe it may name: {reading:?}"
     );
 
-    // And neither shape declares anything a Food holds.
+    // And no shape a Bundle could carry declares anything a Food holds — the
+    // Component's own content and Readings included, since unfolding puts a
+    // second recipe's shapes inside the first one's answer (#50, ADR 0008).
+    let component = &version["components"]["items"]["properties"];
     for (where_, properties) in [
         ("a Version's content", &version["content"]["properties"]),
         ("a Reading", &version["readings"]["items"]["properties"]),
+        ("a Component's content", &component["content"]["properties"]),
+        (
+            "a Component's Readings",
+            &component["readings"]["items"]["properties"],
+        ),
+        ("a Component", component),
     ] {
-        let fields: Vec<&String> = properties.as_object().unwrap().keys().collect();
+        let fields: Vec<&String> = properties
+            .as_object()
+            .unwrap_or_else(|| panic!("{where_} declares its fields"))
+            .keys()
+            .collect();
         for forbidden in ["food", "food_id", "foods", "cup_weight_grams"] {
             assert!(
                 !fields.iter().any(|field| field.as_str() == forbidden),
@@ -13000,5 +13020,733 @@ async fn one_list_in_one_order_whatever_a_row_was_made_from() {
             "Some cooking oil",
             "soy sauce",
         ]
+    );
+}
+
+// ── Components (#50, ADR 0008) ───────────────────────────────────────────────
+//
+// A recipe used inside another is not a new kind of thing. It is an ordinary
+// Ingredient whose Reading names a Recipe instead of a Food, and every test
+// below drives that through the real Operations.
+
+/// Write a recipe with a Yield and a list, and answer (branch_id, lineage_id).
+fn recipe_with(
+    app: &support::TestApp,
+    key: &str,
+    kitchen_id: &str,
+    title: &str,
+    made: Option<(&str, &str)>,
+    ingredients: Value,
+    steps: Value,
+) -> (String, String) {
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({ "kitchen_id": kitchen_id, "title": title }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let lineage_id = created["result"]["lineage_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut save = json!({
+        "branch_id": branch_id,
+        "title": title,
+        "ingredients": ingredients,
+        "steps": steps,
+    });
+    if let Some((amount, noun)) = made {
+        save["yield"] = json!({ "amount": amount, "noun": noun });
+    }
+    let (status, saved) = app.post_op("save_recipe_version", Some(key), &save.to_string());
+    assert_eq!(status, 200, "{saved}");
+    (branch_id, lineage_id)
+}
+
+/// Make one line of a recipe a Component: its Reading names a Lineage.
+fn make_component(
+    app: &support::TestApp,
+    key: &str,
+    branch_id: &str,
+    line_index: i64,
+    amount: Option<&str>,
+    unit: Option<&str>,
+    lineage_id: &str,
+) {
+    let (status, set) = app.post_op(
+        "set_reading",
+        Some(key),
+        &json!({
+            "branch_id": branch_id,
+            "line_index": line_index,
+            "amount": amount,
+            "unit": unit,
+            "lineage_id": lineage_id,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    assert_eq!(
+        set["result"]["reading"]["lineage_id"],
+        json!(lineage_id),
+        "the Reading answers the Recipe it now names"
+    );
+    assert_eq!(
+        set["result"]["reading"]["target"],
+        Value::Null,
+        "a Reading's target is either a Food or a Lineage, never both"
+    );
+}
+
+/// The Components of a recipe's current Version, as `get_recipe` unfolds them.
+fn components_of(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<Value> {
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    read["result"]["versions"]
+        .as_array()
+        .expect("versions")
+        .last()
+        .expect("a Version")["components"]
+        .as_array()
+        .expect("components")
+        .clone()
+}
+
+/// A pizza whose dough is a Component: the pointer resolves, the multiplier is
+/// worked out from the dough's own Yield, and the dough's lines arrive scaled.
+///
+/// `500 g` of a dough that yields `1 kg` is half of it — ADR 0008's own worked
+/// example — and the factor is computed at display time and stored nowhere.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_is_an_ingredient_whose_reading_names_a_recipe_and_it_arrives_scaled() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    // A metric kitchen, so the halved amounts read as ADR 0008's own example
+    // writes them. A Component's lines are worded by exactly the code every
+    // other Ingredient Line's slot uses, so they convert for the reader too.
+    let (status, _) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200);
+
+    let (_dough, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Neapolitan Pizza Dough",
+        Some(("1", "kg")),
+        json!([
+            { "kind": "ingredient", "text": "600 g tipo 00 flour" },
+            { "kind": "ingredient", "text": "390 ml cold water" },
+        ]),
+        json!([
+            { "kind": "step", "text": "Dissolve the salt in the water." },
+            { "kind": "step", "text": "Knead for ten minutes." },
+        ]),
+    );
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([
+            { "kind": "ingredient", "text": "Dough for 2 pizzas" },
+            { "kind": "ingredient", "text": "250 g mozzarella" },
+        ]),
+        json!([{ "kind": "step", "text": "Stretch, top and bake." }]),
+    );
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+
+    let components = components_of(&app, &key, &pizza);
+    assert_eq!(
+        components.len(),
+        1,
+        "one line names a recipe: {components:?}"
+    );
+    let dough = &components[0];
+    assert_eq!(dough["path"], json!([0]), "it is the pizza's first line");
+    assert_eq!(dough["held"], json!(true));
+    assert_eq!(dough["stopped"], json!(false));
+    assert_eq!(dough["title"], json!("Neapolitan Pizza Dough"));
+    // 500 g of a kilo. Computed from the Reading and the dough's own Yield.
+    assert_eq!(dough["share"], json!(0.5));
+    assert_eq!(
+        dough["said"],
+        json!("Neapolitan Pizza Dough · ½ of the recipe"),
+        "the one line beneath the written line, worded once in the Core"
+    );
+
+    // The dough's own lines, already halved. The written lines are untouched —
+    // the amounts arrive in the subordinate slot every Ingredient Line has.
+    let written: Vec<&str> = dough["content"]["ingredients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(written, ["600 g tipo 00 flour", "390 ml cold water"]);
+    assert_eq!(
+        dough["measured"]["ingredients"],
+        json!(["about 300 g", "about 200 ml"]),
+        "the dough arrives halved, worded by the same code as every other line"
+    );
+
+    // **Stored nowhere.** The multiplier is not in the Reading, which carries
+    // the quantity somebody wrote and the Recipe it names, and nothing else.
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    let reading = &read["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["readings"][0];
+    assert_eq!(
+        reading,
+        &json!({ "amount": "500", "unit": "g", "target": null, "lineage_id": dough_lineage }),
+        "the Reading holds the pointer and the quantity, never the factor"
+    );
+
+    // And the pizza's own Method never grew the dough's Steps: composition
+    // says WHAT and never WHEN (ADR 0008).
+    let steps: Vec<&str> = read["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["content"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(steps, ["Stretch, top and bake."]);
+    assert_eq!(
+        dough["content"]["steps"].as_array().unwrap().len(),
+        2,
+        "the dough's own Steps travel with the dough, separately"
+    );
+}
+
+/// **A missing Component leaves a sentence rather than a hole** (ADR 0008).
+///
+/// Deleted, never received, and held by nobody here are one case on purpose:
+/// no cascade, no warning, no "3 recipes use this". The row goes on reading
+/// correctly because the written line was always the truth (ADR 0002), and it
+/// is a Lineage that is missing rather than a Version, so this is what a Bundle
+/// arriving without its passenger looks like too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_whose_recipe_is_not_here_still_reads_and_says_so() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([{ "kind": "step", "text": "Stretch, top and bake." }]),
+    );
+
+    // A Lineage this instance has never held. It is accepted without ceremony:
+    // refusing it would refuse the very pointer ADR 0008 exists to keep.
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        "l_never_received_here",
+    );
+
+    let components = components_of(&app, &key, &pizza);
+    assert_eq!(components.len(), 1);
+    let dough = &components[0];
+    assert_eq!(dough["held"], json!(false));
+    assert_eq!(dough["title"], Value::Null);
+    assert_eq!(dough["content"], Value::Null);
+    assert_eq!(dough["share"], Value::Null);
+    assert_eq!(dough["said"], json!("Kamosu does not have this recipe."));
+
+    // And the recipe itself is untouched and entirely usable.
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let version = read["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        version["content"]["ingredients"][0]["text"],
+        json!("Dough for 2 pizzas"),
+        "the written line still reads correctly with nothing behind it"
+    );
+    assert_eq!(
+        version["readings"][0]["lineage_id"],
+        json!("l_never_received_here"),
+        "and the pointer is kept, so the dough arriving later needs nothing done"
+    );
+}
+
+/// **An inner recipe with no Yield gives no factor, and Kamosu says so** rather
+/// than guessing (ADR 0008). The recipe is shown as written; a silently
+/// mis-scaled dough would be worse than an unscaled one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_whose_recipe_has_no_yield_is_shown_as_written_and_admits_it() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_dough, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Versatile Pizza Dough",
+        None, // no Yield: nothing to divide by
+        json!([{ "kind": "ingredient", "text": "600 g AP flour" }]),
+        json!([{ "kind": "step", "text": "Mix on low three minutes." }]),
+    );
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([{ "kind": "step", "text": "Stretch, top and bake." }]),
+    );
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+
+    let components = components_of(&app, &key, &pizza);
+    let dough = &components[0];
+    assert_eq!(
+        dough["held"],
+        json!(true),
+        "the recipe is here; the Yield is not"
+    );
+    assert_eq!(dough["share"], Value::Null, "no factor was invented");
+    assert_eq!(
+        dough["said"],
+        json!(
+            "Versatile Pizza Dough — Kamosu could not work out how much, so this is the recipe as written."
+        )
+    );
+    assert_eq!(
+        dough["content"]["ingredients"][0]["text"],
+        json!("600 g AP flour"),
+        "and it unfolds anyway, as written"
+    );
+
+    // A Unit measured against a noun it cannot be compared with is the same
+    // answer: `2 handfuls` of a dough that yields `1 kg` is not a ratio.
+    let (_starter, starter_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Starter",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "500 g flour" }]),
+        json!([]),
+    );
+    let (bread, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Bread",
+        Some(("1", "loaf")),
+        json!([{ "kind": "ingredient", "text": "2 handfuls of starter" }]),
+        json!([]),
+    );
+    make_component(
+        &app,
+        &key,
+        &bread,
+        0,
+        Some("2"),
+        Some("handfuls"),
+        &starter_lineage,
+    );
+    assert_eq!(
+        components_of(&app, &key, &bread)[0]["share"],
+        Value::Null,
+        "handfuls against kilograms is not a ratio, and none is invented"
+    );
+}
+
+/// **A cycle is never refused; unfolding stops at the first repeat and says
+/// so** (ADR 0008).
+///
+/// A loop can be assembled from two innocent halves on two servers and arrive
+/// already formed, so a save-time check could not hold the line and would only
+/// give false confidence. Both saves below are accepted without complaint; the
+/// guard is at display time, where it belongs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cycle_is_never_refused_and_unfolding_stops_at_the_repeat() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (noodles, noodles_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Dan Dan Noodles",
+        Some(("4", "servings")),
+        json!([{ "kind": "ingredient", "text": "3 tbsp chilli oil" }]),
+        json!([{ "kind": "step", "text": "Assemble." }]),
+    );
+    let (oil, oil_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Chilli Oil",
+        Some(("250", "ml")),
+        json!([{ "kind": "ingredient", "text": "2 tbsp Dan Dan sauce, for the colour" }]),
+        json!([{ "kind": "step", "text": "Warm the oil." }]),
+    );
+    // Each half is accepted on its own, which is the point: neither save can
+    // see the loop, and on two servers neither ever would.
+    make_component(
+        &app,
+        &key,
+        &noodles,
+        0,
+        Some("3"),
+        Some("tbsp"),
+        &oil_lineage,
+    );
+    make_component(
+        &app,
+        &key,
+        &oil,
+        0,
+        Some("2"),
+        Some("tbsp"),
+        &noodles_lineage,
+    );
+
+    let components = components_of(&app, &key, &noodles);
+    assert_eq!(
+        components.len(),
+        2,
+        "the oil unfolded, and the line inside it that loops back is reported: {components:?}"
+    );
+
+    let oil_entry = &components[0];
+    assert_eq!(oil_entry["path"], json!([0]));
+    assert_eq!(oil_entry["title"], json!("Chilli Oil"));
+    // 3 tbsp of 250 ml — the tablespoons and the millilitres are compared
+    // through the same base values everything else converts on.
+    assert_eq!(oil_entry["stopped"], json!(false));
+    assert!(
+        (oil_entry["share"].as_f64().unwrap() - 0.1774).abs() < 0.001,
+        "3 tbsp of 250 ml: {}",
+        oil_entry["share"]
+    );
+
+    let repeat = &components[1];
+    assert_eq!(
+        repeat["path"],
+        json!([0, 0]),
+        "inside the oil, on its first line"
+    );
+    assert_eq!(repeat["stopped"], json!(true));
+    assert_eq!(repeat["content"], Value::Null, "it goes no deeper");
+    assert_eq!(
+        repeat["said"],
+        json!("Dan Dan Noodles is already open above — Kamosu stops here.")
+    );
+
+    // Standing in the oil instead, the same loop stops the other way round —
+    // there is nothing special about where you entered it.
+    let from_the_oil = components_of(&app, &key, &oil);
+    assert_eq!(from_the_oil[0]["title"], json!("Dan Dan Noodles"));
+    assert_eq!(from_the_oil[0]["stopped"], json!(false));
+    assert_eq!(from_the_oil[1]["stopped"], json!(true));
+    assert_eq!(
+        from_the_oil[1]["said"],
+        json!("Chilli Oil is already open above — Kamosu stops here.")
+    );
+}
+
+/// **A Reading points at a Food or at a Recipe, never both.** Refused rather
+/// than silently preferring one: a line claiming to be both a flour and a dough
+/// is a caller's mistake, and quietly dropping half of what they sent hides it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_readings_target_is_a_food_or_a_lineage_and_never_both() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (pizza, lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([]),
+    );
+
+    let (status, refused) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": pizza,
+            "line_index": 0,
+            "amount": "500",
+            "unit": "g",
+            "target": "flour",
+            "lineage_id": lineage,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(refused["error"]["kind"], "bad_request");
+
+    // Clearing a Component clears the pointer with it: sending the whole
+    // Reading is how `set_reading` has always worked, so the line goes back to
+    // being an ordinary unread line rather than a Component with no quantity.
+    make_component(&app, &key, &pizza, 0, Some("500"), Some("g"), "l_elsewhere");
+    let (status, cleared) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": pizza, "line_index": 0 }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+    assert_eq!(cleared["result"]["reading"], Value::Null);
+    assert!(
+        components_of(&app, &key, &pizza).is_empty(),
+        "the line is no longer a Component"
+    );
+}
+
+/// **A Component travels with its parent as a Passenger, and its own Visibility
+/// is unchanged by that** (ADR 0008).
+///
+/// Sharing the pizza carries the dough, because a recipe that cannot tell you
+/// how to make its own dough is incomplete. The dough gets no page, no Share
+/// Link of its own and cannot be found: it is read *through* the pizza. Nothing
+/// here sets a Visibility, because in Kamosu nothing sets a Visibility except a
+/// person deciding to.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_travels_as_a_passenger_without_its_own_visibility_changing() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (dough, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Neapolitan Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
+        json!([{ "kind": "step", "text": "Knead for ten minutes." }]),
+    );
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([{ "kind": "step", "text": "Stretch, top and bake." }]),
+    );
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+
+    let (token, _url) = share(&app, &key, &pizza);
+
+    // A stranger, holding the token and nothing else.
+    let (status, read) = app.post_op(
+        "read_shared_recipe",
+        None,
+        &json!({ "token": token }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let carried = read["result"]["recipe"]["components"]
+        .as_array()
+        .expect("the Passengers travel with the recipe");
+    assert_eq!(carried.len(), 1, "the dough came along: {carried:?}");
+    assert_eq!(carried[0]["title"], json!("Neapolitan Pizza Dough"));
+    assert_eq!(carried[0]["held"], json!(true));
+    assert_eq!(carried[0]["share"], json!(0.5));
+    assert_eq!(
+        carried[0]["content"]["steps"][0]["text"],
+        json!("Knead for ten minutes."),
+        "a recipe that cannot tell you how to make its own dough is incomplete"
+    );
+    // A Share Link's rows carry no subordinate line at all — Kamosu converts to
+    // a kitchen and a stranger has none — so a Passenger's slot is empty, and
+    // declared empty rather than absent, the way a Food's nutrition is.
+    assert_eq!(
+        carried[0]["measured"],
+        Value::Null,
+        "a Passenger carries no measured line: {carried:?}"
+    );
+
+    // **The dough's own Visibility did not change.** It has no Share Link, so
+    // it has no page and cannot be found — it is readable only through the
+    // pizza's link.
+    let (status, dough_link) = app.post_op(
+        "get_share_link",
+        Some(&key),
+        &json!({ "branch_id": dough }).to_string(),
+    );
+    assert_eq!(status, 200, "{dough_link}");
+    assert_eq!(
+        dough_link["result"]["shared"],
+        json!(false),
+        "sharing the pizza minted no link for the dough"
+    );
+
+    // And the page a stranger is served renders it: the dough's lines under the
+    // row that names them, its Steps at the foot under their own heading (#50).
+    let (status, _kind, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(
+        page.contains("Neapolitan Pizza Dough · ½ of the recipe"),
+        "the Component's own line is on the page"
+    );
+    assert!(
+        page.contains("600 g tipo 00 flour"),
+        "its Ingredient Lines unfold in place"
+    );
+    assert!(
+        page.contains("its own method") && page.contains("Knead for ten minutes."),
+        "and its Steps are set at the foot, under a heading of their own"
+    );
+}
+
+/// **Scaling the outer recipe rescales the Reading, and the factor follows for
+/// free** (ADR 0008).
+///
+/// Cooking a pizza at double wants the whole of a dough it otherwise wants half
+/// of. The sentence beneath the line and the amounts printed under it are one
+/// answer to one question, so the factor carries the Yield being cooked rather
+/// than being applied on top of it — otherwise the row reads "half the recipe"
+/// over a full dough's worth of flour.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scaling_the_outer_recipe_carries_into_how_much_of_the_component_is_wanted() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (status, _) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200);
+
+    let (_dough, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Neapolitan Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
+        json!([{ "kind": "step", "text": "Knead for ten minutes." }]),
+    );
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([{ "kind": "step", "text": "Stretch, top and bake." }]),
+    );
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+
+    // Read as written: half a kilo of a kilo.
+    let at_rest = components_of(&app, &key, &pizza);
+    assert_eq!(at_rest[0]["share"], json!(0.5));
+    assert_eq!(
+        at_rest[0]["said"],
+        json!("Neapolitan Pizza Dough · ½ of the recipe")
+    );
+    assert_eq!(
+        at_rest[0]["measured"]["ingredients"],
+        json!(["about 300 g"])
+    );
+
+    // Now cook four pizzas instead of two. An In Progress Attempt at another
+    // Yield is what `get_recipe` reads its scale from (#61).
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "cooking_yield": { "amount": "4", "noun": "pizzas" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+
+    let doubled = components_of(&app, &key, &pizza);
+    assert_eq!(
+        doubled[0]["share"],
+        json!(1.0),
+        "two pizzas' worth of dough doubled is the whole dough"
+    );
+    assert_eq!(
+        doubled[0]["said"],
+        json!("Neapolitan Pizza Dough · the whole recipe"),
+        "and the sentence says so, rather than contradicting the amounts below it"
+    );
+    // And the dough's own lines fall SILENT, which is the same rule every other
+    // Ingredient Line obeys: at the whole recipe, in this reader's own measures,
+    // a subordinate line would only repeat `600 g tipo 00 flour` back at her
+    // (#49, ADR 0016). The line above is already the answer.
+    assert_eq!(
+        doubled[0]["measured"]["ingredients"],
+        json!([null]),
+        "nothing to say beneath a line that is already what it should be"
     );
 }
