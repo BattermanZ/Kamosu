@@ -37,16 +37,34 @@
 	let library = $state<Record<string, Held>>({});
 	let byBranch = $state<Record<string, Held>>({});
 	let loaded = $state(false);
+	/** What went wrong, said out loud. A rig that hangs on one line tells nobody anything. */
+	let failed = $state<string | null>(null);
 
 	$effect(() => {
+		let current = true;
 		void (async () => {
 			const branches = [PIZZA, DAN_DAN, CHILLI_OIL, NEAPOLITAN, VERSATILE];
-			const read = await Promise.all(branches.map((branch_id) => kamosu.getRecipe({ branch_id })));
-			const all = read.map(held);
+			// Settled one by one rather than through `Promise.all`, which throws
+			// away four good answers because a fifth failed — and then says
+			// nothing about which.
+			const read = await Promise.allSettled(
+				branches.map((branch_id) => kamosu.getRecipe({ branch_id })),
+			);
+			if (!current) return;
+			const broken = read.flatMap((r, index) =>
+				r.status === 'rejected'
+					? [`${branches[index]}: ${String(r.reason?.message ?? r.reason)}`]
+					: [],
+			);
+			const all = read.flatMap((r) => (r.status === 'fulfilled' ? [held(r.value)] : []));
 			library = Object.fromEntries(all.map((r) => [r.lineageId, r]));
 			byBranch = Object.fromEntries(all.map((r) => [r.branchId, r]));
+			failed = broken.length ? broken.join(' · ') : null;
 			loaded = true;
 		})();
+		return () => {
+			current = false;
+		};
 	});
 
 	// ---- the switches -----------------------------------------------------
@@ -82,74 +100,80 @@
 
 <svelte:head><title>#50 · Components — two treatments</title></svelte:head>
 
-<div class="pb-40">
-	{#if !loaded || !root}
-		<p class="px-gutter py-6 text-body text-ink-2">Reading the library…</p>
-	{:else}
-		<PrototypeRecipe {root} {library} {composition} {treatment} {unfolded} />
-	{/if}
-</div>
+<!--
+	The rig's own bar. Not part of either treatment.
 
-<!-- The rig's own bar. Not part of either treatment. -->
-<div class="fixed inset-x-0 bottom-0 z-20 border-t border-rule bg-card px-3 pt-2 pb-safe shadow-lg">
-	<div class="mx-auto flex max-w-2xl flex-wrap gap-x-4 gap-y-2 text-read">
-		<div class="flex items-center gap-1">
-			<span class="text-label text-ink-2 uppercase">Treatment</span>
-			{#each [['nest', 'A · Nest'], ['annexe', 'B · Annexe']] as const as [value, label] (value)}
-				<button
-					type="button"
-					class="rounded-sm border px-2 py-1 {treatment === value
-						? 'border-accent bg-accent text-on-accent'
-						: 'border-rule text-ink'}"
-					onclick={() => (treatment = value)}
-				>
-					{label}
-				</button>
-			{/each}
-		</div>
+	At the TOP, sticky, which is where #81's rig put its four switches. It was
+	at the foot to begin with and that was wrong on a phone: the app's tab bar
+	is fixed over the bottom 61px and swallowed the last row of switches
+	whole — `bottom-tabbar` lifts a thing by 48px, which is not enough.
+-->
+<div class="sticky top-0 z-20 border-b border-rule bg-card px-3 py-2 shadow-sm">
+	<div class="mx-auto grid max-w-2xl gap-y-1 text-read">
+		{#snippet row(label: string, children: import('svelte').Snippet)}
+			<div class="flex items-center gap-1">
+				<span class="w-20 shrink-0 text-label text-ink-2 uppercase">{label}</span>
+				{@render children()}
+			</div>
+		{/snippet}
 
-		<div class="flex items-center gap-1">
-			<span class="text-label text-ink-2 uppercase">Recipe</span>
-			{#each [['pizza', 'Pizza'], ['danDan', 'Dan Dan']] as const as [value, label] (value)}
-				<button
-					type="button"
-					class="rounded-sm border px-2 py-1 {recipe === value
-						? 'border-accent bg-accent text-on-accent'
-						: 'border-rule text-ink'}"
-					onclick={() => (recipe = value)}
-				>
-					{label}
-				</button>
-			{/each}
-		</div>
-
-		<div class="flex items-center gap-1">
-			<span class="text-label text-ink-2 uppercase">Component</span>
+		{#snippet pill(label: string, on: boolean, press: () => void, off = false)}
 			<button
 				type="button"
-				class="rounded-sm border px-2 py-1 {unfolded
+				disabled={off}
+				class="rounded-sm border px-2 py-1 {on
 					? 'border-accent bg-accent text-on-accent'
-					: 'border-rule text-ink'}"
-				onclick={() => (unfolded = !unfolded)}
+					: 'border-rule text-ink'} {off ? 'opacity-40' : ''}"
+				onclick={press}
 			>
-				{unfolded ? 'open' : 'closed'}
+				{label}
 			</button>
-		</div>
+		{/snippet}
 
-		<div class="flex items-center gap-1">
-			<span class="text-label text-ink-2 uppercase">The dough</span>
-			{#each [['resolves', 'is here'], ['absent', 'is missing'], ['noYield', 'has no Yield']] as const as [value, label] (value)}
-				<button
-					type="button"
-					disabled={recipe !== 'pizza'}
-					class="rounded-sm border px-2 py-1 {dough === value
-						? 'border-accent bg-accent text-on-accent'
-						: 'border-rule text-ink'} {recipe !== 'pizza' ? 'opacity-40' : ''}"
-					onclick={() => (dough = value)}
-				>
-					{label}
-				</button>
-			{/each}
-		</div>
+		{#snippet treatmentRow()}
+			{@render pill('A · Nest', treatment === 'nest', () => (treatment = 'nest'))}
+			{@render pill('B · Annexe', treatment === 'annexe', () => (treatment = 'annexe'))}
+		{/snippet}
+		{@render row('Treatment', treatmentRow)}
+
+		{#snippet recipeRow()}
+			{@render pill('Pizza', recipe === 'pizza', () => (recipe = 'pizza'))}
+			{@render pill('Dan Dan', recipe === 'danDan', () => (recipe = 'danDan'))}
+			<span class="w-2"></span>
+			{@render pill(unfolded ? 'open' : 'closed', unfolded, () => (unfolded = !unfolded))}
+		{/snippet}
+		{@render row('Recipe', recipeRow)}
+
+		{#snippet doughRow()}
+			{@render pill(
+				'is here',
+				dough === 'resolves',
+				() => (dough = 'resolves'),
+				recipe !== 'pizza',
+			)}
+			{@render pill('is missing', dough === 'absent', () => (dough = 'absent'), recipe !== 'pizza')}
+			{@render pill('no Yield', dough === 'noYield', () => (dough = 'noYield'), recipe !== 'pizza')}
+		{/snippet}
+		{@render row('The dough', doughRow)}
 	</div>
 </div>
+
+{#if !loaded}
+	<p class="px-gutter py-6 text-body text-ink-2">Reading the library…</p>
+{:else if !root}
+	<div class="px-gutter py-6" role="alert">
+		<p class="text-body text-support">The library would not open.</p>
+		<p class="mt-2 text-read text-ink-2">{failed ?? 'No recipe came back.'}</p>
+		<p class="mt-3 text-read text-ink-2">
+			If that says <em>unauthorized</em>, this browser is not signed in to the dev instance — open
+			<a href="/" class="underline">the app</a>, sign in, then come back.
+		</p>
+	</div>
+{:else}
+	{#if failed}
+		<p class="border-b border-rule px-gutter py-2 text-read text-support" role="alert">
+			Some of the cast would not open: {failed}
+		</p>
+	{/if}
+	<PrototypeRecipe {root} {library} {composition} {treatment} {unfolded} />
+{/if}
