@@ -386,7 +386,7 @@ export type CreateRecipeInput = {
 	} | null;
 	steps?: {
 		kind: "section" | "step";
-		photo: string | null;
+		photo?: string | null;
 		text: string;
 	}[];
 	title: string;
@@ -514,7 +514,7 @@ export type SaveRecipeVersionInput = {
 	} | null;
 	steps?: {
 		kind: "section" | "step";
-		photo: string | null;
+		photo?: string | null;
 		text: string;
 	}[];
 	title: string;
@@ -562,7 +562,7 @@ export type StartTranslationInput = {
 	} | null;
 	steps?: {
 		kind: "section" | "step";
-		photo: string | null;
+		photo?: string | null;
 		text: string;
 	}[];
 	title: string;
@@ -702,7 +702,7 @@ export type ImportInput = {
 		} | null;
 		steps?: {
 			kind: "section" | "step";
-			photo: string | null;
+			photo?: string | null;
 			text: string;
 		}[];
 		title: string;
@@ -1659,7 +1659,7 @@ export type GetShoppingListOutput = {
 /** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 export type AddToShoppingListInput = {
 	branch_id: string;
-	yield?: {
+	shopping_yield?: {
 		amount: string;
 		noun: string;
 	} | null;
@@ -1737,7 +1737,7 @@ export type RemoveFromShoppingListOutput = {
 /** Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 export type SetShoppingYieldInput = {
 	branch_id: string;
-	yield?: {
+	shopping_yield?: {
 		amount: string;
 		noun: string;
 	} | null;
@@ -4188,8 +4188,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"kind",
-							"text",
-							"photo"
+							"text"
 						],
 						"type": "object"
 					},
@@ -4902,8 +4901,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"kind",
-							"text",
-							"photo"
+							"text"
 						],
 						"type": "object"
 					},
@@ -5147,8 +5145,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"kind",
-							"text",
-							"photo"
+							"text"
 						],
 						"type": "object"
 					},
@@ -5922,8 +5919,7 @@ export const CATALOGUE = [
 									},
 									"required": [
 										"kind",
-										"text",
-										"photo"
+										"text"
 									],
 									"type": "object"
 								},
@@ -10644,7 +10640,7 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
-				"yield": {
+				"shopping_yield": {
 					"additionalProperties": false,
 					"properties": {
 						"amount": {
@@ -11025,7 +11021,7 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
-				"yield": {
+				"shopping_yield": {
 					"additionalProperties": false,
 					"properties": {
 						"amount": {

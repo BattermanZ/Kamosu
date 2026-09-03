@@ -1599,7 +1599,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "branch_id": { "type": "string" },
-                    "yield": yield_schema(),
+                    // Named to match the Shopping List's own answer, and to
+                    // match `cooking_yield` on `advance_attempt` next door
+                    // (#85). It was `yield`, which agreed with neither — and
+                    // because it is optional and its absence legitimately
+                    // means "back to the recipe as written", a misspelling and
+                    // a deliberate reset were the same request.
+                    "shopping_yield": yield_schema(),
                 },
                 "required": ["branch_id"],
                 "additionalProperties": false,
@@ -1641,7 +1647,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "branch_id": { "type": "string" },
-                    "yield": yield_schema(),
+                    // Named as on `add_to_shopping_list` above, and for the
+                    // same reason (#85).
+                    "shopping_yield": yield_schema(),
                 },
                 "required": ["branch_id"],
                 "additionalProperties": false,
@@ -2751,10 +2759,41 @@ fn recipe_content_schema() -> Value {
     })
 }
 
+/// The same content properties, as an Operation *accepts* them rather than as
+/// it answers them.
+///
+/// One field differs, and only one: a step's `photo`. The shared definition
+/// requires it, which is true of every step Kamosu answers with —
+/// `parse_step_list` normalises an absent photo to `null` and then always
+/// writes the field. It was never true of a step Kamosu is *given*: the same
+/// function reads an absent `photo` as "no photograph", which is what every
+/// caller has always sent, Kamosu's own frontend included.
+///
+/// Measured while wiring #85's enforcement up in report-only mode: 80 calls
+/// across the behaviour suite and the interface send a step with no `photo`,
+/// and zero send one with. Requiring it on input would have broken every
+/// recipe save in the program — so the declaration was wrong, not the callers.
+/// This is the same shared-properties-different-required pattern the top level
+/// already uses; it simply never reached inside `steps`.
+fn recipe_content_input_properties() -> Value {
+    let mut properties = recipe_content_properties();
+    // Navigated rather than indexed: `Value`'s `IndexMut` *creates* a missing
+    // key, so a renamed `steps` would quietly grow a bogus property here
+    // instead of failing — which is the very "check that silently stopped
+    // running" #85 exists to close.
+    properties
+        .get_mut("steps")
+        .and_then(|steps| steps.get_mut("items"))
+        .and_then(Value::as_object_mut)
+        .expect("the shared content properties declare steps as a list of objects")
+        .insert("required".to_string(), json!(["kind", "text"]));
+    properties
+}
+
 /// `create_recipe`'s input: a Kitchen and a title are all a Recipe ever
 /// needs — every other field of the recipe's content is optional here.
 fn create_recipe_input_schema() -> Value {
-    let mut properties = recipe_content_properties();
+    let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
     map.insert("kitchen_id".to_string(), json!({ "type": "string" }));
     map.insert(
@@ -2783,7 +2822,7 @@ fn create_recipe_input_schema() -> Value {
 /// Home Kitchen unless they say otherwise, a question only ever put to
 /// someone who cooks in more than one.
 fn save_recipe_version_input_schema() -> Value {
-    let mut properties = recipe_content_properties();
+    let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
     map.insert("branch_id".to_string(), json!({ "type": "string" }));
     map.insert("name".to_string(), json!({ "type": "string" }));
@@ -2812,7 +2851,7 @@ fn save_recipe_version_input_schema() -> Value {
 /// the Branch it is a rendering of, and — optionally — which Version of that
 /// Branch it renders, defaulting to wherever the source stands now.
 fn start_translation_input_schema() -> Value {
-    let mut properties = recipe_content_properties();
+    let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
     map.insert(
         "branch_id".to_string(),
@@ -2864,7 +2903,7 @@ fn start_translation_input_schema() -> Value {
 /// source — a `.crumb`, a page, a Bundle — happens before this: `import` is
 /// the shared landing machinery every importer calls into, never the parser.
 fn import_input_schema() -> Value {
-    let mut properties = recipe_content_properties();
+    let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
     map.insert(
         "foreign_id".to_string(),

@@ -12209,7 +12209,7 @@ async fn choosing_a_recipe_already_on_the_list_moves_its_yield_rather_than_ignor
     let (status, doubled) = app.post_op(
         "add_to_shopping_list",
         Some(&key),
-        &json!({ "branch_id": chicken, "yield": { "amount": "8", "noun": "servings" } })
+        &json!({ "branch_id": chicken, "shopping_yield": { "amount": "8", "noun": "servings" } })
             .to_string(),
     );
     assert_eq!(status, 200, "{doubled}");
@@ -12402,6 +12402,133 @@ async fn the_rows_are_computed_every_time_so_editing_a_recipe_changes_the_list_a
     );
 }
 
+/// A value outside a declared `enum` is refused at both Doors, the same way an
+/// undeclared field is (#85).
+///
+/// It lives here rather than in `tests/parity.rs` for one reason: shape is
+/// checked *after* authorisation, so an Operation declaring an `enum` — every
+/// one of them needs a Person — answers 401 before it ever reaches the check.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_value_outside_a_declared_enum_is_refused_at_both_doors() {
+    let app = support::spawn_app();
+    let (_person, key, _kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let outside = json!({ "reading_language": "de", "reading_measures": "us" });
+
+    let (status, refusal) =
+        app.post_op("set_reading_preferences", Some(&key), &outside.to_string());
+    assert_eq!(status, 400, "the web Door accepted it: {refusal}");
+    assert_eq!(refusal["error"]["kind"], "bad_request");
+    assert!(
+        refusal["error"]["message"]
+            .as_str()
+            .expect("a message")
+            .contains("reading_language"),
+        "the refusal does not name the field: {refusal}"
+    );
+
+    let call = |arguments: Value| {
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "set_reading_preferences", "arguments": arguments },
+        });
+        app.post_mcp(&payload.to_string(), Some(&key)).1
+    };
+
+    let refused = call(outside);
+    assert_eq!(
+        refused["result"]["isError"],
+        json!(true),
+        "the MCP Door accepted it: {refused}"
+    );
+    assert!(
+        refused["result"]["content"][0]["text"]
+            .as_str()
+            .expect("a message")
+            .contains("reading_language"),
+        "the MCP refusal does not name the field: {refused}"
+    );
+
+    // A Language the Catalogue does declare still lands, at both Doors.
+    let (status, body) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "fr", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200, "a declared value was refused: {body}");
+    let accepted = call(json!({ "reading_language": "es", "reading_measures": "us" }));
+    assert_eq!(
+        accepted["result"]["isError"],
+        json!(false),
+        "a declared value was refused at the MCP door: {accepted}"
+    );
+}
+
+/// The failure #85 was opened for: a misspelt Yield used to erase the Yield and
+/// report success.
+///
+/// `shopping_yield` is optional, and its absence legitimately means *back to
+/// the recipe as written* — so before the Catalogue's declaration was enforced,
+/// a typo and a deliberate reset were the same request. An assistant asked to
+/// shop for eight got a cheerful OK and a list for four. That is ADR 0024's own
+/// warning from the other end: a thing that quietly disappears from a shopping
+/// list is a thing that does not get bought.
+///
+/// A misspelt *required* field never had this problem — the handler's own check
+/// for the missing field caught it by accident. The danger was only ever an
+/// optional field whose absence carries meaning.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_misspelt_yield_is_refused_rather_than_erasing_the_one_stored() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken, "shopping_yield": { "amount": "8", "noun": "servings" } })
+            .to_string(),
+    );
+
+    // The exact call from the ticket: `shopping_yield` misspelt back to what
+    // the field used to be called.
+    let (status, refusal) = app.post_op(
+        "set_shopping_yield",
+        Some(&key),
+        &json!({ "branch_id": chicken, "yield": { "amount": "4", "noun": "servings" } })
+            .to_string(),
+    );
+    assert_eq!(status, 400, "the misspelling was accepted: {refusal}");
+    assert_eq!(refusal["error"]["kind"], "bad_request");
+    assert!(
+        refusal["error"]["message"]
+            .as_str()
+            .expect("a message")
+            .contains("yield"),
+        "the refusal does not name the offending field: {refusal}"
+    );
+
+    // And — the half that matters — the stored Yield is untouched.
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        list["result"]["chosen"][0]["shopping_yield"],
+        json!({ "amount": "8", "noun": "servings" }),
+        "the Yield was erased by a call that was refused"
+    );
+
+    // Spelt as the Catalogue declares it, the same reset still works — the
+    // point is that absence must be *asked for*, not arrived at by typo.
+    let (status, list) = app.post_op(
+        "set_shopping_yield",
+        Some(&key),
+        &json!({ "branch_id": chicken, "shopping_yield": Value::Null }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    assert_eq!(list["result"]["chosen"][0]["shopping_yield"], Value::Null);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_yield_being_shopped_for_moves_every_amount_with_it() {
     let app = support::spawn_app();
@@ -12416,7 +12543,7 @@ async fn the_yield_being_shopped_for_moves_every_amount_with_it() {
     app.post_op(
         "add_to_shopping_list",
         Some(&key),
-        &json!({ "branch_id": chicken, "yield": { "amount": "8", "noun": "servings" } })
+        &json!({ "branch_id": chicken, "shopping_yield": { "amount": "8", "noun": "servings" } })
             .to_string(),
     );
     let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
@@ -12439,7 +12566,7 @@ async fn the_yield_being_shopped_for_moves_every_amount_with_it() {
     let (status, list) = app.post_op(
         "set_shopping_yield",
         Some(&key),
-        &json!({ "branch_id": chicken, "yield": Value::Null }).to_string(),
+        &json!({ "branch_id": chicken, "shopping_yield": Value::Null }).to_string(),
     );
     assert_eq!(status, 200, "{list}");
     assert_eq!(
@@ -12761,7 +12888,8 @@ async fn a_line_carrying_no_quantity_says_some_and_no_yield_ever_moves_it() {
     let (status, list) = app.post_op(
         "set_shopping_yield",
         Some(&key),
-        &json!({ "branch_id": coq, "yield": { "amount": "8", "noun": "servings" } }).to_string(),
+        &json!({ "branch_id": coq, "shopping_yield": { "amount": "8", "noun": "servings" } })
+            .to_string(),
     );
     assert_eq!(status, 200, "{list}");
     let doubled = &list["result"];
@@ -12819,7 +12947,7 @@ async fn a_line_with_no_reading_at_all_still_reaches_the_list_and_the_yield_leav
     let (_, list) = app.post_op(
         "add_to_shopping_list",
         Some(&key),
-        &json!({ "branch_id": chicken, "yield": { "amount": "8", "noun": "servings" } })
+        &json!({ "branch_id": chicken, "shopping_yield": { "amount": "8", "noun": "servings" } })
             .to_string(),
     );
     let kept = row(&list["result"], "Some cooking oil (for deep frying)");

@@ -298,7 +298,7 @@ describe('Shopping', () => {
 
 		expect(kamosu.calls.at(-1)).toEqual({
 			operation: 'set_shopping_yield',
-			input: { branch_id: 'b_chicken', yield: { amount: '8', noun: 'servings' } },
+			input: { branch_id: 'b_chicken', shopping_yield: { amount: '8', noun: 'servings' } },
 		});
 		expect(await screen.findByText(/shopping for 8 servings/i)).toBeInTheDocument();
 	});
@@ -322,7 +322,7 @@ describe('Shopping', () => {
 		// and not a guess: a recipe has no zero.
 		expect(kamosu.calls.at(-1)).toEqual({
 			operation: 'set_shopping_yield',
-			input: { branch_id: 'b_chicken', yield: null },
+			input: { branch_id: 'b_chicken', shopping_yield: null },
 		});
 	});
 

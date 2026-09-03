@@ -1,5 +1,26 @@
 //! The Operations themselves. Each one is declared in `catalogue.rs`; this module
 //! holds the functions those declarations name.
+//!
+//! # Reading input, after #85
+//!
+//! Shape is no longer checked here. `Core::execute` holds every input to the
+//! Operation's own declaration before a handler runs, so a handler is never
+//! reached with an unknown field, a missing required one, a wrong type or a
+//! value outside a declared `enum`. The hand-written "takes no input" guards
+//! that used to open twenty-one of these functions are gone with it: one check,
+//! in one place, keyed on the one declaration.
+//!
+//! What remains, and reads like a shape check without being one, is the
+//! `input.get("x").and_then(Value::as_str).ok_or_else(…)` that opens most
+//! handlers. That is **extraction**, not validation: the value has to come out
+//! of the envelope as a `&str` either way, and Rust offers no way to do that
+//! without saying what happens when it is absent. Its error arm is now
+//! ordinarily unreachable — the Catalogue refused the call first — and it stays
+//! because the alternative is a panic, not because the check is wanted twice.
+//!
+//! **Semantic checks are a different thing entirely and belong here**: whether
+//! a Branch exists, whether this Person may touch it, whether an amount parses.
+//! No schema can know any of that, and none of it moved.
 
 use serde_json::Value;
 use serde_json::json;
@@ -13,17 +34,8 @@ use crate::jobs;
 pub fn instance_status(
     core: &Core,
     _invocation: &Invocation,
-    input: Value,
+    _input: Value,
 ) -> Result<Value, OpError> {
-    // The Catalogue declares an empty envelope; hold that line even if a Door
-    // somehow let something through.
-    match &input {
-        Value::Object(map) if !map.is_empty() => {
-            return Err(OpError::bad_request("instance_status takes no input"));
-        }
-        _ => {}
-    }
-
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "setup_complete": core.setup_complete()?,
@@ -128,10 +140,11 @@ pub fn mint_recovery_link(
     Ok(json!({ "link": core.mint_recovery_link(name)? }))
 }
 
-pub fn list_sessions(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request("list_sessions takes no input"));
-    }
+pub fn list_sessions(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     Ok(json!({ "sessions": core.sessions_of(&caller.person_id)? }))
 }
@@ -176,11 +189,8 @@ pub fn mint_access_key(
 pub fn list_access_keys(
     core: &Core,
     invocation: &Invocation,
-    input: Value,
+    _input: Value,
 ) -> Result<Value, OpError> {
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request("list_access_keys takes no input"));
-    }
     let caller = caller_of(invocation)?;
     Ok(json!({ "access_keys": core.access_keys_of(&caller.person_id)? }))
 }
@@ -217,14 +227,7 @@ pub fn get_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Val
 
 /// List the Jobs one Person has asked for, newest first. A stranger has asked
 /// for nothing here: anonymous Jobs belong to no Person to list them by.
-pub fn list_jobs(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    match &input {
-        Value::Object(map) if !map.is_empty() => {
-            return Err(OpError::bad_request("list_jobs takes no input"));
-        }
-        _ => {}
-    }
-
+pub fn list_jobs(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     let records = core.jobs_of(&caller.person_id)?;
     Ok(json!({
@@ -263,10 +266,11 @@ pub fn create_kitchen(
     core.create_kitchen(&caller.person_id, name)
 }
 
-pub fn list_kitchens(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request("list_kitchens takes no input"));
-    }
+pub fn list_kitchens(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     Ok(json!({ "kitchens": core.list_kitchens(&caller.person_id)? }))
 }
@@ -758,13 +762,8 @@ pub fn upload_photograph(
 pub fn sweep_photographs(
     core: &Core,
     _invocation: &Invocation,
-    input: Value,
+    _input: Value,
 ) -> Result<Value, OpError> {
-    // The Catalogue declares an empty envelope; hold that line even if a Door
-    // somehow let something through.
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request("sweep_photographs takes no input"));
-    }
     core.sweep_photographs()
 }
 
@@ -783,10 +782,7 @@ pub fn search_recipes(
 /// Home's computed shelves (#64). Like the diary it takes no input: whose Home
 /// is not a question, and a `person_id` here would be a permission question
 /// wearing a parameter's clothes.
-pub fn home_shelves(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request("home_shelves takes no input"));
-    }
+pub fn home_shelves(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     core.home_shelves(&caller.person_id)
 }
@@ -1098,18 +1094,16 @@ pub fn get_current_attempt(
 /// The cooking diary (#60). It takes no input because there is no whose to
 /// ask: a diary is the caller's own, and a `person_id` here would be a
 /// permission question wearing a parameter's clothes.
-pub fn list_attempts(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request("list_attempts takes no input"));
-    }
+pub fn list_attempts(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     core.list_attempts(&caller.person_id)
 }
 
-pub fn list_foods(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request("list_foods takes no input"));
-    }
+pub fn list_foods(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
     Ok(json!({ "foods": core.list_foods(&caller.person_id)? }))
 }
@@ -1186,13 +1180,8 @@ pub fn set_food_cup_weight(
 pub fn list_merge_suggestions(
     core: &Core,
     invocation: &Invocation,
-    input: Value,
+    _input: Value,
 ) -> Result<Value, OpError> {
-    if !input.as_object().is_some_and(|map| map.is_empty()) {
-        return Err(OpError::bad_request(
-            "list_merge_suggestions takes no input",
-        ));
-    }
     let caller = caller_of(invocation)?;
     Ok(json!({ "suggestions": core.list_merge_suggestions(&caller.person_id)? }))
 }
@@ -1402,9 +1391,9 @@ pub fn add_to_shopping_list(
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("add_to_shopping_list takes { branch_id, yield? }"))?;
+        .ok_or_else(|| OpError::bad_request("add_to_shopping_list takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.add_to_shopping_list(&caller.person_id, branch_id, input.get("yield"))
+    core.add_to_shopping_list(&caller.person_id, branch_id, input.get("shopping_yield"))
 }
 
 pub fn remove_from_shopping_list(
@@ -1428,9 +1417,9 @@ pub fn set_shopping_yield(
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("set_shopping_yield takes { branch_id, yield }"))?;
+        .ok_or_else(|| OpError::bad_request("set_shopping_yield takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.set_shopping_yield(&caller.person_id, branch_id, input.get("yield"))
+    core.set_shopping_yield(&caller.person_id, branch_id, input.get("shopping_yield"))
 }
 
 pub fn add_loose_item(

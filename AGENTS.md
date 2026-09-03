@@ -193,6 +193,9 @@ src/language.rs     a Branch's Language, read off the recipe's own text (ADR 000
 src/meaning.rs      Meaning Search: the model Kamosu does not ship, and the
                     index it builds from the recipes (ADR 0029)
 src/operations.rs   the functions the Catalogue's declarations name
+src/schema.rs       the Catalogue's declared input, compiled into the thing
+                    that checks it — shape only, in the Core at dispatch, so
+                    both Doors inherit it (#85)
 src/reading.rs      reading an Ingredient Line into a Reading — where the
                     number ends, the Unit ends and the Food begins. Its
                     vocabulary is units.rs's, not its own (ADR 0036)

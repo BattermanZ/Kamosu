@@ -285,6 +285,16 @@ impl Core {
             }
         }
 
+        // Shape is checked here, once, against the Operation's own declaration
+        // (#85): both Doors inherit it, and a new Operation cannot forget it any
+        // more than it can forget to appear at both. It runs after the
+        // authorisation checks above so a caller who may not perform an
+        // Operation learns nothing about its input, and before any handler, so
+        // no handler is ever reached with an envelope the Catalogue does not
+        // describe. What it does *not* check is meaning — whether a Branch
+        // exists, whether an amount parses — which stays in the handlers.
+        crate::schema::validate_input(op.name, &input)?;
+
         let invocation = Invocation { caller, job: None };
 
         match op.kind {

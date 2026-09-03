@@ -149,7 +149,7 @@
 		void act(() =>
 			kamosu.setShoppingYield({
 				branch_id,
-				yield: amount && noun ? { amount, noun } : null,
+				shopping_yield: amount && noun ? { amount, noun } : null,
 			}),
 		);
 	}

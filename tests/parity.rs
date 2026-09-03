@@ -441,3 +441,111 @@ async fn no_route_exists_outside_the_catalogue() {
     let (status, _) = app.post_op("../etc/passwd", None, "{}");
     assert_eq!(status, 404, "a non-Operation path answered");
 }
+
+/// Every Operation's declared input compiles into the thing that checks it (#85).
+///
+/// This is `src/schema.rs`'s guarantee held where `tests/parity.rs` holds ADR
+/// 0001's: a declaration the validator cannot compile — a misspelt keyword, an
+/// unknown type name, an `additionalProperties` that is not `false`, a
+/// `required` naming a field nobody declared — breaks the build here rather
+/// than quietly becoming a check that no longer runs.
+///
+/// It is deliberately not enough to let the Core panic at startup. A JSON
+/// Schema validator is *required by its own specification* to ignore a keyword
+/// it does not recognise, so the failure this guards against is silent
+/// everywhere else: `"requird": ["branch_id"]` would validate nothing and say
+/// nothing.
+#[test]
+fn every_declared_input_compiles_into_its_own_check() {
+    for op in catalogue::OPERATIONS.iter() {
+        if let Err(reason) = kamosu::schema::compile(&op.input_schema, "") {
+            panic!("{}'s declared input does not compile: {reason}", op.name);
+        }
+    }
+}
+
+/// The Catalogue's declared input is what refuses a bad call, at **both** Doors.
+///
+/// The web Door answers a `bad_request`; the MCP Door answers a tool error. The
+/// same undeclared field, refused the same way at each, is the whole of the
+/// parity claim — neither Door checks anything itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_undeclared_field_is_refused_at_both_doors() {
+    let app = support::spawn_app();
+
+    // `instance_status` is Public, so this needs no Credential and the refusal
+    // cannot be mistaken for an authorisation answer.
+    let (status, body) = app.post_op("instance_status", None, r#"{"unexpected":1}"#);
+    assert_eq!(
+        status, 400,
+        "the web Door accepted an undeclared field: {body}"
+    );
+    assert_eq!(body["error"]["kind"], "bad_request");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .expect("a message")
+            .contains("unexpected"),
+        "the refusal does not name the offending field: {body}"
+    );
+
+    let call = |arguments: Value| {
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "instance_status", "arguments": arguments },
+        });
+        app.post_mcp(&payload.to_string(), None).1
+    };
+
+    let refused = call(json!({ "unexpected": 1 }));
+    assert_eq!(
+        refused["result"]["isError"],
+        json!(true),
+        "the MCP Door accepted an undeclared field: {refused}"
+    );
+    assert!(
+        refused["result"]["content"][0]["text"]
+            .as_str()
+            .expect("a message")
+            .contains("unexpected"),
+        "the MCP refusal does not name the offending field: {refused}"
+    );
+
+    // Two more shape failures, refused the same way at the same two Doors.
+    // `read_shared_recipe` is Public and takes one required string, so this
+    // reaches the check without a Credential — validation runs *after*
+    // authorisation, so an Operation needing one would answer 401 first.
+    for (what, arguments) in [
+        ("a missing required field", json!({})),
+        ("a wrong type", json!({ "token": 7 })),
+    ] {
+        let (status, body) = app.post_op("read_shared_recipe", None, &arguments.to_string());
+        assert_eq!(status, 400, "the web Door accepted {what}: {body}");
+        assert_eq!(body["error"]["kind"], "bad_request", "for {what}");
+
+        let payload = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "read_shared_recipe", "arguments": arguments },
+        });
+        let refused = app.post_mcp(&payload.to_string(), None).1;
+        assert_eq!(
+            refused["result"]["isError"],
+            json!(true),
+            "the MCP Door accepted {what}: {refused}"
+        );
+    }
+
+    // And the same Operation, called as declared, still answers at both Doors.
+    let (status, body) = app.post_op("instance_status", None, "{}");
+    assert_eq!(status, 200, "a valid call was refused: {body}");
+    let accepted = call(json!({}));
+    assert_eq!(
+        accepted["result"]["isError"],
+        json!(false),
+        "a valid MCP call was refused: {accepted}"
+    );
+}
