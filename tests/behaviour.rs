@@ -9638,6 +9638,7 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
                 { "kind": "ingredient", "text": "2 cups flour" },
                 { "kind": "ingredient", "text": "250 g butter" },
                 { "kind": "ingredient", "text": "2 poignées de sucre" },
+                { "kind": "ingredient", "text": "Some cooking oil (for deep frying)" },
             ],
         })
         .to_string(),
@@ -9658,11 +9659,18 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
             .to_string(),
         );
     }
+    // And the fourth is left with no Reading at all — #44's case, and the one
+    // ADR 0002 says any code path assuming a quantity exists will get wrong.
+    app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 3 }).to_string(),
+    );
 
     // Read, not cooked: the Yield is the one written, so only the cups convert.
     assert_eq!(
         measured_ingredients(&app, &key, &branch_id),
-        json!(["about 250 g", null, null]),
+        json!(["about 250 g", null, null, null]),
     );
 
     // Now she is cooking it, for eight instead of four.
@@ -9693,6 +9701,9 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
             // An unrecognised Unit still scales: the quantity multiplies and
             // the cook's own word is untouched (ADR 0016).
             "about 4 poignée",
+            // **And a line with no Reading scales unchanged** (#44): there is
+            // no number here to double, so the line is simply the line.
+            null,
         ]),
     );
 
@@ -9729,7 +9740,7 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
     reads_in(&app, &cook_key, "en", "metric");
     assert_eq!(
         measured_ingredients(&app, &cook_key, &branch_id),
-        json!(["about 250 g", null, null]),
+        json!(["about 250 g", null, null, null]),
         "somebody else's cooking never scales your reading of the recipe",
     );
 
@@ -9742,7 +9753,7 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
     );
     assert_eq!(
         measured_ingredients(&app, &key, &branch_id),
-        json!(["about 250 g", null, null]),
+        json!(["about 250 g", null, null, null]),
     );
 }
 
@@ -12717,6 +12728,111 @@ async fn a_line_with_no_food_to_merge_under_is_kept_exactly_as_written() {
         )
     );
     assert_eq!(kept["parts"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_carrying_no_quantity_says_some_and_no_yield_ever_moves_it() {
+    // **#44's last acceptance criterion, on the list #73 built.** A line
+    // carrying no quantity at all is 28% of the real corpus (#5), so this is
+    // not an edge: dropping such a line means coming home short, and scaling
+    // one means inventing an amount nobody wrote (ADR 0002).
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (_chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": coq }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+
+    // `olive oil` is written with no quantity beside it, so the row it makes
+    // says *some* rather than nothing.
+    assert_eq!(amounts(row(&list["result"], "olive oil")), vec!["some"]);
+
+    // **Now shop for twice the recipe.** The soy sauce is here as the
+    // contrast, not the subject: something has to move for *unmoved* to mean
+    // anything.
+    let (status, list) = app.post_op(
+        "set_shopping_yield",
+        Some(&key),
+        &json!({ "branch_id": coq, "yield": { "amount": "8", "noun": "servings" } }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    let doubled = &list["result"];
+    assert_eq!(amounts(row(doubled, "soy sauce")), vec!["about 30 ml"]);
+
+    // Twice as much of the recipe is still *some* olive oil. Doubling an
+    // amount nobody stated would be Kamosu writing the recipe, which is the
+    // one thing ADR 0002 does not let it do.
+    assert_eq!(amounts(row(doubled, "olive oil")), vec!["some"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_with_no_reading_at_all_still_reaches_the_list_and_the_yield_leaves_it_alone() {
+    // The other half of ADR 0024's sentence — "a verbatim line — an
+    // **Ingredient Line** with no **Reading**, or a **Loose Item** — merges
+    // with nothing". Its sibling
+    // `a_line_with_no_food_to_merge_under_is_kept_exactly_as_written` covers a
+    // line Kamosu *did* read and found no Food in; this one covers the slot
+    // being empty outright, which is a different branch of the same `else`.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    // Kamosu read `Some cooking oil (for deep frying)` and found a Food in it.
+    // She disagrees, and clears the Reading — an ordinary correction, which
+    // mints no Version and enters no history (ADR 0021). That is what leaves a
+    // line with no Reading at all, and it is the honest way to reach the state:
+    // every line in the real corpus carries a word, and a word is a target.
+    let (status, cleared) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": chicken, "line_index": 2 }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+    assert_eq!(cleared["result"]["reading"], Value::Null);
+
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": chicken }).to_string(),
+    );
+    assert_eq!(
+        read_back["result"]["versions"][0]["readings"][2],
+        Value::Null,
+        "the slot is empty outright, and not a Reading that merely found no Food"
+    );
+
+    // It is still a thing to buy. The line stands exactly as written, losing
+    // nothing, because whatever it holds is in the line.
+    let (_, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": chicken, "yield": { "amount": "8", "noun": "servings" } })
+            .to_string(),
+    );
+    let kept = row(&list["result"], "Some cooking oil (for deep frying)");
+    assert_eq!(kept["kind"], json!("line"));
+    assert_eq!(kept["parts"], json!([]));
+
+    // And shopping for twice the recipe leaves it exactly as written: there is
+    // no number here to double.
+    assert_eq!(
+        amounts(row(&list["result"], "minced garlic")),
+        vec!["about 60 ml"],
+        "the amounts Kamosu did read moved, so the unread line's stillness means something"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
