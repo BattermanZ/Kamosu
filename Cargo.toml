@@ -65,7 +65,7 @@ iso8601-duration = "0.2.0"
 rand = { version = "0.10.2", features = ["sys_rng"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
 reqwest-ssrf-guard = "0.1.0"
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
 rust-embed = "8.12.0"
 scraper = "0.27.0"
 serde = "1.0.229"

@@ -230,6 +230,42 @@ Catalogue and both Doors grow it in the same commit.
   once, in the Core, keyed on the Credential. Doors only carry the Secret.
 - The MCP door speaks revision `2026-07-28`, stateless, no handshake.
 
+## Changing what a recipe holds
+
+A Version's id is the fingerprint of its content, and that is the whole of how
+two people who never spoke are known to hold the same recipe (ADR 0004). **A
+field holding nothing is no part of it** (ADR 0038): `null`, the empty list and
+the empty object are stripped before the hash, so a field added to a recipe
+starts out empty on everything already written and moves no existing id.
+
+That makes the ordinary case free and leaves exactly one trap. **Before adding a
+field to `parse_recipe_content`, ask what it defaults to on a recipe that
+predates it.**
+
+- **Empty (`null` or `[]`) — the normal answer.** Nothing else to do. No id
+  moves, no migration, no Bundle already written is orphaned.
+- **Anything else** — `0`, `"metric"`, `false` — **re-fingerprints the entire
+  library.** Every Version id changes, and every row naming one has to change
+  with it: `branches`, `branch_versions`, `readings`, `attempts`,
+  `meaning_vectors`. Migration 29 is the worked example and the only time
+  Kamosu has done it. Either give the field an empty default instead, or write
+  that migration deliberately and say so in an ADR.
+
+`a_field_added_to_a_recipe_moves_no_existing_id` in `src/core.rs` fails the build
+on the second case. Two behaviour tests guard the rest: one sweeps a database
+carried forward from an earlier schema, which fails if a migration rewrote
+`versions.content` without re-fingerprinting it, and one drives every path that
+writes a Version and checks the same thing on what the Doors produced. `version_fingerprint(content)`
+is registered on every SQLite connection, so the same question can be asked of
+a live instance:
+
+```sh
+sqlite3 /data/kamosu.db 'SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content);'
+```
+
+It answers zero from a Kamosu binary, and only from one — the function is
+Kamosu's, not SQLite's.
+
 ## Meaning Search ships no model
 
 **Kamosu ships no weights** (ADR 0029), so nothing about EmbeddingGemma is in

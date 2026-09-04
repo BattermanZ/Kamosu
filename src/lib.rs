@@ -14,6 +14,7 @@ pub mod cover;
 pub mod cover_faces;
 pub mod db;
 pub mod design_tokens;
+pub mod fingerprint;
 pub mod http_min;
 pub mod interface;
 pub mod jobs;

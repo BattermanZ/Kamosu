@@ -6477,6 +6477,268 @@ async fn a_database_at_an_old_schema_migrates_forward_and_serves() {
     );
 }
 
+/// **The re-fingerprint, on the state that actually caused it** (#89, ADR 0038).
+///
+/// #72 added `nutrition` to a recipe. Nothing rewrote what was already stored,
+/// so a Version saved before that day hashed its content without the field and
+/// a Version saved after hashed it with — and the same recipe, written either
+/// side of it, held two different ids. On the dev instance that produced
+/// exactly what is built here: `Braised Chicken in Red Wine`, word for word
+/// identical, under two ids, one of them stored as an As Cooked because
+/// cooking the recipe exactly as written compared unequal to it.
+///
+/// Migration 29 makes the two one Version. This builds the database at the
+/// step before it, hands it to the current binary, and reads back what it did.
+#[test]
+fn the_same_recipe_written_either_side_of_a_new_field_becomes_one_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+
+    // The one recipe, in its two spellings. `before` is what a Version stored
+    // ahead of #72 holds; `after` is the identical recipe with the field that
+    // ticket added, empty because nobody typed a calorie figure.
+    let before = r#"{"note":"Best hot.","steps":[{"text":"Cuire"}],"title":"Coq au Vin"}"#;
+    let after =
+        r#"{"note":"Best hot.","nutrition":null,"steps":[{"text":"Cuire"}],"title":"Coq au Vin"}"#;
+    // The ids those two texts were given by the fingerprint of the day: two
+    // different hashes for one recipe, which is the whole bug. Written as
+    // legible placeholders rather than real SHA-256, because the migration
+    // reads only `content` — what the old id was is opaque to it, and naming
+    // them makes the assertions below readable.
+    let id_before = "v_as_written_before_nutrition";
+    let id_after = "v_as_written_after_nutrition";
+
+    {
+        // Everything up to the step before the re-fingerprint.
+        let earlier: &[Migration] = &db::MIGRATIONS[..28];
+        let old = db::Db::open_with_migrations(&data_dir, earlier).expect("the earlier schema");
+        old.with_conn(|conn| {
+            conn.execute_batch(&format!(
+                "INSERT INTO people (id, name) VALUES ('p_1', 'Aurélien');
+                 INSERT INTO kitchens (id, name, hand_id) VALUES ('k_1', 'Home', 'h_1');
+                 INSERT INTO lineages (id) VALUES ('l_1');
+                 INSERT INTO versions (id, content) VALUES ('{id_before}', '{before}');
+                 INSERT INTO versions (id, content) VALUES ('{id_after}', '{after}');
+                 -- Two more that collapse with nothing, so the sweep at the end
+                 -- is over a table rather than over the merged pair alone.
+                 INSERT INTO versions (id, content)
+                     VALUES ('v_a_second_recipe', '{{\"title\":\"Ratatouille\"}}');
+                 INSERT INTO versions (id, content)
+                     VALUES ('v_a_third_recipe', '{{\"steps\":[],\"title\":\"Soupe\"}}');
+                 INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id)
+                     VALUES ('b_1', 'l_1', 'k_1', 'h_1', 'fr', '{id_before}');
+                 INSERT INTO branch_versions (branch_id, sequence, version_id, hand_id)
+                     VALUES ('b_1', 1, '{id_before}', 'h_1');
+                 -- A Reading on the older row, and none on the newer: a Reading
+                 -- is authored data (ADR 0021) and must survive the merge.
+                 INSERT INTO readings (version_id, line_index, amount, unit, target)
+                     VALUES ('{id_before}', 0, '1', NULL, 'poulet');
+                 -- The cooking that started this: pinned to the recipe, and
+                 -- holding an As Cooked that is the very same words.
+                 INSERT INTO attempts (id, lineage_id, person_id, version_id, as_cooked_version_id)
+                     VALUES ('a_1', 'l_1', 'p_1', '{id_before}', '{id_after}');"
+            ))
+            .expect("the state #89 found");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // The current binary opens it, and migration 29 runs.
+    let db = db::Db::open(&data_dir).expect("migrated");
+    db.with_conn(|conn| {
+        let survivors: Vec<(String, String)> = conn
+            .prepare("SELECT id, content FROM versions")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            survivors.len(),
+            3,
+            "one recipe written twice is one Version, beside the two others: {survivors:?}"
+        );
+        let (id, content) = survivors
+            .iter()
+            .find(|(_, content)| content.contains("Coq au Vin"))
+            .expect("the merged recipe");
+
+        // The id is the fingerprint of the content it sits under — the whole
+        // of what #89 measured and found false.
+        let recomputed: String = conn
+            .query_row("SELECT version_fingerprint(?1)", [content], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            id, &recomputed,
+            "a Version's id must fingerprint its content"
+        );
+        assert_ne!(id, id_before, "and it is not either id it replaced");
+        assert_ne!(id, id_after);
+
+        // Everything that named either of them names the survivor.
+        let head: String = conn
+            .query_row("SELECT head_version_id FROM branches", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(&head, id, "the Branch head moved with it");
+        let in_chain: String = conn
+            .query_row("SELECT version_id FROM branch_versions", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(&in_chain, id, "so did its place in the Thread");
+        let pinned: String = conn
+            .query_row("SELECT version_id FROM attempts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(&pinned, id, "and the Version the cook pinned to");
+
+        // The Reading survived, on the row that survived.
+        let reading: (String, String) = conn
+            .query_row("SELECT version_id, target FROM readings", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(
+            reading,
+            (id.clone(), "poulet".to_string()),
+            "a Reading is authored data and is never dropped in a merge"
+        );
+
+        // And the As Cooked is gone: the two recipes were the same words, so
+        // that cooking followed the recipe exactly and stores nothing
+        // (ADR 0005) — which is the bug #58's live acceptance ran into.
+        let as_cooked: Option<String> = conn
+            .query_row("SELECT as_cooked_version_id FROM attempts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            as_cooked, None,
+            "cooked exactly as written must store nothing"
+        );
+
+        // **The sweep, over everything the migrations left behind.** The unit
+        // gate in `src/core.rs` catches a new field given a non-empty default;
+        // this catches the other way in — a future migration that rewrites
+        // `versions.content` itself and does not re-fingerprint what it
+        // touched. It runs over a database carried forward from an earlier
+        // schema, which is the only place that could ever happen.
+        let (total, wrong): (i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), COUNT(*) FILTER (WHERE id <> version_fingerprint(content)) \
+                 FROM versions",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            total, 3,
+            "the merged pair and the two that merged with nothing"
+        );
+        assert_eq!(
+            wrong, 0,
+            "a migration must leave every Version hashing to the id it sits under"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// The same collapse, but with both Versions **inside one Branch's chain**
+/// rather than one of them off to the side (#89, ADR 0038).
+///
+/// Saving a recipe, then saving the identical recipe again, is supposed to
+/// append nothing — `save_recipe_version` sees the fingerprint already names
+/// that state and stops. Before ADR 0038 it did not see that across a field
+/// addition, so a Branch could end up with two consecutive Versions holding
+/// one recipe. Collapsing them without also mending the Thread would leave the
+/// second row naming the same Version as the first and recording *itself* as
+/// the Version it came from, which is not a thing a history can say.
+#[test]
+fn two_consecutive_versions_that_collapse_leave_one_entry_in_the_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+
+    let before = r#"{"steps":[{"text":"Cuire"}],"title":"Ratatouille"}"#;
+    let after = r#"{"nutrition":null,"steps":[{"text":"Cuire"}],"title":"Ratatouille"}"#;
+    let id_before = "v_as_written_before_nutrition";
+    let id_after = "v_as_written_after_nutrition";
+
+    {
+        let earlier: &[Migration] = &db::MIGRATIONS[..28];
+        let old = db::Db::open_with_migrations(&data_dir, earlier).expect("the earlier schema");
+        old.with_conn(|conn| {
+            conn.execute_batch(&format!(
+                "INSERT INTO people (id, name) VALUES ('p_1', 'Aurélien');
+                 INSERT INTO kitchens (id, name, hand_id) VALUES ('k_1', 'Home', 'h_1');
+                 INSERT INTO lineages (id) VALUES ('l_1');
+                 INSERT INTO versions (id, content) VALUES ('{id_before}', '{before}');
+                 INSERT INTO versions (id, content) VALUES ('{id_after}', '{after}');
+                 INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id)
+                     VALUES ('b_1', 'l_1', 'k_1', 'h_1', 'fr', '{id_after}');
+                 INSERT INTO branch_versions (branch_id, sequence, version_id, parent_version_id, hand_id, change_note)
+                     VALUES ('b_1', 1, '{id_before}', NULL, 'h_1', NULL);
+                 INSERT INTO branch_versions (branch_id, sequence, version_id, parent_version_id, hand_id, change_note)
+                     VALUES ('b_1', 2, '{id_after}', '{id_before}', 'h_1', 'Added a calorie figure');"
+            ))
+            .expect("a Branch holding one recipe twice");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    let db = db::Db::open(&data_dir).expect("migrated");
+    db.with_conn(|conn| {
+        let chain: Vec<(i64, String, Option<String>, Option<String>)> = conn
+            .prepare(
+                "SELECT sequence, version_id, parent_version_id, change_note \
+                   FROM branch_versions WHERE branch_id = 'b_1' ORDER BY sequence",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            chain.len(),
+            1,
+            "one recipe saved twice is one entry in the Thread: {chain:?}"
+        );
+        let (_, version_id, parent, note) = &chain[0];
+        assert_eq!(*parent, None, "the first Version came from nothing");
+        assert_ne!(
+            Some(version_id.as_str()),
+            parent.as_deref(),
+            "no Version records itself as the Version it came from"
+        );
+        // The *what changed* line is the only place the why of an edit ever
+        // comes from and nothing can infer it later (ADR 0004), so the note
+        // written on the row that went away is kept rather than dropped.
+        assert_eq!(
+            note.as_deref(),
+            Some("Added a calorie figure"),
+            "an authored note survives the collapse"
+        );
+
+        // And the Branch still stands at a Version that exists.
+        let head: String = conn
+            .query_row("SELECT head_version_id FROM branches", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            &head, version_id,
+            "the Branch head is the row that survived"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
 #[test]
 fn a_failing_migration_refuses_to_serve_and_leaves_a_restorable_snapshot() {
     let dir = tempfile::tempdir().unwrap();
@@ -13824,6 +14086,117 @@ fn versions_on_no_branch(app: &support::TestApp) -> i64 {
             .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
         })
         .unwrap()
+}
+
+/// **The invariant, asked of a real database after every path that writes a
+/// Version** (#89, ADR 0038).
+///
+/// A Version's id is the fingerprint of its content, and everything that asks
+/// whether two people hold the same recipe asks it by comparing ids. That
+/// question is only answerable by comparison for as long as the answer is true
+/// of every row — so this drives each way a Version gets written and then puts
+/// #89's own reproduction recipe to the database in one line.
+///
+/// It catches what a unit test cannot: a path that stores a Version under an
+/// id it did not compute from that Version's content. There is no such path
+/// today, and the day somebody adds one — receiving a Bundle from another
+/// instance is the obvious candidate — this is what says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_version_a_door_writes_fingerprints_to_its_own_id() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, kitchen_id) = recipe_ready_to_cook(&app, "Aurélien");
+
+    // An ordinary edit, appending a Version to the Branch.
+    age_branch_head(&app, &branch_id);
+    let mut edited = katsu_as_written();
+    edited["branch_id"] = json!(branch_id);
+    edited["steps"][1]["text"] = json!("Frire à 170 °C jusqu'à dorer");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edited.to_string());
+    assert_eq!(status, 200, "{saved}");
+
+    // The same recipe edited by a second Kitchen, which starts a Copy.
+    let (_, other_key, other_kitchen) = person_with_kitchen(&app, "Marc");
+    let (_, invited) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let invite = invited["result"]["secret"].as_str().unwrap().to_string();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&other_key),
+        &json!({ "secret": invite }).to_string(),
+    );
+    let mut theirs = katsu_as_written();
+    theirs["branch_id"] = json!(branch_id);
+    theirs["kitchen_id"] = json!(other_kitchen);
+    theirs["steps"][2]["text"] = json!("Servir avec le riz et du chou");
+    let (status, copied) =
+        app.post_op("save_recipe_version", Some(&other_key), &theirs.to_string());
+    assert_eq!(status, 200, "{copied}");
+
+    // A cooking that deviated, which stores a Version joined to no Branch.
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("300 g de riz");
+    let (status, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{deviated}");
+    assert_ne!(
+        deviated["result"]["as_cooked"],
+        json!(null),
+        "the rice was changed, so this must have stored a Version"
+    );
+
+    // And that cooking promoted into the recipe.
+    age_branch_head(&app, &branch_id);
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+
+    // A recipe arriving from somewhere else entirely.
+    let arrived = import_and_wait(
+        &app,
+        &key,
+        &json!({
+            "source_kind": "crouton",
+            "candidates": [{ "foreign_id": "crouton-uuid-1", "title": "Ratatouille" }],
+        }),
+    );
+    assert_eq!(
+        arrived["arrived"][0]["status"],
+        json!("created"),
+        "{arrived}"
+    );
+
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let (total, wrong): (i64, i64) = conn
+                .query_row(
+                    "SELECT COUNT(*), COUNT(*) FILTER (WHERE id <> version_fingerprint(content)) \
+                     FROM versions",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert!(
+                total >= 5,
+                "the paths above must actually have written Versions, found {total}"
+            );
+            assert_eq!(
+                wrong, 0,
+                "every Version's id must be the fingerprint of its own content"
+            );
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -954,6 +954,214 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE attempts ADD COLUMN promotion_declined_at TEXT;
         "#,
     },
+    Migration {
+        version: 29,
+        description: "every Version re-fingerprinted, once and never again (#89, ADR 0038)",
+        sql: r#"
+        -- **The one time Kamosu rewrites a Version id**, and the reason there
+        -- will not be a second (ADR 0038).
+        --
+        -- #72 added `nutrition` to a recipe. Nothing rewrote what was already
+        -- stored -- every row in this table still hashed to the id it sits
+        -- under -- but every recipe saved afterwards carried a field the
+        -- earlier ones did not, so the same recipe written either side of that
+        -- day held two different ids. Content addressing is the whole of how
+        -- two people who never spoke are known to hold the same state
+        -- (ADR 0004), and a field addition was quietly breaking it.
+        --
+        -- ADR 0038 closes it at the root: a field holding nothing is no part
+        -- of the fingerprint. A field added later starts out empty on every
+        -- recipe already written, so it drops out of the hash and moves no id
+        -- -- for nutrition, and for whatever v2 adds after it. This step is
+        -- the cost of adopting that rule with 142 Versions already written.
+        --
+        -- It runs behind the ordinary pre-migration Snapshot, inside the one
+        -- transaction every step gets, with foreign keys deferred to COMMIT --
+        -- ids move in every table at once or in none of them.
+        --
+        -- **It is also the one exception to migration 27's "nothing deletes a
+        -- Version".** That sentence is still true of everything Kamosu does
+        -- while running, and it is why `attempts.as_cooked_version_id` may
+        -- reference `versions(id)` at all. Here two rows holding one recipe
+        -- become one row, and every reference to the one that goes is moved to
+        -- the one that stays before it does -- so nothing is left pointing at
+        -- a Version that is not there. Migrations are never rewritten, so that
+        -- comment stays where it is and this is where the exception is
+        -- recorded.
+        PRAGMA defer_foreign_keys = ON;
+
+        -- Old id to new. NOT NULL is the guard: `version_fingerprint` answers
+        -- NULL on content it cannot read, and a library with one unreadable
+        -- Version must stop here with the Snapshot intact rather than remap
+        -- around it.
+        CREATE TEMP TABLE refingerprint (
+            old_id TEXT PRIMARY KEY,
+            new_id TEXT NOT NULL
+        );
+        INSERT INTO temp.refingerprint (old_id, new_id)
+            SELECT id, version_fingerprint(content) FROM versions;
+
+        -- Two rows can land on one new id: the same recipe written before and
+        -- after a field appeared is now, correctly, one Version. This picks
+        -- which row survives. The candidates hold the same words by
+        -- construction, so the ordering only decides which copy of them stays:
+        -- the one carrying the most Readings first, since a Reading is
+        -- authored data that would otherwise be dropped (ADR 0021), then the
+        -- fuller content, then the lower id so the choice is deterministic.
+        CREATE TEMP TABLE refingerprint_keep (
+            new_id TEXT PRIMARY KEY,
+            old_id TEXT NOT NULL
+        );
+        INSERT INTO temp.refingerprint_keep (new_id, old_id)
+            SELECT new_id, old_id FROM (
+                SELECT r.new_id AS new_id, r.old_id AS old_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY r.new_id
+                           ORDER BY (SELECT COUNT(*) FROM readings g
+                                      WHERE g.version_id = r.old_id) DESC,
+                                    LENGTH(v.content) DESC,
+                                    r.old_id ASC
+                       ) AS standing
+                  FROM temp.refingerprint r
+                  JOIN versions v ON v.id = r.old_id
+            ) WHERE standing = 1;
+
+        -- Readings move onto the surviving row. The survivor was chosen for
+        -- holding the MOST Readings, not all of them, so this genuinely
+        -- carries lines across rather than only tidying up. OR IGNORE skips a
+        -- line the survivor already has a Reading for -- the two rows are the
+        -- same recipe, so one of the two is redundant either way -- and the
+        -- delete below clears whatever stayed behind. It suppresses any
+        -- constraint on the row, not only the (version_id, line_index) key.
+        UPDATE OR IGNORE readings
+           SET version_id = (SELECT k.old_id
+                               FROM temp.refingerprint r
+                               JOIN temp.refingerprint_keep k ON k.new_id = r.new_id
+                              WHERE r.old_id = readings.version_id);
+        DELETE FROM readings
+         WHERE version_id NOT IN (SELECT old_id FROM temp.refingerprint_keep);
+
+        -- Meaning Search's vectors for a row that is going away are discarded
+        -- rather than moved: the index is derived and rebuilds from the
+        -- recipes (AGENTS.md), so merging two sets of vectors onto one Version
+        -- would double every hit for nothing. A block and its lines share a
+        -- version_id and therefore go together, leaving no dangling block_id.
+        DELETE FROM meaning_vectors
+         WHERE version_id IS NOT NULL
+           AND version_id NOT IN (SELECT old_id FROM temp.refingerprint_keep);
+
+        DELETE FROM versions
+         WHERE id NOT IN (SELECT old_id FROM temp.refingerprint_keep);
+
+        -- Every reference, then the Versions themselves. A dropped row's old
+        -- id still maps, and maps to the id the survivor is about to carry, so
+        -- anything that pointed at it now points at the row that replaced it.
+        UPDATE branches
+           SET head_version_id = (SELECT new_id FROM temp.refingerprint
+                                   WHERE old_id = head_version_id);
+        UPDATE branch_versions
+           SET version_id = (SELECT new_id FROM temp.refingerprint
+                              WHERE old_id = version_id);
+        -- The nullable pointers are matched against the map rather than merely
+        -- tested for NULL. A scalar subquery that finds nothing answers NULL,
+        -- so a pointer naming a Version that is not in the map -- there should
+        -- be none, but this is forward-only and has no inverse (ADR 0030) --
+        -- would be quietly erased rather than left alone. The NOT NULL columns
+        -- below need no such guard: NULL fails their constraint, the
+        -- transaction rolls back, and the Snapshot is still there.
+        UPDATE branch_versions
+           SET parent_version_id = (SELECT new_id FROM temp.refingerprint
+                                     WHERE old_id = parent_version_id)
+         WHERE parent_version_id IN (SELECT old_id FROM temp.refingerprint);
+        UPDATE branch_versions
+           SET translates_version_id = (SELECT new_id FROM temp.refingerprint
+                                         WHERE old_id = translates_version_id)
+         WHERE translates_version_id IN (SELECT old_id FROM temp.refingerprint);
+        UPDATE readings
+           SET version_id = (SELECT new_id FROM temp.refingerprint
+                              WHERE old_id = version_id);
+        UPDATE attempts
+           SET version_id = (SELECT new_id FROM temp.refingerprint
+                              WHERE old_id = version_id);
+        UPDATE attempts
+           SET as_cooked_version_id = (SELECT new_id FROM temp.refingerprint
+                                        WHERE old_id = as_cooked_version_id)
+         WHERE as_cooked_version_id IN (SELECT old_id FROM temp.refingerprint);
+        UPDATE meaning_vectors
+           SET version_id = (SELECT new_id FROM temp.refingerprint
+                              WHERE old_id = version_id)
+         WHERE version_id IN (SELECT old_id FROM temp.refingerprint);
+        UPDATE versions
+           SET id = (SELECT new_id FROM temp.refingerprint WHERE old_id = versions.id);
+
+        -- **Two saves of one recipe are one entry in the Thread.** Where the
+        -- rows that collapsed sat next to each other in a Branch's chain, the
+        -- later one now names the same Version as the earlier and records
+        -- ITSELF as the Version it came from -- which is not a thing a history
+        -- can say (ADR 0004). Such a row is the save that, under ADR 0038,
+        -- changed nothing, so it goes.
+        --
+        -- Its keeper is the nearest earlier row in that Branch holding the
+        -- same Version and not itself going away. Nearest rather than first,
+        -- because a Branch may legitimately hold one Version at two places --
+        -- reverting to an earlier state is an ordinary save -- and a run of
+        -- three collapsing rows must all land on the one survivor.
+        CREATE TEMP TABLE refingerprint_thread (
+            branch_id     TEXT NOT NULL,
+            gone_sequence INTEGER NOT NULL,
+            gone_name     TEXT,
+            gone_note     TEXT,
+            keeper_sequence INTEGER
+        );
+        INSERT INTO temp.refingerprint_thread
+            SELECT gone.branch_id, gone.sequence, gone.name, gone.change_note,
+                   (SELECT MAX(keeper.sequence) FROM branch_versions keeper
+                     WHERE keeper.branch_id = gone.branch_id
+                       AND keeper.version_id = gone.version_id
+                       AND keeper.sequence < gone.sequence
+                       AND (keeper.parent_version_id IS NULL
+                            OR keeper.parent_version_id <> keeper.version_id))
+              FROM branch_versions gone
+             WHERE gone.parent_version_id = gone.version_id;
+
+        -- The *what changed* line is the only place the why of an edit ever
+        -- comes from, and nothing can infer it later (ADR 0004) -- so a note
+        -- or a name written on the row going away is carried to the keeper
+        -- wherever the keeper has none of its own.
+        UPDATE branch_versions
+           SET name = COALESCE(name, (SELECT t.gone_name FROM temp.refingerprint_thread t
+                                       WHERE t.branch_id = branch_versions.branch_id
+                                         AND t.keeper_sequence = branch_versions.sequence
+                                       ORDER BY t.gone_sequence LIMIT 1)),
+               change_note = COALESCE(change_note,
+                                      (SELECT t.gone_note FROM temp.refingerprint_thread t
+                                        WHERE t.branch_id = branch_versions.branch_id
+                                          AND t.keeper_sequence = branch_versions.sequence
+                                        ORDER BY t.gone_sequence LIMIT 1))
+         WHERE EXISTS (SELECT 1 FROM temp.refingerprint_thread t
+                        WHERE t.branch_id = branch_versions.branch_id
+                          AND t.keeper_sequence = branch_versions.sequence);
+
+        DELETE FROM branch_versions
+         WHERE EXISTS (SELECT 1 FROM temp.refingerprint_thread t
+                        WHERE t.branch_id = branch_versions.branch_id
+                          AND t.gone_sequence = branch_versions.sequence);
+
+        -- An Attempt pinned to a Version that merged into another now names
+        -- the surviving row, and an As Cooked that was only ever a deviation
+        -- because of the missing field is now the Version it was cooked from.
+        -- That is what "cooked exactly as written stores nothing" (ADR 0005)
+        -- was always supposed to mean, so clear it.
+        UPDATE attempts
+           SET as_cooked_version_id = NULL
+         WHERE as_cooked_version_id IS NOT NULL
+           AND as_cooked_version_id = version_id;
+
+        DROP TABLE temp.refingerprint_thread;
+        DROP TABLE temp.refingerprint_keep;
+        DROP TABLE temp.refingerprint;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
@@ -1003,6 +1211,12 @@ impl Db {
             .map_err(|e| OpError::internal(format!("foreign_keys refused: {e}")))?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| OpError::internal(format!("busy timeout refused: {e}")))?;
+        // `version_fingerprint(content)` — what names a Version, available to
+        // SQL. Registered before the migrations run because one of them needs
+        // it (version 29), and kept afterwards because the invariant it
+        // computes is worth being able to ask a live database about.
+        crate::fingerprint::register(&conn)
+            .map_err(|e| OpError::internal(format!("cannot teach SQLite the fingerprint: {e}")))?;
         let db = Db {
             conn: Mutex::new(conn),
             data_dir: data_dir.to_path_buf(),

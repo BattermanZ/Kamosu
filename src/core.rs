@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 
 use crate::catalogue::{self, JobLane, Kind, Permission};
 use crate::db::Db;
+use crate::fingerprint::{canonical_json, stored_version};
 use crate::jobs::{self, JobProgress, JobRecord};
 use crate::language::LANGUAGES;
 use crate::photographs;
@@ -1449,8 +1450,7 @@ impl Core {
         language: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
-        let version_id = fingerprint_content(&content);
-        let content_text = canonical_json(&content);
+        let (version_id, content_text) = stored_version(&content);
         let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
@@ -1612,8 +1612,7 @@ impl Core {
     ) -> Result<ImportOutcome, OpError> {
         let content = parse_recipe_content(candidate)?;
         let title = content["title"].as_str().unwrap_or_default().to_string();
-        let version_id = fingerprint_content(&content);
-        let content_text = canonical_json(&content);
+        let (version_id, content_text) = stored_version(&content);
 
         self.db().with_conn(|conn| {
             let existing: Option<(String, String, String)> = conn
@@ -1731,8 +1730,7 @@ impl Core {
         translates_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
-        let version_id = fingerprint_content(&content);
-        let content_text = canonical_json(&content);
+        let (version_id, content_text) = stored_version(&content);
 
         self.db().with_conn(|conn| {
             let (owning_kitchen_id, lineage_id, language): (String, String, String) = conn
@@ -2062,8 +2060,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         let language = supported_branch_language(required_text(language, "language")?)?.to_string();
         let content = parse_recipe_content(input)?;
-        let version_id = fingerprint_content(&content);
-        let content_text = canonical_json(&content);
+        let (version_id, content_text) = stored_version(&content);
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
         self.db().with_conn(|conn| {
@@ -4410,29 +4407,27 @@ impl Core {
             None | Some(Value::Null) => None,
             Some(value) => {
                 let parsed = parse_recipe_content(value)?;
-                Some((fingerprint_content(&parsed), canonical_json(&parsed)))
+                Some(stored_version(&parsed))
             }
         };
 
         self.db().with_conn(|conn| {
             let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
 
-            // The Version cooked, as it is actually stored. Compared WORD FOR
-            // WORD rather than by fingerprint, and that distinction is load
-            // bearing: a Version's id is the fingerprint of its content at the
-            // moment it was saved, and a migration that adds a field to the
-            // content shape moves the content without moving the id. On this
-            // instance 27 of 40 Versions are already in that state. Comparing
-            // ids would then call a cooking that followed the recipe exactly a
-            // deviation, and store a whole recipe for it — which is the one
-            // thing ADR 0005 promises never happens.
+            // The Version cooked, as it is actually stored, compared WORD FOR
+            // WORD. Both sides go through `parse_recipe_content` first, so the
+            // comparison is between two recipes rather than between two
+            // encodings of one — whatever normalising the parser does, it does
+            // to the input and to what is on disk alike.
             //
-            // Both sides go through `parse_recipe_content` before they are
-            // compared, so the comparison is between two recipes rather than
-            // between two encodings of one. That is what makes it survive a
-            // stored form written by an older path: whatever normalising the
-            // parser does — to the input and to what is on disk — it does to
-            // both.
+            // #58 wrote it this way because comparing ids was, at the time,
+            // wrong: `nutrition` had been added to the recipe (#72) and a
+            // Version saved before that day fingerprinted without it, so an
+            // identical cooking compared unequal and stored a whole recipe for
+            // itself — the one thing ADR 0005 promises never happens. ADR 0038
+            // has since removed that whole class of mismatch, and the ids
+            // would now answer identically. This stays as it is because it
+            // costs one parse and does not lean on the invariant holding.
             let cooked_from = conn
                 .query_row(
                     "SELECT content FROM versions WHERE id = ?1",
@@ -6566,34 +6561,6 @@ fn reading_measures_of(conn: &Connection, person_id: &str) -> Result<String, OpE
 /// (decided with Aurélien on issue #42).
 const COLLAPSE_WINDOW_SECONDS: i64 = 3600;
 
-/// The canonical serialisation a Version's fingerprint is taken over: object
-/// keys sorted recursively, independent of `serde_json`'s own default Map
-/// ordering, so a field added later stays deterministic.
-fn canonical_json(value: &Value) -> String {
-    fn canonicalise(value: &Value) -> Value {
-        match value {
-            Value::Object(map) => {
-                let sorted: std::collections::BTreeMap<String, Value> = map
-                    .iter()
-                    .map(|(k, v)| (k.clone(), canonicalise(v)))
-                    .collect();
-                json!(sorted)
-            }
-            Value::Array(items) => Value::Array(items.iter().map(canonicalise).collect()),
-            other => other.clone(),
-        }
-    }
-    canonicalise(value).to_string()
-}
-
-/// A Version's id: the fingerprint of its content alone (ADR 0004, ADR 0021).
-fn fingerprint_content(content: &Value) -> String {
-    format!(
-        "v_{}",
-        hex::encode(Sha256::digest(canonical_json(content).as_bytes()))
-    )
-}
-
 /// Build and validate the stored shape of a Recipe's content out of raw
 /// request input (#43): the title, the optional Yield, Prep/Cook Time, Note,
 /// Source and Nutrition figure, and the Ingredient Line and Step lists — each a flat, ordered
@@ -7562,12 +7529,16 @@ fn branch_head(conn: &Connection, branch_id: &str) -> Result<BranchHead, OpError
 /// A Version's stored content in the shape the Catalogue declares, filling in
 /// any field that did not exist when it was written.
 ///
-/// A Version is immutable and its id is the fingerprint of its own bytes
-/// (ADR 0004, ADR 0021), so a field added to the recipe later — `nutrition`
-/// was the first, in #72 — can never be written into a row already stored:
-/// doing that would re-fingerprint the library, which is the exact thing the
-/// content-addressing exists to prevent. What is stored therefore stays as it
-/// was written, and the missing field is supplied here, on the way out.
+/// A Version is immutable (ADR 0004), so a field added to the recipe later —
+/// `nutrition` was the first, in #72 — is never written into a row already
+/// stored. What is stored stays as it was written, and the missing field is
+/// supplied here, on the way out.
+///
+/// **This moves no fingerprint, and that is the whole reason it is safe.**
+/// Every field it fills in holds nothing, and a field holding nothing is no
+/// part of a Version's id (ADR 0038) — so the recipe that goes out of this
+/// function fingerprints to exactly the id the stored row sits under. Before
+/// that rule existed the two disagreed, which is what #89 was.
 ///
 /// Without this a recipe written before the field existed answers content the
 /// Catalogue says must carry it, and the generated client — the whole point of
@@ -9690,6 +9661,60 @@ fn loose_items(conn: &Connection, person_id: &str) -> Result<Vec<Value>, OpError
 #[cfg(test)]
 mod tests {
     use super::folded_word;
+    use crate::fingerprint::fingerprint_content;
+    use serde_json::{Value, json};
+
+    /// **The gate on adding a field to a recipe** (ADR 0038, AGENTS.md).
+    ///
+    /// A recipe built from nothing but a title must fingerprint as though
+    /// nothing but the title were written, however many slots
+    /// `parse_recipe_content` fills in around it — because every one of them
+    /// holds nothing, and a field holding nothing is no part of a Version's
+    /// id. That is what lets a field be added to a recipe without moving the
+    /// id of every recipe already saved, which is what #89 was.
+    ///
+    /// **If this test fails, you gave a new field a non-empty default.** Doing
+    /// that re-fingerprints the entire library and needs a migration rewriting
+    /// `branches`, `branch_versions`, `readings`, `attempts` and
+    /// `meaning_vectors` — migration 29 is the worked example, and the only
+    /// time Kamosu has done it. Default the field to `null` or `[]` instead.
+    #[test]
+    fn a_field_added_to_a_recipe_moves_no_existing_id() {
+        let parsed = super::parse_recipe_content(&json!({ "title": "Ratatouille" }))
+            .expect("a title alone is a complete recipe");
+        assert_eq!(
+            fingerprint_content(&parsed),
+            fingerprint_content(&json!({ "title": "Ratatouille" })),
+            "every field `parse_recipe_content` fills in must hold nothing"
+        );
+    }
+
+    /// The other half of the same rule: what a Door serves is filled out to
+    /// the shape the Catalogue declares, and that must fingerprint to the id
+    /// the stored row already sits under. Where these two disagreed, reading a
+    /// recipe and hashing what came back answered an id that named nothing —
+    /// the measurement #89 opened with.
+    #[test]
+    fn filling_a_recipe_out_to_its_declared_shape_moves_no_id() {
+        // A Version as it was stored before `nutrition` existed (#72).
+        let stored = json!({
+            "title": "Coq au Vin",
+            "note": "Best served hot.",
+            "ingredients": [{ "text": "1 poulet" }],
+            "steps": [{ "text": "Cuire" }],
+        });
+        let served = super::content_as_declared(stored.clone());
+        assert_eq!(
+            served["nutrition"],
+            Value::Null,
+            "the field must be filled in"
+        );
+        assert_eq!(
+            fingerprint_content(&served),
+            fingerprint_content(&stored),
+            "filling in the declared shape must move no fingerprint"
+        );
+    }
 
     /// The fold is what holds one word to one Tag, so it is checked directly
     /// rather than only through the Operations that lean on it.
