@@ -3696,7 +3696,7 @@ impl Core {
                 "lineage_id": lineage_id,
                 "branches": branches,
                 "versions": versions,
-                "attempts": attempts_for_lineage(conn, &lineage_id, &visible_version_ids)?,
+                "attempts": attempts_for_lineage(conn, &lineage_id, person_id, &visible_version_ids)?,
             }))
         })
     }
@@ -4093,7 +4093,18 @@ impl Core {
             let version_id = state.version_id;
 
             if let Some(index) = current_step_index {
-                let steps_len = version_field_len(conn, &version_id, "steps")?;
+                // Against the recipe THIS COOKING is walking through, which is
+                // the As Cooked once there is one (#58). A cook who inserted a
+                // step has more places to stand than the Version has, and
+                // validating against the Version would refuse the last of them
+                // — silently, because the screen puts a refused move back.
+                let steps_len = version_field_len(
+                    conn,
+                    cooking_version_id(conn, attempt_id)?
+                        .as_deref()
+                        .unwrap_or(&version_id),
+                    "steps",
+                )?;
                 if index >= steps_len {
                     return Err(OpError::bad_request(
                         "current_step_index is out of range for this recipe",
@@ -4354,6 +4365,260 @@ impl Core {
             branch_id,
             &edited,
             head_name.as_deref(),
+            change_note,
+            None,
+            None,
+        )
+    }
+
+    /// Write this cooking's **As Cooked**: the complete recipe state the cook
+    /// actually cooked, held only where it differed from the Version they
+    /// started from (ADR 0005).
+    ///
+    /// It is not a record of what changed. What is stored is a whole recipe —
+    /// ordinary Ingredient Lines and ordinary Step text, in the same shape a
+    /// Version takes, going through the same `parse_recipe_content` — so a
+    /// cook who added a line, removed one, or grew a step has said so in the
+    /// only vocabulary Kamosu has (ADR 0002). `None` clears it.
+    ///
+    /// **Cooked as written stores nothing, and that is enforced here rather
+    /// than trusted to the screen.** A Version is named by a fingerprint of
+    /// its content, so content identical to the Version this Attempt pinned to
+    /// fingerprints to that same Version — and the column is set to NULL
+    /// instead. A client that helpfully posts the whole recipe back unchanged
+    /// on every keystroke therefore stores no As Cooked at all, which is the
+    /// overwhelming majority of cookings and the reason the common case is
+    /// free.
+    ///
+    /// **No Reading is computed here**, unlike `save_recipe_version`. Reading
+    /// a line is work, this runs while somebody is typing at a stove, and
+    /// nothing consumes an As Cooked's Readings: the cooking screen draws
+    /// which Ingredients a Step uses off the pinned Version, because rewriting
+    /// *4 tbsp* as *2 tbsp* does not change which step uses the soy sauce. The
+    /// Readings arrive at Promotion, from `save_recipe_version`, on the one
+    /// path where they are actually read.
+    pub fn set_as_cooked(
+        &self,
+        person_id: &str,
+        attempt_id: &str,
+        content: Option<&Value>,
+    ) -> Result<Value, OpError> {
+        // Parsed outside the connection: a malformed recipe is a bad request
+        // that touches nothing, and shape checking has no business holding the
+        // database lock.
+        let written = match content {
+            None | Some(Value::Null) => None,
+            Some(value) => {
+                let parsed = parse_recipe_content(value)?;
+                Some((fingerprint_content(&parsed), canonical_json(&parsed)))
+            }
+        };
+
+        self.db().with_conn(|conn| {
+            let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
+
+            // The Version cooked, as it is actually stored. Compared WORD FOR
+            // WORD rather than by fingerprint, and that distinction is load
+            // bearing: a Version's id is the fingerprint of its content at the
+            // moment it was saved, and a migration that adds a field to the
+            // content shape moves the content without moving the id. On this
+            // instance 27 of 40 Versions are already in that state. Comparing
+            // ids would then call a cooking that followed the recipe exactly a
+            // deviation, and store a whole recipe for it — which is the one
+            // thing ADR 0005 promises never happens.
+            //
+            // Both sides go through `parse_recipe_content` before they are
+            // compared, so the comparison is between two recipes rather than
+            // between two encodings of one. That is what makes it survive a
+            // stored form written by an older path: whatever normalising the
+            // parser does — to the input and to what is on disk — it does to
+            // both.
+            let cooked_from = conn
+                .query_row(
+                    "SELECT content FROM versions WHERE id = ?1",
+                    params![state.version_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read the Version cooked: {e}")))?
+                .and_then(|stored| serde_json::from_str::<Value>(&stored).ok())
+                .and_then(|content| parse_recipe_content(&content).ok())
+                .map(|content| canonical_json(&content));
+
+            let as_cooked_version_id = match &written {
+                None => None,
+                // Cooked as written after all, so nothing is stored — however
+                // faithfully the screen posted the recipe back.
+                Some((_, content_text)) if Some(content_text) == cooked_from.as_ref() => None,
+                Some((version_id, content_text)) => {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
+                        params![version_id, content_text],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot record As Cooked: {e}")))?;
+                    Some(version_id.clone())
+                }
+            };
+
+            conn.execute(
+                "UPDATE attempts SET as_cooked_version_id = ?2 WHERE id = ?1",
+                params![attempt_id, as_cooked_version_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record As Cooked: {e}")))?;
+
+            // Writing down what you did is an action like any other, so the
+            // three-day resume window counts from it. Once finished there is
+            // nothing to resume, and correcting the record a week later must
+            // not pretend otherwise.
+            if state.finished_at.is_none() {
+                touch_attempt(conn, attempt_id)?;
+            }
+            attempt_by_id(conn, attempt_id)
+        })
+    }
+
+    /// Say that the words this cooking used belong in the diary and **not** in
+    /// the recipe — or take that back (#58).
+    ///
+    /// It answers the offer, and nothing else: the As Cooked stays exactly
+    /// where it is, because declining is a decision about the recipe and the
+    /// cooking record is untouched by it. Kept because a question already
+    /// answered, asked twice, is a nag — the same reason declining Meaning
+    /// Search is remembered rather than re-offered.
+    pub fn decline_promotion(
+        &self,
+        person_id: &str,
+        attempt_id: &str,
+        declined: bool,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            attempt_state_owned_by(conn, attempt_id, person_id)?;
+            conn.execute(
+                if declined {
+                    "UPDATE attempts SET promotion_declined_at = \
+                        strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1"
+                } else {
+                    "UPDATE attempts SET promotion_declined_at = NULL WHERE id = ?1"
+                },
+                params![attempt_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record the answer: {e}")))?;
+            attempt_by_id(conn, attempt_id)
+        })
+    }
+
+    /// **Promotion**: an As Cooked becoming an ordinary Version on a Branch
+    /// (ADR 0005). The point at which an Attempt's freedoms end and the
+    /// recipe's rules begin.
+    ///
+    /// It is mechanical, and it is mechanical because there is nothing to do.
+    /// The As Cooked is already a complete recipe state, already stored in
+    /// `versions`, already named by its own fingerprint — so promoting appends
+    /// a `branch_versions` row naming a Version that has existed since the
+    /// cook wrote it at the stove. Nothing is retyped and no identity is
+    /// minted, exactly as ADR 0005 predicted when it chose to reuse the
+    /// Version's shape rather than model a deviation twice.
+    ///
+    /// It goes through `save_recipe_version` for the same reason
+    /// `promote_attempt_photograph` does: this is **an ordinary edit of the
+    /// recipe**, so it inherits the whole of one — the collapse window,
+    /// Readings carried forward and unread lines read, the language offer, and
+    /// taking a **Copy** where the Branch belongs to somebody else's Kitchen.
+    ///
+    /// **Promoting from an Attempt against an older Version is not a merge.**
+    /// `save_recipe_version` appends onto wherever the Branch stands now, so
+    /// cooking Tuesday's text and promoting on Friday writes Friday's recipe
+    /// with your words in it — one Version, appended, the way any edit would
+    /// be. Nothing is reconciled, because ADR 0004 refuses to combine two
+    /// states and this is not an exception to that.
+    ///
+    /// **The Attempt is untouched.** It keeps its As Cooked and keeps pinning
+    /// to the Version it cooked, so the diary goes on saying truthfully what
+    /// happened that afternoon. Whether an As Cooked has already been promoted
+    /// needs no flag: its `version_id` is either in the Branch's chain or it
+    /// is not.
+    pub fn promote_as_cooked(
+        &self,
+        caller: &Caller,
+        attempt_id: &str,
+        branch_id: &str,
+        name: Option<&str>,
+        change_note: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let content = self.db().with_conn(|conn| {
+            // Yours to promote from. An Attempt is a private record, and
+            // reaching into somebody else's for the words they cooked is not a
+            // promotion.
+            attempt_state_owned_by(conn, attempt_id, &caller.person_id)?;
+
+            let (lineage_id, as_cooked_version_id): (String, Option<String>) = conn
+                .query_row(
+                    "SELECT lineage_id, as_cooked_version_id FROM attempts WHERE id = ?1",
+                    params![attempt_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?;
+
+            let as_cooked_version_id = as_cooked_version_id.ok_or_else(|| {
+                OpError::bad_request("this cooking has no As Cooked — it was cooked as written")
+            })?;
+
+            // The recipe promoted into must be the dish that was cooked. An
+            // Attempt belongs to a Lineage rather than a Branch (ADR 0005), so
+            // any Branch of that Lineage is a legitimate target — including a
+            // Translation, and including one in another Kitchen, which
+            // `save_recipe_version` turns into a Copy.
+            let branch_lineage: String = conn
+                .query_row(
+                    "SELECT lineage_id FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+            if branch_lineage != lineage_id {
+                return Err(OpError::bad_request(
+                    "that Branch is not a Branch of the recipe this Attempt cooked",
+                ));
+            }
+
+            let stored: String = conn
+                .query_row(
+                    "SELECT content FROM versions WHERE id = ?1",
+                    params![as_cooked_version_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read As Cooked: {e}")))?;
+            let content = serde_json::from_str::<Value>(&stored)
+                .map_err(|e| OpError::internal(format!("cannot read As Cooked content: {e}")))?;
+
+            // The name the head Version carries, if any. Carried through the
+            // save below for the reason `promote_attempt_photograph` records
+            // next door: a promotion inside the collapse window folds into that
+            // very Version, and a save naming nothing writes its name away — so
+            // promoting into a Version somebody had named would quietly un-name
+            // it. A name given here overrides it.
+            let head_name: Option<String> = conn
+                .query_row(
+                    "SELECT name FROM branch_versions \
+                      WHERE branch_id = ?1 ORDER BY sequence DESC LIMIT 1",
+                    params![branch_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Version name: {e}")))?;
+
+            Ok((content, head_name))
+        })?;
+        let (content, head_name) = content;
+
+        // An ordinary save of an ordinary recipe. Deliberately not inside the
+        // connection above: `save_recipe_version` takes the database itself.
+        self.save_recipe_version(
+            caller,
+            branch_id,
+            &content,
+            name.or(head_name.as_deref()),
             change_note,
             None,
             None,
@@ -6690,13 +6955,22 @@ fn attempt_state_owned_by(
 /// query reading a single Attempt and the one listing a Lineage's worth of
 /// them can never drift apart on what "resumable" means or how a Yield or
 /// ticked Ingredients are stored.
+///
+/// The As Cooked arrives as a scalar subquery rather than a join, so that
+/// every existing query reading Attempts — one by id, one Lineage's worth, the
+/// whole diary — grows it without any of them changing their FROM clause.
 const ATTEMPT_COLUMNS: &str = "id, lineage_id, person_id, version_id, current_step_index, \
      ticked_ingredients, cooking_yield, note, rating, finished_at, \
      created_at, last_action_at, \
      CASE WHEN finished_at IS NULL \
                AND julianday('now') - julianday(last_action_at) <= 3.0 \
           THEN 1 ELSE 0 END AS resumable, \
-     photographs";
+     photographs, \
+     promotion_declined_at, \
+     as_cooked_version_id, \
+     (SELECT content FROM versions WHERE versions.id = attempts.as_cooked_version_id), \
+     (SELECT content FROM versions WHERE versions.id = attempts.version_id \
+        AND attempts.as_cooked_version_id IS NOT NULL)";
 
 /// One Attempt row, in `ATTEMPT_COLUMNS`' order, read into `attempt_schema`'s
 /// shape. `resumable` is computed in SQL rather than in Rust: still In
@@ -6706,7 +6980,37 @@ fn attempt_row(row: &rusqlite::Row) -> rusqlite::Result<Value> {
     let cooking_yield: Option<String> = row.get(6)?;
     let resumable: i64 = row.get(12)?;
     let photographs: String = row.get(13)?;
+    // The As Cooked, served whole (#58, ADR 0005): a screen showing what this
+    // cook actually did needs the words, and an As Cooked exists only on the
+    // cookings that deviated, so nothing is paid for the common case. `null`
+    // where the recipe was cooked as written, which is most of them.
+    // The cook said these words belong in the diary and not in the recipe.
+    // Served as a plain yes-or-no: when it was decided is Kamosu's business.
+    let promotion_declined: Option<String> = row.get(14)?;
+    let as_cooked_version_id: Option<String> = row.get(15)?;
+    let as_cooked_content: Option<String> = row.get(16)?;
+    // The Version this cooking was pinned to — fetched only where there is an
+    // As Cooked to read against it, so a cooking that followed the recipe (most
+    // of them) parses nothing extra.
+    let cooked_from: Option<String> = row.get(17)?;
+    let as_cooked = match (as_cooked_version_id, as_cooked_content) {
+        (Some(version_id), Some(content)) => {
+            let content = serde_json::from_str::<Value>(&content).unwrap_or(Value::Null);
+            let against = cooked_from
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                .map(|from| as_cooked_against(&from, &content))
+                .unwrap_or(Value::Null);
+            json!({
+                "version_id": version_id,
+                "content": content,
+                "against": against,
+                "promotion_declined": promotion_declined.is_some(),
+            })
+        }
+        _ => Value::Null,
+    };
     Ok(json!({
+        "as_cooked": as_cooked,
         "id": row.get::<_, String>(0)?,
         "lineage_id": row.get::<_, String>(1)?,
         "person_id": row.get::<_, String>(2)?,
@@ -6725,6 +7029,33 @@ fn attempt_row(row: &rusqlite::Row) -> rusqlite::Result<Value> {
         "resumable": resumable != 0,
         "photographs": serde_json::from_str::<Value>(&photographs).unwrap_or(json!([])),
     }))
+}
+
+/// An As Cooked laid over the Version it was cooked from, by the **same
+/// Pairing** two Branches are laid over each other with (ADR 0019, which
+/// predicted exactly this: "an As Cooked compares against its starting Version
+/// by the same Pairing, so an Attempt's deviations need nothing of their own").
+///
+/// It is read here, in the Core, and never in a screen. Pairing lines is the
+/// one piece of judgement in Kamosu that must give the same answer at both
+/// Doors and to every client, and an index-based comparison in a frontend would
+/// be wrong the moment a cook adds or drops a line — which they now can.
+///
+/// The Version cooked is both the base and `mine`, because there is only one
+/// history here: the recipe as it stood, and what this cook did to it. So a row
+/// reads `same` where the cook left the line alone, `changed` where they
+/// rewrote it, `only-mine` where they dropped it, and `only-theirs` where they
+/// added one.
+fn as_cooked_against(cooked_from: &Value, as_cooked: &Value) -> Value {
+    let rows = |field: &str| -> Vec<Value> {
+        let base = crate::pairing::Line::list_from(cooked_from, field);
+        let theirs = crate::pairing::Line::list_from(as_cooked, field);
+        crate::pairing::read(&base, &base, &theirs)
+            .iter()
+            .map(crate::pairing::Row::to_json)
+            .collect()
+    };
+    json!({ "ingredients": rows("ingredients"), "steps": rows("steps") })
 }
 
 /// The three things a rating can say (#59): the cook's decision about next
@@ -6939,9 +7270,31 @@ fn in_progress_attempt(
 /// An Attempt pinned to a Version on a Branch this caller cannot see (a
 /// Kitchen they do not belong to) is left out rather than leaked just
 /// because it shares a Lineage id.
+/// The Version whose steps this cooking is walking through: the As Cooked
+/// where the cook has written one, and otherwise the Version they started
+/// from. What `current_step_index` indexes (#58).
+fn cooking_version_id(conn: &Connection, attempt_id: &str) -> Result<Option<String>, OpError> {
+    conn.query_row(
+        "SELECT as_cooked_version_id FROM attempts WHERE id = ?1",
+        params![attempt_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))
+}
+
+/// Every Attempt on a Lineage, as the Thread and the recipe screen show them.
+///
+/// **Somebody else's As Cooked is stripped here.** An Attempt inherits its
+/// recipe's visibility and names its cook (ADR 0005), so a Kitchen-mate's
+/// cooking is legitimately on this list — but the words they cooked are the
+/// private half, and an In Progress one is "visible to its cook alone"
+/// (ADR 0010). The count, the date and the rating travel; the recipe they
+/// wrote at their own stove does not. Stripped in the Core rather than left to
+/// a screen to omit, because a second Door would omit it differently.
 fn attempts_for_lineage(
     conn: &Connection,
     lineage_id: &str,
+    viewer_person_id: &str,
     visible_version_ids: &HashSet<String>,
 ) -> Result<Vec<Value>, OpError> {
     let mut statement = conn
@@ -6962,6 +7315,12 @@ fn attempts_for_lineage(
                     .as_str()
                     .expect("version_id is always a string"),
             )
+        })
+        .map(|mut attempt| {
+            if attempt["person_id"] != json!(viewer_person_id) {
+                attempt["as_cooked"] = Value::Null;
+            }
+            attempt
         })
         .collect())
 }

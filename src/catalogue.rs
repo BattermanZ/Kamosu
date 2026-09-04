@@ -1515,6 +1515,84 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::promote_attempt_photograph,
         },
         Operation {
+            name: "set_as_cooked",
+            summary: "Write down what you actually cooked, where it differed \
+                      from the recipe: the whole recipe as you cooked it, in \
+                      ordinary Ingredient Lines and ordinary Step text — a \
+                      line reworded, one added, one dropped, a step grown. \
+                      Not a record of differences; the same shape a Version \
+                      takes. Sending back exactly what the recipe says, or \
+                      null, stores nothing at all, because cooking a recipe \
+                      as it is written changes nothing. Changes no recipe and makes no \
+                      Version: that is Promotion, and it is a separate act.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: set_as_cooked_input_schema(),
+            output_schema: attempt_schema(),
+            handler: crate::operations::set_as_cooked,
+        },
+        Operation {
+            name: "decline_promotion",
+            summary: "Say that the words a cooking used belong in the diary \
+                      and not in the recipe — or take that back. It answers \
+                      the offer and nothing else: what was cooked stays on \
+                      the cooking, whole. Remembered, because a question \
+                      already answered, asked twice, is a nag.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "attempt_id": { "type": "string" },
+                    "declined": { "type": "boolean" },
+                },
+                "required": ["attempt_id", "declined"],
+                "additionalProperties": false,
+            }),
+            output_schema: attempt_schema(),
+            handler: crate::operations::decline_promotion,
+        },
+        Operation {
+            name: "promote_as_cooked",
+            summary: "Promotion: turn what you cooked into a real Version of \
+                      the recipe. Mechanical — the As Cooked is already a \
+                      whole recipe, so nothing is retyped and nothing is \
+                      reconciled. It is an ordinary edit and inherits all of \
+                      one: a rapid re-save folds into the Version being \
+                      shaped, and a Branch belonging to another Kitchen \
+                      becomes a Copy. Promoting a cooking of an older Version \
+                      appends onto wherever the Branch stands now — a \
+                      Version, never a merge. The Attempt is left exactly as \
+                      it was, still saying which Version it cooked.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "attempt_id": { "type": "string" },
+                    "branch_id": {
+                        "type": "string",
+                        "description": "Which Branch of the cooked Lineage to promote into. An Attempt belongs to a Lineage rather than a Branch, so this says where the words land.",
+                    },
+                    "name": { "type": ["string", "null"] },
+                    "change_note": { "type": ["string", "null"] },
+                },
+                "required": ["attempt_id", "branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: saved_version_schema(),
+            handler: crate::operations::promote_as_cooked,
+        },
+        Operation {
             name: "get_current_attempt",
             summary: "Read the caller's own In Progress Attempt for a \
                       Lineage, if any — how two devices cooking the same \
@@ -3545,12 +3623,85 @@ fn attempt_schema() -> Value {
             // is why a Share Link cannot reach them: a share renders a
             // Version, and nothing leads from a Version back to an Attempt.
             "photographs": { "type": "array", "items": { "type": "string" } },
+            "as_cooked": as_cooked_schema(),
         },
         "required": [
             "id", "lineage_id", "person_id", "version_id", "current_step_index",
             "ticked_ingredients", "cooking_yield", "note", "rating", "finished_at",
-            "resumable", "created_at", "last_action_at", "photographs",
+            "resumable", "created_at", "last_action_at", "photographs", "as_cooked",
         ],
+        "additionalProperties": false,
+    })
+}
+
+/// **The As Cooked** an Attempt holds, or `null` where the cooking followed the
+/// recipe (#58, ADR 0005).
+///
+/// It carries the whole recipe rather than a list of differences, because that
+/// is what an As Cooked *is*: "a complete recipe state, structurally identical
+/// to a Version, differing only in that it never joined a Branch". Served as
+/// `recipe_content_schema` — the same definition a Version answers with — so a
+/// screen that can draw a recipe can draw this with nothing new, and the day a
+/// field is added to a recipe it cannot go missing here.
+///
+/// `version_id` is the fingerprint of that content, and it is the whole of how
+/// **already promoted** is answered: it is either in the Branch's chain or it
+/// is not. No flag says so, because a flag could disagree with the chain.
+fn as_cooked_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "version_id": { "type": "string" },
+            "content": recipe_content_schema(),
+            // The cook answered the offer: these words belong in the diary and
+            // not in the recipe. It says nothing about the As Cooked, which
+            // stays whole — declining is a decision about the recipe.
+            "promotion_declined": { "type": "boolean" },
+            // The As Cooked laid over the Version it was cooked from, by the
+            // same Pairing two Branches are laid over each other with —
+            // exactly what ADR 0019 said an Attempt's deviations would need.
+            // Read in the Core so both Doors and every client agree: a
+            // frontend comparing by index would be wrong the moment a cook
+            // adds or drops a line, which they may.
+            //
+            // `same` where the line was left alone, `changed` where it was
+            // rewritten, `only-mine` where the cook dropped it and
+            // `only-theirs` where they added one.
+            "against": {
+                "type": "object",
+                "properties": {
+                    "ingredients": { "type": "array", "items": divergence_row_schema() },
+                    "steps": { "type": "array", "items": divergence_row_schema() },
+                },
+                "required": ["ingredients", "steps"],
+                "additionalProperties": false,
+            },
+        },
+        "required": ["version_id", "content", "against", "promotion_declined"],
+        "additionalProperties": false,
+    })
+}
+
+/// `set_as_cooked`'s input: which cooking, and the whole recipe as it was
+/// actually cooked — or `null` to say it was cooked as written after all.
+///
+/// The recipe is nested under one key rather than spread across the top level
+/// the way `save_recipe_version` spreads it, because this Operation says two
+/// separate things: *which cooking*, and *what it was*. Flattening them would
+/// put `attempt_id` in among the Ingredient Lines.
+fn set_as_cooked_input_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "attempt_id": { "type": "string" },
+            "as_cooked": {
+                "type": ["object", "null"],
+                "properties": recipe_content_input_properties(),
+                "required": ["title"],
+                "additionalProperties": false,
+            },
+        },
+        "required": ["attempt_id", "as_cooked"],
         "additionalProperties": false,
     })
 }

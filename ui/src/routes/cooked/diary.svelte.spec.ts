@@ -40,6 +40,7 @@ const attempt = (over: Record<string, unknown> = {}) => ({
 	resumable: false,
 	created_at: '2026-08-20T18:00:00.000Z',
 	last_action_at: '2026-08-20T19:30:00.000Z',
+	as_cooked: null,
 	photographs: [],
 	...over,
 });

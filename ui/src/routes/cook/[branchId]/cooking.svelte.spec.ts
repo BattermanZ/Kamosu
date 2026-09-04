@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
 import CookingTestHarness from './CookingTestHarness.svelte';
@@ -60,6 +60,7 @@ const attempt = (over: Partial<StartAttemptOutput> = {}): StartAttemptOutput => 
 	resumable: true,
 	created_at: '2026-08-30T10:00:00Z',
 	last_action_at: '2026-08-30T10:00:00Z',
+	as_cooked: null,
 	photographs: [],
 	...over,
 });
@@ -72,6 +73,9 @@ function answers(over: Answers = {}): Answers {
 		// real answer to replace what it laid down optimistically.
 		advance_attempt: attempt(),
 		finish_attempt: attempt({ finished_at: '2026-08-30T11:00:00Z', resumable: false }),
+		// What the cook actually cooked, sent whole (#58). The stand-in echoes an
+		// Attempt back, exactly as `advance_attempt` above does.
+		set_as_cooked: attempt(),
 		delete_attempt: { deleted: true },
 		get_recipe: {
 			branch_id: 'b_1',
@@ -317,5 +321,153 @@ describe('the cooking screen', () => {
 		// hack, no silent video trick — the screen says what is true.
 		const toggle = await screen.findByRole('button', { name: /screen may sleep/i });
 		expect(toggle).toBeDisabled();
+	});
+});
+
+/**
+ * Saying *I did it differently* (#58, ADR 0005). Aurélien chose this treatment
+ * on 4 September 2026 against one built around a sheet: the step's own words
+ * become fields where they already stand, and nothing opens over the Step.
+ *
+ * The rule every test below is really guarding: **a cooking that deviated from
+ * nothing costs the screen one word and the server nothing at all.**
+ */
+describe('writing down what you actually cooked', () => {
+	/** Turn the step in front of the cook into fields. */
+	async function startWriting() {
+		await fireEvent.click(await screen.findByRole('button', { name: /changed it/i }));
+	}
+
+	/** The field holding one line, found by what it currently says. */
+	const field = (value: string) =>
+		screen.findByDisplayValue((_, node) => (node as HTMLInputElement)?.value === value);
+
+	it('costs a cooking that deviated from nothing one word and no state', async () => {
+		const kamosu = cook();
+		expect(await screen.findByRole('button', { name: /changed it/i })).toBeInTheDocument();
+		// Nothing else: no row, no panel, no badge. And crucially nothing sent —
+		// ordinary cooking is free (ADR 0005).
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('set_as_cooked');
+	});
+
+	it('turns this step’s amounts and its sentence into fields, in place', async () => {
+		cook();
+		await startWriting();
+		// The same words, at the same size, in the same place. Nothing opened
+		// over the Step and the cook never left it.
+		expect(await field('2 chicken breasts')).toBeInTheDocument();
+		expect(await field('Coat the chicken in panko.')).toHaveClass('text-step');
+	});
+
+	it('sends the whole recipe as cooked, not a record of what changed', async () => {
+		const kamosu = cook();
+		await startWriting();
+		await fireEvent.input(await field('1 cup panko'), { target: { value: '2 cups panko' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+
+		const written = kamosu.calls.find((call) => call.operation === 'set_as_cooked');
+		const cooked = (written?.input as { as_cooked: { ingredients: { text: string }[] } }).as_cooked;
+		// Every line, including the four nobody touched — an As Cooked is a
+		// recipe you could stand in, not a diff (ADR 0005).
+		expect(cooked.ingredients.map((line) => line.text)).toEqual([
+			'For the cutlets',
+			'2 chicken breasts',
+			'2 cups panko',
+			'800 ml water',
+			'a pinch of salt',
+		]);
+	});
+
+	it('marks the line it changed and drops the reading that described the old one', async () => {
+		cook();
+		await startWriting();
+		await fireEvent.input(await field('1 cup panko'), { target: { value: '2 cups panko' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+
+		expect(await screen.findByText('2 cups panko')).toBeInTheDocument();
+		// `about 240 g` was the Core's reading of ONE cup. It describes the
+		// amount the recipe asked for, not the amount that went in.
+		expect(screen.queryByText('about 240 g')).not.toBeInTheDocument();
+		// And the recipe's own line is kept under it — one short line, and
+		// *what did it say?* is a real question with a hot pan in hand.
+		expect(await screen.findByText('1 cup panko')).toBeInTheDocument();
+	});
+
+	it('reaches every other line, because most steps name none', async () => {
+		cook();
+		await startWriting();
+		// The salt belongs to no step in this recipe and the water to the next
+		// one. Across the real corpus a step names an Ingredient Line only 42%
+		// of the time, so without this the line a cook actually changed is
+		// usually not on screen at all.
+		expect(screen.queryByDisplayValue('a pinch of salt')).not.toBeInTheDocument();
+		await fireEvent.click(await screen.findByRole('button', { name: /any other line/i }));
+		expect(await field('a pinch of salt')).toBeInTheDocument();
+		expect(await field('800 ml water')).toBeInTheDocument();
+	});
+
+	it('adds a line, and drops one without it vanishing under a wet finger', async () => {
+		const kamosu = cook();
+		await startWriting();
+		await fireEvent.click(await screen.findByRole('button', { name: /any other line/i }));
+
+		// Dropped: still on screen, struck, and the same tap puts it back. Taken
+		// by its own row, because every line in writing mode carries this control
+		// — the water is the one this test is dropping.
+		const water = await field('800 ml water');
+		const row = water.closest('li');
+		expect(row).not.toBeNull();
+		await fireEvent.click(within(row as HTMLElement).getByRole('button', { name: /^drop$/i }));
+		expect(
+			within(row as HTMLElement).getByRole('button', { name: /^put back$/i }),
+		).toBeInTheDocument();
+		expect(water).toHaveClass('disabled:line-through');
+
+		await fireEvent.click(await screen.findByRole('button', { name: /add a line/i }));
+		const added = await screen.findByPlaceholderText(/a line you added/i);
+		await fireEvent.input(added, { target: { value: '1 bay leaf' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+
+		const written = kamosu.calls.find((call) => call.operation === 'set_as_cooked');
+		const cooked = (written?.input as { as_cooked: { ingredients: { text: string }[] } }).as_cooked;
+		const lines = cooked.ingredients.map((line) => line.text);
+		expect(lines).toContain('1 bay leaf');
+		expect(lines).not.toContain('800 ml water');
+	});
+
+	it('inserts a step before this one and leaves the cook standing on it', async () => {
+		const kamosu = cook();
+		await startWriting();
+		await fireEvent.click(await screen.findByRole('button', { name: /insert a step before/i }));
+
+		// The cook is writing down what they have just done, so the new step is
+		// where they now are — empty, and theirs.
+		const step = await screen.findByPlaceholderText(/a step you added/i);
+		await fireEvent.input(step, { target: { value: 'Rest the crumb twenty minutes.' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+
+		const written = kamosu.calls.find((call) => call.operation === 'set_as_cooked');
+		const cooked = (written?.input as { as_cooked: { steps: { text: string }[] } }).as_cooked;
+		expect(cooked.steps.map((line) => line.text)).toEqual([
+			'Assemble',
+			'Rest the crumb twenty minutes.',
+			'Coat the chicken in panko.',
+			'Pour in the water and simmer for about 7 minutes.',
+			'Season with salt and leave it alone.',
+		]);
+	});
+
+	it('sends nothing at all where the cook ends up back where they started', async () => {
+		const kamosu = cook();
+		await startWriting();
+		const panko = await field('1 cup panko');
+		await fireEvent.input(panko, { target: { value: '2 cups panko' } });
+		await fireEvent.input(await field('2 cups panko'), { target: { value: '1 cup panko' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+
+		const written = kamosu.calls.find((call) => call.operation === 'set_as_cooked');
+		// Null rather than the recipe: the Core would reach the same answer by
+		// fingerprint, and this saves it the round trip.
+		expect((written?.input as { as_cooked: unknown }).as_cooked).toBeNull();
 	});
 });

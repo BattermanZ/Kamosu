@@ -1068,6 +1068,63 @@ pub fn promote_attempt_photograph(
     )
 }
 
+pub fn set_as_cooked(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "set_as_cooked takes { attempt_id, as_cooked }, where as_cooked is \
+                 the whole recipe as it was cooked, or null";
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    // Required by the declaration, so the Core's dispatch has already refused
+    // an input without it (#85). Absent and explicitly null mean the same
+    // thing here — this cooking followed the recipe.
+    let as_cooked = input.get("as_cooked");
+    let caller = caller_of(invocation)?;
+    core.set_as_cooked(&caller.person_id, attempt_id, as_cooked)
+}
+
+pub fn decline_promotion(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "decline_promotion takes { attempt_id, declined }";
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let declined = input
+        .get("declined")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.decline_promotion(&caller.person_id, attempt_id, declined)
+}
+
+pub fn promote_as_cooked(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "promote_as_cooked takes { attempt_id, branch_id, name?, change_note? }";
+    let attempt_id = input
+        .get("attempt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.promote_as_cooked(
+        caller,
+        attempt_id,
+        branch_id,
+        input.get("name").and_then(Value::as_str),
+        input.get("change_note").and_then(Value::as_str),
+    )
+}
+
 pub fn delete_attempt(
     core: &Core,
     invocation: &Invocation,

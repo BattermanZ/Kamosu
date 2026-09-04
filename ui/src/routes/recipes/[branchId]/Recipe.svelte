@@ -95,12 +95,13 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import type { DivergenceOutput, GetRecipeOutput } from '$lib/api/catalogue';
+	import type { DivergenceOutput, GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
 	import Cover from '$lib/cover/Cover.svelte';
 	import { ratingLabel } from '$lib/rating';
 	import Threshold from './Threshold.svelte';
 	import MarkedRow from './MarkedRow.svelte';
 	import Correcting from './Correcting.svelte';
+	import Promotion from './Promotion.svelte';
 	import {
 		prose,
 		draftVersion,
@@ -124,6 +125,14 @@
 	/** How many Branches of this Lineage exist, when that is more than the two the switch reads. */
 	let crowded = $state(0);
 	let failed = $state(false);
+	/**
+	 * The cookings of this dish, which the Thread already answers. Kept because
+	 * one of them may hold an As Cooked nobody has decided about yet (#58) —
+	 * the recipe screen is where Promotion is offered.
+	 */
+	let attempts = $state<GetThreadOutput['attempts']>([]);
+	/** Bumped after a Promotion, to read the recipe back with its new Version. */
+	let reread = $state(0);
 
 	/** Which recipe you are standing in. `mine` is always the Branch in the URL. */
 	let side = $state<Side>('mine');
@@ -148,6 +157,9 @@
 	let shopping = $state(false);
 
 	$effect(() => {
+		// Read again when a Promotion has just put a Version on this Branch, so
+		// the recipe below the band becomes the recipe that was cooked (#58).
+		void reread;
 		let current = true;
 		void (async () => {
 			try {
@@ -184,6 +196,7 @@
 				// than the other Branches simply vanishing.
 				const thread = await kamosu.getThread({ branch_id: branchId });
 				if (!current) return;
+				attempts = thread.attempts;
 				const others = thread.branches.filter((each) => each.branch_id !== branchId);
 				if (others.length !== 1) {
 					if (others.length > 1) crowded = thread.branches.length;
@@ -1000,6 +1013,17 @@
 			Attempt, and one already In Progress is handed back rather than
 			doubled — so there is nothing here to press twice by mistake.
 		-->
+		<!--
+			Promotion (#58, ADR 0005). Above `Cook this` because it is a question
+			about the recipe you are standing in, and drawn at all only where a
+			cooking departed from these words and nobody has decided about it yet.
+			A recipe nobody cooked differently carries nothing here — which is
+			every recipe, nearly always.
+		-->
+		{#if recipe}
+			<Promotion {branchId} {attempts} versions={recipe.versions} promoted={() => (reread += 1)} />
+		{/if}
+
 		<a
 			href="/cook/{branchId}"
 			class="mx-gutter mt-6 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"

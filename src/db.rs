@@ -903,6 +903,57 @@ pub const MIGRATIONS: &[Migration] = &[
             WHERE lineage_id IS NOT NULL;
         "#,
     },
+    Migration {
+        version: 27,
+        description: "the As Cooked: a Version that never joined a Branch (#58, ADR 0005)",
+        sql: r#"
+        -- **An As Cooked is a row in `versions` that no `branch_versions` row
+        -- points at.** ADR 0005 says it is "structurally identical to a
+        -- Version, differing only in that it never joined a Branch, never
+        -- becomes part of the recipe's history, and never travels" — and
+        -- because a Version is named by a fingerprint of its own content, that
+        -- sentence needs no table of its own to be true. This column is the
+        -- whole of the storage.
+        --
+        -- Three things fall out of it rather than being built:
+        --
+        --   · **The common case stays free.** NULL is cooked as written, which
+        --     is the overwhelming majority, and it costs one nullable column.
+        --   · **Two cooks who made the identical change hold the identical
+        --     row**, without either knowing about the other. The fingerprint
+        --     did that, not this ticket.
+        --   · **Promotion mints no new identity.** The As Cooked's id already
+        --     IS the Version id, so promoting appends a `branch_versions` row
+        --     naming a Version that has existed since the cook wrote it.
+        --
+        -- REFERENCES versions(id), unlike the Component's Lineage pointer next
+        -- door, because this one is local by construction: the Version was
+        -- written on this instance, into this table, by the cook. Nothing
+        -- deletes a Version (ADR 0004), so the reference cannot dangle.
+        ALTER TABLE attempts ADD COLUMN as_cooked_version_id TEXT
+            REFERENCES versions(id);
+        "#,
+    },
+    Migration {
+        version: 28,
+        description: "a Promotion declined stays declined (#58)",
+        sql: r#"
+        -- When the cook said the words they cooked belong in the diary and
+        -- **not** in the recipe.
+        --
+        -- The offer needs an answer that survives, because Kamosu's position on
+        -- being asked twice is already written down: a question already
+        -- answered, asked twice, is a nag (the same reason `meaning_search`
+        -- keeps `declined_at`). Without this the recipe page would ask about
+        -- the same Tuesday every time it was opened.
+        --
+        -- It says nothing about the As Cooked itself, which stays exactly where
+        -- it is: declining is a decision about the RECIPE, and the cooking
+        -- record is untouched by it. Deciding the other way later is an
+        -- ordinary edit of one's own Attempt (ADR 0005), so this clears.
+        ALTER TABLE attempts ADD COLUMN promotion_declined_at TEXT;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

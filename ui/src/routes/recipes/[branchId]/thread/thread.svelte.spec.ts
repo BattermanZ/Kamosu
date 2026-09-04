@@ -71,6 +71,7 @@ describe('the Thread screen', () => {
 						resumable: false,
 						created_at: '2026-03-21T00:00:00Z',
 						last_action_at: '2026-03-21T00:00:00Z',
+						as_cooked: null,
 						photographs: [],
 					},
 				],
@@ -405,6 +406,7 @@ describe('the Thread screen', () => {
 				resumable: true,
 				created_at: '2026-08-28T00:00:00Z',
 				last_action_at: '2026-08-28T00:00:00Z',
+				as_cooked: null,
 				photographs: [],
 			},
 		});

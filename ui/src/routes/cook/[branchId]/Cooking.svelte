@@ -43,6 +43,7 @@
 	import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
 	import { timer, clock } from './timer.svelte';
 	import { wakeLock } from './wake-lock.svelte';
+	import { seed, serialise, differs, type AsCooked, type Line } from './as-cooked.svelte';
 
 	interface Props {
 		branchId: string;
@@ -58,6 +59,23 @@
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
 	let failed = $state(false);
 	let finished = $state(false);
+
+	// ---- saying you did it differently (#58, ADR 0005) --------------------
+	//
+	// The recipe as THIS cooking has it, which is the recipe itself until the
+	// cook writes on it. It is held here rather than sent on every keystroke:
+	// a whole recipe crossing the wire per character typed at a stove would be
+	// absurd, and `Done` is a moment the cook already understands. What is sent
+	// is the whole state, and the Core decides by fingerprint whether it is a
+	// deviation at all.
+	let asCooked = $state<AsCooked | undefined>(undefined);
+	/** The step in front of the cook has become fields, in place. */
+	let writing = $state(false);
+	/** The rest of the Ingredient Lines are open beneath this step's own. */
+	let wholeList = $state(false);
+	/** Written since the last save. */
+	let unsaved = $state(false);
+	let writeFailed = $state(false);
 	let discarding = $state(false);
 	let discarded = $state(false);
 
@@ -105,14 +123,30 @@
 	const content = $derived(version?.content);
 
 	/**
-	 * The rows a cook actually stands on, in order, by their index into the
-	 * Version's own `steps` — Sections are headings over the list, not places.
-	 * The index is what the server stores, so the two never drift.
+	 * The recipe this cooking is actually walking through — the Version, until
+	 * the cook writes on it, and their own words from then on. Seeded once the
+	 * Attempt and its Version are both in hand, and never re-seeded underneath
+	 * somebody who is typing.
+	 */
+	$effect(() => {
+		if (asCooked || !content) return;
+		asCooked = seed(content, attempt?.as_cooked ?? null);
+	});
+
+	/**
+	 * The rows a cook actually stands on, in order — Sections are headings over
+	 * the list, not places, and a line the cook dropped is not a place either.
+	 *
+	 * `at` indexes the AS COOKED's steps rather than the Version's, and that is what
+	 * `current_step_index` means from #58 onwards: the cooking screen is the As
+	 * Cooked once there is one, so a step the cook inserted is a step they stand
+	 * on, time and all. Where the cook has written nothing this is the Version line for
+	 * line, so nothing about an ordinary cooking moved.
 	 */
 	const stops = $derived(
-		(content?.steps ?? [])
+		(asCooked?.steps ?? [])
 			.map((row, index) => ({ row, index }))
-			.filter((each) => each.row.kind === 'step'),
+			.filter((each) => each.row.kind === 'step' && !each.row.dropped),
 	);
 
 	/**
@@ -134,8 +168,8 @@
 	/** The Section this step falls under, where the recipe has any. */
 	const section = $derived.by(() => {
 		if (!here) return null;
-		const above = (content?.steps ?? []).slice(0, here.index).reverse();
-		return above.find((row) => row.kind === 'section')?.text ?? null;
+		const above = (asCooked?.steps ?? []).slice(0, here.index).reverse();
+		return above.find((row) => row.kind === 'section' && !row.dropped)?.text ?? null;
 	});
 
 	/**
@@ -144,17 +178,83 @@
 	 * Reading — that word is taken, and means what Kamosu understood of an
 	 * INGREDIENT LINE (CONTEXT.md).
 	 */
-	const outOfText = $derived(here ? (version?.cooking.steps[here.index] ?? null) : null);
+	/**
+	 * Looked up by where the step CAME FROM in the Version, never by where it
+	 * sits now — inserting a step shifts every position after it, and `uses` and
+	 * `measured` are the Core's arrays over the Version. A step the cook wrote
+	 * has no such reading, and says nothing rather than borrowing its
+	 * neighbour's: Kamosu has not read that sentence.
+	 */
+	const outOfText = $derived(
+		here?.row.from === null || here === undefined
+			? null
+			: (version?.cooking.steps[here.row.from] ?? null),
+	);
+	/** The subordinate line under the Step — the oven temperature in this cook's measures. */
+	const beneathStep = $derived(
+		here?.row.from === null || here === undefined
+			? null
+			: (version?.measured.steps[here.row.from] ?? null),
+	);
 
 	/**
 	 * The amounts for this step: the written Ingredient Line at full size and
-	 * the one subordinate line beneath it, in the recipe's own order.
+	 * the one subordinate line beneath it, in the recipe's own order — as this
+	 * cooking has them, which is as the recipe has them until somebody writes.
+	 *
+	 * A line whose words the cook changed loses its subordinate line, because
+	 * that reading describes the amount the recipe asked for and not the one
+	 * that went in. A line they dropped stays on screen, struck: it was in front
+	 * of them a moment ago and vanishing furniture is how a screen loses a cook.
 	 */
 	const amounts = $derived(
-		(outOfText?.uses ?? []).flatMap((at) => {
-			const line = content?.ingredients[at];
-			if (!line || line.kind !== 'ingredient') return [];
-			return [{ at, text: line.text, beneath: version?.measured.ingredients[at] ?? null }];
+		(outOfText?.uses ?? []).flatMap((from) => {
+			const at = (asCooked?.ingredients ?? []).findIndex((row) => row.from === from);
+			const row = asCooked?.ingredients[at];
+			if (!row || row.kind !== 'ingredient') return [];
+			const written = content?.ingredients[from]?.text ?? row.text;
+			const changed = row.text.trim() !== written.trim();
+			return [
+				{
+					at,
+					row,
+					written,
+					changed,
+					beneath: changed || row.dropped ? null : (version?.measured.ingredients[from] ?? null),
+				},
+			];
+		}),
+	);
+
+	/**
+	 * Whether this cooking's words for a step are not the recipe's — rewritten,
+	 * or written from nothing. What the noren stripes, and what puts the bar
+	 * down the side of the Step.
+	 */
+	/**
+	 * Whether a line is ticked. Ticking is keyed on the line's index in the
+	 * Version, which is what the server stores and what two devices agree on, so
+	 * a line the cook added has no index and is never ticked.
+	 */
+	function isTicked(line: Line): boolean {
+		return line.from !== null && ticked.has(line.from);
+	}
+
+	function wroteStep(line: Line): boolean {
+		if (line.dropped) return false;
+		if (line.from === null) return true;
+		return line.text.trim() !== (content?.steps[line.from]?.text ?? '').trim();
+	}
+
+	/** Every other Ingredient Line, for the steps — most of them — that name none. */
+	const otherLines = $derived(
+		(asCooked?.ingredients ?? []).flatMap((row, at) => {
+			if (row.kind !== 'ingredient') return [];
+			if (amounts.some((amount) => amount.at === at)) return [];
+			const written = row.from === null ? null : (content?.ingredients[row.from]?.text ?? null);
+			return [
+				{ at, row, written, changed: written !== null && row.text.trim() !== written.trim() },
+			];
 		}),
 	);
 
@@ -186,11 +286,93 @@
 	function step(to: number) {
 		const stop = stops[to];
 		if (!attempt || !stop) return;
+		writing = false;
+		wholeList = false;
+		void save();
 		void move({ ...attempt, current_step_index: stop.index }, { current_step_index: stop.index });
 	}
 
-	function tick(at: number) {
-		if (!attempt) return;
+	// ---- writing what you did --------------------------------------------
+	//
+	// Every one of these changes what is held here and nothing else. Nothing reaches the
+	// server until `save`, which runs when the cook leaves writing mode or the
+	// step — the two moments they have already decided they are done.
+
+	/** Rewrite one line, in either list. */
+	function write(list: 'ingredients' | 'steps', at: number, text: string) {
+		const row = asCooked?.[list][at];
+		if (!row) return;
+		row.text = text;
+		unsaved = true;
+	}
+
+	/**
+	 * Take a line out, or put it back. It stays here either way, marked
+	 * — so the tap that dropped it is the tap that undoes it, and nothing
+	 * disappears from under a wet finger. `serialise` is what leaves it out.
+	 */
+	function drop(at: number) {
+		const row = asCooked?.ingredients[at];
+		if (!row) return;
+		row.dropped = !row.dropped;
+		unsaved = true;
+	}
+
+	/** A line the cook added: theirs, from nowhere in the recipe. */
+	function addLine() {
+		if (!asCooked) return;
+		asCooked.ingredients.push({ kind: 'ingredient', text: '', from: null, dropped: false });
+		unsaved = true;
+	}
+
+	/**
+	 * Insert a step before the one the cook is standing on, and leave them
+	 * standing on the new one — they are writing down what they have just done,
+	 * so that is where they want to be. Inserting before shifts every later step
+	 * up by one, and `current_step_index` therefore names the new step without
+	 * anything being written: the stored number did not move, the list did.
+	 */
+	function insertStep() {
+		if (!asCooked || !here) return;
+		asCooked.steps.splice(here.index, 0, { kind: 'step', text: '', from: null, dropped: false });
+		writing = true;
+		unsaved = true;
+	}
+
+	/**
+	 * Send the whole recipe as this cooking has it — or nothing at all, where
+	 * the cook has ended up back where they started. The Core decides for real
+	 * by fingerprint; this only saves a round trip on the common case.
+	 */
+	async function save() {
+		if (!attempt || !asCooked || !content || !unsaved) return;
+		const as_cooked = differs(content, asCooked) ? serialise(content, asCooked) : null;
+		try {
+			const answer = await kamosu.setAsCooked({ attempt_id: attempt.id, as_cooked });
+			// ONLY the As Cooked is taken from the answer. It carries a whole
+			// Attempt, including the `current_step_index` as it stood when the
+			// request left — and this runs alongside `advance_attempt`, so
+			// replacing the Attempt wholesale would throw the cook back a step
+			// whenever this one answered second.
+			if (attempt) attempt = { ...attempt, as_cooked: answer.as_cooked };
+			unsaved = false;
+			writeFailed = false;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			// What they wrote stays on screen. Losing a cook's own words because
+			// a network blinked is the one failure this screen must not have.
+			writeFailed = true;
+		}
+	}
+
+	/**
+	 * Ticking is keyed on the line's index in the VERSION, which is what the
+	 * server stores and what two devices agree on. A line the cook added has no
+	 * such index and cannot be ticked — it is a note to themselves about what
+	 * went in, not a thing to check off.
+	 */
+	function tick(at: number | null) {
+		if (!attempt || at === null) return;
 		const next = new Set(attempt.ticked_ingredients);
 		if (next.has(at)) next.delete(at);
 		else next.add(at);
@@ -232,6 +414,8 @@
 
 	async function finish() {
 		if (!attempt) return;
+		writing = false;
+		await save();
 		try {
 			await kamosu.finishAttempt({ attempt_id: attempt.id });
 			finished = true;
@@ -318,8 +502,16 @@
 		-->
 		<div class="flex shrink-0 gap-1 pt-2 pb-3" aria-hidden="true">
 			{#each stops as stop, index (stop.index)}
+				<!--
+					A strip is STRIPED where this cooking's words are not the
+					recipe's — a step rewritten, or one the cook inserted. It costs
+					the noren no height and no number to say so, which is the whole
+					of why the noren is shaped the way it is.
+				-->
 				<i
-					style="height: var(--noren-h)"
+					style="height: var(--noren-h){wroteStep(stop.row)
+						? '; background-image: repeating-linear-gradient(135deg, var(--color-cook-accent) 0 3px, transparent 3px 6px)'
+						: ''}"
 					class="flex-1 rounded-sm
 						{index < position ? 'bg-cook-accent opacity-45' : ''}
 						{index === position ? 'bg-cook-accent' : ''}
@@ -354,11 +546,151 @@
 			The amounts for THIS step. A fifth of the screen, and what buys the
 			cook not being sent back to the ingredient list on most steps.
 		-->
-		<div class="shrink-0 rounded-sm bg-cook-panel px-4 py-3">
-			<p class="pb-2 text-label font-semibold text-cook-accent uppercase opacity-90">
-				{m.cook_for_this_step()}
-			</p>
-			{#if amounts.length === 0}
+		<!--
+			The panel is capped once the whole list is open, and scrolls inside
+			that cap. Without it, twenty-one fields push the Step off the bottom
+			of the screen — and the Step being the largest thing on it is not a
+			preference, it is what this room is for (ADR 0011).
+		-->
+		<div
+			class="shrink-0 rounded-sm bg-cook-panel px-4 py-3
+				{writing && wholeList ? 'max-h-[46vh] overflow-y-auto' : ''}"
+		>
+			<!--
+				ONE WORD, on the line the panel's own label was already on, and the
+				whole of how a cook says *I did it differently* (#58). It opens no
+				sheet and covers nothing: the amounts and the Step become fields
+				where they already stand, so the cook never leaves the step they
+				are on. Aurélien chose this over a sheet on 4 September 2026,
+				against both built and running; the reasoning is on #58.
+
+				A cooking that deviated from nothing pays this word and nothing
+				else — no row, no panel, no badge, and no stored state.
+			-->
+			<div class="flex items-baseline justify-between gap-3 pb-2">
+				<p class="text-label font-semibold text-cook-accent uppercase opacity-90">
+					{writing ? m.cook_writing() : m.cook_for_this_step()}
+				</p>
+				<button
+					type="button"
+					class="min-h-12 shrink-0 text-label uppercase {writing
+						? 'font-semibold text-cook-accent'
+						: 'text-cook-ink-2'}"
+					onclick={() => {
+						if (writing) void save();
+						writing = !writing;
+					}}
+				>
+					{writing ? m.cook_writing_done() : m.cook_changed_it()}
+				</button>
+			</div>
+
+			<!--
+				A save that did not land. What the cook wrote is still on screen and
+				still held here, and the next `Done` sends it again — losing
+				somebody's own words because a network blinked is the one failure
+				this screen must not have.
+			-->
+			{#if writeFailed}
+				<p class="pb-2 text-read text-cook-ink-2" role="alert">{m.cook_write_failed()}</p>
+			{/if}
+			{#if writing}
+				<!--
+					The amounts, as fields, in the place they already occupied and at
+					the size they already had. The tick boxes go while writing: a wet
+					thumb aiming at a field must not be able to tick a line by
+					missing it.
+				-->
+				{#if amounts.length === 0}
+					<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
+				{:else}
+					<ul class="flex flex-col gap-2">
+						{#each amounts as amount (amount.at)}
+							<li class="flex items-start gap-2">
+								<input
+									value={amount.row.text}
+									disabled={amount.row.dropped}
+									oninput={(event) => write('ingredients', amount.at, event.currentTarget.value)}
+									class="min-w-0 flex-1 rounded-sm border-b border-cook-accent bg-transparent py-2 font-display text-panel-figure font-semibold text-cook-ink disabled:line-through disabled:opacity-45"
+								/>
+								<button
+									type="button"
+									class="min-h-12 shrink-0 text-label text-cook-ink-2 uppercase"
+									onclick={() => drop(amount.at)}
+								>
+									{amount.row.dropped ? m.cook_keep_line() : m.cook_drop_line()}
+								</button>
+							</li>
+							<!--
+								The recipe's own line, offered back on a tap. It lives here,
+								inside writing mode, where *what did it say?* is the question
+								being asked — and not on the screen a cook reads at the stove.
+							-->
+							{#if amount.changed && !amount.row.dropped}
+								<li>
+									<button
+										type="button"
+										class="min-h-12 text-left text-read text-cook-ink-2 line-through"
+										onclick={() => write('ingredients', amount.at, amount.written)}
+									>
+										{amount.written}
+										<span class="sr-only">— {m.cook_as_written()}</span>
+									</button>
+								</li>
+							{/if}
+						{/each}
+					</ul>
+				{/if}
+
+				<!--
+					THE REST OF THE LIST. Across the real corpus a step names an
+					Ingredient Line only 42% of the time — 2 steps of 11 on Dan Dan
+					Noodles — so on most steps the panel above is empty and the salt
+					this cook actually used less of is not in it. Aurélien found that
+					standing in the room, and both this and adding a line answer it:
+					the whole list opens INSIDE the panel, which scrolls, so the screen
+					still never hands the cook a second surface to be in.
+				-->
+				<button
+					type="button"
+					class="mt-3 flex min-h-12 w-full items-center justify-between border-t border-cook-rule pt-2 text-label uppercase
+						{wholeList ? 'font-semibold text-cook-accent' : 'text-cook-ink-2'}"
+					onclick={() => (wholeList = !wholeList)}
+				>
+					<span>{wholeList ? m.cook_every_line() : m.cook_other_lines()}</span>
+					<span>{wholeList ? '−' : `+${otherLines.length}`}</span>
+				</button>
+
+				{#if wholeList}
+					<ul>
+						{#each otherLines as line (line.at)}
+							<li class="flex items-start gap-2">
+								<input
+									value={line.row.text}
+									disabled={line.row.dropped}
+									placeholder={line.row.from === null ? m.cook_added_line() : undefined}
+									oninput={(event) => write('ingredients', line.at, event.currentTarget.value)}
+									class="min-w-0 flex-1 rounded-sm border-b border-cook-rule bg-transparent py-2 font-display text-body text-cook-ink disabled:line-through disabled:opacity-45"
+								/>
+								<button
+									type="button"
+									class="min-h-12 shrink-0 text-label text-cook-ink-2 uppercase"
+									onclick={() => drop(line.at)}
+								>
+									{line.row.dropped ? m.cook_keep_line() : m.cook_drop_line()}
+								</button>
+							</li>
+						{/each}
+					</ul>
+					<button
+						type="button"
+						class="min-h-12 w-full text-left text-label text-cook-accent uppercase"
+						onclick={addLine}
+					>
+						{m.cook_add_a_line()}
+					</button>
+				{/if}
+			{:else if amounts.length === 0}
 				<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
 			{:else}
 				<ul class="flex flex-col gap-2">
@@ -367,23 +699,40 @@
 							<button
 								type="button"
 								class="flex min-h-12 w-full items-baseline gap-3 text-left"
-								aria-pressed={ticked.has(amount.at)}
-								onclick={() => tick(amount.at)}
+								aria-pressed={isTicked(amount.row)}
+								onclick={() => tick(amount.row.from)}
 							>
 								<span
 									class="mt-1 h-4 w-4 shrink-0 self-start rounded-sm border
-										{ticked.has(amount.at) ? 'border-cook-accent bg-cook-accent' : 'border-cook-rule'}"
+										{isTicked(amount.row) ? 'border-cook-accent bg-cook-accent' : 'border-cook-rule'}"
 									aria-hidden="true"
 								></span>
-								<span class="min-w-0 flex-1 {ticked.has(amount.at) ? 'opacity-45' : ''}">
-									<span class="block font-display text-panel-figure font-semibold">
-										{amount.text}
+								<span
+									class="min-w-0 flex-1 {isTicked(amount.row) ? 'opacity-45' : ''}
+										{amount.changed || amount.row.dropped ? 'border-l-2 border-cook-accent pl-2' : ''}"
+								>
+									<span
+										class="block font-display text-panel-figure font-semibold
+											{amount.row.dropped ? 'line-through opacity-45' : ''}"
+									>
+										{amount.row.text}
 									</span>
 									{#if amount.beneath}
 										<span class="block text-read text-cook-ink-2">{amount.beneath}</span>
 									{/if}
+									<!--
+										What the recipe asked for, kept under what went in. One
+										short line, and *what did it say?* is a real question with
+										a hot pan in hand — unlike a whole struck paragraph under
+										the Step, which would be a difference view (ADR 0014).
+									-->
+									{#if amount.changed && !amount.row.dropped}
+										<span class="block text-read text-cook-ink-2 line-through">
+											{amount.written}
+										</span>
+									{/if}
 								</span>
-								<span class="sr-only">{m.cook_tick({ line: amount.text })}</span>
+								<span class="sr-only">{m.cook_tick({ line: amount.row.text })}</span>
 							</button>
 						</li>
 					{/each}
@@ -405,18 +754,63 @@
 			(CONTEXT.md), and half a screen away is not beside.
 		-->
 		<div class="flex min-h-0 flex-1 flex-col items-start pt-6">
-			<p class="min-h-0 overflow-y-auto font-display text-step font-semibold">
-				{here.row.text}
-			</p>
-			<!--
+			{#if writing}
+				<!--
+					The Step, still the largest type in the app, still in the same
+					place — now a field. The cook never left the step, because there
+					was never anywhere else to be.
+				-->
+				<textarea
+					value={here.row.text}
+					placeholder={here.row.from === null ? m.cook_added_step() : undefined}
+					oninput={(event) => write('steps', here.index, event.currentTarget.value)}
+					class="min-h-0 w-full flex-1 resize-none rounded-sm border border-cook-accent bg-transparent p-2 font-display text-step font-semibold text-cook-ink"
+				></textarea>
+				{#if wroteStep(here.row) && here.row.from !== null}
+					{@const written = content.steps[here.row.from]?.text ?? ''}
+					<button
+						type="button"
+						class="min-h-12 shrink-0 text-left text-read text-cook-ink-2 line-through"
+						onclick={() => write('steps', here.index, written)}
+					>
+						{written}
+						<span class="sr-only">— {m.cook_as_written()}</span>
+					</button>
+				{/if}
+				<!--
+					A method that grew a stage. Inserting BEFORE and staying put is
+					Aurélien's wording and the right shape: a cook writes the step
+					down having just done it, so the new one is where they now are.
+				-->
+				<button
+					type="button"
+					class="min-h-12 shrink-0 text-label text-cook-accent uppercase"
+					onclick={insertStep}
+				>
+					{m.cook_insert_step()}
+				</button>
+			{:else}
+				<!--
+					A rewritten Step wears the bar and nothing else. An amount keeps
+					its old line under it, but a whole struck paragraph under the
+					largest type in the app is a difference view, and Kamosu does not
+					draw one (ADR 0014). The recipe's words are one tap away inside
+					writing mode.
+				-->
+				<p
+					class="min-h-0 overflow-y-auto font-display text-step font-semibold
+						{wroteStep(here.row) ? 'border-l-[3px] border-cook-accent pl-3' : ''}"
+				>
+					{here.row.text}
+				</p>
+				<!--
 				A Step's own subordinate line: the oven temperature in this
 				cook's measures, on the conventional ladder. Beside the
 				sentence, never written into it.
 			-->
-			{#if version?.measured.steps[here.index]}
-				<p class="shrink-0 pt-3 text-read text-cook-ink-2">
-					{version.measured.steps[here.index]}
-				</p>
+				{#if beneathStep}
+					<p class="shrink-0 pt-3 text-read text-cook-ink-2">{beneathStep}</p>
+				{/if}
 			{/if}
 
 			<!--

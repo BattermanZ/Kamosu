@@ -1166,6 +1166,70 @@ export type GetThreadInput = {
 /** What get_thread answers. */
 export type GetThreadOutput = {
 	attempts: {
+		as_cooked: {
+			against: {
+				ingredients: {
+					from_branch_point: boolean;
+					kind: string;
+					mine: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+					state: "same" | "changed" | "only-mine" | "only-theirs";
+					theirs: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+				}[];
+				steps: {
+					from_branch_point: boolean;
+					kind: string;
+					mine: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+					state: "same" | "changed" | "only-mine" | "only-theirs";
+					theirs: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+				}[];
+			};
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			};
+			promotion_declined: boolean;
+			version_id: string;
+		} | null;
 		cooking_yield: {
 			amount: string;
 			noun: string;
@@ -1768,6 +1832,70 @@ export type StartAttemptInput = {
 };
 /** What start_attempt answers. */
 export type StartAttemptOutput = {
+	as_cooked: {
+		against: {
+			ingredients: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+			steps: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+		};
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		promotion_declined: boolean;
+		version_id: string;
+	} | null;
 	cooking_yield: {
 		amount: string;
 		noun: string;
@@ -1799,6 +1927,70 @@ export type AdvanceAttemptInput = {
 };
 /** What advance_attempt answers. */
 export type AdvanceAttemptOutput = {
+	as_cooked: {
+		against: {
+			ingredients: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+			steps: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+		};
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		promotion_declined: boolean;
+		version_id: string;
+	} | null;
 	cooking_yield: {
 		amount: string;
 		noun: string;
@@ -1827,6 +2019,70 @@ export type FinishAttemptInput = {
 };
 /** What finish_attempt answers. */
 export type FinishAttemptOutput = {
+	as_cooked: {
+		against: {
+			ingredients: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+			steps: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+		};
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		promotion_declined: boolean;
+		version_id: string;
+	} | null;
 	cooking_yield: {
 		amount: string;
 		noun: string;
@@ -1855,6 +2111,70 @@ export type EditAttemptInput = {
 };
 /** What edit_attempt answers. */
 export type EditAttemptOutput = {
+	as_cooked: {
+		against: {
+			ingredients: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+			steps: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+		};
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		promotion_declined: boolean;
+		version_id: string;
+	} | null;
 	cooking_yield: {
 		amount: string;
 		noun: string;
@@ -1904,6 +2224,233 @@ export type PromoteAttemptPhotographOutput = {
 	version_id: string;
 };
 
+/** Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
+export type SetAsCookedInput = {
+	as_cooked: {
+		cook_time_minutes?: number | null;
+		ingredients?: {
+			kind: "section" | "ingredient";
+			text: string;
+		}[];
+		main_photo?: string | null;
+		note?: string | null;
+		nutrition?: {
+			basis: "per_serving" | "per_100g";
+			calories: number;
+		} | null;
+		prep_time_minutes?: number | null;
+		source?: {
+			link: string | null;
+			text: string;
+		} | null;
+		steps?: {
+			kind: "section" | "step";
+			photo?: string | null;
+			text: string;
+		}[];
+		title: string;
+		yield?: {
+			amount: string;
+			noun: string;
+		} | null;
+	} | null;
+	attempt_id: string;
+};
+/** What set_as_cooked answers. */
+export type SetAsCookedOutput = {
+	as_cooked: {
+		against: {
+			ingredients: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+			steps: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+		};
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		promotion_declined: boolean;
+		version_id: string;
+	} | null;
+	cooking_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+	created_at: string;
+	current_step_index: number;
+	finished_at: string | null;
+	id: string;
+	last_action_at: string;
+	lineage_id: string;
+	note: string | null;
+	person_id: string;
+	photographs: string[];
+	rating: "again" | "tweak" | "no" | null;
+	resumable: boolean;
+	ticked_ingredients: number[];
+	version_id: string;
+};
+
+/** Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
+export type DeclinePromotionInput = {
+	attempt_id: string;
+	declined: boolean;
+};
+/** What decline_promotion answers. */
+export type DeclinePromotionOutput = {
+	as_cooked: {
+		against: {
+			ingredients: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+			steps: {
+				from_branch_point: boolean;
+				kind: string;
+				mine: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+				state: "same" | "changed" | "only-mine" | "only-theirs";
+				theirs: {
+					index: number;
+					kind: string;
+					text: string;
+				} | null;
+			}[];
+		};
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		promotion_declined: boolean;
+		version_id: string;
+	} | null;
+	cooking_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+	created_at: string;
+	current_step_index: number;
+	finished_at: string | null;
+	id: string;
+	last_action_at: string;
+	lineage_id: string;
+	note: string | null;
+	person_id: string;
+	photographs: string[];
+	rating: "again" | "tweak" | "no" | null;
+	resumable: boolean;
+	ticked_ingredients: number[];
+	version_id: string;
+};
+
+/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch belonging to another Kitchen becomes a Copy. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+export type PromoteAsCookedInput = {
+	attempt_id: string;
+	branch_id: string;
+	change_note?: string | null;
+	name?: string | null;
+};
+/** What promote_as_cooked answers. */
+export type PromoteAsCookedOutput = {
+	branch_id: string;
+	collapsed: boolean;
+	copied: boolean;
+	language: string;
+	language_offer: string | null;
+	parent_version_id: string | null;
+	sequence: number;
+	translates_version_id: string | null;
+	version_id: string;
+};
+
 /** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 export type GetCurrentAttemptInput = {
 	lineage_id: string;
@@ -1911,6 +2458,70 @@ export type GetCurrentAttemptInput = {
 /** What get_current_attempt answers. */
 export type GetCurrentAttemptOutput = {
 	attempt: {
+		as_cooked: {
+			against: {
+				ingredients: {
+					from_branch_point: boolean;
+					kind: string;
+					mine: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+					state: "same" | "changed" | "only-mine" | "only-theirs";
+					theirs: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+				}[];
+				steps: {
+					from_branch_point: boolean;
+					kind: string;
+					mine: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+					state: "same" | "changed" | "only-mine" | "only-theirs";
+					theirs: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+				}[];
+			};
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			};
+			promotion_declined: boolean;
+			version_id: string;
+		} | null;
 		cooking_yield: {
 			amount: string;
 			noun: string;
@@ -1936,6 +2547,70 @@ export type ListAttemptsInput = Record<string, never>;
 /** What list_attempts answers. */
 export type ListAttemptsOutput = {
 	attempts: {
+		as_cooked: {
+			against: {
+				ingredients: {
+					from_branch_point: boolean;
+					kind: string;
+					mine: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+					state: "same" | "changed" | "only-mine" | "only-theirs";
+					theirs: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+				}[];
+				steps: {
+					from_branch_point: boolean;
+					kind: string;
+					mine: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+					state: "same" | "changed" | "only-mine" | "only-theirs";
+					theirs: {
+						index: number;
+						kind: string;
+						text: string;
+					} | null;
+				}[];
+			};
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			};
+			promotion_declined: boolean;
+			version_id: string;
+		} | null;
 		cooking_yield: {
 			amount: string;
 			noun: string;
@@ -2843,6 +3518,24 @@ export interface Operations {
 	promote_attempt_photograph: {
 		input: PromoteAttemptPhotographInput;
 		output: PromoteAttemptPhotographOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	set_as_cooked: {
+		input: SetAsCookedInput;
+		output: SetAsCookedOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	decline_promotion: {
+		input: DeclinePromotionInput;
+		output: DeclinePromotionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	promote_as_cooked: {
+		input: PromoteAsCookedInput;
+		output: PromoteAsCookedOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -8703,6 +9396,353 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"as_cooked": {
+								"additionalProperties": false,
+								"properties": {
+									"against": {
+										"additionalProperties": false,
+										"properties": {
+											"ingredients": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"from_branch_point": {
+															"type": "boolean"
+														},
+														"kind": {
+															"type": "string"
+														},
+														"mine": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														},
+														"state": {
+															"enum": [
+																"same",
+																"changed",
+																"only-mine",
+																"only-theirs"
+															]
+														},
+														"theirs": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														}
+													},
+													"required": [
+														"kind",
+														"state",
+														"from_branch_point",
+														"mine",
+														"theirs"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"steps": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"from_branch_point": {
+															"type": "boolean"
+														},
+														"kind": {
+															"type": "string"
+														},
+														"mine": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														},
+														"state": {
+															"enum": [
+																"same",
+																"changed",
+																"only-mine",
+																"only-theirs"
+															]
+														},
+														"theirs": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														}
+													},
+													"required": [
+														"kind",
+														"state",
+														"from_branch_point",
+														"mine",
+														"theirs"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											}
+										},
+										"required": [
+											"ingredients",
+											"steps"
+										],
+										"type": "object"
+									},
+									"content": {
+										"additionalProperties": false,
+										"properties": {
+											"cook_time_minutes": {
+												"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"ingredients": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"ingredient"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"main_photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"note": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"nutrition": {
+												"additionalProperties": false,
+												"properties": {
+													"basis": {
+														"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+														"enum": [
+															"per_serving",
+															"per_100g"
+														]
+													},
+													"calories": {
+														"description": "Calories, zero or more.",
+														"minimum": 0,
+														"type": "number"
+													}
+												},
+												"required": [
+													"calories",
+													"basis"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"prep_time_minutes": {
+												"description": "Whole minutes of active preparation.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"source": {
+												"additionalProperties": false,
+												"properties": {
+													"link": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"text",
+													"link"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"steps": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"step"
+															]
+														},
+														"photo": {
+															"type": [
+																"string",
+																"null"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text",
+														"photo"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"title": {
+												"type": "string"
+											},
+											"yield": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": "string"
+													},
+													"noun": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"amount",
+													"noun"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"title",
+											"yield",
+											"prep_time_minutes",
+											"cook_time_minutes",
+											"note",
+											"main_photo",
+											"source",
+											"nutrition",
+											"ingredients",
+											"steps"
+										],
+										"type": "object"
+									},
+									"promotion_declined": {
+										"type": "boolean"
+									},
+									"version_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"version_id",
+									"content",
+									"against",
+									"promotion_declined"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
 							"cooking_yield": {
 								"additionalProperties": false,
 								"properties": {
@@ -8799,7 +9839,8 @@ export const CATALOGUE = [
 							"resumable",
 							"created_at",
 							"last_action_at",
-							"photographs"
+							"photographs",
+							"as_cooked"
 						],
 						"type": "object"
 					},
@@ -11973,6 +13014,353 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"against": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"promotion_declined": {
+							"type": "boolean"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"version_id",
+						"content",
+						"against",
+						"promotion_declined"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"cooking_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -12069,7 +13457,8 @@ export const CATALOGUE = [
 				"resumable",
 				"created_at",
 				"last_action_at",
-				"photographs"
+				"photographs",
+				"as_cooked"
 			],
 			"type": "object"
 		}
@@ -12124,6 +13513,353 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"against": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"promotion_declined": {
+							"type": "boolean"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"version_id",
+						"content",
+						"against",
+						"promotion_declined"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"cooking_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -12220,7 +13956,8 @@ export const CATALOGUE = [
 				"resumable",
 				"created_at",
 				"last_action_at",
-				"photographs"
+				"photographs",
+				"as_cooked"
 			],
 			"type": "object"
 		}
@@ -12272,6 +14009,353 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"against": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"promotion_declined": {
+							"type": "boolean"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"version_id",
+						"content",
+						"against",
+						"promotion_declined"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"cooking_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -12368,7 +14452,8 @@ export const CATALOGUE = [
 				"resumable",
 				"created_at",
 				"last_action_at",
-				"photographs"
+				"photographs",
+				"as_cooked"
 			],
 			"type": "object"
 		}
@@ -12420,6 +14505,353 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"as_cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"against": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"promotion_declined": {
+							"type": "boolean"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"version_id",
+						"content",
+						"against",
+						"promotion_declined"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
 				"cooking_yield": {
 					"additionalProperties": false,
 					"properties": {
@@ -12516,7 +14948,8 @@ export const CATALOGUE = [
 				"resumable",
 				"created_at",
 				"last_action_at",
-				"photographs"
+				"photographs",
+				"as_cooked"
 			],
 			"type": "object"
 		}
@@ -12651,6 +15084,1198 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "set_as_cooked",
+		"summary": "Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"cook_time_minutes": {
+							"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+							"type": [
+								"integer",
+								"null"
+							]
+						},
+						"ingredients": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"kind": {
+										"enum": [
+											"section",
+											"ingredient"
+										]
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"main_photo": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"note": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"nutrition": {
+							"additionalProperties": false,
+							"properties": {
+								"basis": {
+									"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+									"enum": [
+										"per_serving",
+										"per_100g"
+									]
+								},
+								"calories": {
+									"description": "Calories, zero or more.",
+									"minimum": 0,
+									"type": "number"
+								}
+							},
+							"required": [
+								"calories",
+								"basis"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"prep_time_minutes": {
+							"description": "Whole minutes of active preparation.",
+							"type": [
+								"integer",
+								"null"
+							]
+						},
+						"source": {
+							"additionalProperties": false,
+							"properties": {
+								"link": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"text": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"text",
+								"link"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
+						"steps": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"kind": {
+										"enum": [
+											"section",
+											"step"
+										]
+									},
+									"photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"title": {
+							"type": "string"
+						},
+						"yield": {
+							"additionalProperties": false,
+							"properties": {
+								"amount": {
+									"type": "string"
+								},
+								"noun": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"amount",
+								"noun"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"title"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"attempt_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"attempt_id",
+				"as_cooked"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"against": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"promotion_declined": {
+							"type": "boolean"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"version_id",
+						"content",
+						"against",
+						"promotion_declined"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"cooking_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"created_at": {
+					"type": "string"
+				},
+				"current_step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"finished_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_action_at": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"person_id": {
+					"type": "string"
+				},
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"rating": {
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"resumable": {
+					"type": "boolean"
+				},
+				"ticked_ingredients": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"lineage_id",
+				"person_id",
+				"version_id",
+				"current_step_index",
+				"ticked_ingredients",
+				"cooking_yield",
+				"note",
+				"rating",
+				"finished_at",
+				"resumable",
+				"created_at",
+				"last_action_at",
+				"photographs",
+				"as_cooked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "decline_promotion",
+		"summary": "Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"type": "string"
+				},
+				"declined": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"attempt_id",
+				"declined"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"as_cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"against": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"from_branch_point": {
+												"type": "boolean"
+											},
+											"kind": {
+												"type": "string"
+											},
+											"mine": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"state": {
+												"enum": [
+													"same",
+													"changed",
+													"only-mine",
+													"only-theirs"
+												]
+											},
+											"theirs": {
+												"additionalProperties": false,
+												"properties": {
+													"index": {
+														"type": "integer"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"index"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"kind",
+											"state",
+											"from_branch_point",
+											"mine",
+											"theirs"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"promotion_declined": {
+							"type": "boolean"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"version_id",
+						"content",
+						"against",
+						"promotion_declined"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"cooking_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"created_at": {
+					"type": "string"
+				},
+				"current_step_index": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"finished_at": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"id": {
+					"type": "string"
+				},
+				"last_action_at": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"person_id": {
+					"type": "string"
+				},
+				"photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"rating": {
+					"enum": [
+						"again",
+						"tweak",
+						"no",
+						null
+					],
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"resumable": {
+					"type": "boolean"
+				},
+				"ticked_ingredients": {
+					"items": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"type": "array"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"lineage_id",
+				"person_id",
+				"version_id",
+				"current_step_index",
+				"ticked_ingredients",
+				"cooking_yield",
+				"note",
+				"rating",
+				"finished_at",
+				"resumable",
+				"created_at",
+				"last_action_at",
+				"photographs",
+				"as_cooked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "promote_as_cooked",
+		"summary": "Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch belonging to another Kitchen becomes a Copy. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"type": "string"
+				},
+				"branch_id": {
+					"description": "Which Branch of the cooked Lineage to promote into. An Attempt belongs to a Lineage rather than a Branch, so this says where the words land.",
+					"type": "string"
+				},
+				"change_note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"attempt_id",
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"collapsed": {
+					"type": "boolean"
+				},
+				"copied": {
+					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+					"type": "boolean"
+				},
+				"language": {
+					"description": "The Language this recipe still carries. A save never changes it.",
+					"type": "string"
+				},
+				"language_offer": {
+					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"parent_version_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				},
+				"translates_version_id": {
+					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id",
+				"parent_version_id",
+				"sequence",
+				"collapsed",
+				"copied",
+				"language",
+				"language_offer",
+				"translates_version_id"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "get_current_attempt",
 		"summary": "Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered.",
 		"permission": "person",
@@ -12673,6 +16298,353 @@ export const CATALOGUE = [
 				"attempt": {
 					"additionalProperties": false,
 					"properties": {
+						"as_cooked": {
+							"additionalProperties": false,
+							"properties": {
+								"against": {
+									"additionalProperties": false,
+									"properties": {
+										"ingredients": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"from_branch_point": {
+														"type": "boolean"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"mine": {
+														"additionalProperties": false,
+														"properties": {
+															"index": {
+																"type": "integer"
+															},
+															"kind": {
+																"type": "string"
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text",
+															"index"
+														],
+														"type": [
+															"object",
+															"null"
+														]
+													},
+													"state": {
+														"enum": [
+															"same",
+															"changed",
+															"only-mine",
+															"only-theirs"
+														]
+													},
+													"theirs": {
+														"additionalProperties": false,
+														"properties": {
+															"index": {
+																"type": "integer"
+															},
+															"kind": {
+																"type": "string"
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text",
+															"index"
+														],
+														"type": [
+															"object",
+															"null"
+														]
+													}
+												},
+												"required": [
+													"kind",
+													"state",
+													"from_branch_point",
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"steps": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"from_branch_point": {
+														"type": "boolean"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"mine": {
+														"additionalProperties": false,
+														"properties": {
+															"index": {
+																"type": "integer"
+															},
+															"kind": {
+																"type": "string"
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text",
+															"index"
+														],
+														"type": [
+															"object",
+															"null"
+														]
+													},
+													"state": {
+														"enum": [
+															"same",
+															"changed",
+															"only-mine",
+															"only-theirs"
+														]
+													},
+													"theirs": {
+														"additionalProperties": false,
+														"properties": {
+															"index": {
+																"type": "integer"
+															},
+															"kind": {
+																"type": "string"
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text",
+															"index"
+														],
+														"type": [
+															"object",
+															"null"
+														]
+													}
+												},
+												"required": [
+													"kind",
+													"state",
+													"from_branch_point",
+													"mine",
+													"theirs"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										}
+									},
+									"required": [
+										"ingredients",
+										"steps"
+									],
+									"type": "object"
+								},
+								"content": {
+									"additionalProperties": false,
+									"properties": {
+										"cook_time_minutes": {
+											"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+											"type": [
+												"integer",
+												"null"
+											]
+										},
+										"ingredients": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"kind": {
+														"enum": [
+															"section",
+															"ingredient"
+														]
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"note": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"nutrition": {
+											"additionalProperties": false,
+											"properties": {
+												"basis": {
+													"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+													"enum": [
+														"per_serving",
+														"per_100g"
+													]
+												},
+												"calories": {
+													"description": "Calories, zero or more.",
+													"minimum": 0,
+													"type": "number"
+												}
+											},
+											"required": [
+												"calories",
+												"basis"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"prep_time_minutes": {
+											"description": "Whole minutes of active preparation.",
+											"type": [
+												"integer",
+												"null"
+											]
+										},
+										"source": {
+											"additionalProperties": false,
+											"properties": {
+												"link": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"text",
+												"link"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"steps": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"kind": {
+														"enum": [
+															"section",
+															"step"
+														]
+													},
+													"photo": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"kind",
+													"text",
+													"photo"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"title": {
+											"type": "string"
+										},
+										"yield": {
+											"additionalProperties": false,
+											"properties": {
+												"amount": {
+													"type": "string"
+												},
+												"noun": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"amount",
+												"noun"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"title",
+										"yield",
+										"prep_time_minutes",
+										"cook_time_minutes",
+										"note",
+										"main_photo",
+										"source",
+										"nutrition",
+										"ingredients",
+										"steps"
+									],
+									"type": "object"
+								},
+								"promotion_declined": {
+									"type": "boolean"
+								},
+								"version_id": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"version_id",
+								"content",
+								"against",
+								"promotion_declined"
+							],
+							"type": [
+								"object",
+								"null"
+							]
+						},
 						"cooking_yield": {
 							"additionalProperties": false,
 							"properties": {
@@ -12769,7 +16741,8 @@ export const CATALOGUE = [
 						"resumable",
 						"created_at",
 						"last_action_at",
-						"photographs"
+						"photographs",
+						"as_cooked"
 					],
 					"type": [
 						"object",
@@ -12800,6 +16773,353 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"as_cooked": {
+								"additionalProperties": false,
+								"properties": {
+									"against": {
+										"additionalProperties": false,
+										"properties": {
+											"ingredients": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"from_branch_point": {
+															"type": "boolean"
+														},
+														"kind": {
+															"type": "string"
+														},
+														"mine": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														},
+														"state": {
+															"enum": [
+																"same",
+																"changed",
+																"only-mine",
+																"only-theirs"
+															]
+														},
+														"theirs": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														}
+													},
+													"required": [
+														"kind",
+														"state",
+														"from_branch_point",
+														"mine",
+														"theirs"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"steps": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"from_branch_point": {
+															"type": "boolean"
+														},
+														"kind": {
+															"type": "string"
+														},
+														"mine": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														},
+														"state": {
+															"enum": [
+																"same",
+																"changed",
+																"only-mine",
+																"only-theirs"
+															]
+														},
+														"theirs": {
+															"additionalProperties": false,
+															"properties": {
+																"index": {
+																	"type": "integer"
+																},
+																"kind": {
+																	"type": "string"
+																},
+																"text": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"kind",
+																"text",
+																"index"
+															],
+															"type": [
+																"object",
+																"null"
+															]
+														}
+													},
+													"required": [
+														"kind",
+														"state",
+														"from_branch_point",
+														"mine",
+														"theirs"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											}
+										},
+										"required": [
+											"ingredients",
+											"steps"
+										],
+										"type": "object"
+									},
+									"content": {
+										"additionalProperties": false,
+										"properties": {
+											"cook_time_minutes": {
+												"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"ingredients": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"ingredient"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"main_photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"note": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"nutrition": {
+												"additionalProperties": false,
+												"properties": {
+													"basis": {
+														"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+														"enum": [
+															"per_serving",
+															"per_100g"
+														]
+													},
+													"calories": {
+														"description": "Calories, zero or more.",
+														"minimum": 0,
+														"type": "number"
+													}
+												},
+												"required": [
+													"calories",
+													"basis"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"prep_time_minutes": {
+												"description": "Whole minutes of active preparation.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"source": {
+												"additionalProperties": false,
+												"properties": {
+													"link": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"text",
+													"link"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"steps": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"step"
+															]
+														},
+														"photo": {
+															"type": [
+																"string",
+																"null"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text",
+														"photo"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"title": {
+												"type": "string"
+											},
+											"yield": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": "string"
+													},
+													"noun": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"amount",
+													"noun"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"title",
+											"yield",
+											"prep_time_minutes",
+											"cook_time_minutes",
+											"note",
+											"main_photo",
+											"source",
+											"nutrition",
+											"ingredients",
+											"steps"
+										],
+										"type": "object"
+									},
+									"promotion_declined": {
+										"type": "boolean"
+									},
+									"version_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"version_id",
+									"content",
+									"against",
+									"promotion_declined"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
 							"cooking_yield": {
 								"additionalProperties": false,
 								"properties": {
@@ -12916,6 +17236,7 @@ export const CATALOGUE = [
 							"created_at",
 							"last_action_at",
 							"photographs",
+							"as_cooked",
 							"recipe"
 						],
 						"type": "object"
@@ -15364,6 +19685,9 @@ export const METHOD_NAMES = {
 	edit_attempt: 'editAttempt',
 	delete_attempt: 'deleteAttempt',
 	promote_attempt_photograph: 'promoteAttemptPhotograph',
+	set_as_cooked: 'setAsCooked',
+	decline_promotion: 'declinePromotion',
+	promote_as_cooked: 'promoteAsCooked',
 	get_current_attempt: 'getCurrentAttempt',
 	list_attempts: 'listAttempts',
 	get_shopping_list: 'getShoppingList',
@@ -15516,6 +19840,12 @@ export interface KamosuClient {
 	deleteAttempt(input: DeleteAttemptInput): Promise<Answer<'delete_attempt'>>;
 	/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch belongs to another Kitchen. The Attempt keeps the picture too; promoting is not moving. */
 	promoteAttemptPhotograph(input: PromoteAttemptPhotographInput): Promise<Answer<'promote_attempt_photograph'>>;
+	/** Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
+	setAsCooked(input: SetAsCookedInput): Promise<Answer<'set_as_cooked'>>;
+	/** Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
+	declinePromotion(input: DeclinePromotionInput): Promise<Answer<'decline_promotion'>>;
+	/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch belonging to another Kitchen becomes a Copy. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+	promoteAsCooked(input: PromoteAsCookedInput): Promise<Answer<'promote_as_cooked'>>;
 	/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;
 	/** The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */

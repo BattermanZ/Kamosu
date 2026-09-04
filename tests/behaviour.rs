@@ -13750,3 +13750,917 @@ async fn scaling_the_outer_recipe_carries_into_how_much_of_the_component_is_want
         "nothing to say beneath a line that is already what it should be"
     );
 }
+
+// --- The As Cooked, and Promotion (#58, ADR 0005) ----------------------------
+//
+// An Attempt that deviated holds a COMPLETE RECIPE STATE, not a record of
+// differences. Everything below is that sentence in various lights: the words
+// stored are ordinary Ingredient Lines and ordinary Step text, the whole recipe
+// is there whether or not a line changed, and Promotion is an ordinary save
+// rather than a mechanism of its own.
+
+/// The Katsu Curry of `recipe_ready_to_cook`, exactly as written. Whatever a
+/// test does to a clone of this is the deviation, and nothing else is.
+fn katsu_as_written() -> Value {
+    json!({
+        "title": "Katsu Curry",
+        "ingredients": [
+            { "kind": "ingredient", "text": "2 escalopes de poulet" },
+            { "kind": "ingredient", "text": "200 g de riz" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Paner les escalopes" },
+            { "kind": "step", "text": "Frire jusqu'à dorer" },
+            { "kind": "step", "text": "Servir avec le riz" },
+        ],
+    })
+}
+
+/// Start cooking the Katsu Curry and hand back the Attempt's id.
+fn cooking_katsu(app: &support::TestApp, key: &str, branch_id: &str) -> String {
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    started["result"]["id"].as_str().unwrap().to_string()
+}
+
+/// Age a Branch's head out of the one-hour collapse window, so the next save
+/// appends a Version instead of folding into the one being shaped.
+///
+/// A promotion in real life happens hours after the cooking, or days; a test
+/// does the whole thing in milliseconds, and would otherwise be measuring the
+/// collapse window rather than Promotion. The same trick as
+/// `backdate_attempt_action` next door, on the other clock that matters.
+fn age_branch_head(app: &support::TestApp, branch_id: &str) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branch_versions \
+                    SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours') \
+                  WHERE branch_id = ?1",
+                rusqlite::params![branch_id],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("age the Branch head");
+}
+
+/// How many `versions` rows no Branch's chain names — an As Cooked is exactly
+/// such a row, so this counts them without knowing how one is stored.
+fn versions_on_no_branch(app: &support::TestApp) -> i64 {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM versions WHERE id NOT IN \
+                 (SELECT version_id FROM branch_versions)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cooking_as_written_stores_no_as_cooked_at_all() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // A screen that helpfully posts the whole recipe back unchanged must not
+    // create anything. The fingerprint says this is the Version already cooked.
+    let (status, answered) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": katsu_as_written() }).to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(
+        answered["result"]["as_cooked"],
+        json!(null),
+        "cooked as written is not a deviation, however it was sent"
+    );
+    assert_eq!(
+        versions_on_no_branch(&app),
+        0,
+        "the common case stores no state whatever"
+    );
+
+    // And explicitly saying so is the same answer.
+    let (_, cleared) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": null }).to_string(),
+    );
+    assert_eq!(cleared["result"]["as_cooked"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_as_cooked_is_a_whole_recipe_of_words_rather_than_a_diff() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // One amount rewritten, one step reworded. Everything else untouched.
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    cooked["steps"][1]["text"] = json!("Frire jusqu'à dorer, cinq minutes de plus");
+
+    let (status, answered) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+    let as_cooked = &answered["result"]["as_cooked"];
+
+    // The deviations are ordinary written lines, in the recipe's own shape —
+    // there is no second, structured vocabulary for "what changed" (ADR 0002).
+    let content = &as_cooked["content"];
+    assert_eq!(content["ingredients"][1]["text"], json!("150 g de riz"));
+    assert_eq!(
+        content["steps"][1]["text"],
+        json!("Frire jusqu'à dorer, cinq minutes de plus")
+    );
+
+    // And the lines nobody touched are there too, which is the whole point:
+    // this is a recipe you could stand in, not a list of differences.
+    assert_eq!(
+        content["ingredients"][0]["text"],
+        json!("2 escalopes de poulet")
+    );
+    assert_eq!(content["steps"][0]["text"], json!("Paner les escalopes"));
+    assert_eq!(content["steps"][2]["text"], json!("Servir avec le riz"));
+    assert_eq!(content["title"], json!("Katsu Curry"));
+
+    // Structurally identical to a Version, and named the same way — but on no
+    // Branch, which is the only difference there is (ADR 0005).
+    assert!(as_cooked["version_id"].as_str().unwrap().starts_with("v_"));
+    assert_eq!(
+        versions_on_no_branch(&app),
+        1,
+        "an As Cooked is a Version that never joined a Branch"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_as_cooked_can_add_a_line_drop_one_and_grow_a_step() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // Threw in a bay leaf, skipped the rice, and the method grew a stage.
+    // None of these is expressible as "this line, this new amount", which is
+    // exactly why the As Cooked holds a whole recipe.
+    let cooked = json!({
+        "title": "Katsu Curry",
+        "ingredients": [
+            { "kind": "ingredient", "text": "2 escalopes de poulet" },
+            { "kind": "ingredient", "text": "1 feuille de laurier" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Paner les escalopes" },
+            { "kind": "step", "text": "Laisser reposer la panure vingt minutes" },
+            { "kind": "step", "text": "Frire jusqu'à dorer" },
+            { "kind": "step", "text": "Servir avec le riz" },
+        ],
+    });
+
+    let (status, answered) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+    let content = &answered["result"]["as_cooked"]["content"];
+
+    assert_eq!(
+        content["ingredients"].as_array().unwrap().len(),
+        2,
+        "the rice was dropped and a bay leaf added"
+    );
+    assert_eq!(
+        content["ingredients"][1]["text"],
+        json!("1 feuille de laurier")
+    );
+    assert_eq!(
+        content["steps"].as_array().unwrap().len(),
+        4,
+        "a step was inserted before the frying"
+    );
+    assert_eq!(
+        content["steps"][1]["text"],
+        json!("Laisser reposer la panure vingt minutes")
+    );
+
+    // The recipe itself has not moved an inch. Recording a cooking never
+    // changes what the author wrote.
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let head = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(head["content"]["ingredients"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        head["content"]["ingredients"][1]["text"],
+        json!("200 g de riz")
+    );
+    assert_eq!(head["content"]["steps"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn promotion_makes_an_ordinary_version_and_mints_no_new_identity() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    let as_cooked_version_id = deviated["result"]["as_cooked"]["version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Hours later, at the kitchen table.
+    age_branch_head(&app, &branch_id);
+
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+
+    // Nothing was minted: the As Cooked's fingerprint IS the new Version's id.
+    assert_eq!(
+        promoted["result"]["version_id"],
+        json!(as_cooked_version_id),
+        "promotion mints no new identity — the fingerprint already named this"
+    );
+    assert_eq!(promoted["result"]["branch_id"], json!(branch_id));
+    assert_eq!(
+        promoted["result"]["copied"],
+        json!(false),
+        "promoting into your own Kitchen's Branch is an ordinary save"
+    );
+
+    // The recipe now reads as it was cooked, with no retyping anywhere.
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        recipe["result"]["head_version_id"],
+        json!(as_cooked_version_id)
+    );
+    let head = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        head["content"]["ingredients"][1]["text"],
+        json!("150 g de riz")
+    );
+
+    // The Version joined the Branch — which is the whole of how "already
+    // promoted" is answered, with no flag anywhere to disagree with the chain.
+    assert_eq!(versions_on_no_branch(&app), 0);
+    assert_eq!(
+        recipe["result"]["versions"].as_array().unwrap().len(),
+        2,
+        "an appended Version, not a rewritten one"
+    );
+
+    // And the cooking is untouched: it still says which Version it cooked.
+    let (_, after) = app.post_op("list_attempts", Some(&key), &json!({}).to_string());
+    let entry = &after["result"]["attempts"][0];
+    assert_eq!(entry["id"], json!(attempt_id));
+    assert_ne!(
+        entry["version_id"],
+        json!(as_cooked_version_id),
+        "the Attempt goes on pinning to the Version that was on screen at the time"
+    );
+    assert_eq!(
+        entry["as_cooked"]["version_id"],
+        json!(as_cooked_version_id),
+        "promoting is not moving: the cooking keeps its own record"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn promoting_a_cooking_of_an_older_version_appends_rather_than_merging() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // The cook deviates on Tuesday's text...
+    let mut cooked = katsu_as_written();
+    cooked["steps"][2]["text"] = json!("Servir avec le riz et du chou râpé");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    let as_cooked_version_id = deviated["result"]["as_cooked"]["version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // ...and meanwhile the recipe itself moves on.
+    age_branch_head(&app, &branch_id);
+    let mut edited = katsu_as_written();
+    edited["branch_id"] = json!(branch_id);
+    edited["title"] = json!("Katsu Curry maison");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edited.to_string());
+    assert_eq!(status, 200, "{saved}");
+    let moved_on = saved["result"]["version_id"].as_str().unwrap().to_string();
+
+    age_branch_head(&app, &branch_id);
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+
+    // It is a Version, appended onto where the Branch stands now — not a merge.
+    assert_eq!(
+        promoted["result"]["parent_version_id"],
+        json!(moved_on),
+        "promotion appends onto the current head, whatever Version was cooked"
+    );
+    assert_eq!(
+        promoted["result"]["version_id"],
+        json!(as_cooked_version_id)
+    );
+
+    // Nothing was combined: the promoted text is the cook's, whole, and the
+    // title the recipe gained meanwhile is simply gone — which is what "a
+    // Version, not a merge" means (ADR 0004).
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let head = recipe["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        head["content"]["steps"][2]["text"],
+        json!("Servir avec le riz et du chou râpé")
+    );
+    assert_eq!(
+        head["content"]["title"],
+        json!("Katsu Curry"),
+        "the whole state the cook cooked is what lands — nothing is reconciled"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn promoting_a_cooking_that_deviated_from_nothing_is_refused() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    let (status, refused) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(refused["ok"], json!(false));
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("cooked as written"),
+        "{refused}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_read_only_access_key_can_neither_write_an_as_cooked_nor_promote_one() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    let person = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT person_id FROM attempts WHERE id = ?1",
+                rusqlite::params![attempt_id],
+                |r| r.get::<_, String>(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    let read_only = app
+        .core
+        .mint_access_key(&person, "read-only agent", true)
+        .unwrap()
+        .secret;
+
+    // The refusal comes from the Catalogue's `write: true`, in the Core, before
+    // either Operation runs — so it reads the same as every other write a
+    // read-only Key is refused, and neither of these had to remember it.
+    let (status, refused) = app.post_op(
+        "set_as_cooked",
+        Some(&read_only),
+        &json!({ "attempt_id": attempt_id, "as_cooked": katsu_as_written() }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("read-only Access Key"),
+        "{refused}"
+    );
+
+    let (status, refused) = app.post_op(
+        "promote_as_cooked",
+        Some(&read_only),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_as_cooked_is_read_against_the_version_cooked_by_the_one_pairing() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // One line rewritten, one dropped, one added, and a step inserted.
+    let cooked = json!({
+        "title": "Katsu Curry",
+        "ingredients": [
+            { "kind": "ingredient", "text": "3 escalopes de poulet" },
+            { "kind": "ingredient", "text": "1 feuille de laurier" },
+        ],
+        "steps": [
+            { "kind": "step", "text": "Paner les escalopes" },
+            { "kind": "step", "text": "Laisser reposer la panure vingt minutes" },
+            { "kind": "step", "text": "Frire jusqu'à dorer" },
+            { "kind": "step", "text": "Servir avec le riz" },
+        ],
+    });
+    let (status, answered) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+
+    // The reading is the Core's, by the same Pairing two Branches use — no
+    // screen anywhere works out which line became which (ADR 0019).
+    let against = &answered["result"]["as_cooked"]["against"];
+    let states = |rows: &Value| -> Vec<String> {
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["state"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    // The added line sits where the cook put it — anchored after the escalopes
+    // it follows — and the dropped one is a Ghost in the position it held in
+    // the recipe. That ordering is the Pairing's, not this ticket's.
+    assert_eq!(
+        states(&against["ingredients"]),
+        vec!["changed", "only-theirs", "only-mine"],
+        "the escalopes were rewritten, the laurier added, the rice dropped"
+    );
+    assert_eq!(
+        states(&against["steps"]),
+        vec!["same", "only-theirs", "same", "same"],
+        "one step inserted, the other three left exactly alone"
+    );
+
+    // A dropped line is still readable, and says what it said.
+    let dropped = &against["ingredients"][2];
+    assert_eq!(dropped["mine"]["text"], json!("200 g de riz"));
+    assert_eq!(dropped["theirs"], json!(null));
+
+    // A cooking that followed the recipe has nothing to read at all.
+    let (_, cleared) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": null }).to_string(),
+    );
+    assert_eq!(cleared["result"]["as_cooked"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn promotion_keeps_the_name_a_version_was_given_and_never_un_names_it() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // A Version somebody named. Promoting inside the collapse window folds into
+    // this very Version, and a save naming nothing writes the name away — the
+    // trap `promote_attempt_photograph` records next door.
+    let mut named = katsu_as_written();
+    named["branch_id"] = json!(branch_id);
+    named["name"] = json!("Sunday version");
+    // Different words, or the save is the identical state the fingerprint
+    // already names and there is nothing to write a name onto.
+    named["steps"][2]["text"] = json!("Servir avec le riz, bien chaud");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &named.to_string());
+    assert_eq!(status, 200, "{saved}");
+    let (_, before) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        before["result"]["versions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["name"],
+        json!("Sunday version"),
+        "the Version is named before anything is promoted: {before}"
+    );
+
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_ne!(deviated["result"]["as_cooked"], json!(null), "{deviated}");
+
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(
+        promoted["result"]["collapsed"],
+        json!(true),
+        "this promotion is inside the collapse window, which is what makes the name losable"
+    );
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let head = thread["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        head["name"],
+        json!("Sunday version"),
+        "promoting a cooking must not quietly un-name the Version it folds into"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn promoting_into_another_kitchens_branch_takes_a_copy() {
+    let app = support::spawn_app();
+    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    let mut cooked = katsu_as_written();
+    cooked["steps"][0]["text"] = json!("Paner les escalopes deux fois");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    let as_cooked_version_id = deviated["result"]["as_cooked"]["version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Camille cooks Aurélien's recipe in her own Kitchen. An Attempt belongs to
+    // the Lineage, so hers is legitimate — and promoting it must not write on
+    // his Branch. `save_recipe_version` already knows this; promotion inherits
+    // the whole of an ordinary edit, Copy included.
+    let (camille, camille_key, camille_kitchen) = person_with_kitchen(&app, "Camille");
+    let _ = camille;
+    let (_, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&camille_key),
+        &json!({
+            "branch_id": branch_id,
+            "kitchen_id": camille_kitchen,
+            "title": "Katsu Curry",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 escalopes de poulet" },
+                { "kind": "ingredient", "text": "200 g de riz" },
+                { "kind": "ingredient", "text": "1 c. à s. de sauce tonkatsu" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Paner les escalopes" },
+                { "kind": "step", "text": "Frire jusqu'à dorer" },
+                { "kind": "step", "text": "Servir avec le riz" },
+            ],
+        })
+        .to_string(),
+    );
+    let hers = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_eq!(copied["result"]["copied"], json!(true), "{copied}");
+    assert_ne!(hers, branch_id);
+
+    // Aurélien promotes his own cooking into HER Branch. He does not cook in her
+    // Kitchen, so this starts a Branch of his rather than writing on hers.
+    age_branch_head(&app, &hers);
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": hers }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(
+        promoted["result"]["copied"],
+        json!(true),
+        "promoting into a Kitchen you do not cook in is a Copy, like any other edit"
+    );
+    assert_ne!(promoted["result"]["branch_id"], json!(hers));
+    assert_eq!(
+        promoted["result"]["version_id"],
+        json!(as_cooked_version_id)
+    );
+
+    // Her Branch is untouched, which is the whole point of a Copy.
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&camille_key),
+        &json!({ "branch_id": hers }).to_string(),
+    );
+    let still = thread["result"]["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|branch| branch["branch_id"] == json!(hers))
+        .expect("her Branch");
+    assert_ne!(still["head_version_id"], json!(as_cooked_version_id));
+    let _ = lineage_id;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn another_cooks_as_cooked_never_leaves_the_core() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, kitchen_id) = recipe_ready_to_cook(&app, "Aurélien");
+
+    // Camille joins the Kitchen and cooks the dish her own way, and does not
+    // finish — an In Progress Attempt is "visible to its cook alone" (ADR 0010).
+    let (camille, camille_key, _her_kitchen) = person_with_kitchen(&app, "Camille");
+    let _ = camille;
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&camille_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let hers = cooking_katsu(&app, &camille_key, &branch_id);
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][0]["text"] = json!("4 escalopes de poulet");
+    let (status, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&camille_key),
+        &json!({ "attempt_id": hers, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{deviated}");
+
+    // Aurélien reads the Thread. Her cooking is on it — an Attempt names its
+    // cook and inherits the recipe's visibility — but the words she wrote at
+    // her own stove are not.
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempts = thread["result"]["attempts"].as_array().unwrap();
+    let seen = attempts
+        .iter()
+        .find(|attempt| attempt["id"] == json!(hers))
+        .expect("her cooking is on the Thread");
+    assert_eq!(
+        seen["as_cooked"],
+        json!(null),
+        "the count and the date travel; the recipe she wrote does not"
+    );
+
+    // And she still has it, whole.
+    let (_, mine) = app.post_op(
+        "get_thread",
+        Some(&camille_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let ownself = mine["result"]["attempts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|attempt| attempt["id"] == json!(hers))
+        .expect("her own cooking");
+    assert_eq!(
+        ownself["as_cooked"]["content"]["ingredients"][0]["text"],
+        json!("4 escalopes de poulet")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_promotion_declined_stays_declined_and_keeps_what_was_cooked() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(
+        deviated["result"]["as_cooked"]["promotion_declined"],
+        json!(false),
+        "nobody has been asked yet"
+    );
+
+    let (status, declined) = app.post_op(
+        "decline_promotion",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "declined": true }).to_string(),
+    );
+    assert_eq!(status, 200, "{declined}");
+    assert_eq!(
+        declined["result"]["as_cooked"]["promotion_declined"],
+        json!(true)
+    );
+
+    // Answering the offer says nothing about what was cooked, which is the
+    // point: the diary keeps every word of it.
+    assert_eq!(
+        declined["result"]["as_cooked"]["content"]["ingredients"][1]["text"],
+        json!("150 g de riz")
+    );
+    // And it survives being read back — a question already answered, asked
+    // twice, is a nag.
+    let (_, read) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let entry = &read["result"]["attempts"][0];
+    assert_eq!(entry["as_cooked"]["promotion_declined"], json!(true));
+
+    // Changing your mind is an ordinary edit of your own Attempt (ADR 0005),
+    // and promoting after that works exactly as it would have.
+    let (_, undone) = app.post_op(
+        "decline_promotion",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "declined": false }).to_string(),
+    );
+    assert_eq!(
+        undone["result"]["as_cooked"]["promotion_declined"],
+        json!(false)
+    );
+    age_branch_head(&app, &branch_id);
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cook_who_inserted_a_step_can_stand_on_every_one_of_them() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // The recipe has three steps, so index 3 is off the end of it.
+    let (status, refused) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 3 }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    // A method that grew a stage. `current_step_index` indexes what this
+    // cooking is walking through, which is the As Cooked once there is one —
+    // otherwise the last step a cook inserted is one they cannot stand on, and
+    // the screen would put the refusal back without saying anything.
+    let mut cooked = katsu_as_written();
+    cooked["steps"] = json!([
+        { "kind": "step", "text": "Paner les escalopes" },
+        { "kind": "step", "text": "Laisser reposer la panure vingt minutes" },
+        { "kind": "step", "text": "Frire jusqu'à dorer" },
+        { "kind": "step", "text": "Servir avec le riz" },
+    ]);
+    let (status, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{deviated}");
+
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 3 }).to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+    assert_eq!(advanced["result"]["current_step_index"], json!(3));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cooking_as_written_stores_nothing_even_where_the_version_id_has_drifted() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    // A Version's id is the fingerprint of its content AT THE MOMENT IT WAS
+    // SAVED. A migration that adds a field to the content shape moves the
+    // content and leaves the id where it was — which is not hypothetical: on
+    // the dev instance 27 of 40 Versions are already in exactly this state,
+    // found by cooking a real recipe as written and watching it store one.
+    //
+    // Here that history is forced: the stored content is rewritten behind the
+    // id, the way a migration would.
+    let version_id = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT version_id FROM attempts WHERE id = ?1",
+                rusqlite::params![attempt_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let stored: String = conn
+                .query_row(
+                    "SELECT content FROM versions WHERE id = ?1",
+                    rusqlite::params![version_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            let mut content: Value = serde_json::from_str(&stored).unwrap();
+            content["a_field_a_later_migration_added"] = json!(null);
+            conn.execute(
+                "UPDATE versions SET content = ?2 WHERE id = ?1",
+                rusqlite::params![version_id, content.to_string()],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("rewrite the stored content behind its id");
+
+    // The cook cooks it exactly as written and the screen posts the recipe
+    // back. Nothing about this afternoon was a deviation, and nothing is
+    // stored — which is what makes ordinary cooking free (ADR 0005).
+    let (status, answered) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": katsu_as_written() }).to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(
+        answered["result"]["as_cooked"],
+        json!(null),
+        "a Version whose id no longer fingerprints its own content must not turn \
+         every cooking of it into a deviation"
+    );
+}
