@@ -23,6 +23,9 @@
 	import type { ListAttemptsOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
+	// PROTOTYPE — #58. THROWAWAY. Delete on merge, with $lib/prototype-58.
+	import { page } from '$app/state';
+	import Prototype58Promote from '$lib/prototype-58/PromoteInDiary.svelte';
 
 	const kamosu = useKamosu();
 
@@ -267,6 +270,11 @@
 											{/each}
 										</ul>
 									</div>
+
+									<!-- PROTOTYPE #58, TREATMENT B. THROWAWAY. -->
+									{#if page.url.searchParams.get('variant') === 'B'}
+										<Prototype58Promote branchId={entry.recipe.branch_id} />
+									{/if}
 
 									<label class="mt-3 grid gap-1 text-label text-ink-2 uppercase">
 										{m.cooked_note()}

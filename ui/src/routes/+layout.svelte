@@ -9,6 +9,8 @@
 	import { realKamosu } from '$lib/kamosu';
 	import { realAuth } from '$lib/auth';
 	import { readToken } from '$lib/tokens';
+	// PROTOTYPE — #58. THROWAWAY. Delete on merge, with $lib/prototype-58.
+	import Prototype58Switcher from '$lib/prototype-58/Switcher.svelte';
 
 	let { children } = $props();
 
@@ -103,4 +105,6 @@
 	{#if !cooking}
 		<TabBar />
 	{/if}
+	<!-- PROTOTYPE — #58. THROWAWAY. Delete on merge. -->
+	<Prototype58Switcher />
 </Kamosu>

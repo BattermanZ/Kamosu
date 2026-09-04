@@ -101,6 +101,9 @@
 	import Threshold from './Threshold.svelte';
 	import MarkedRow from './MarkedRow.svelte';
 	import Correcting from './Correcting.svelte';
+	// PROTOTYPE — #58. THROWAWAY. Delete on merge, with $lib/prototype-58.
+	import { page } from '$app/state';
+	import Prototype58Band from '$lib/prototype-58/PromoteOnRecipe.svelte';
 	import {
 		prose,
 		draftVersion,
@@ -1000,6 +1003,25 @@
 			Attempt, and one already In Progress is handed back rather than
 			doubled — so there is nothing here to press twice by mistake.
 		-->
+		<!-- PROTOTYPE #58, TREATMENT A. THROWAWAY. -->
+		{#if page.url.searchParams.get('variant') === 'A'}
+			<Prototype58Band
+				{branchId}
+				sample={{
+					ingredient: (() => {
+						const at = content.ingredients.findIndex((row) => row.kind === 'ingredient');
+						const row = at >= 0 ? content.ingredients[at] : undefined;
+						return row ? { at, text: row.text } : null;
+					})(),
+					step: (() => {
+						const at = content.steps.findIndex((row) => row.kind === 'step');
+						const row = at >= 0 ? content.steps[at] : undefined;
+						return row ? { at, text: row.text } : null;
+					})(),
+				}}
+			/>
+		{/if}
+
 		<a
 			href="/cook/{branchId}"
 			class="mx-gutter mt-6 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"
