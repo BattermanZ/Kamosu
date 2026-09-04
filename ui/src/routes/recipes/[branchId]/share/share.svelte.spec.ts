@@ -9,8 +9,58 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import ShareTestHarness from './ShareTestHarness.svelte';
 
+/**
+ * The recipe behind the share screen. It reads one to name the Components a
+ * Share Link would carry, so every test needs an answer for it — without one
+ * the stand-in throws into an unhandled rejection, `just test` exits non-zero,
+ * and the failure is invisible in the passing count. A recipe that composes
+ * nothing is the case nearly every recipe is in (#50).
+ */
+const RECIPE = {
+	branch_id: 'b_1',
+	lineage_id: 'l_1',
+	kitchen_id: 'k_1',
+	hand_id: 'h_1',
+	language: 'en',
+	origin_address: null,
+	head_version_id: 'v_1',
+	translation: null,
+	tags: [],
+	related_recipes: [],
+	cooked: { count: 0, last_cooked_at: null, ratings: [] },
+	versions: [
+		{
+			sequence: 1,
+			version_id: 'v_1',
+			parent_version_id: null,
+			hand_id: 'h_1',
+			name: null,
+			change_note: null,
+			created_at: '2026-09-01T09:00:00Z',
+			translates_version_id: null,
+			language: 'en',
+			components: [],
+			content: {
+				title: 'Chicken Katsu Curry',
+				yield: null,
+				prep_time_minutes: null,
+				cook_time_minutes: null,
+				note: null,
+				main_photo: null,
+				nutrition: null,
+				source: null,
+				ingredients: [{ kind: 'ingredient' as const, text: '1 cup panko' }],
+				steps: [{ kind: 'step' as const, text: 'Coat the chicken in panko.', photo: null }],
+			},
+			readings: [null],
+			measured: { ingredients: [null], steps: [null] },
+			cooking: { steps: [{ uses: [], timer_seconds: null }] },
+		},
+	],
+};
+
 function renderShare(answers: Answers) {
-	const kamosu = standIn(answers);
+	const kamosu = standIn({ get_recipe: RECIPE, ...answers });
 	render(ShareTestHarness, { props: { client: kamosu.client, branchId: 'b_1' } });
 	return { kamosu };
 }
