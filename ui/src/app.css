@@ -86,7 +86,10 @@
   --color-cook-ink: #f4efe3;
   --color-cook-ink-2: #9aa8c4;
   --color-cook-rule: #2c3a5c;
-  --color-cook-panel: #1d2b4c;  /* the amounts panel */
+  /* Was the amounts panel's fill until #88 took the panel's box away. It is
+     still the one indigo that sits above the room's own ground, and it now
+     paints the Pause block and the false-start sheet. */
+  --color-cook-panel: #1d2b4c;
   --color-cook-accent: #f4efe3;
   --color-cook-on-accent: #131c33;
 
@@ -106,10 +109,22 @@
   /* ── Type scale — fitted to real content, not modular ────────────────────
      Ranking is spec (ADR 0011): the Step is the largest type in the app, the
      Ingredient Line sits at full size above body, its Reading subordinate. */
-  --text-step: 33px;            /* the Step — largest type in the app */
-  --text-step--line-height: 1.34;
+  /* The Step, and the recipe title under it. Both moved by #88, together and
+     for one reason: the cooking screen ran out of vertical budget once Safari's
+     URL bar was counted, and the identity record of 26 August fitted 33px
+     against a 844px phone that does not exist. The real room on Aurélien's
+     phone is ~700px.
+
+     33 → 26 takes the share of the corpus's 579 Steps that fit without
+     scrolling from 53% to 92% on a step naming two amounts. The title follows
+     it down to 25 so that ADR 0011's ranking — the Step is the largest type in
+     the app, which that ADR records as spec — stays true rather than being
+     reopened. The record of 26 August says these sizes were fitted to content
+     rather than derived, and asked for them to be ratified; this is that. */
+  --text-step: 26px;            /* the Step — largest type in the app (#88) */
+  --text-step--line-height: 1.24; /* 1.34 before #88, tightened with the size */
   --text-step--letter-spacing: -0.015em;
-  --text-title: 27px;           /* recipe title */
+  --text-title: 25px;           /* recipe title — under the Step, by #88 */
   --text-title--line-height: 1.16;
   --text-title--letter-spacing: -0.012em;
   --text-line: 17px;            /* ingredient line — larger than body, deliberately */
@@ -343,6 +358,35 @@
   border-radius: var(--radius-sm);
 }
 
+/* A control that must be tappable but must not spend a whole 48px row saying
+   one word: 32px of ink, 48px of touch, the difference grown with a
+   pseudo-element rather than with height (#88). The cooking screen is out of
+   vertical budget, and every row it does not need is a line of the Step.
+
+   Only for a control whose neighbours are far enough away that a 16px overhang
+   cannot swallow their taps — the overhang is invisible and will win a hit
+   test against anything it covers. */
+@utility tap-out {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+/* The last of a Step that has more below it, fading into the room's own ground
+   (#88). The identity record of 26 August measured that roughly a fifth of the
+   corpus's Steps would scroll at any size in its range and said the design must
+   make scrolling feel intended rather than pretend it will not happen; a line
+   sliced in half by the edge of its box is the pretending. Drawn over the text
+   rather than as a mask on it, so the words underneath stay selectable and stay
+   readable to a screen reader. */
+@utility step-fade {
+  height: 28px;
+  background: linear-gradient(to bottom, transparent, var(--color-cook-ground));
+}
+
 /* The room every screen leaves for the tab bar, which is fixed over it: the
    bar's own height, its safe-area padding, and a step of air. Named once so a
    screen never guesses a number, and so changing the bar changes every screen. */
@@ -364,9 +408,12 @@
    is readable over a photograph whose colours nobody chose (#81).
 
    Its height and stops are fitted, not chosen by eye: over the worst backdrop
-   a photograph can be — pure white — kinari must clear 3:1 at the 27px title
-   and 4.5:1 at the 10.5px Source line above it. A shorter wash left the Source
-   at 3.5:1. Starting it higher, rather than making it darker, buys the
+   a photograph can be — pure white — kinari must clear 3:1 at the title and
+   4.5:1 at the 10.5px Source line above it. A shorter wash left the Source at
+   3.5:1. The title was 27px when this was fitted and is 25px since #88; the
+   threshold did not move with it, because WCAG counts anything from 18.66px at
+   weight 600 as large text and the title is 600, so 3:1 still applies and the
+   fitting still holds. Starting it higher, rather than making it darker, buys the
    contrast while keeping the fade as gentle at any given point as it was.
 
    It lived in `Recipe.svelte`'s scoped style until #65, which gave the Share

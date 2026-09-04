@@ -46,7 +46,6 @@
   "cook_false_start_yes": "Jeter",
   "cook_finish": "Terminer",
   "cook_finished": "C’est cuisiné. Ajoutez une note ou un avis dans le journal quand vous voulez.",
-  "cook_for_this_step": "Pour cette étape",
   "cook_hours": "{hours} h",
   "cook_hours_minutes": "{hours} h {minutes} min",
   "cook_insert_step": "Insérer une étape avant celle-ci",

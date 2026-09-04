@@ -5,19 +5,30 @@
 	It is used at arm's length, with wet hands, on a phone propped against
 	something — which is the whole of why it is shaped like this:
 
-	  · the Step's text is the LARGEST TYPE IN THE APP (`text-step`, 33px), and
+	  · the Step's text is the LARGEST TYPE IN THE APP (`text-step`, 26px), and
 	    it is the only thing on screen that scrolls;
-	  · above it, a panel carrying ONLY the Ingredients this step uses. Not the
-	    list, not a filter over the list — the two or three lines that matter
-	    now. A step that adds nothing says so in words rather than showing an
-	    empty box;
+	  · above it, ONLY the Ingredients this step uses. Not the list, not a
+	    filter over the list — the two or three lines that matter now, on the
+	    room's own ground with a hairline under them. A step that adds nothing
+	    says so in words rather than showing an empty box;
 	  · the ground turns indigo. Standing at the stove is another room, and it
 	    is the one place in Kamosu where that is true;
 	  · THERE IS NO TAB BAR HERE. The layout hides it on this route, so no tap
-	    near the bottom of a wet phone can land you in Shopping. Leaving is one
-	    deliberate control, at the top, and it costs nothing — stopping is just
-	    stopping (ADR 0010), the Attempt stays In Progress and Kamosu offers to
-	    resume for three days.
+	    near the bottom of a wet phone can land you in Shopping. The foot of
+	    the screen is Back and Next and NOTHING ELSE (#88), so the only thing a
+	    wet thumb can reach there is a way through the recipe.
+
+	HOW MUCH ROOM ANY OF IT GETS WAS SETTLED BY MEASUREMENT, NOT BY EYE (#88).
+	The screen is used in Safari with its URL bar on show, which leaves about
+	700px on the phone this was fitted to — not the 844px a headless browser
+	reports. Everything about this room's spacing was re-fitted against the real
+	579 Steps of the Crouton export at that height: 53% of Steps naming two
+	amounts used to fit without scrolling, and 92% do now. Before moving a
+	number here, measure it at 700px against real Steps.
+
+	EVERY CONTROL A WET THUMB MUST HIT IS 48px OF TOUCH. Some of them are only
+	32px of ink — `tap-out` grows the hit box with a pseudo-element instead of
+	with height, because a row this screen does not need is a line of the Step.
 
 	WHICH INGREDIENTS THIS STEP USES IS NOT DECIDED HERE. The Core works it out
 	from their Readings and serves it as `version.cooking.steps[i].uses` — a
@@ -79,6 +90,28 @@
 	let discarding = $state(false);
 	let discarded = $state(false);
 
+	/**
+	 * The Step's own element, and whether its text is taller than the box it was
+	 * given. Read from the DOM rather than predicted, because how many lines a
+	 * sentence takes depends on the font, the width and the phone (#88).
+	 */
+	let stepEl = $state<HTMLElement | undefined>(undefined);
+	let stepScrolls = $state(false);
+
+	/**
+	 * The false-start dialog, so that opening it moves the focus into it.
+	 *
+	 * It has to: #88 moved the control that opens it up into the header, while
+	 * the dialog itself is still the last thing in the document. Without this a
+	 * keyboard or a screen reader would leave the trigger, walk the amounts, the
+	 * Step, Back and Next, and only then arrive at a confirmation it had already
+	 * asked for.
+	 */
+	let discardDialog = $state<HTMLElement | undefined>(undefined);
+	$effect(() => {
+		if (discarding) discardDialog?.focus();
+	});
+
 	$effect(() => {
 		let current = true;
 		void (async () => {
@@ -105,6 +138,42 @@
 	$effect(() => {
 		awake.start();
 		return () => awake.stop();
+	});
+
+	/**
+	 * Whether the Step overflows the box it was given.
+	 *
+	 * The text is read as a dependency and not just the element: Svelte reuses
+	 * the same paragraph from one step to the next, so an effect watching only
+	 * the element would measure the first Step and then never look again. What
+	 * changes the answer is the sentence, whether the screen is in writing mode,
+	 * and how tall the amounts above it are — hence all three are read — plus
+	 * turning the phone, which `resize` covers.
+	 *
+	 * Deliberately NOT a ResizeObserver. The screen tests run in jsdom, whose
+	 * setup stubs nothing a screen could come to rely on by accident, and a fade
+	 * is an enhancement: it must not be the reason this component cannot mount.
+	 */
+	$effect(() => {
+		const element = stepEl;
+		// read, so the effect re-runs when any of them moves
+		void here?.row.text;
+		void writing;
+		void amounts.length;
+		void writeFailed;
+		if (!element) {
+			stepScrolls = false;
+			return;
+		}
+		const measure = () => {
+			// A few pixels of slack: sub-pixel line heights make a Step that fits
+			// report a pixel of overflow, and a fade over a Step that fits is
+			// exactly the greyed-out last line this exists to avoid.
+			stepScrolls = element.scrollHeight > element.clientHeight + 8;
+		};
+		measure();
+		window.addEventListener('resize', measure);
+		return () => window.removeEventListener('resize', measure);
 	});
 
 	onDestroy(() => countdown.dispose());
@@ -426,15 +495,22 @@
 	}
 
 	/**
-	 * What is being cooked, and how much of it — the Attempt's own Yield where
-	 * one was set, and otherwise the recipe as written. Built as one string
-	 * rather than inline markup so the spacing around the separator cannot
-	 * depend on how a formatter happened to break the lines.
+	 * HOW MUCH is being cooked — the Attempt's own Yield where one was set, and
+	 * otherwise the recipe as written.
+	 *
+	 * This used to carry the recipe's title in front of it. #88 took the title
+	 * off this screen: at 430px it truncated to `Katsu Curry (Japanese Curry
+	 * with Chicken C…`, which told a cook nothing they did not already know, and
+	 * the row it freed is what let the false start and the screen's sleep leave
+	 * the bottom edge. The Yield stayed, because it is short and because it is
+	 * the number every amount on this screen was scaled to — dropping it would
+	 * leave `800 ml` on screen with nothing saying 800 ml of what quantity of
+	 * dish. Built as one string so the spacing cannot depend on how a formatter
+	 * happened to break the lines.
 	 */
-	const heading = $derived.by(() => {
-		const title = content?.title ?? '';
+	const cookingYield = $derived.by(() => {
 		const cooking = attempt?.cooking_yield ?? content?.yield ?? null;
-		return cooking ? `${title} · ${cooking.amount} ${cooking.noun}` : title;
+		return cooking ? `${cooking.amount} ${cooking.noun}` : null;
 	});
 
 	// ---- the timer --------------------------------------------------------
@@ -456,7 +532,9 @@
 	});
 </script>
 
-<div class="fixed inset-0 z-30 flex flex-col bg-cook-ground px-gutter pb-safe text-cook-ink">
+<div
+	class="fixed inset-0 z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink"
+>
 	{#if failed}
 		<p class="pt-8 text-body text-cook-ink-2" role="alert">{m.cook_failed()}</p>
 	{:else if !content || !attempt}
@@ -520,22 +598,73 @@
 			{/each}
 		</div>
 
-		<header class="flex shrink-0 items-center gap-3 pb-4 text-read text-cook-ink-2">
+		<!--
+			EVERYTHING ABOUT THE SESSION IS ON THIS ONE ROW (#88), and the recipe's
+			name is not: at 430px it was truncated to `Katsu Curry (Japanese Curry
+			with Chicken C…`, which told a cook nothing they did not already know.
+			Giving up those characters is what lets the false start and the screen's
+			sleep come up here — and that removes a whole 48px row from the foot of
+			the screen, where a wet thumb was landing on them.
+
+			THREE WAYS TO STOP, and they mean different things. PAUSE leaves the
+			cooking exactly as it is — stopping is just stopping (ADR 0010), and
+			Kamosu offers to resume for three days; it is a filled block because it
+			is how you leave, and every other control that does something is one.
+			NOT REALLY COOKING undoes a false start, which is a real cooking record
+			being thrown away, so it asks first. FINISH COOKING is at the foot, with
+			the step it ends on.
+
+			It WRAPS rather than truncating. In English and French the row fits; in
+			Spanish `No estoy cocinando` and `La pantalla puede apagarse` are 44
+			characters between them and take a second line. A screen that silently
+			clipped `La pantalla puede apagar…` would be worse than one that is a row
+			taller in one language.
+		-->
+		<header
+			class="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-3 text-read text-cook-ink-2"
+		>
+			<a
+				href="/recipes/{branchId}"
+				class="min-h-12 shrink-0 content-center rounded-sm bg-cook-panel px-4 text-body text-cook-ink"
+			>
+				{m.cook_leave()}
+			</a>
 			<!--
-				Two ways to stop, and they mean different things. PAUSE leaves the
-				cooking exactly as it is — stopping is just stopping (ADR 0010),
-				and Kamosu offers to resume for three days. NOT REALLY COOKING
-				undoes a false start, which is a real cooking record being thrown
-				away, so it asks first.
+				WHERE YOU ARE, second on the row and not last. This header wraps
+				(see above), and with the count last a wrap left it alone on a line
+				of its own with everything else above it — which looked like a
+				fault. Second, it shares the first line with Pause whatever
+				happens, and the two quiet controls wrap together beneath them.
 			-->
-			<a href="/recipes/{branchId}" class="min-h-12 shrink-0 content-center">{m.cook_leave()}</a>
-			<span class="flex-1 truncate text-center">{heading}</span>
 			<span class="shrink-0 font-display text-body font-semibold text-cook-ink">
 				{position + 1}<span class="text-read opacity-55">/{stops.length}</span>
 				<span class="sr-only">
 					— {m.cook_step_of({ n: position + 1, total: stops.length })}
 				</span>
 			</span>
+			<!--
+				The Wake Lock, and its off switch. The real API and nothing else — a
+				browser without it says the screen may sleep, which is true, rather
+				than a hidden video pretending otherwise.
+
+				It stands BETWEEN Pause and the false start deliberately. All three
+				are 48px targets on one row and two of them are ways to stop, but
+				only one throws a cooking away — so the harmless one sits between
+				them, and a thumb that misses Pause lands on a toggle rather than
+				on a confirmation it did not mean to open.
+			-->
+			<button
+				type="button"
+				class="min-h-12 shrink-0 disabled:opacity-60"
+				disabled={!awake.available}
+				aria-pressed={awake.wanted}
+				onclick={() => awake.toggle()}
+			>
+				{awake.held ? m.cook_awake_on() : m.cook_awake_off()}
+			</button>
+			<button type="button" class="min-h-12 shrink-0" onclick={() => (discarding = true)}>
+				{m.cook_false_start()}
+			</button>
 		</header>
 
 		{#if section}
@@ -543,48 +672,29 @@
 		{/if}
 
 		<!--
-			The amounts for THIS step. A fifth of the screen, and what buys the
-			cook not being sent back to the ingredient list on most steps.
-		-->
-		<!--
-			The panel is capped once the whole list is open, and scrolls inside
-			that cap. Without it, twenty-one fields push the Step off the bottom
-			of the screen — and the Step being the largest thing on it is not a
-			preference, it is what this room is for (ADR 0011).
-		-->
-		<div
-			class="shrink-0 rounded-sm bg-cook-panel px-4 py-3
-				{writing && wholeList ? 'max-h-[46vh] overflow-y-auto' : ''}"
-		>
-			<!--
-				ONE WORD, on the line the panel's own label was already on, and the
-				whole of how a cook says *I did it differently* (#58). It opens no
-				sheet and covers nothing: the amounts and the Step become fields
-				where they already stand, so the cook never leaves the step they
-				are on. Aurélien chose this over a sheet on 4 September 2026,
-				against both built and running; the reasoning is on #58.
+			THE AMOUNTS FOR THIS STEP, and what buys the cook not being sent back
+			to the ingredient list on most steps.
 
-				A cooking that deviated from nothing pays this word and nothing
-				else — no row, no panel, no badge, and no stored state.
-			-->
-			<div class="flex items-baseline justify-between gap-3 pb-2">
-				<p class="text-label font-semibold text-cook-accent uppercase opacity-90">
-					{writing ? m.cook_writing() : m.cook_for_this_step()}
-				</p>
-				<button
-					type="button"
-					class="min-h-12 shrink-0 text-label uppercase {writing
-						? 'font-semibold text-cook-accent'
-						: 'text-cook-ink-2'}"
-					onclick={() => {
-						if (writing) void save();
-						writing = !writing;
-					}}
-				>
-					{writing ? m.cook_writing_done() : m.cook_changed_it()}
-				</button>
-			</div>
+			THEY ARE NOT A BOX ANY MORE (#88). The fill, the border and the
+			`FOR THIS STEP` label row went together: 56px of a 700px screen spent
+			saying what the position above the Step already says. What is left is
+			the lines themselves, on the room's own ground, with a hairline under
+			them — and the Step, which this room exists for, got the height back.
 
+			AND THEY NO LONGER WIN THE SQUEEZE. They used to be `shrink-0` against
+			a `flex-1` Step, so a Step naming many Ingredients pushed the Step,
+			the timer and both buttons clean off the bottom of the phone: on
+			`Best Steak Marinade In Existence` — ten lines on one Step, from the
+			real corpus — the screen showed the amounts and NOTHING else, with no
+			way to read the instruction and no way to reach the next step. They
+			are capped and scroll inside that cap ALWAYS now, which is the same
+			mechanism #58 used only while the whole list was open — and at ONE
+			number, not two. A roomier cap for the whole-list case was tried and
+			taken out: at 60% the Step's own field was squeezed to a line too
+			short to type in, which is the bug at the other end of this one.
+			Twenty-one fields do not need more room, they need to scroll.
+		-->
+		<div class="max-h-[45%] min-h-0 shrink overflow-y-auto">
 			<!--
 				A save that did not land. What the cook wrote is still on screen and
 				still held here, and the next `Done` sends it again — losing
@@ -611,7 +721,7 @@
 									value={amount.row.text}
 									disabled={amount.row.dropped}
 									oninput={(event) => write('ingredients', amount.at, event.currentTarget.value)}
-									class="min-w-0 flex-1 rounded-sm border-b border-cook-accent bg-transparent py-2 font-display text-panel-figure font-semibold text-cook-ink disabled:line-through disabled:opacity-45"
+									class="min-h-12 min-w-0 flex-1 rounded-sm border-b border-cook-accent bg-transparent py-2 font-display text-panel-figure font-semibold text-cook-ink disabled:line-through disabled:opacity-45"
 								/>
 								<button
 									type="button"
@@ -670,7 +780,7 @@
 									disabled={line.row.dropped}
 									placeholder={line.row.from === null ? m.cook_added_line() : undefined}
 									oninput={(event) => write('ingredients', line.at, event.currentTarget.value)}
-									class="min-w-0 flex-1 rounded-sm border-b border-cook-rule bg-transparent py-2 font-display text-body text-cook-ink disabled:line-through disabled:opacity-45"
+									class="min-h-12 min-w-0 flex-1 rounded-sm border-b border-cook-rule bg-transparent py-2 font-display text-body text-cook-ink disabled:line-through disabled:opacity-45"
 								/>
 								<button
 									type="button"
@@ -741,19 +851,106 @@
 		</div>
 
 		<!--
+			THE ROW ABOVE THE HAIRLINE, which exists whatever is on it, and is why
+			everything on it is free (#88).
+
+			THE TIMER LIVES HERE NOW. It used to sit under the Step, inside the
+			Step's own scrolling column — so on a long Step a RUNNING timer
+			scrolled out of sight, which is the one thing a timer must never do.
+			Up here it is always visible, and it costs the room no height at all,
+			because the row was already being paid for by `Changed it`.
+
+			32px of ink over a 48px tap area, both of them: `tap-out` grows the
+			hit box with a pseudo-element rather than with height, so a control a
+			wet thumb must be able to hit does not spend a whole row saying one
+			word. THE GAPS AROUND THEM ARE WHAT MAKES THAT SAFE — the overhang is
+			8px on every side and invisible, and it wins any hit test it covers.
+			`gap-6` leaves 8px of clearance between the two; `pt-3` above and the
+			hairline's `mt-3` below leave 4px each. Narrow any of them and this
+			row starts stealing taps from its neighbours in silence.
+		-->
+		<div class="flex shrink-0 items-center gap-6 pt-3">
+			<!--
+				HOW MUCH is being cooked, beside the amounts rather than up in the
+				header. It belongs here: every figure above it was scaled to this
+				number, so `800 ml` with nothing saying 800 ml towards what is half
+				a fact. It was in the header until it made that row wrap (#88).
+			-->
+			{#if cookingYield && !writing}
+				<span class="shrink-0 truncate text-read text-cook-ink-2">{cookingYield}</span>
+			{/if}
+			{#if writing}
+				<p class="min-w-0 truncate text-label font-semibold text-cook-accent uppercase">
+					{m.cook_writing()}
+				</p>
+			{/if}
+			<!--
+				The timer. One tap, nothing typed, nothing stored — and it is the
+				cook's rather than the step's, so it follows them forward. While
+				one runs it stands where the offer was: two timers at once is a
+				thing to keep track of, and this screen exists to stop the cook
+				keeping track of things.
+			-->
+			{#if countdown.remaining !== null}
+				<button
+					type="button"
+					class="tap-out h-8 shrink-0 rounded-sm border px-3 text-read font-semibold
+						{countdown.rung
+						? 'border-cook-accent bg-cook-accent text-cook-on-accent'
+						: 'border-cook-accent text-cook-accent'}"
+					onclick={() => countdown.clear()}
+				>
+					{countdown.rung
+						? m.cook_timer_done()
+						: m.cook_timer_running({ clock: clock(countdown.remaining) })}
+					<span class="sr-only">— {m.cook_timer_stop()}</span>
+				</button>
+			{:else if duration !== null && offer}
+				<button
+					type="button"
+					class="tap-out h-8 shrink-0 rounded-sm border border-cook-accent px-3 text-read font-semibold text-cook-accent"
+					onclick={() => countdown.start(duration)}
+				>
+					{m.cook_timer_start({ duration: offer })}
+				</button>
+			{/if}
+			<!--
+				ONE WORD, and the whole of how a cook says *I did it differently*
+				(#58). It opens no sheet and covers nothing: the amounts and the
+				Step become fields where they already stand, so the cook never
+				leaves the step they are on. Aurélien chose this over a sheet on
+				4 September 2026, against both built and running; the reasoning is
+				on #58.
+
+				A cooking that deviated from nothing pays this word and nothing
+				else — no row, no panel, no badge, and no stored state.
+			-->
+			<button
+				type="button"
+				class="tap-out ms-auto h-8 shrink-0 text-read {writing
+					? 'font-semibold text-cook-accent'
+					: 'text-cook-ink-2'}"
+				onclick={() => {
+					if (writing) void save();
+					writing = !writing;
+				}}
+			>
+				{writing ? m.cook_writing_done() : m.cook_changed_it()}
+			</button>
+		</div>
+		<!--
 			The Step. The largest type in the app, and the only thing here that
 			scrolls — everything else is fixed, so the cook's eye lands in the
 			same place on every step.
+
+			The text is NOT given the free space: it takes the height it needs and
+			scrolls only once there is no more, so the temperature stays against
+			the sentence it belongs to rather than being pushed to the foot of the
+			screen. A Step's conversion is an addition BESIDE it (CONTEXT.md), and
+			half a screen away is not beside. The timer used to be under here too
+			and is not any more — see the row above the hairline (#88).
 		-->
-		<!--
-			The Step, and the two things that belong directly under it. The text
-			is NOT given the free space — it takes the height it needs and
-			scrolls only once there is no more, so the temperature and the timer
-			stay against the sentence they belong to rather than being pushed to
-			the foot of the screen. A Step's conversion is an addition BESIDE it
-			(CONTEXT.md), and half a screen away is not beside.
-		-->
-		<div class="flex min-h-0 flex-1 flex-col items-start pt-6">
+		<div class="mt-3 flex min-h-0 flex-1 flex-col items-start border-t border-cook-rule pt-3">
 			{#if writing}
 				<!--
 					The Step, still the largest type in the app, still in the same
@@ -797,12 +994,31 @@
 					draw one (ADR 0014). The recipe's words are one tap away inside
 					writing mode.
 				-->
-				<p
-					class="min-h-0 overflow-y-auto font-display text-step font-semibold
-						{wroteStep(here.row) ? 'border-l-[3px] border-cook-accent pl-3' : ''}"
-				>
-					{here.row.text}
-				</p>
+				<!--
+					A Step longer than its box is about one in twelve of the corpus
+					once #88's sizes landed, and a line sliced in half by the box's
+					edge reads as a rendering fault rather than as an invitation to
+					scroll. The last 28px fade into the room's own ground, and only
+					when there is actually more below — a fade over a Step that fits
+					would grey out its last line for nothing. The identity record of
+					26 August asked for exactly this: scrolling a Step has to feel
+					intended rather than be pretended away.
+				-->
+				<div class="relative min-h-0 w-full">
+					<p
+						bind:this={stepEl}
+						class="max-h-full overflow-y-auto font-display text-step font-semibold
+							{wroteStep(here.row) ? 'border-l-[3px] border-cook-accent pl-3' : ''}"
+					>
+						{here.row.text}
+					</p>
+					{#if stepScrolls}
+						<div
+							class="pointer-events-none absolute inset-x-0 bottom-0 step-fade"
+							aria-hidden="true"
+						></div>
+					{/if}
+				</div>
 				<!--
 				A Step's own subordinate line: the oven temperature in this
 				cook's measures, on the conventional ladder. Beside the
@@ -812,43 +1028,25 @@
 					<p class="shrink-0 pt-3 text-read text-cook-ink-2">{beneathStep}</p>
 				{/if}
 			{/if}
-
-			<!--
-				The timer. One tap, nothing typed, nothing stored — and it is the
-				cook's rather than the step's, so it follows them forward. While
-				one runs it stands where the offer was: two timers at once is a
-				thing to keep track of, and this screen exists to stop the cook
-				keeping track of things.
-			-->
-			{#if countdown.remaining !== null}
-				<button
-					type="button"
-					class="mt-4 min-h-12 shrink-0 rounded-sm border-2 px-4 font-semibold
-						{countdown.rung
-						? 'border-cook-accent bg-cook-accent text-cook-on-accent'
-						: 'border-cook-accent text-cook-accent'}"
-					onclick={() => countdown.clear()}
-				>
-					{countdown.rung
-						? m.cook_timer_done()
-						: m.cook_timer_running({ clock: clock(countdown.remaining) })}
-					<span class="sr-only">— {m.cook_timer_stop()}</span>
-				</button>
-			{:else if duration !== null && offer}
-				<button
-					type="button"
-					class="mt-4 min-h-12 shrink-0 rounded-sm border-2 border-cook-accent px-4 font-semibold text-cook-accent"
-					onclick={() => countdown.start(duration)}
-				>
-					{m.cook_timer_start({ duration: offer })}
-				</button>
-			{/if}
 		</div>
 
-		<div class="flex shrink-0 gap-3 pt-4">
+		<!--
+			THE TWO WAYS THROUGH THE RECIPE, and now the only things at the foot of
+			the phone (#88). Back was a 112px box against a full-width Next, which
+			made the control you reach for when you missed something the smallest
+			one on screen; they are halves of the same row now, and both are real
+			blocks. Neither wears `py-4` on top of `min-h-12`: a button sized twice
+			is a button 57px tall, and this screen has no 9px to spare.
+
+			Nothing else is down here. The false start and the screen's sleep were
+			10.5px words at the very bottom edge, where a wet thumb lands — they
+			are in the header now, and this row is the whole of what the bottom of
+			the screen can do.
+		-->
+		<div class="flex shrink-0 gap-3 pt-3">
 			<button
 				type="button"
-				class="w-28 min-h-12 shrink-0 rounded-sm border border-cook-rule py-4 text-body text-cook-ink disabled:opacity-40"
+				class="min-h-12 flex-1 rounded-sm border border-cook-accent font-semibold text-cook-accent disabled:opacity-40"
 				disabled={position === 0}
 				onclick={() => step(position - 1)}
 			>
@@ -857,7 +1055,7 @@
 			{#if last}
 				<button
 					type="button"
-					class="min-h-12 flex-1 rounded-sm bg-cook-accent py-4 font-semibold text-cook-on-accent"
+					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
 					onclick={finish}
 				>
 					{m.cook_finish()}
@@ -865,7 +1063,7 @@
 			{:else}
 				<button
 					type="button"
-					class="min-h-12 flex-1 rounded-sm bg-cook-accent py-4 font-semibold text-cook-on-accent"
+					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
 					onclick={() => step(position + 1)}
 				>
 					{m.cook_next()}
@@ -873,33 +1071,11 @@
 			{/if}
 		</div>
 
-		<!--
-			The Wake Lock, and its off switch. The real API and nothing else —
-			a browser without it says the screen may sleep, which is true, rather
-			than a hidden video pretending otherwise.
-		-->
-		<div class="flex shrink-0 items-center justify-between gap-3">
-			<button
-				type="button"
-				class="min-h-12 text-label text-cook-ink-2 uppercase"
-				onclick={() => (discarding = true)}
-			>
-				{m.cook_false_start()}
-			</button>
-			<button
-				type="button"
-				class="min-h-12 text-label text-cook-ink-2 uppercase disabled:opacity-60"
-				disabled={!awake.available}
-				aria-pressed={awake.wanted}
-				onclick={() => awake.toggle()}
-			>
-				{awake.held ? m.cook_awake_on() : m.cook_awake_off()}
-			</button>
-		</div>
-
 		{#if discarding}
 			<div
-				class="py-5 fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl bg-cook-panel px-gutter pb-safe"
+				bind:this={discardDialog}
+				tabindex="-1"
+				class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl bg-cook-panel px-gutter pt-6 pb-safe"
 				role="dialog"
 				aria-modal="true"
 				aria-label={m.cook_false_start()}
@@ -907,14 +1083,14 @@
 				<p class="text-body text-cook-ink">{m.cook_false_start_confirm()}</p>
 				<button
 					type="button"
-					class="mt-4 min-h-12 w-full rounded-sm bg-cook-accent py-4 font-semibold text-cook-on-accent"
+					class="mt-4 min-h-12 w-full rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
 					onclick={discard}
 				>
 					{m.cook_false_start_yes()}
 				</button>
 				<button
 					type="button"
-					class="mt-2 min-h-12 w-full rounded-sm border border-cook-rule py-4 text-body text-cook-ink"
+					class="mt-3 min-h-12 w-full rounded-sm border border-cook-rule text-body text-cook-ink"
 					onclick={() => (discarding = false)}
 				>
 					{m.cook_false_start_no()}

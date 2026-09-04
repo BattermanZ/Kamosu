@@ -46,7 +46,6 @@
   "cook_false_start_yes": "Descartar",
   "cook_finish": "Terminar",
   "cook_finished": "Cocinado. Añade una valoración o una nota en el diario cuando quieras.",
-  "cook_for_this_step": "Para este paso",
   "cook_hours": "{hours} h",
   "cook_hours_minutes": "{hours} h {minutes} min",
   "cook_insert_step": "Insertar un paso antes de este",

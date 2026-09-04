@@ -29,10 +29,10 @@
     --font-weight-normal: 400;
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
-    --text-step: 33px;
-    --text-step--line-height: 1.34;
+    --text-step: 26px;
+    --text-step--line-height: 1.24;
     --text-step--letter-spacing: -0.015em;
-    --text-title: 27px;
+    --text-title: 25px;
     --text-title--line-height: 1.16;
     --text-title--letter-spacing: -0.012em;
     --text-line: 17px;
@@ -223,6 +223,14 @@
   .visible {
     visibility: visible;
   }
+  .tap-out {
+    position: relative;
+    &::after {
+      content: "";
+      position: absolute;
+      inset: -8px;
+    }
+  }
   .sr-only {
     position: absolute;
     width: 1px;
@@ -297,6 +305,9 @@
   .mx-gutter {
     margin-inline: var(--spacing-gutter);
   }
+  .ms-auto {
+    margin-inline-start: auto;
+  }
   .ingredient-marker {
     width: 7px;
     height: 7px;
@@ -366,11 +377,12 @@
   .hidden {
     display: none;
   }
-  .inline {
-    display: inline;
-  }
   .aspect-square {
     aspect-ratio: 1 / 1;
+  }
+  .step-fade {
+    height: 28px;
+    background: linear-gradient(to bottom, transparent, var(--color-cook-ground));
   }
   .wash {
     height: 200px;
@@ -403,14 +415,17 @@
   .h-full {
     height: 100%;
   }
-  .max-h-\[46vh\] {
-    max-height: 46vh;
+  .max-h-\[45\%\] {
+    max-height: 45%;
   }
   .max-h-\[70vh\] {
     max-height: 70vh;
   }
   .max-h-\[78vh\] {
     max-height: 78vh;
+  }
+  .max-h-full {
+    max-height: 100%;
   }
   .min-h-0 {
     min-height: var(--spacing-0);
@@ -460,6 +475,9 @@
   .flex-1 {
     flex: 1;
   }
+  .shrink {
+    flex-shrink: 1;
+  }
   .shrink-0 {
     flex-shrink: 0;
   }
@@ -476,6 +494,9 @@
   }
   .cursor-pointer {
     cursor: pointer;
+  }
+  .resize {
+    resize: both;
   }
   .resize-none {
     resize: none;
@@ -540,8 +561,17 @@
   .gap-4 {
     gap: var(--spacing-4);
   }
+  .gap-6 {
+    gap: var(--spacing-6);
+  }
+  .gap-x-3 {
+    column-gap: var(--spacing-3);
+  }
   .gap-x-4 {
     column-gap: var(--spacing-4);
+  }
+  .gap-y-1 {
+    row-gap: var(--spacing-1);
   }
   .self-start {
     align-self: flex-start;
@@ -929,9 +959,6 @@
   }
   .opacity-70 {
     opacity: 70%;
-  }
-  .opacity-90 {
-    opacity: 90%;
   }
   .filter {
     filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);

@@ -4094,10 +4094,16 @@ async fn one_generated_stylesheet_serves_the_whole_look_and_no_tailwind_defaults
     assert!(content_type.starts_with("text/css"), "{content_type}");
     // The identity's tokens are in it...
     assert!(body.contains("--color-ground: #f4efe3"), "kinari ground");
-    assert!(
-        body.contains("--text-step: 33px"),
-        "the Step is the largest type (ADR 0011)"
-    );
+    // The RANKING that ADR 0011 records as spec — the Step is the largest type
+    // in the app — is asserted where the stylesheet is parsed properly, in
+    // `design_tokens.rs`. This test's job is that the binary SERVES that
+    // stylesheet, so it checks the tokens are in what came over the wire and
+    // leaves the comparing to the parser that already exists. A second, weaker
+    // parser here was how this test came to assert a literal `33px` under a
+    // sentence about ranking, and then fail for the wrong reason when #88 moved
+    // the size while keeping the ranking intact.
+    assert!(body.contains("--text-step:"), "the Step's size is served");
+    assert!(body.contains("--text-title:"), "the title's size is served");
     assert!(body.contains("--spacing-gutter: 20px"));
     // ...and Tailwind's own palette is not reachable.
     assert!(!body.contains("--color-red-"), "no default red");

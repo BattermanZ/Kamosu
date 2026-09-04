@@ -225,7 +225,24 @@ mod tests {
             vars.get("--color-accent").map(String::as_str),
             Some("#1d2b4c")
         );
-        assert_eq!(vars.get("--text-step").map(String::as_str), Some("33px"));
+        // The Step is the LARGEST TYPE IN THE APP. ADR 0011 records that as spec
+        // rather than preference, so the ranking is asserted and not just the
+        // number: #88 moved the Step 33px -> 26px and the recipe title 27px ->
+        // 25px together, re-fitting the cooking screen against the ~700px a
+        // phone actually gives it once Safari's URL bar is counted. A future
+        // change that shrinks the Step past the title breaks the ADR, and this
+        // is what says so.
+        let px = |name: &str| -> f32 {
+            vars.get(name)
+                .and_then(|value| value.strip_suffix("px"))
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| panic!("{name} is missing or is not a px value"))
+        };
+        assert_eq!(vars.get("--text-step").map(String::as_str), Some("26px"));
+        assert!(
+            px("--text-step") > px("--text-title"),
+            "ADR 0011: the Step is the largest type in the app"
+        );
         assert_eq!(
             vars.get("--spacing-gutter").map(String::as_str),
             Some("20px")

@@ -589,8 +589,9 @@ fn hero(token: &str, recipe: &Value, content: &Value, words: &Words) -> String {
 }
 
 /// On a Cover the hero carries the title alone: kinari over a dyed ground
-/// clears the 27px title and not the 10.5px Source line, so the Source is set
-/// here instead, on paper (#81).
+/// clears the title and not the 10.5px Source line, so the Source is set here
+/// instead, on paper (#81). The title is 25px since #88 and still large text at
+/// weight 600, so the 3:1 it is judged against did not move.
 fn source_on_paper(content: &Value, words: &Words) -> String {
     if content["main_photo"].as_str().is_some() {
         return String::new();

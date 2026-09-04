@@ -46,7 +46,6 @@
   "cook_false_start_yes": "Throw it away",
   "cook_finish": "Finish cooking",
   "cook_finished": "Cooked. Add a rating or a note in the diary whenever you like.",
-  "cook_for_this_step": "For this step",
   "cook_hours": "{hours} h",
   "cook_hours_minutes": "{hours} h {minutes} min",
   "cook_insert_step": "Insert a step before this one",

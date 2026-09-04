@@ -547,8 +547,9 @@
 
 		<!--
 			On a Cover the hero carries the title alone: kinari over the pasta
-			shape measures 3.9:1, which the 27px title clears and 10.5px text
-			does not. So the Source is set here instead, on paper.
+			shape measures 3.9:1, which the title clears at large-text's 3:1 and
+			10.5px text does not (the title is 25px since #88, still large text
+			at weight 600, so this is unchanged). So the Source is set here instead, on paper.
 		-->
 		{#if content.source && !content.main_photo}
 			<p class="px-gutter pt-3 text-label text-ink-2 uppercase">

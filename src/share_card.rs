@@ -288,9 +288,11 @@ fn paint_title(pixmap: &mut Pixmap, title: &str) -> Result<(), OpError> {
     let margin = 48.0_f32;
     let usable = CARD_WIDTH as f32 - margin * 2.0;
 
-    // Come down through the sizes until the title fits three lines. The largest
-    // is the page title's 27px scaled to this card; nothing smaller than the
-    // last would be legible as a thumbnail in a chat list.
+    // Come down through the sizes until the title fits three lines. The ladder
+    // was fitted to THIS card, at the card's own resolution, from the page
+    // title as it then was (27px, 25px since #88); it is not derived from that
+    // token and does not move with it. Nothing smaller than the last would be
+    // legible as a thumbnail in a chat list.
     let (face, lines) = TITLE_SIZES
         .iter()
         .map(|size| face.at(*size))

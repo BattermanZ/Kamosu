@@ -192,6 +192,32 @@ describe('the cooking screen', () => {
 		expect(amount).not.toHaveClass('text-step');
 	});
 
+	it('never lets the amounts push the Step and both ways out off the screen', async () => {
+		// `Best Steak Marinade In Existence` names TEN Ingredient Lines on one
+		// Step, and it is a real recipe in the corpus. Before #88 the amounts
+		// were `shrink-0` against a `flex-1` Step, so on that recipe they pushed
+		// the Step, the timer and both buttons clean off the bottom of the phone:
+		// the cook could neither read the instruction nor reach the next step.
+		//
+		// jsdom does no layout, so a height cannot be measured here. What is
+		// asserted is the MECHANISM that fixes it — the amounts yield and scroll
+		// inside a cap instead of taking whatever they want — the same way the
+		// type ranking above is asserted by class rather than by pixel value.
+		cook();
+		const amounts = (await exactly('2 chicken breasts')).closest('ul')?.parentElement;
+		expect(amounts).toBeTruthy();
+		// It may shrink...
+		expect(amounts).not.toHaveClass('shrink-0');
+		// ...it is bounded...
+		expect(amounts?.className).toMatch(/max-h-\[\d+%\]/);
+		// ...and what does not fit is reachable rather than lost.
+		expect(amounts).toHaveClass('overflow-y-auto');
+		// The Step and both ways through it are on the screen beside them.
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Next step' })).toBeInTheDocument();
+	});
+
 	it('shows a quantity Kamosu could not read whole, and never guesses at one', async () => {
 		cook({ start_attempt: attempt({ current_step_index: 3 }) });
 		// `a pinch of salt` has a Reading — Kamosu knows the line is about salt,
