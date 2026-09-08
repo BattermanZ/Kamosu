@@ -231,6 +231,30 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::sweep_photographs,
         },
         Operation {
+            name: "take_backup",
+            summary: "Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>.",
+            permission: Permission::Operator,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({ "type": "object", "properties": { "taken": { "type": "array", "items": { "type": "string" } }, "backups": backups_schema() }, "required": ["taken", "backups"], "additionalProperties": false }),
+            handler: crate::operations::take_backup,
+        },
+        Operation {
+            name: "list_backups",
+            summary: "The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({ "type": "object", "properties": { "backups": backups_schema() }, "required": ["backups"], "additionalProperties": false }),
+            handler: crate::operations::list_backups,
+        },
+        Operation {
             name: "list_sessions",
             summary: "List this Person's browser Sessions by device and last use.",
             permission: Permission::Person,
@@ -3888,6 +3912,26 @@ fn empty_input() -> Value {
         "type": "object",
         "properties": {},
         "additionalProperties": false,
+    })
+}
+
+/// One Backup as both Operations that mention one describe it, declared once
+/// so `take_backup` and `list_backups` cannot drift into two shapes for the
+/// same thing (#78).
+fn backups_schema() -> Value {
+    json!({
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string" },
+                "tier": { "enum": ["daily", "weekly", "monthly"] },
+                "taken_at": { "type": "string" },
+                "size_bytes": { "type": "integer" },
+            },
+            "required": ["name", "tier", "taken_at", "size_bytes"],
+            "additionalProperties": false,
+        },
     })
 }
 

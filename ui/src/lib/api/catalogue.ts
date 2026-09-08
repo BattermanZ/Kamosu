@@ -91,6 +91,31 @@ export type SweepPhotographsOutput = {
 	swept_photograph_ids: string[];
 };
 
+/** Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>. */
+export type TakeBackupInput = Record<string, never>;
+/** What take_backup eventually produces, read back through `get_job`. */
+export type TakeBackupOutput = {
+	backups: {
+		name: string;
+		size_bytes: number;
+		taken_at: string;
+		tier: "daily" | "weekly" | "monthly";
+	}[];
+	taken: string[];
+};
+
+/** The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation. */
+export type ListBackupsInput = Record<string, never>;
+/** What list_backups answers. */
+export type ListBackupsOutput = {
+	backups: {
+		name: string;
+		size_bytes: number;
+		taken_at: string;
+		tier: "daily" | "weekly" | "monthly";
+	}[];
+};
+
 /** List this Person's browser Sessions by device and last use. */
 export type ListSessionsInput = Record<string, never>;
 /** What list_sessions answers. */
@@ -3197,6 +3222,18 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'operator';
 	};
+	take_backup: {
+		input: TakeBackupInput;
+		output: TakeBackupOutput;
+		kind: 'job';
+		permission: 'operator';
+	};
+	list_backups: {
+		input: ListBackupsInput;
+		output: ListBackupsOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	list_sessions: {
 		input: ListSessionsInput;
 		output: ListSessionsOutput;
@@ -3986,6 +4023,115 @@ export const CATALOGUE = [
 				"back_in_use",
 				"swept",
 				"swept_photograph_ids"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "take_backup",
+		"summary": "Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>.",
+		"permission": "operator",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"backups": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"size_bytes": {
+								"type": "integer"
+							},
+							"taken_at": {
+								"type": "string"
+							},
+							"tier": {
+								"enum": [
+									"daily",
+									"weekly",
+									"monthly"
+								]
+							}
+						},
+						"required": [
+							"name",
+							"tier",
+							"taken_at",
+							"size_bytes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"taken": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"taken",
+				"backups"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_backups",
+		"summary": "The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"backups": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"size_bytes": {
+								"type": "integer"
+							},
+							"taken_at": {
+								"type": "string"
+							},
+							"tier": {
+								"enum": [
+									"daily",
+									"weekly",
+									"monthly"
+								]
+							}
+						},
+						"required": [
+							"name",
+							"tier",
+							"taken_at",
+							"size_bytes"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"backups"
 			],
 			"type": "object"
 		}
@@ -19631,6 +19777,8 @@ export const METHOD_NAMES = {
 	delete_account: 'deleteAccount',
 	mint_recovery_link: 'mintRecoveryLink',
 	sweep_photographs: 'sweepPhotographs',
+	take_backup: 'takeBackup',
+	list_backups: 'listBackups',
 	list_sessions: 'listSessions',
 	revoke_session: 'revokeSession',
 	mint_access_key: 'mintAccessKey',
@@ -19732,6 +19880,10 @@ export interface KamosuClient {
 	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
 	/** Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now. */
 	sweepPhotographs(input?: SweepPhotographsInput): Promise<Answer<'sweep_photographs'>>;
+	/** Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>. */
+	takeBackup(input?: TakeBackupInput): Promise<Answer<'take_backup'>>;
+	/** The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation. */
+	listBackups(input?: ListBackupsInput): Promise<Answer<'list_backups'>>;
 	/** List this Person's browser Sessions by device and last use. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
 	/** End one of your browser Sessions. */

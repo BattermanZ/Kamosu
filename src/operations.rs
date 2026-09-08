@@ -767,6 +767,22 @@ pub fn sweep_photographs(
     core.sweep_photographs()
 }
 
+/// Take a Backup now (#78). The archive itself never travels through here:
+/// this answers what was written and what the instance now holds, and the
+/// bytes are fetched out of band at `GET /api/backups/<name>`.
+pub fn take_backup(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
+    core.take_backup(invocation.job.as_ref())
+}
+
+/// What Backups this instance holds (#78).
+pub fn list_backups(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.list_backups()
+}
+
 pub fn search_recipes(
     core: &Core,
     invocation: &Invocation,

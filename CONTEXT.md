@@ -65,7 +65,7 @@ A **Secret** a Person mints for an agent to act with — named, revocable on its
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator**:
-A Person who also administers the instance: minting Invites, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, merging Foods and deleting one nothing points at, and deleting a Kitchen nobody is left in. Nothing beyond that list — no Operator can read another Person's recipes or Attempts. More than one is allowed and the last cannot be demoted. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+A Person who also administers the instance: minting Invites, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, merging Foods and deleting one nothing points at, deleting a Kitchen nobody is left in, and taking and fetching a **Backup**. Nothing beyond that list — no Operator can read another Person's recipes or Attempts. More than one is allowed and the last cannot be demoted. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
 _Avoid_: Admin, root, superuser, owner, host
 
 ### Doing and permission
@@ -121,7 +121,7 @@ An optional folder of Markdown notes and images in which one Kitchen's recipes a
 _Avoid_: Mirror, source of truth, repository, notes folder
 
 **Backup**:
-An Operation producing a single archive from which a Kamosu instance can be restored — a consistent copy of the database together with the photographs. Kamosu writes it beside the database, on a schedule an Operator sets, keeping the last few; any archive it holds can be fetched at either Door. **Kamosu never sends one anywhere** — carrying it off the machine belongs to whatever already backs the machine up. A Vault is not a Backup, and neither is a **Snapshot**.
+An Operation producing a single archive from which a Kamosu instance can be restored — a consistent copy of the database together with the photographs. Kamosu writes it beside the database under `/data/backups` and keeps three, distinguished by how far back each reaches rather than by which is newest: one taken daily, one weekly, one monthly (ADR 0039). Taking a fresh one is what prunes the one it replaces. Any archive it holds can be listed and fetched at either Door, and taking, listing and fetching are all Operator powers — an archive holds everybody's recipes. Restoring is stopping Kamosu, deleting `kamosu.db` and its `-wal` and `-shm` neighbours, and unzipping the archive over `/data`. **Kamosu never sends one anywhere** — carrying it off the machine belongs to whatever already backs the machine up. Display Copies are not in one, being rebuildable. A Vault is not a Backup, and neither is a **Snapshot**.
 _Avoid_: Export, dump, cloud backup
 
 **Snapshot**:

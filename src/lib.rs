@@ -7,6 +7,7 @@
 //! has to remember. Authorisation is checked once, in [`core`], beneath both Doors;
 //! a permission check written inside a Door is a bug.
 
+pub mod backups;
 pub mod catalogue;
 pub mod config;
 pub mod core;

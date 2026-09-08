@@ -15043,3 +15043,422 @@ async fn cooking_as_written_stores_nothing_even_where_the_version_id_has_drifted
          every cooking of it into a deviation"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Backups (#78, ADR 0039): one archive of the whole instance, three kept at
+// three distances, never sent anywhere.
+// ---------------------------------------------------------------------------
+
+/// Take a Backup through the Web Door and answer the Job's result. Copying a
+/// whole library is a Job, so asking answers a job id and the archive is
+/// finished by the time `get_job` says so.
+fn take_a_backup(app: &support::TestApp, key: &str) -> Value {
+    let (status, asked) = app.post_op("take_backup", Some(key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = wait_terminal(app, Some(key), job_id);
+    assert_eq!(finished["status"], json!("completed"), "{finished}");
+    finished["result"].clone()
+}
+
+/// Every entry name inside one archive, read off the disk as an Operator
+/// restoring an instance would read it.
+fn entries_in(path: &std::path::Path) -> Vec<String> {
+    let file = std::fs::File::open(path).expect("open the Backup");
+    let mut archive = zip::ZipArchive::new(file).expect("a readable zip");
+    (0..archive.len())
+        .map(|at| archive.by_index(at).expect("an entry").name().to_string())
+        .collect()
+}
+
+/// Move one archive back in time by renaming it, which is the only clock a
+/// test can wind: what is owed is read off the names, never a table.
+fn backdate_archive(app: &support::TestApp, name: &str, days: i64) {
+    let dir = app.core.data_dir().join("backups");
+    let stamp: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT strftime('%Y%m%dT%H%M%SZ','now',?1)",
+                rusqlite::params![format!("-{days} days")],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("a stamp");
+    let (slot, _) = name
+        .strip_prefix("kamosu-backup-")
+        .and_then(|rest| rest.strip_suffix(".zip"))
+        .and_then(|rest| rest.split_once('-'))
+        .expect("a Backup's name");
+    let moved = format!("kamosu-backup-{slot}-{stamp}.zip");
+    std::fs::rename(dir.join(name), dir.join(&moved)).expect("wind the clock back");
+}
+
+/// The one archive holding `slot`, by name.
+fn archive_named(app: &support::TestApp, key: &str, slot: &str) -> String {
+    let held = names_held(app, key);
+    let mut matching = held
+        .iter()
+        .filter(|name| name.contains(&format!("-{slot}-")));
+    let found = matching
+        .next()
+        .unwrap_or_else(|| panic!("no {slot} archive in {held:?}"));
+    assert!(
+        matching.next().is_none(),
+        "more than one {slot} archive: {held:?}"
+    );
+    found.clone()
+}
+
+fn names_held(app: &support::TestApp, key: &str) -> Vec<String> {
+    let (status, listed) = app.post_op("list_backups", Some(key), "{}");
+    assert_eq!(status, 200, "{listed}");
+    listed["result"]["backups"]
+        .as_array()
+        .expect("a list of Backups")
+        .iter()
+        .map(|backup| backup["name"].as_str().expect("a name").to_string())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_backup_is_one_archive_of_the_database_and_the_photographs() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+
+    // A recipe with a picture, so there is something in both halves of the
+    // archive — and a Display Copy drawn, so the test can prove it stayed out.
+    let photograph = upload_a_picture(&app, &key, 7);
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Katsu", "main_photo": photograph })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let (card_status, _, _) =
+        app.get_bytes(&format!("/api/photographs/{photograph}/card"), Some(&key));
+    assert_eq!(card_status, 200);
+
+    take_a_backup(&app, &key);
+    let name = archive_named(&app, &key, "daily");
+    let path = app.core.data_dir().join("backups").join(&name);
+
+    // Written under `/data`, beside the database rather than anywhere else.
+    assert!(
+        path.starts_with(app.data_dir().expect("the helper owns a temp dir")),
+        "a Backup must live under the one data directory: {}",
+        path.display()
+    );
+    assert!(path.is_file(), "the Backup named was not written");
+
+    let entries = entries_in(&path);
+    assert!(
+        entries.contains(&"kamosu.db".to_string()),
+        "an archive without the database restores nothing: {entries:?}"
+    );
+    assert!(
+        entries.contains(&format!("photographs/{photograph}.webp")),
+        "the Photograph is missing from the archive: {entries:?}"
+    );
+    // Display Copies and Covers are rebuildable, so carrying them would roughly
+    // double what an Operator stores for nothing (ADR 0017, ADR 0039).
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry.starts_with("display/") || entry.starts_with("cards/")),
+        "Display Copies must not be backed up: {entries:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_database_inside_a_backup_is_a_working_kamosu_database() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Tonkatsu" }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+
+    take_a_backup(&app, &key);
+    let restored = restore(&app, &archive_named(&app, &key, "daily"));
+
+    // The recipe is there, under a Kamosu that opened the file for itself.
+    let titles: Vec<String> = restored
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare("SELECT json_extract(content, '$.title') FROM versions")
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(rows.filter_map(Result::ok).collect())
+        })
+        .expect("read the restored library");
+    assert!(
+        titles.contains(&"Tonkatsu".to_string()),
+        "the restored database does not hold the recipe: {titles:?}"
+    );
+}
+
+/// Unzip one Backup into a directory of its own and open the database in it,
+/// which is exactly what restoring an instance is.
+fn restore(app: &support::TestApp, name: &str) -> kamosu::db::Db {
+    let path = app.core.data_dir().join("backups").join(name);
+    let into = app
+        .data_dir()
+        .expect("the helper owns a temp dir")
+        .join(format!("restored-{name}"));
+    std::fs::create_dir_all(&into).expect("somewhere to restore into");
+    let file = std::fs::File::open(&path).expect("open the Backup");
+    let mut archive = zip::ZipArchive::new(file).expect("a readable zip");
+    archive.extract(&into).expect("unzip over a fresh /data");
+    kamosu::db::Db::open(&into).expect("the restored database opens")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_backup_taken_during_writes_restores_to_a_consistent_database() {
+    let app = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Under the knife" }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Real saves, through a real Door, for as long as the Backup takes. The
+    // archive reads the database on a second connection, so these are not
+    // politely waiting their turn — which is the whole point of the test.
+    let writing = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let stop = writing.clone();
+    let addr = app.addr;
+    let writer_key = key.clone();
+    let writer = std::thread::spawn(move || {
+        let mut written = 0;
+        while stop.load(std::sync::atomic::Ordering::Relaxed) {
+            written += 1;
+            let body = json!({
+                "branch_id": branch_id,
+                "title": format!("Under the knife {written}"),
+                "steps": [{ "kind": "step", "text": format!("Save number {written}") }],
+            })
+            .to_string();
+            let _ = kamosu::http_min::post_json(
+                addr,
+                "/api/op/save_recipe_version",
+                Some(&writer_key),
+                &body,
+            );
+        }
+        written
+    });
+
+    take_a_backup(&app, &key);
+    writing.store(false, std::sync::atomic::Ordering::Relaxed);
+    let written = writer.join().expect("the writer finished");
+    assert!(
+        written > 1,
+        "the Backup finished before a second save even started, so nothing was \
+         written during it"
+    );
+
+    let restored = restore(&app, &archive_named(&app, &key, "daily"));
+
+    restored
+        .with_conn(|conn| {
+            // Not a torn file: SQLite checks its own pages.
+            let verdict: String = conn
+                .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            assert_eq!(verdict, "ok", "the restored database is not intact");
+
+            // And not a half-written save: every Version in it still
+            // fingerprints its own content, which a torn copy would break.
+            let wrong: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            assert_eq!(
+                wrong, 0,
+                "the Backup caught a save half-written: {wrong} Versions in the \
+                 restored database no longer fingerprint their own content"
+            );
+            Ok(())
+        })
+        .expect("read the restored database");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn three_archives_are_kept_at_three_distances_and_older_ones_are_pruned() {
+    let app = support::spawn_app();
+    let (key, _kitchen_id) = operator_with_kitchen(&app);
+    let data_dir = app.core.data_dir();
+
+    // A fresh instance holds nothing until something is owed.
+    assert!(names_held(&app, &key).is_empty());
+
+    // The first Backup fills all three slots at once: an instance with no past
+    // has nothing further back to reach for, so the three start together and
+    // pull apart as each comes due (ADR 0039).
+    let first = take_a_backup(&app, &key);
+    assert_eq!(
+        first["taken"].as_array().expect("names").len(),
+        3,
+        "{first}"
+    );
+    let held = names_held(&app, &key);
+    assert_eq!(held.len(), 3, "three archives and no more: {held:?}");
+    for slot in ["daily", "weekly", "monthly"] {
+        archive_named(&app, &key, slot);
+    }
+
+    // Nothing is owed a moment later, so a scheduled run takes nothing.
+    let idle = kamosu::backups::run(&data_dir, kamosu::backups::Ask::WhenDue).expect("a quiet run");
+    assert_eq!(idle["taken"], json!([]), "{idle}");
+    assert_eq!(names_held(&app, &key).len(), 3);
+
+    // Eight days on, the daily and the weekly have both aged out. The monthly
+    // has not, and leaving it alone is the whole point: it is the only archive
+    // reaching further back than a week.
+    for name in names_held(&app, &key) {
+        backdate_archive(&app, &name, 8);
+    }
+    let aged_daily = archive_named(&app, &key, "daily");
+    let aged_weekly = archive_named(&app, &key, "weekly");
+    let aged_monthly = archive_named(&app, &key, "monthly");
+    let week_on =
+        kamosu::backups::run(&data_dir, kamosu::backups::Ask::WhenDue).expect("a scheduled run");
+    assert_eq!(
+        week_on["taken"].as_array().expect("names").len(),
+        2,
+        "the daily and the weekly are owed after eight days, the monthly is not: {week_on}"
+    );
+    assert_eq!(
+        archive_named(&app, &key, "monthly"),
+        aged_monthly,
+        "an eight-day-old monthly must be left where it is"
+    );
+    assert_eq!(names_held(&app, &key).len(), 3, "still three, never more");
+    for pruned in [&aged_daily, &aged_weekly] {
+        assert!(
+            !data_dir.join("backups").join(pruned).exists(),
+            "the archive a fresh one replaced must be pruned, not kept: {pruned}"
+        );
+    }
+
+    // Two days on, only the daily is owed.
+    for name in names_held(&app, &key) {
+        backdate_archive(&app, &name, 2);
+    }
+    let two_days_on =
+        kamosu::backups::run(&data_dir, kamosu::backups::Ask::WhenDue).expect("a scheduled run");
+    let taken = two_days_on["taken"].as_array().expect("names");
+    assert_eq!(
+        taken.len(),
+        1,
+        "only the daily is owed after two days: {two_days_on}"
+    );
+    assert!(
+        taken[0].as_str().expect("a name").contains("-daily-"),
+        "{two_days_on}"
+    );
+    assert_eq!(names_held(&app, &key).len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_backup_is_listed_at_both_doors_and_fetched_out_of_band() {
+    let app = support::spawn_app();
+    let (key, _kitchen_id) = operator_with_kitchen(&app);
+    take_a_backup(&app, &key);
+    let name = archive_named(&app, &key, "daily");
+
+    // The Web Door lists it, because `list_backups` is an ordinary Operation.
+    assert!(names_held(&app, &key).contains(&name));
+
+    // So does the MCP door, for the same reason and with no code of its own.
+    let (status, answered) = app.post_mcp(
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "list_backups", "arguments": {} },
+        })
+        .to_string(),
+        Some(&key),
+    );
+    assert_eq!(status, 200, "{answered}");
+    let at_the_mcp_door: Vec<String> = answered["result"]["structuredContent"]["backups"]
+        .as_array()
+        .expect("a list of Backups")
+        .iter()
+        .map(|backup| backup["name"].as_str().expect("a name").to_string())
+        .collect();
+    assert_eq!(at_the_mcp_door, names_held(&app, &key), "{answered}");
+
+    // And the bytes travel out of band under the same Credential (ADR 0001):
+    // this Access Key is an agent's, so an agent asked to carry a Backup off
+    // the machine can, without a browser and without a JSON envelope.
+    let (fetch_status, content_type, bytes) =
+        app.get_bytes(&format!("/api/backups/{name}"), Some(&key));
+    assert_eq!(fetch_status, 200);
+    assert_eq!(content_type, "application/zip");
+    let on_disk = std::fs::read(app.core.data_dir().join("backups").join(&name)).expect("read");
+    assert_eq!(bytes, on_disk, "the archive fetched is the archive written");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fetching_a_backup_is_an_operator_power_and_nobody_elses() {
+    let app = support::spawn_app();
+    let (operator_key, _kitchen_id) = operator_with_kitchen(&app);
+    take_a_backup(&app, &operator_key);
+    let name = archive_named(&app, &operator_key, "daily");
+
+    // An ordinary Person may not read another Person's recipes, and an archive
+    // is every Person's recipes in one file (CONTEXT.md, "Operator").
+    let (_person, key, _kitchen) = person_with_kitchen(&app, "Someone else");
+    assert_eq!(app.post_op("list_backups", Some(&key), "{}").0, 401);
+    assert_eq!(app.post_op("take_backup", Some(&key), "{}").0, 401);
+    let (status, _, _) = app.get_bytes(&format!("/api/backups/{name}"), Some(&key));
+    assert_eq!(status, 401, "an ordinary Person must not fetch a Backup");
+
+    // Nor may a stranger presenting nothing at all.
+    let (stranger, _, _) = app.get_bytes(&format!("/api/backups/{name}"), None);
+    assert_eq!(stranger, 401);
+
+    // A name nobody wrote is not a path into `/data`.
+    for wrong in [
+        "kamosu.db",
+        "kamosu-backup-daily-not-a-moment.zip",
+        "kamosu-backup-hourly-20260908T141500Z.zip",
+    ] {
+        let (status, _, _) = app.get_bytes(&format!("/api/backups/{wrong}"), Some(&operator_key));
+        assert_eq!(status, 404, "`{wrong}` must name no Backup");
+    }
+}
+
+/// **Kamosu never sends a Backup anywhere** (CONTEXT.md, "Backup"). Said here
+/// as a fact about the Catalogue, which is the whole of what Kamosu can be
+/// asked to do (ADR 0001): neither Operation takes any input at all, so there
+/// is nowhere for a caller to name a destination.
+#[test]
+fn nothing_in_the_catalogue_can_be_told_where_to_send_a_backup() {
+    for name in ["take_backup", "list_backups"] {
+        let op = kamosu::catalogue::find(name).expect("the Operation is declared");
+        assert_eq!(
+            op.input_schema["properties"],
+            json!({}),
+            "`{name}` takes input, and the one thing a Backup Operation must never \
+             accept is somewhere to send the archive"
+        );
+        assert_eq!(op.input_schema["additionalProperties"], json!(false));
+    }
+}

@@ -88,6 +88,20 @@ pub fn router(core: Arc<Core>) -> Router {
                 },
             ),
         );
+    // A Backup travels the same way and for the same reason (#78): it is one
+    // archive of the whole instance, far past anything a JSON envelope should
+    // carry, so it is fetched as its own bytes under the same Credential.
+    // `list_backups` names what there is to fetch, and it is an ordinary
+    // Operation, so both Doors list Backups even though only this one can hand
+    // the bytes over.
+    let backup_core = core.clone();
+    router = router.route(
+        "/api/backups/{name}",
+        get(move |Path(name): Path<String>, headers: HeaderMap| {
+            let core = backup_core.clone();
+            async move { get_backup(&core, &headers, &name).await }
+        }),
+    );
     for op in catalogue::OPERATIONS.iter() {
         let core = core.clone();
         router = router.route(
@@ -256,6 +270,50 @@ fn get_display_copy(core: &Core, headers: &HeaderMap, hash: &str, size: &str) ->
         Ok(bytes) => image_response(bytes),
         Err(err) => respond(Err(err)),
     }
+}
+
+/// `GET /api/backups/{name}`: one Backup's archive, zip.
+///
+/// Sent straight off the disk in chunks rather than read whole into memory
+/// first: an archive of a real library is hundreds of megabytes, and buffering
+/// one would make fetching a Backup the largest thing the instance ever does
+/// to its own memory.
+async fn get_backup(core: &Core, headers: &HeaderMap, name: &str) -> Response {
+    let secret = bearer_from_headers(headers);
+    let path = match core
+        .authenticate_for_operator(secret.as_deref())
+        .and_then(|_| core.backup_path(name))
+    {
+        Ok(path) => path,
+        Err(err) => return respond(Err(err)),
+    };
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(file) => file,
+        Err(_) => return respond(Err(OpError::not_found("no such Backup"))),
+    };
+    // The length is declared rather than left to chunked framing, because the
+    // thing on the other end is usually copying half a gigabyte and wants to
+    // know how far along it is. An archive is never rewritten in place — a new
+    // one gets a new name and the old one is unlinked — so the size read here
+    // is the size that arrives.
+    let length = match file.metadata().await {
+        Ok(metadata) => metadata.len(),
+        Err(_) => return respond(Err(OpError::not_found("no such Backup"))),
+    };
+    let stream = tokio_util::io::ReaderStream::new(file);
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_LENGTH, length.to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{name}\""),
+            ),
+        ],
+        axum::body::Body::from_stream(stream),
+    )
+        .into_response()
 }
 
 fn image_response(bytes: Vec<u8>) -> Response {
