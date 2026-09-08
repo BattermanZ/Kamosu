@@ -14,13 +14,17 @@
 //! recipe with no photograph would otherwise arrive as a naked URL, and the
 //! recipe's name is the single most useful thing a card can carry.
 //!
-//! What this needs that nothing else in Kamosu did: a rasteriser. `tiny-skia`
-//! fills the Cover's bezier shapes and `ab_glyph` turns the title into glyph
-//! coverage, both pure Rust and both small. The alternative was a full SVG
-//! engine, which is an order of magnitude more crates for a picture whose
-//! entire vocabulary is *five path commands and one line of text*.
+//! What this needs that nothing else in Kamosu did: a rasteriser. There is one.
+//! `skrifa` reads the title out of the font as outlines and `tiny-skia` fills
+//! them, the same call that fills a Cover's bezier shapes — so a letter and a
+//! Cover are the same kind of thing by the time either reaches a pixel. The
+//! alternative was a full SVG engine, which is an order of magnitude more
+//! crates for a picture whose entire vocabulary is *five path commands and one
+//! line of text*.
 
-use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
+use skrifa::instance::{LocationRef, Size};
+use skrifa::outline::{DrawSettings, OutlinePen};
+use skrifa::{FontRef, GlyphId, MetadataProvider};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, PixmapPaint, Point, Transform};
 
 use crate::core::OpError;
@@ -228,7 +232,7 @@ struct TitleFace<'a> {
 impl<'a> TitleFace<'a> {
     fn load(size: f32) -> Result<Self, OpError> {
         let read = |bytes: &'a [u8]| {
-            FontRef::try_from_slice(bytes)
+            FontRef::new(bytes)
                 .map_err(|e| OpError::internal(format!("the display face is unreadable: {e}")))
         };
         Ok(Self {
@@ -248,25 +252,47 @@ impl<'a> TitleFace<'a> {
         }
     }
 
-    /// Which subset actually has this character. The two are exactly the two
-    /// the stylesheet declares, so the server draws what a browser would.
-    fn font_for(&self, ch: char) -> Option<&FontRef<'a>> {
-        if self.latin.glyph_id(ch).0 != 0 {
-            Some(&self.latin)
-        } else if self.ext.glyph_id(ch).0 != 0 {
-            Some(&self.ext)
+    /// Which subset actually has this character, and which glyph it is there.
+    /// The two subsets are exactly the two the stylesheet declares, so the
+    /// server draws what a browser would.
+    ///
+    /// The glyph comes back with the font because every caller wants both and
+    /// the lookup is a binary search through the font's character map — asking
+    /// twice for one letter is the kind of waste a title of forty letters
+    /// notices.
+    fn font_for(&self, ch: char) -> Option<(&FontRef<'a>, GlyphId)> {
+        [&self.latin, &self.ext]
+            .into_iter()
+            .find_map(|font| font.charmap().map(ch).map(|id| (font, id)))
+    }
+
+    /// The em size, in pixels, that sets this face at `size` tall.
+    ///
+    /// `TITLE_SIZES` are text heights — ascender to descender — because that is
+    /// the scale `ab_glyph` took before `skrifa` replaced it, and the ladder was
+    /// fitted by looking at cards drawn under it. `skrifa` asks instead for
+    /// pixels per em, which is what a browser's `font-size` means. For the
+    /// display face the two differ by 1000/1448, so the conversion lives here
+    /// and the ladder keeps the numbers that were chosen with eyes.
+    fn ppem(&self, font: &FontRef<'a>) -> f32 {
+        let metrics = font.metrics(Size::unscaled(), LocationRef::default());
+        let height = metrics.ascent - metrics.descent;
+        if height > 0.0 {
+            self.size * f32::from(metrics.units_per_em) / height
         } else {
-            None
+            self.size
         }
     }
 
     /// How far the pen moves over this character. A character in neither
     /// subset still takes room: dropping it would silently reflow the line.
     fn advance(&self, ch: char) -> f32 {
-        self.font_for(ch).map_or(self.size * 0.5, |font| {
-            font.as_scaled(PxScale::from(self.size))
-                .h_advance(font.glyph_id(ch))
-        })
+        self.font_for(ch)
+            .and_then(|(font, id)| {
+                font.glyph_metrics(Size::new(self.ppem(font)), LocationRef::default())
+                    .advance_width(id)
+            })
+            .unwrap_or(self.size * 0.5)
     }
 
     fn width_of(&self, text: &str) -> f32 {
@@ -347,6 +373,62 @@ fn wrap(title: &str, face: &TitleFace, usable: f32) -> Vec<String> {
     lines
 }
 
+/// A glyph's outline on its way into a `tiny-skia` path.
+///
+/// The font gives its commands in its own coordinates: the origin at the pen's
+/// place on the baseline, and y counting upwards the way a typographer draws.
+/// The pixmap counts y downwards from the top of the card. This is where the
+/// two are reconciled — once, here, so that everything downstream is in card
+/// coordinates and nothing else in the file has to hold the flip in mind.
+struct GlyphPath {
+    builder: PathBuilder,
+    pen: f32,
+    baseline: f32,
+}
+
+impl GlyphPath {
+    fn new(pen: f32, baseline: f32) -> Self {
+        Self {
+            builder: PathBuilder::new(),
+            pen,
+            baseline,
+        }
+    }
+
+    fn at(&self, x: f32, y: f32) -> (f32, f32) {
+        (self.pen + x, self.baseline - y)
+    }
+}
+
+impl OutlinePen for GlyphPath {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.at(x, y);
+        self.builder.move_to(x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        let (x, y) = self.at(x, y);
+        self.builder.line_to(x, y);
+    }
+
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        let (cx, cy) = self.at(cx, cy);
+        let (x, y) = self.at(x, y);
+        self.builder.quad_to(cx, cy, x, y);
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        let (cx0, cy0) = self.at(cx0, cy0);
+        let (cx1, cy1) = self.at(cx1, cy1);
+        let (x, y) = self.at(x, y);
+        self.builder.cubic_to(cx0, cy0, cx1, cy1, x, y);
+    }
+
+    fn close(&mut self) {
+        self.builder.close();
+    }
+}
+
 fn draw_line(
     pixmap: &mut Pixmap,
     line: &str,
@@ -355,43 +437,42 @@ fn draw_line(
     baseline: f32,
     ink: (u8, u8, u8),
 ) {
+    let mut paint = Paint::default();
+    paint.set_color(Color::from_rgba8(ink.0, ink.1, ink.2, 255));
+    paint.anti_alias = true;
+
     let mut pen = left;
     for ch in line.chars() {
-        let Some(font) = face.font_for(ch) else {
-            pen += face.advance(ch);
-            continue;
-        };
-        let glyph = font
-            .glyph_id(ch)
-            .with_scale_and_position(PxScale::from(face.size), ab_glyph::point(pen, baseline));
-        if let Some(outline) = font.outline_glyph(glyph) {
-            let bounds = outline.px_bounds();
-            outline.draw(|x, y, coverage| {
-                let px = bounds.min.x + x as f32;
-                let py = bounds.min.y + y as f32;
-                if px < 0.0 || py < 0.0 {
-                    return;
-                }
-                let (px, py) = (px as u32, py as u32);
-                if px >= CARD_WIDTH || py >= CARD_HEIGHT {
-                    return;
-                }
-                let index = (py * CARD_WIDTH + px) as usize;
-                let data = pixmap.pixels_mut();
-                let under = data[index];
-                let over = |a: u8, b: u8| -> u8 {
-                    (f32::from(b).mul_add(coverage, f32::from(a) * (1.0 - coverage))) as u8
-                };
-                data[index] = tiny_skia::PremultipliedColorU8::from_rgba(
-                    over(under.red(), ink.0),
-                    over(under.green(), ink.1),
-                    over(under.blue(), ink.2),
-                    255,
-                )
-                .unwrap_or(under);
-            });
+        // Asked for before the glyph is drawn, and added after, so that a
+        // character in neither subset — no glyph, nothing to draw — still moves
+        // the pen. Dropping it would silently reflow the line.
+        let advance = face.advance(ch);
+        if let Some((font, id)) = face.font_for(ch)
+            && let Some(glyph) = font.outline_glyphs().get(id)
+        {
+            let mut path = GlyphPath::new(pen, baseline);
+            // Unhinted, and deliberately: hinting nudges outlines onto whole
+            // pixels to keep small text crisp, and the smallest size this card
+            // ever sets is 40px, where the nudge is invisible and the truer
+            // shape is worth more.
+            let settings =
+                DrawSettings::unhinted(Size::new(face.ppem(font)), LocationRef::default());
+            // A glyph that will not draw is a glyph left off the card. There is
+            // no better answer at this depth and nothing to say to a reader of a
+            // chat preview, so the line closes over the gap.
+            if glyph.draw(settings, &mut path).is_ok()
+                && let Some(path) = path.builder.finish()
+            {
+                pixmap.fill_path(
+                    &path,
+                    &paint,
+                    FillRule::Winding,
+                    Transform::identity(),
+                    None,
+                );
+            }
         }
-        pen += face.advance(ch);
+        pen += advance;
     }
 }
 

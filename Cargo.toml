@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ab_glyph = "0.2.32"
 argon2 = { version = "0.5.3", features = ["password-hash", "rand"] }
 axum = "0.8.9"
 base64 = "0.23.1"
@@ -68,17 +67,38 @@ reqwest-ssrf-guard = "0.1.0"
 rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
 rust-embed = "8.12.0"
 scraper = "0.27.0"
+# The title on a Share Card, turned from a font into an outline. `skrifa` is
+# the font parser Google Fonts maintains, and it hands out a glyph as the same
+# move/line/curve commands a Cover's shapes already arrive as — so `tiny-skia`
+# below fills the text and the shapes alike, and the card has one rasteriser
+# rather than two. It replaced `ab_glyph`, whose `ttf-parser` the RustSec
+# database marked unmaintained (RUSTSEC-2026-0192) with no fix upstream and
+# `skrifa` named as the successor. `default-features = false` drops the
+# autohinter: Kamosu draws at 40px and up, where hinting changes nothing.
+skrifa = { version = "0.46.2", default-features = false, features = ["std"] }
 serde = "1.0.229"
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 tiny-skia = "0.12.0"
-tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "fs"] }
+# `io` alone, for `ReaderStream`: a Backup is served straight off the disk in
+# chunks rather than read whole into memory first (#78). A library big enough
+# to be worth backing up is a library too big to buffer.
+tokio-util = { version = "0.7.19", default-features = false, features = ["io"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "0.1.25"
 url = "2.5.8"
 webp = "0.3.1"
 whatlang = "0.18.0"
+# A Backup is one zip (#78), and zip because an Operator restoring an instance
+# at four in the morning can open one anywhere without installing anything.
+# `deflate` alone is deliberate: it resolves to the pure-Rust zlib-rs encoder,
+# so no C compressor enters the image, and every other method this crate can
+# speak — bzip2, zstd, xz, ppmd, AES — is one Kamosu neither writes nor needs
+# to read. The database deflates well; the Photographs are stored uncompressed,
+# already being compressed pictures.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
@@ -90,7 +110,6 @@ test-jobs = []
 [dev-dependencies]
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
-zip = "8.6.0"
 
 # Dependencies are compiled optimised even in a debug build; Kamosu's own crate
 # is not. Re-encoding a camera-original photograph runs through `image` and

@@ -29,5 +29,30 @@
 # outright — read that file's comment for the reasoning. cargo-deny resolves
 # features, so the advisory is gone rather than silenced.
 #
-# Reach for the real fix first. This list is for what survives it.
-ignore = []
+# Reach for the real fix first. This list is for what survives it, and one has.
+#
+# RUSTSEC-2026-0192, unmaintained `ttf-parser`, is not here for exactly that
+# reason: it arrived under `ab_glyph`, which drew the Share Card's title, and
+# the advisory named `skrifa` as the successor. Kamosu draws with `skrifa` now
+# (see the note in Cargo.toml), the card is the same card, and the crate is out
+# of the tree rather than excused in this file.
+ignore = [
+  # Unmaintained `paste`, and this time there is nowhere to go. It arrives as
+  # `fastembed` -> `tokenizers` -> `paste`: Meaning Search needs the embedding
+  # model, the model needs its tokeniser, and `tokenizers` lists `paste` as a
+  # plain dependency — not optional, not behind a feature, still there on its
+  # main branch as of 0.23.2. The one other Rust tokeniser that could stand in,
+  # `rust_tokenizers`, was last released in 2023, which trades one unmaintained
+  # crate for a worse one. `pastey` is the named fork, but it publishes under
+  # its own name, so nothing here can redirect a dependency three levels down
+  # to it.
+  #
+  # What is being accepted: `paste` is a macro that joins identifiers together
+  # at compile time. It is not in the binary, it reads no input, and no bug has
+  # been reported in it — the advisory says the author archived the repository,
+  # which is a statement about the future rather than a hole. The day a real
+  # advisory lands against it, this entry stops being the right answer.
+  #
+  # Re-read when `tokenizers` moves.
+  { id = "RUSTSEC-2024-0436", reason = "unmaintained `paste`, via fastembed -> tokenizers; no fix upstream, compile-time only, no reported bug" },
+]
