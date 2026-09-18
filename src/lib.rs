@@ -8,6 +8,7 @@
 //! a permission check written inside a Door is a bug.
 
 pub mod backups;
+pub mod bundles;
 pub mod catalogue;
 pub mod config;
 pub mod core;

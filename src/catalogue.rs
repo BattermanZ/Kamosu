@@ -1198,6 +1198,42 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::set_public_address,
         },
         Operation {
+            name: "export_bundle",
+            summary: "Write a Bundle of one recipe: a plain zip holding a readable Markdown note \
+                      per recipe with its Thread beneath it, its Photographs, and a hidden \
+                      .kamosu/ sidecar carrying every Version complete back to the first, the \
+                      Readings and the ids. It carries the Branch named, its Translations, and \
+                      every Component it needs as a Passenger. This answers what the Bundle \
+                      holds; fetch its bytes at GET /api/bundles/<branch_id> under the same \
+                      Credential. Nothing is sent anywhere and nothing is changed.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "file_name": { "type": "string" },
+                    "fetch_at": { "type": "string" },
+                    "subjects": bundle_recipes_schema(),
+                    "passengers": bundle_recipes_schema(),
+                    "notes": { "type": "array", "items": { "type": "string" } },
+                    "photographs": { "type": "integer" },
+                    "missing_photographs": { "type": "array", "items": { "type": "string" } },
+                },
+                "required": ["file_name", "fetch_at", "subjects", "passengers", "notes", "photographs", "missing_photographs"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::export_bundle,
+        },
+        Operation {
             name: "read_shared_recipe",
             summary: "Read a Recipe through its Share Link token: the Recipe \
                       as it stands, its Translations, and its Thread complete \
@@ -3247,6 +3283,22 @@ fn passenger_schema() -> Value {
     let mut schema = component_schema();
     schema["properties"]["measured"] = json!({ "type": "null" });
     schema
+}
+
+/// The recipes a Bundle names, subjects or Passengers: one per Lineage.
+fn bundle_recipes_schema() -> Value {
+    json!({
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "lineage_id": { "type": "string" },
+                "title": { "type": ["string", "null"] },
+            },
+            "required": ["lineage_id", "title"],
+            "additionalProperties": false,
+        },
+    })
 }
 
 /// Everything the public Share Link page draws.

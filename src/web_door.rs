@@ -102,6 +102,16 @@ pub fn router(core: Arc<Core>) -> Router {
             async move { get_backup(&core, &headers, &name).await }
         }),
     );
+    // A Bundle travels as its own bytes too (#66): `export_bundle` says what it
+    // holds at both Doors, and this hands it over under the same Credential.
+    let bundle_core = core.clone();
+    router = router.route(
+        "/api/bundles/{branch_id}",
+        get(move |Path(branch_id): Path<String>, headers: HeaderMap| {
+            let core = bundle_core.clone();
+            async move { get_bundle(core, headers, branch_id).await }
+        }),
+    );
     for op in catalogue::OPERATIONS.iter() {
         let core = core.clone();
         router = router.route(
@@ -314,6 +324,69 @@ async fn get_backup(core: &Core, headers: &HeaderMap, name: &str) -> Response {
         axum::body::Body::from_stream(stream),
     )
         .into_response()
+}
+
+/// `GET /api/bundles/{branch_id}`: one recipe's Bundle, zip (#66).
+///
+/// Built when asked, on the blocking pool: a Bundle carries its Photographs,
+/// and reading and zipping them is file work the runtime answering every other
+/// request should not wait behind. The Credential is checked in the Core, as
+/// for any Operation — the same circle that may read the Branch may take it.
+async fn get_bundle(core: Arc<Core>, headers: HeaderMap, branch_id: String) -> Response {
+    let secret = bearer_from_headers(&headers);
+    let built = tokio::task::spawn_blocking(move || {
+        let caller = core.authenticate(secret.as_deref())?;
+        core.bundle(&caller.person_id, &branch_id)
+    })
+    .await;
+    let written = match built {
+        Ok(Ok(written)) => written,
+        Ok(Err(err)) => return respond(Err(err)),
+        Err(e) => {
+            return respond(Err(OpError::internal(format!(
+                "the Bundle could not be built: {e}"
+            ))));
+        }
+    };
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_LENGTH, written.bytes.len().to_string()),
+            (header::CONTENT_DISPOSITION, attachment(&written.file_name)),
+        ],
+        written.bytes,
+    )
+        .into_response()
+}
+
+/// A `Content-Disposition` naming a file that may not be ASCII.
+///
+/// `filename*` carries the real name, percent-encoded as UTF-8 (RFC 6266), and
+/// `filename` an ASCII stand-in for a client too old to read it: a title like
+/// `Bœuf bourguignon` is ordinary, and a raw non-ASCII header is not.
+fn attachment(name: &str) -> String {
+    let fallback: String = name
+        .chars()
+        .map(|ch| {
+            if (ch.is_ascii_graphic() && ch != '"' && ch != '\\') || ch == ' ' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let encoded: String = name
+        .bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+                (byte as char).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect();
+    format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
 }
 
 fn image_response(bytes: Vec<u8>) -> Response {

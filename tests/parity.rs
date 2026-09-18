@@ -51,6 +51,7 @@ fn arguments_for(name: &str) -> Value {
         "set_recipe_language" => json!({ "branch_id": "b_parity", "language": "fr" }),
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" => json!({ "branch_id": "b_parity" }),
+        "export_bundle" => json!({ "branch_id": "b_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
         "get_food" => json!({ "food_id": "f_parity" }),
         "set_food_name" => json!({ "food_id": "f_parity", "language": "en", "name": "parity" }),
@@ -124,6 +125,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "home_shelves"
             | "note_recipe_opened"
             | "get_recipe"
+            | "export_bundle"
             | "get_thread"
             | "branch_point"
             | "divergence"
@@ -281,6 +283,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "home_shelves"
                 | "note_recipe_opened"
                 | "get_recipe"
+                | "export_bundle"
                 | "get_thread"
                 | "branch_point"
                 | "divergence"

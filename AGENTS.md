@@ -187,6 +187,8 @@ a function**, so a misspelt key is a build error; messages live in
 build.rs            refuses a release build that would ship no interface
 src/backups.rs      a Backup: one archive of the database and the
                     Photographs, three kept at three distances (ADR 0039)
+src/bundles.rs      a Bundle: one recipe's worth of Vault, written as a zip of
+                    readable notes and a .kamosu/ sidecar (ADR 0020)
 src/catalogue.rs    the Catalogue: every Operation declared once
 src/core.rs         the Core: dispatch + the only authorisation check in Kamosu
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only

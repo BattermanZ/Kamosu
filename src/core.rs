@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::backups;
+use crate::bundles;
 use crate::catalogue::{self, JobLane, Kind, Permission};
 use crate::db::Db;
 use crate::fingerprint::{canonical_json, stored_version};
@@ -5407,6 +5408,89 @@ impl Core {
         })
     }
 
+    // ── Bundles (#66, ADR 0020) ──────────────────────────────────────────────
+
+    /// **Write one Bundle** of the Branch a Person names: that Branch, its
+    /// Translations, every Component it needs as a Passenger, and every
+    /// Photograph any of their Versions shows.
+    ///
+    /// Nothing is written anywhere, and nothing about who can see the
+    /// Passengers changes: they travel because the recipe needs them (ADR
+    /// 0008), and exporting is a read of the library, not a change to it.
+    pub fn bundle(&self, person_id: &str, branch_id: &str) -> Result<bundles::Written, OpError> {
+        let (mut contents, hashes) = self.gather_bundle(person_id, branch_id)?;
+        // Read off disk outside the database lock: a Photograph is a file, and
+        // there is no reason to hold every other request up while it loads.
+        // One that has gone missing does not cost the recipe — the note still
+        // reads — but the Bundle says so rather than being quietly short.
+        for hash in hashes {
+            match self.read_photograph(&hash) {
+                Ok(bytes) => contents.photographs.push((hash, bytes)),
+                Err(_) => contents.missing_photographs.push(hash),
+            }
+        }
+        bundles::write(&contents)
+    }
+
+    /// What `export_bundle` answers: the Bundle described, and where to fetch
+    /// its bytes. Described from what would be gathered rather than by
+    /// building it, so asking costs a read of the database and not a zip of
+    /// every Photograph; the bytes are built once, when they are fetched.
+    pub fn export_bundle(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+        let (contents, hashes) = self.gather_bundle(person_id, branch_id)?;
+        let data_dir = self.data_dir();
+        let (present, missing): (Vec<String>, Vec<String>) = hashes
+            .into_iter()
+            .partition(|hash| photographs::photograph_path(&data_dir, hash).is_file());
+        let described = |subject: bool| -> Vec<Value> {
+            let mut seen = HashSet::new();
+            contents
+                .branches
+                .iter()
+                .map(|carried| &carried.record)
+                .filter(|record| {
+                    let about = record["lineage_id"]
+                        .as_str()
+                        .is_some_and(|lineage| contents.subjects.iter().any(|s| s == lineage));
+                    about == subject
+                })
+                .filter(|record| {
+                    seen.insert(record["lineage_id"].as_str().unwrap_or("").to_string())
+                })
+                .map(|record| {
+                    json!({
+                        "lineage_id": record["lineage_id"],
+                        "title": bundles::title_of(record),
+                    })
+                })
+                .collect()
+        };
+        Ok(json!({
+            "file_name": bundles::file_name(&contents),
+            "fetch_at": format!("/api/bundles/{branch_id}"),
+            "subjects": described(true),
+            "passengers": described(false),
+            "notes": bundles::note_names(&contents.branches),
+            "photographs": present.len(),
+            "missing_photographs": missing,
+        }))
+    }
+
+    /// Everything one Bundle carries but the Photographs' bytes, for a Person
+    /// who cooks in the Kitchen holding the Branch — the same circle that may
+    /// read it, and the one `share_recipe` lets mint a link to it.
+    fn gather_bundle(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+    ) -> Result<(bundles::Contents, Vec<String>), OpError> {
+        self.db().with_conn(|conn| {
+            let kitchen_id = branch_kitchen(conn, branch_id)?;
+            ensure_member(conn, &kitchen_id, person_id)?;
+            bundle_contents(conn, branch_id, &kitchen_id)
+        })
+    }
+
     // ── The Shopping List (#73, ADR 0024) ────────────────────────────────────
     //
     // **The choosing is stored; the rows are computed.** Every Operation below
@@ -8386,6 +8470,343 @@ fn shared_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
         "translations": translations,
         "thread": thread,
     }))
+}
+
+/// **What one Bundle carries** (ADR 0020): the Lineages it is about and every
+/// Branch that travels, with the hash of every Photograph those show beside it.
+///
+/// The Branch shared and its Translations are the subjects — the same
+/// Translations a Share Link carries, by the same test. Every Component their
+/// head Versions unfold to, at any depth, travels as a Passenger, resolved
+/// against the Kitchen holding the shared Branch exactly as the Share Link
+/// page resolves one.
+fn bundle_contents(
+    conn: &Connection,
+    branch_id: &str,
+    kitchen_id: &str,
+) -> Result<(bundles::Contents, Vec<String>), OpError> {
+    let (lineage_id, language): (String, String) = conn
+        .query_row(
+            "SELECT lineage_id, language FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+
+    let mut order: Vec<String> = vec![branch_id.to_string()];
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM branches WHERE lineage_id = ?1 AND id <> ?2 AND kitchen_id = ?3 \
+              ORDER BY created_at ASC, id ASC",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Translations: {e}")))?;
+    let siblings: Vec<String> = statement
+        .query_map(params![lineage_id, branch_id, kitchen_id], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read Translations: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Translations: {e}")))?;
+    for sibling in siblings {
+        // Only a Translation travels, as on the Share Link page: a Copy or a
+        // Divergence beside this Branch is somebody else's recipe.
+        let translates = translation_of_branch(conn, &lineage_id, &sibling)?
+            .get("source_branch_id")
+            .and_then(Value::as_str)
+            == Some(branch_id);
+        if translates {
+            order.push(sibling);
+        }
+    }
+
+    // Walk every carried Branch's head for Components, Passengers included,
+    // so a dough inside a dough travels too. `order` grows as the walk finds
+    // them, and a Branch already carried is never added twice.
+    let mut carried: Vec<bundles::Carried> = Vec::new();
+    let mut index = 0;
+    while index < order.len() {
+        let this = order[index].clone();
+        let record = bundle_branch(conn, &this)?;
+        let head = bundles::head(&record)
+            .and_then(|version| version["version_id"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let this_lineage = record["lineage_id"].as_str().unwrap_or("").to_string();
+        let mut walk = Unfolding {
+            open: vec![this_lineage],
+            ..Unfolding::default()
+        };
+        unfold_components(
+            conn,
+            &Unfolds::AsPassenger {
+                kitchen_id,
+                language: record["language"].as_str().unwrap_or(&language),
+            },
+            &head,
+            1.0,
+            &mut walk,
+        )?;
+        for component in &walk.found {
+            if let Some(passenger) = component["branch_id"].as_str()
+                && !order.iter().any(|held| held == passenger)
+            {
+                order.push(passenger.to_string());
+            }
+        }
+        carried.push(bundles::Carried {
+            record,
+            components: walk.found,
+        });
+        index += 1;
+    }
+
+    let mut hashes: Vec<String> = Vec::new();
+    for branch in &carried {
+        for version in branch.record["versions"].as_array().into_iter().flatten() {
+            let content = &version["content"];
+            let shown = std::iter::once(&content["main_photo"]).chain(
+                content["steps"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|step| &step["photo"]),
+            );
+            for hash in shown.filter_map(Value::as_str) {
+                if !hashes.iter().any(|held| held == hash) {
+                    hashes.push(hash.to_string());
+                }
+            }
+        }
+    }
+    // The Photographs themselves are read by the caller, off the lock.
+    let contents = bundles::Contents {
+        subjects: vec![lineage_id],
+        branches: carried,
+        photographs: Vec::new(),
+        missing_photographs: Vec::new(),
+    };
+    Ok((contents, hashes))
+}
+
+/// One Branch as a Bundle's sidecar records it: its ids, its Language, the
+/// Kitchen's Hand, its origin address, its Tags as names, and its complete
+/// chain of Versions.
+///
+/// The origin address is carried exactly as stored and never filled in from
+/// this instance's own address (ADR 0020: nothing in v1 writes one). A Branch
+/// that arrived carrying one keeps it, which is what stops a reshare laundering
+/// where a recipe came from.
+fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
+    let (lineage_id, language, hand_id, origin_address): (String, String, String, Option<String>) =
+        conn.query_row(
+            "SELECT lineage_id, language, hand_id, origin_address FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
+        .ok_or_else(|| OpError::not_found("no such Branch"))?;
+    let kitchen_name: Option<String> = conn
+        .query_row(
+            "SELECT name FROM kitchens WHERE hand_id = ?1",
+            params![hand_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read a Kitchen's Hand: {e}")))?;
+
+    // Tags travel as names, in every Language each has one in (ADR 0020).
+    let mut statement = conn
+        .prepare(
+            "SELECT tag_names.tag_id, tag_names.language, tag_names.name \
+               FROM branch_tags JOIN tag_names ON tag_names.tag_id = branch_tags.tag_id \
+              WHERE branch_tags.branch_id = ?1 \
+              ORDER BY tag_names.tag_id, tag_names.language",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Tags: {e}")))?;
+    let rows: Vec<(String, String, String)> = statement
+        .query_map(params![branch_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read Tags: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Tags: {e}")))?;
+    let mut tags: Vec<(String, serde_json::Map<String, Value>)> = Vec::new();
+    for (tag_id, tag_language, name) in rows {
+        if tags.last().is_none_or(|(held, _)| *held != tag_id) {
+            tags.push((tag_id, serde_json::Map::new()));
+        }
+        if let Some((_, names)) = tags.last_mut() {
+            names.insert(tag_language, json!(name));
+        }
+    }
+    let tags: Vec<Value> = tags
+        .into_iter()
+        .map(|(_, names)| json!({ "names": names }))
+        .collect();
+
+    // The chain, complete back to the first Version (ADR 0018). The Access Key
+    // that wrote each one is deliberately not selected: it is for its author
+    // to read on this instance and never travels (ADR 0015).
+    let mut statement = conn
+        .prepare(
+            "SELECT branch_versions.sequence, branch_versions.version_id, \
+                    branch_versions.parent_version_id, branch_versions.translates_version_id, \
+                    branch_versions.language, branch_versions.name, branch_versions.change_note, \
+                    branch_versions.created_at, branch_versions.hand_id, versions.content \
+               FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
+              WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence ASC",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the Thread: {e}")))?;
+    type Row = (
+        i64,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+        String,
+    );
+    let rows: Vec<Row> = statement
+        .query_map(params![branch_id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
+            ))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read the Thread: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read the Thread: {e}")))?;
+    let mut versions = Vec::with_capacity(rows.len());
+    for (
+        sequence,
+        version_id,
+        parent,
+        translates,
+        at_language,
+        name,
+        change_note,
+        created_at,
+        hand,
+        content,
+    ) in rows
+    {
+        // The content exactly as stored, never normalised on the way out: it
+        // is what the receiver fingerprints to check this Version is what its
+        // id says it is (ADR 0004, ADR 0020).
+        let content: Value = serde_json::from_str(&content)
+            .map_err(|e| OpError::internal(format!("a Version's content is unreadable: {e}")))?;
+        let line_count = content["ingredients"].as_array().map(Vec::len).unwrap_or(0);
+        versions.push(json!({
+            "sequence": sequence,
+            "version_id": version_id,
+            "parent_version_id": parent,
+            "translates_version_id": translates,
+            "language": at_language,
+            "name": name,
+            "change_note": change_note,
+            "created_at": created_at,
+            "hand": { "id": hand, "name": person_name(conn, &hand)? },
+            // The slot a signature would sit in, empty: v1 signs nothing, and
+            // keeping the slot is what keeps that decision reversible.
+            "signature": Value::Null,
+            "readings": bundle_readings(conn, &version_id, line_count)?,
+            "content": content,
+        }));
+    }
+
+    Ok(json!({
+        "branch_id": branch_id,
+        "lineage_id": lineage_id,
+        "language": language,
+        "hand": { "id": hand_id, "name": kitchen_name },
+        "origin_address": origin_address,
+        "tags": tags,
+        "versions": versions,
+    }))
+}
+
+/// A Version's Readings as they travel: one slot per Ingredient Line, null
+/// where there is none, each carried as stored and never recomputed (ADR 0021).
+///
+/// Where a Reading points at a **Food**, the Food travels as its names in
+/// every Language it has one in, and nothing else: no id, since two instances
+/// mint their *farine* separately, and no Cup Weight or nutrition, since what
+/// this instance learned stays this instance's (ADR 0016, ADR 0021).
+fn bundle_readings(
+    conn: &Connection,
+    version_id: &str,
+    line_count: usize,
+) -> Result<Vec<Value>, OpError> {
+    let mut slots = vec![Value::Null; line_count];
+    let mut statement = conn
+        .prepare(
+            "SELECT line_index, amount, unit, target, lineage_id, food_id \
+               FROM readings WHERE version_id = ?1",
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?;
+    type Row = (
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+    let rows: Vec<Row> = statement
+        .query_map(params![version_id], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+            ))
+        })
+        .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?;
+    let mut names_of = conn
+        .prepare("SELECT language, name FROM food_names WHERE food_id = ?1 ORDER BY language")
+        .map_err(|e| OpError::internal(format!("cannot read a Food's names: {e}")))?;
+    for (line_index, amount, unit, target, lineage_id, food_id) in rows {
+        let food = match food_id {
+            Some(food_id) => {
+                let names: serde_json::Map<String, Value> = names_of
+                    .query_map(params![food_id], |row| {
+                        Ok((row.get::<_, String>(0)?, json!(row.get::<_, String>(1)?)))
+                    })
+                    .map_err(|e| OpError::internal(format!("cannot read a Food's names: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot read a Food's names: {e}")))?;
+                json!({ "names": names })
+            }
+            None => Value::Null,
+        };
+        if let Some(slot) = usize::try_from(line_index)
+            .ok()
+            .and_then(|index| slots.get_mut(index))
+        {
+            *slot = json!({
+                "amount": amount,
+                "unit": unit,
+                "target": target,
+                "lineage_id": lineage_id,
+                "food": food,
+            });
+        }
+    }
+    Ok(slots)
 }
 
 /// One Branch's current state, as a stranger sees it.

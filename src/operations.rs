@@ -825,6 +825,16 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
     core.get_recipe(&caller.person_id, branch_id)
 }
 
+/// Write a Bundle of one recipe and say where to fetch it (#66, ADR 0020).
+pub fn export_bundle(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("export_bundle takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.export_bundle(&caller.person_id, branch_id)
+}
+
 pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")

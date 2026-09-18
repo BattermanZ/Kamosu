@@ -1352,6 +1352,27 @@ export type SetPublicAddressOutput = {
 	public_address: string;
 };
 
+/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
+export type ExportBundleInput = {
+	branch_id: string;
+};
+/** What export_bundle answers. */
+export type ExportBundleOutput = {
+	fetch_at: string;
+	file_name: string;
+	missing_photographs: string[];
+	notes: string[];
+	passengers: {
+		lineage_id: string;
+		title: string | null;
+	}[];
+	photographs: number;
+	subjects: {
+		lineage_id: string;
+		title: string | null;
+	}[];
+};
+
 /** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 export type ReadSharedRecipeInput = {
 	token: string;
@@ -3491,6 +3512,12 @@ export interface Operations {
 		output: SetPublicAddressOutput;
 		kind: 'immediate';
 		permission: 'operator';
+	};
+	export_bundle: {
+		input: ExportBundleInput;
+		output: ExportBundleOutput;
+		kind: 'immediate';
+		permission: 'person';
 	};
 	read_shared_recipe: {
 		input: ReadSharedRecipeInput;
@@ -10369,6 +10396,104 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"public_address"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "export_bundle",
+		"summary": "Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"fetch_at": {
+					"type": "string"
+				},
+				"file_name": {
+					"type": "string"
+				},
+				"missing_photographs": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"notes": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"passengers": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"lineage_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"photographs": {
+					"type": "integer"
+				},
+				"subjects": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"lineage_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"file_name",
+				"fetch_at",
+				"subjects",
+				"passengers",
+				"notes",
+				"photographs",
+				"missing_photographs"
 			],
 			"type": "object"
 		}
@@ -19822,6 +19947,7 @@ export const METHOD_NAMES = {
 	end_share_link: 'endShareLink',
 	get_share_link: 'getShareLink',
 	set_public_address: 'setPublicAddress',
+	export_bundle: 'exportBundle',
 	read_shared_recipe: 'readSharedRecipe',
 	branch_point: 'branchPoint',
 	divergence: 'divergence',
@@ -19970,6 +20096,8 @@ export interface KamosuClient {
 	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
 	/** Set where this instance is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act that every Share Link already minted follows. */
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
+	/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
+	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;
 	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
 	/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */

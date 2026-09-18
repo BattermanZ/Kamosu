@@ -12121,8 +12121,16 @@ async fn a_nutrition_figure_that_does_not_say_what_it_counts_is_refused() {
 }
 
 /// The other half of "a Food's nutrition never travels" (#72, spec item 161),
-/// held at the Catalogue rather than at a Bundle that does not exist yet
-/// (#66 builds it).
+/// held at the Catalogue. The real Bundle (#66) is proved separately, by
+/// `a_bundle_carries_the_recipe_its_translation_its_passenger_and_its_photographs`.
+///
+/// **What #66 decided, explicitly.** A Bundle does carry Foods, as ADR 0021
+/// and spec item 159 require: where a Reading resolved to a Food, the sidecar
+/// puts that Food's names, in every Language it has one in, beside the Reading.
+/// It carries no Food id, no Cup Weight and no Food nutrition. It is gathered
+/// by `bundle_readings` in `src/core.rs` from the `readings` table, not from
+/// any shape this test reads, so nothing here moved: the Catalogue's Reading
+/// still names no Food.
 ///
 /// A Bundle is one recipe's worth of Vault (ADR 0020), so what it can carry is
 /// bounded by what a recipe declares: its Versions' content, and the Readings
@@ -15461,4 +15469,589 @@ fn nothing_in_the_catalogue_can_be_told_where_to_send_a_backup() {
         );
         assert_eq!(op.input_schema["additionalProperties"], json!(false));
     }
+}
+
+// --- Bundles (#66, ADR 0020) --------------------------------------------------
+
+/// Every file in a Bundle, by name, read whole.
+fn unzip(bytes: &[u8]) -> std::collections::BTreeMap<String, Vec<u8>> {
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("a Bundle is a plain zip");
+    (0..archive.len())
+        .map(|index| {
+            let mut entry = archive.by_index(index).expect("an entry");
+            let mut held = Vec::new();
+            std::io::Read::read_to_end(&mut entry, &mut held).expect("reads");
+            (entry.name().to_string(), held)
+        })
+        .collect()
+}
+
+/// A pizza with Sections, a photograph on it and on a Step, a named second
+/// Version, a Component, a Food with names in two Languages and a Cup Weight,
+/// a Tag, and a French Translation growing from it. Returns
+/// `(key, kitchen, pizza, pizza lineage, french, dough, [main photo, step photo])`.
+fn a_pizza_worth_sending(
+    app: &support::TestApp,
+) -> (String, String, String, String, String, String, [String; 2]) {
+    let (_person, key, kitchen_id) = person_with_kitchen(app, "Aurélien");
+    let (dough, dough_lineage) = recipe_with(
+        app,
+        &key,
+        &kitchen_id,
+        "Neapolitan Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
+        json!([{ "kind": "step", "text": "Knead for ten minutes." }]),
+    );
+    let main_photo = upload_a_picture(app, &key, 1);
+    let step_photo = upload_a_picture(app, &key, 2);
+
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Pizza Margherita" }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let pizza = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let lineage = created["result"]["lineage_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let written = |mozzarella: &str| {
+        json!({
+            "branch_id": pizza,
+            "title": "Pizza Margherita",
+            "yield": { "amount": "2", "noun": "pizzas" },
+            "prep_time_minutes": 20,
+            "cook_time_minutes": 8,
+            "main_photo": main_photo,
+            "note": "The dough wants making the day before.",
+            "nutrition": { "calories": 800, "basis": "per_serving" },
+            "ingredients": [
+                { "kind": "section", "text": "For the base" },
+                { "kind": "ingredient", "text": "500 g Neapolitan pizza dough" },
+                { "kind": "section", "text": "To finish" },
+                { "kind": "ingredient", "text": mozzarella },
+            ],
+            "steps": [
+                { "kind": "section", "text": "Bake" },
+                { "kind": "step", "text": "Bake 6 to 8 minutes.", "photo": step_photo },
+            ],
+        })
+    };
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &written("250 g mozzarella").to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    backdate_branch_head(app, &pizza);
+    let mut second = written("125 g mozzarella");
+    second["name"] = json!("Less cheese");
+    second["change_note"] = json!("Half the mozzarella; it was drowning the tomato.");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &second.to_string());
+    assert_eq!(status, 200, "{saved}");
+
+    make_component(app, &key, &pizza, 1, Some("500"), Some("g"), &dough_lineage);
+    let (status, read) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": pizza, "line_index": 3,
+            "amount": "125", "unit": "g", "target": "mozzarella",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let food = food_named(app, &key, "en", "mozzarella");
+    let (status, named) = app.post_op(
+        "set_food_name",
+        Some(&key),
+        &json!({ "food_id": food, "language": "fr", "name": "mozzarella di bufala" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    let (status, weighed) = app.post_op(
+        "set_food_cup_weight",
+        Some(&key),
+        &json!({ "food_id": food, "cup_weight_grams": 113.0 }).to_string(),
+    );
+    assert_eq!(status, 200, "{weighed}");
+
+    let tag = tag_in(app, &key, &kitchen_id, "en", "Weekend");
+    file_under(app, &key, &pizza, &tag, true);
+
+    let mut french = written("125 g de mozzarella");
+    french["branch_id"] = json!(pizza);
+    french["language"] = json!("fr");
+    french["name"] = json!("Traduite");
+    let (status, translated) = app.post_op("start_translation", Some(&key), &french.to_string());
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    (
+        key,
+        kitchen_id,
+        pizza,
+        lineage,
+        french,
+        dough,
+        [main_photo, step_photo],
+    )
+}
+
+/// **A Bundle is one recipe's worth of Vault** (#66, ADR 0020): a plain zip of
+/// readable notes, the Photographs byte for byte, and a sidecar carrying every
+/// Version whole with its Readings and ids — the pizza and its French
+/// Translation as what it is about, the dough as a Passenger.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_carries_the_recipe_its_translation_its_passenger_and_its_photographs() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, lineage, french, dough, photos) = a_pizza_worth_sending(&app);
+
+    let (status, exported) = app.post_op(
+        "export_bundle",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{exported}");
+    let exported = &exported["result"];
+    assert_eq!(exported["file_name"], json!("Pizza Margherita.zip"));
+    assert_eq!(exported["fetch_at"], json!(format!("/api/bundles/{pizza}")));
+    assert_eq!(
+        exported["subjects"],
+        json!([{ "lineage_id": lineage, "title": "Pizza Margherita" }]),
+        "one recipe is what this Bundle is about, however many Branches carry it"
+    );
+    assert_eq!(
+        exported["passengers"][0]["title"],
+        json!("Neapolitan Pizza Dough")
+    );
+    assert_eq!(exported["photographs"], json!(2));
+    assert_eq!(exported["missing_photographs"], json!([]));
+
+    let (status, content_type, bytes) = app.get_bytes(&format!("/api/bundles/{pizza}"), Some(&key));
+    assert_eq!(status, 200);
+    assert_eq!(content_type, "application/zip");
+    assert_eq!(
+        exported["notes"],
+        json!([
+            "Pizza Margherita.md",
+            "Pizza Margherita (Français).md",
+            "Neapolitan Pizza Dough.md"
+        ]),
+        "what export_bundle describes is what the bytes hold"
+    );
+    let files = unzip(&bytes);
+    let names: Vec<&str> = files.keys().map(String::as_str).collect();
+    assert_eq!(
+        names,
+        [
+            ".kamosu/bundle.json",
+            "Neapolitan Pizza Dough.md",
+            "Pizza Margherita (Français).md",
+            "Pizza Margherita.md",
+            "photographs/Pizza Margherita, step 1.webp",
+            "photographs/Pizza Margherita.webp",
+        ],
+        "notes at the top, pictures beside them, machinery in the dot-directory"
+    );
+
+    // Photographs travel as their remade bytes, unmodified (ADR 0017).
+    for (name, hash) in [
+        ("photographs/Pizza Margherita.webp", &photos[0]),
+        ("photographs/Pizza Margherita, step 1.webp", &photos[1]),
+    ] {
+        let (status, _, stored) = app.get_bytes(&format!("/api/photographs/{hash}"), Some(&key));
+        assert_eq!(status, 200);
+        assert_eq!(
+            files[name], stored,
+            "{name} is byte-identical to the Photograph"
+        );
+    }
+
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).expect("JSON");
+    assert_eq!(sidecar["subjects"], json!([lineage]));
+    let branches = sidecar["branches"].as_array().expect("the Branches");
+    let branch = |id: &str| {
+        branches
+            .iter()
+            .find(|b| b["branch_id"] == json!(id))
+            .unwrap_or_else(|| panic!("{id} travels: {sidecar}"))
+    };
+    assert_eq!(branch(&pizza)["subject"], json!(true));
+    assert_eq!(branch(&french)["subject"], json!(true));
+    assert_eq!(
+        branch(&dough)["subject"],
+        json!(false),
+        "the dough is a Passenger: present because the pizza needs it"
+    );
+    assert_eq!(branch(&pizza)["note"], json!("Pizza Margherita.md"));
+    assert_eq!(
+        branch(&pizza)["tags"],
+        json!([{ "names": { "en": "Weekend" } }])
+    );
+
+    // Complete states, never deltas: every Version, each one's content
+    // fingerprinting to its own id, chained by parent back to the first.
+    let versions = branch(&pizza)["versions"].as_array().unwrap();
+    assert_eq!(
+        versions.len(),
+        2,
+        "the whole chain, back to the first Version"
+    );
+    assert_eq!(versions[0]["parent_version_id"], Value::Null);
+    assert_eq!(versions[1]["parent_version_id"], versions[0]["version_id"]);
+    assert_eq!(versions[1]["name"], json!("Less cheese"));
+    for record in branches {
+        assert!(
+            record.as_object().unwrap().contains_key("origin_address"),
+            "each Branch carries an origin address slot"
+        );
+        for version in record["versions"].as_array().unwrap() {
+            assert_eq!(
+                json!(kamosu::fingerprint::fingerprint_content(
+                    &version["content"]
+                )),
+                version["version_id"],
+                "a Version's content is what its id says it is"
+            );
+            assert!(
+                version.as_object().unwrap().contains_key("signature"),
+                "each Version carries a signature slot"
+            );
+            assert_eq!(version["signature"], Value::Null, "and v1 signs nothing");
+        }
+    }
+    let french_first = &branch(&french)["versions"][0];
+    assert_eq!(
+        french_first["translates_version_id"], versions[1]["version_id"],
+        "the Translation says which Version it renders"
+    );
+
+    // The recipe's own nutrition figure is part of its words, so it travels.
+    assert_eq!(
+        versions[1]["content"]["nutrition"],
+        json!({ "calories": 800.0, "basis": "per_serving" })
+    );
+
+    // A Reading travels beside its Version: the Component as a Lineage, the
+    // Food as its names in every Language and nothing else.
+    let readings = &versions[1]["readings"];
+    assert_eq!(readings[0], Value::Null, "a Section has no Reading");
+    assert_eq!(readings[1]["lineage_id"], branch(&dough)["lineage_id"]);
+    assert_eq!(
+        readings[3],
+        json!({
+            "amount": "125", "unit": "g", "target": "mozzarella", "lineage_id": null,
+            "food": { "names": { "en": "mozzarella", "fr": "mozzarella di bufala" } },
+        }),
+        "a Food travels as its names and no id"
+    );
+    let raw = String::from_utf8(files[".kamosu/bundle.json"].clone()).unwrap();
+    let food = food_named(&app, &key, "en", "mozzarella");
+    assert!(!raw.contains(&food), "no Food id travels");
+    assert!(
+        !raw.contains("cup_weight") && !raw.contains("113"),
+        "no Cup Weight travels"
+    );
+
+    // The Access Key that wrote each Version stays here (ADR 0015).
+    let key_ids: Vec<String> = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare("SELECT DISTINCT access_key_id FROM branch_versions WHERE access_key_id IS NOT NULL")
+                .unwrap();
+            let ids = statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<String>, _>>()
+                .unwrap();
+            Ok(ids)
+        })
+        .unwrap();
+    assert!(
+        !key_ids.is_empty(),
+        "these Versions were written by an Access Key"
+    );
+    for (name, held) in &files {
+        let text = String::from_utf8_lossy(held);
+        for id in &key_ids {
+            assert!(
+                !text.contains(id.as_str()),
+                "{name} carries the Access Key {id}"
+            );
+        }
+        assert!(!text.contains("access_key"), "{name} names an Access Key");
+    }
+
+    // The note: the recipe as it reads today, with its Thread beneath it.
+    let note = String::from_utf8(files["Pizza Margherita.md"].clone()).unwrap();
+    for expected in [
+        "# Pizza Margherita\n",
+        "![Pizza Margherita](<photographs/Pizza Margherita.webp>)",
+        "2 pizzas · 20 min prep · 8 min cook",
+        "**For the base**",
+        "- 500 g Neapolitan pizza dough\n  - *Neapolitan Pizza Dough · ½ of the recipe*, see [Neapolitan Pizza Dough](<Neapolitan Pizza Dough.md>)",
+        "- 125 g mozzarella",
+        "**Bake**",
+        "1. Bake 6 to 8 minutes.\n   ![](<photographs/Pizza Margherita, step 1.webp>)",
+        "## Note\n\nThe dough wants making the day before.",
+        "Tags: Weekend",
+        "---\n\n## Everything this recipe has been",
+        "- **Less cheese** · Aurélien · ",
+        "  Half the mozzarella; it was drowning the tomato.",
+        "  - *Branched here:* **Pizza Margherita (Français)**, see [Pizza Margherita (Français)](<Pizza Margherita (Français).md>)",
+        "    - **Traduite** · Aurélien · ",
+        "- **Written down** · Aurélien · ",
+    ] {
+        assert!(
+            note.contains(expected),
+            "the note has {expected:?}:\n{note}"
+        );
+    }
+    assert!(
+        note.find("**Less cheese**") < note.find("**Written down**"),
+        "the Thread reads newest first, like the Share Link page"
+    );
+    let translation = String::from_utf8(files["Pizza Margherita (Français).md"].clone()).unwrap();
+    assert!(
+        translation.contains("## Ingrédients"),
+        "in its own Language:\n{translation}"
+    );
+    assert!(
+        translation.contains(
+            "*Traduite de* **Less cheese**, voir [Pizza Margherita](<Pizza Margherita.md>)"
+        ),
+        "a Translation says what it renders:\n{translation}"
+    );
+
+    // Exporting changed nothing about the dough's own Visibility (ADR 0008).
+    let (status, dough_link) = app.post_op(
+        "get_share_link",
+        Some(&key),
+        &json!({ "branch_id": dough }).to_string(),
+    );
+    assert_eq!(status, 200, "{dough_link}");
+    assert_eq!(dough_link["result"]["shared"], json!(false));
+}
+
+/// **Generating a Bundle is available at both Doors**, and its bytes travel out
+/// of band under the same Credential — to the Kitchen that holds the recipe
+/// and nobody else (#66).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_is_made_at_both_doors_for_the_kitchen_that_holds_it_and_nobody_else() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+
+    let (status, answered) = app.post_mcp(
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "export_bundle", "arguments": { "branch_id": pizza } },
+        })
+        .to_string(),
+        Some(&key),
+    );
+    assert_eq!(status, 200, "{answered}");
+    let at_mcp = &answered["result"]["structuredContent"];
+    assert_eq!(
+        at_mcp["file_name"],
+        json!("Pizza Margherita.zip"),
+        "{answered}"
+    );
+    let (_, at_web) = app.post_op(
+        "export_bundle",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(
+        at_mcp["notes"], at_web["result"]["notes"],
+        "both Doors describe the same Bundle"
+    );
+
+    // An agent's read-only Access Key may still take a copy: exporting writes
+    // nothing.
+    let person = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row("SELECT id FROM people WHERE name = 'Aurélien'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    let read_only = app
+        .core
+        .mint_access_key(&person, "reader", true)
+        .unwrap()
+        .secret;
+    let (status, _, _) = app.get_bytes(&format!("/api/bundles/{pizza}"), Some(&read_only));
+    assert_eq!(status, 200, "a read-only key may export");
+
+    let (status, _, _) = app.get_bytes(&format!("/api/bundles/{pizza}"), None);
+    assert_eq!(status, 401, "no Credential, no Bundle");
+
+    let (_stranger, stranger_key, _) = person_with_kitchen(&app, "Nadia");
+    let (status, _, _) = app.get_bytes(&format!("/api/bundles/{pizza}"), Some(&stranger_key));
+    assert_ne!(
+        status, 200,
+        "a Person outside the Kitchen cannot take its recipe"
+    );
+    let (status, refused) = app.post_op(
+        "export_bundle",
+        Some(&stranger_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_ne!(status, 200, "{refused}");
+
+    let (status, _, _) = app.get_bytes("/api/bundles/b_nothing", Some(&key));
+    assert_eq!(status, 404);
+}
+
+/// **An origin address belongs to a Branch and is carried as it stands**, so a
+/// reshare does not launder where a recipe came from (ADR 0020). This instance
+/// writes none of its own; a Branch that arrived with one keeps it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_carries_each_branchs_origin_as_it_stands_and_invents_none() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, dough, _photos) = a_pizza_worth_sending(&app);
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET origin_address = 'https://marc.example' WHERE id = ?1",
+                rusqlite::params![pizza],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+
+    let (_, _, bytes) = app.get_bytes(&format!("/api/bundles/{pizza}"), Some(&key));
+    let files = unzip(&bytes);
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    let origin = |id: &str| {
+        sidecar["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["branch_id"] == json!(id))
+            .unwrap()["origin_address"]
+            .clone()
+    };
+    assert_eq!(origin(&pizza), json!("https://marc.example"));
+    assert_eq!(origin(&dough), Value::Null, "nothing in v1 writes one");
+    assert!(
+        sidecar.get("origin_address").is_none(),
+        "an origin belongs to a Branch, never to the file"
+    );
+}
+
+/// **A Copy's Bundle carries the whole chain it grew from** (ADR 0018, ADR
+/// 0020): Marc changed Aurélien's pizza, so his Branch forks at Aurélien's
+/// Version, and his Bundle begins at the beginning — Aurélien's Versions under
+/// Aurélien's Hand, Marc's on top — with each still what its id says it is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copys_bundle_carries_the_chain_it_forked_from_under_each_hand() {
+    let app = support::spawn_app();
+    let (_key, _kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+    let (status, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&marc_key),
+        &json!({
+            "branch_id": pizza,
+            "kitchen_id": marc_kitchen,
+            "title": "Pizza Margherita",
+            "ingredients": [{ "kind": "ingredient", "text": "A lot more basil" }],
+            "name": "Marc's",
+            "change_note": "Basil, and nothing else matters.",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(copied["result"]["copied"], json!(true));
+    let copy = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, _, bytes) = app.get_bytes(&format!("/api/bundles/{copy}"), Some(&marc_key));
+    assert_eq!(status, 200);
+    let files = unzip(&bytes);
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    assert_eq!(
+        sidecar["subjects"],
+        json!([lineage]),
+        "the same recipe, forked"
+    );
+    let record = &sidecar["branches"][0];
+    assert_eq!(record["branch_id"], json!(copy));
+    let versions = record["versions"].as_array().unwrap();
+    let hands: Vec<&str> = versions
+        .iter()
+        .map(|v| v["hand"]["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        hands,
+        ["Aurélien", "Aurélien", "Marc"],
+        "the whole chain, each under its Hand"
+    );
+    for window in versions.windows(2) {
+        assert_eq!(window[1]["parent_version_id"], window[0]["version_id"]);
+    }
+    for version in versions {
+        assert_eq!(
+            json!(kamosu::fingerprint::fingerprint_content(
+                &version["content"]
+            )),
+            version["version_id"]
+        );
+    }
+    let note = String::from_utf8(files["Pizza Margherita.md"].clone()).unwrap();
+    let marcs = note
+        .find("- **Marc's** · Marc · ")
+        .expect("Marc's Version, newest");
+    let aureliens = note
+        .find("- **Less cheese** · Aurélien · ")
+        .expect("the Version it forked at");
+    assert!(marcs < aureliens, "{note}");
+}
+
+/// **A Bundle short of a Photograph says so** rather than being quietly
+/// incomplete: the recipe still travels, and the sidecar and `export_bundle`
+/// both name what is missing (#66).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_short_of_a_photograph_names_what_is_missing() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, photos) = a_pizza_worth_sending(&app);
+    std::fs::remove_file(kamosu::photographs::photograph_path(
+        &app.core.data_dir(),
+        &photos[1],
+    ))
+    .expect("the step's picture is on disk");
+
+    let (status, exported) = app.post_op(
+        "export_bundle",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{exported}");
+    assert_eq!(
+        exported["result"]["missing_photographs"],
+        json!([photos[1]])
+    );
+    assert_eq!(exported["result"]["photographs"], json!(1));
+
+    let (status, _, bytes) = app.get_bytes(&format!("/api/bundles/{pizza}"), Some(&key));
+    assert_eq!(status, 200, "the recipe still travels");
+    let files = unzip(&bytes);
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    assert_eq!(sidecar["missing_photographs"], json!([photos[1]]));
+    assert!(files.contains_key("photographs/Pizza Margherita.webp"));
+    assert!(!files.keys().any(|name| name.contains("step 1")));
 }
