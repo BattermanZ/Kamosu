@@ -1234,6 +1234,35 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::export_bundle,
         },
         Operation {
+            name: "import_bundle",
+            summary: "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it \
+                      carries is placed under the sender's own ids and Hands, its Versions, \
+                      Readings and Photographs exactly as they were sent; one already held \
+                      here is extended by whatever the Bundle carries past it, so the same \
+                      friend's next Bundle continues their recipe. Receiving makes nothing \
+                      of your own — changing what arrived does. A recipe whose history is \
+                      damaged arrives as a new recipe of your own with no history, and the \
+                      Import Report says so.",
+            permission: Permission::Person,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "string",
+                        "description": "The Bundle's zip, base64-encoded.",
+                    },
+                },
+                "required": ["data"],
+                "additionalProperties": false,
+            }),
+            output_schema: import_report_schema(),
+            handler: crate::operations::import_bundle,
+        },
+        Operation {
             name: "read_shared_recipe",
             summary: "Read a Recipe through its Share Link token: the Recipe \
                       as it stands, its Translations, and its Thread complete \
@@ -3111,13 +3140,17 @@ fn import_input_schema() -> Value {
     })
 }
 
-/// `import`'s eventual result: the Import Report, a ledger read by a person
-/// rather than an error log (ADR 0025, CONTEXT.md "Import Report"). Every
-/// candidate lands in exactly one bucket — `arrived` covers a recipe freshly
-/// made and one already matched and found unchanged alike, told apart by
-/// `status`; `offered` is a previously-seen recipe found changed, waiting for
-/// a tap rather than written over; `unreadable` names what could not be
-/// placed at all, and why.
+/// Every importer's eventual result: the Import Report, a ledger read by a
+/// person rather than an error log (ADR 0025, CONTEXT.md "Import Report").
+/// Every candidate lands in exactly one bucket — `arrived` covers a recipe
+/// freshly made, one already matched and found unchanged, and a Branch a
+/// Bundle extended, told apart by `status`; `offered` is a previously-seen
+/// recipe found changed, waiting for a tap rather than written over;
+/// `unreadable` names what could not be placed at all, and why.
+///
+/// A damaged Bundle's recipe is one row in `unreadable` (#67, ADR 0020): its
+/// history could not be read, and `kept_as` names the new recipe of your own
+/// its words became.
 fn import_report_schema() -> Value {
     json!({
         "type": "object",
@@ -3131,10 +3164,16 @@ fn import_report_schema() -> Value {
                     "type": "object",
                     "properties": {
                         "foreign_id": { "type": "string" },
-                        "status": { "enum": ["created", "unchanged"] },
+                        "status": { "enum": ["created", "extended", "unchanged"] },
                         "lineage_id": { "type": "string" },
                         "branch_id": { "type": "string" },
                         "title": { "type": "string" },
+                        "subject": {
+                            "type": "boolean",
+                            "description": "From a Bundle: whether this recipe is what the \
+                                             Bundle is about, rather than a Passenger that \
+                                             travelled because something needed it.",
+                        },
                     },
                     "required": ["foreign_id", "status", "lineage_id", "branch_id", "title"],
                     "additionalProperties": false,
@@ -3167,6 +3206,19 @@ fn import_report_schema() -> Value {
                     "properties": {
                         "foreign_id": { "type": ["string", "null"] },
                         "reason": { "type": "string" },
+                        "kept_as": {
+                            "type": "object",
+                            "description": "From a damaged Bundle: the new recipe of your \
+                                             own its words were kept as, with no history and \
+                                             no link to the recipe it came from.",
+                            "properties": {
+                                "lineage_id": { "type": "string" },
+                                "branch_id": { "type": "string" },
+                                "title": { "type": "string" },
+                            },
+                            "required": ["lineage_id", "branch_id", "title"],
+                            "additionalProperties": false,
+                        },
                     },
                     "required": ["foreign_id", "reason"],
                     "additionalProperties": false,

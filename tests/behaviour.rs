@@ -14189,6 +14189,18 @@ async fn every_version_a_door_writes_fingerprints_to_its_own_id() {
         "{arrived}"
     );
 
+    // And a Bundle from another instance: the first path where a Version id
+    // arrives from outside rather than being computed here (#67).
+    let there = support::spawn_app();
+    let (their_key, _kitchen, pizza, _lineage, _french, _dough, _photos) =
+        a_pizza_worth_sending(&there);
+    let report = receive(&app, &key, &bundle_of(&there, &their_key, &pizza));
+    assert_eq!(
+        arrived_row(&report, &pizza)["status"],
+        json!("created"),
+        "{report}"
+    );
+
     app.core
         .db()
         .with_conn(|conn| {
@@ -16054,4 +16066,908 @@ async fn a_bundle_short_of_a_photograph_names_what_is_missing() {
     assert_eq!(sidecar["missing_photographs"], json!([photos[1]]));
     assert!(files.contains_key("photographs/Pizza Margherita.webp"));
     assert!(!files.keys().any(|name| name.contains("step 1")));
+}
+
+// --- Bundle import (#67, ADR 0020) ---------------------------------------------
+
+/// A Bundle's bytes from the instance that wrote it.
+fn bundle_of(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<u8> {
+    let (status, _, bytes) = app.get_bytes(&format!("/api/bundles/{branch_id}"), Some(key));
+    assert_eq!(status, 200, "the Bundle is fetched");
+    bytes
+}
+
+/// Receive a Bundle and wait for the Import Report.
+fn receive(app: &support::TestApp, key: &str, bytes: &[u8]) -> Value {
+    use base64::Engine;
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let (status, ask) = app.post_op(
+        "import_bundle",
+        Some(key),
+        &json!({ "data": data }).to_string(),
+    );
+    assert_eq!(status, 200, "{ask}");
+    let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+    let finished = wait_terminal(app, Some(key), job_id);
+    assert_eq!(finished["status"], json!("completed"), "{finished}");
+    finished["result"].clone()
+}
+
+/// The files of a Bundle zipped back up, after a test has had its way with
+/// them — the sender's file mangled in transit.
+fn rezip(files: &std::collections::BTreeMap<String, Vec<u8>>) -> Vec<u8> {
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in files {
+        archive
+            .start_file(name.as_str(), zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut archive, bytes).unwrap();
+    }
+    archive.finish().unwrap().into_inner()
+}
+
+/// Rewrite a Bundle's sidecar, leaving everything else as it was.
+fn with_sidecar(bytes: &[u8], change: impl FnOnce(&mut Value)) -> Vec<u8> {
+    let mut files = unzip(bytes);
+    let mut sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    change(&mut sidecar);
+    files.insert(
+        ".kamosu/bundle.json".to_string(),
+        serde_json::to_vec(&sidecar).unwrap(),
+    );
+    rezip(&files)
+}
+
+/// The Report's line for one Branch the Bundle carried, by the id it carried.
+fn arrived_row<'a>(report: &'a Value, foreign_id: &str) -> &'a Value {
+    report["arrived"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["foreign_id"] == json!(foreign_id))
+        .unwrap_or_else(|| panic!("{foreign_id} is in what arrived: {report}"))
+}
+
+/// One Version's Readings as the database holds them: `(line, amount, unit,
+/// target, lineage)` in line order.
+type HeldReading = (
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+fn readings_held(app: &support::TestApp, version_id: &str) -> Vec<HeldReading> {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT line_index, amount, unit, target, lineage_id FROM readings \
+                      WHERE version_id = ?1 ORDER BY line_index",
+                )
+                .unwrap();
+            Ok(statement
+                .query_map(rusqlite::params![version_id], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap())
+        })
+        .unwrap()
+}
+
+/// Every Branch this instance holds of one Lineage.
+fn branches_of_lineage(app: &support::TestApp, lineage_id: &str) -> Vec<String> {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let mut statement = conn
+                .prepare("SELECT id FROM branches WHERE lineage_id = ?1 ORDER BY id")
+                .unwrap();
+            Ok(statement
+                .query_map(rusqlite::params![lineage_id], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<String>, _>>()
+                .unwrap())
+        })
+        .unwrap()
+}
+
+/// **Receiving a Bundle places the sender's Branch here under their ids**
+/// (ADR 0020): the Branch id, the Lineage id, every Version id, the Hand on the
+/// Branch and on each Version, the names, the *what changed* lines and the
+/// dates — the recipe as it was written there, now held by a Kitchen here.
+/// The Photographs arrive as the bytes that left, the Readings as they were
+/// sent, the Foods by their names, the Tags into this Kitchen's own list, and
+/// the origin address as a hint.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_arrives_whole_under_the_senders_ids_and_hands() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, lineage, french, dough, photos) = a_pizza_worth_sending(&there);
+    // A Reading no parser would produce, and a line whose Reading was cleared:
+    // if either arrives any other way, the receiver recomputed them.
+    let (status, set) = there.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": pizza, "line_index": 3,
+            "amount": "125", "unit": "g", "target": "fior di latte",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    there
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branches SET origin_address = 'https://aurelien.example' WHERE id = ?1",
+                rusqlite::params![pizza],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    let bytes = bundle_of(&there, &key, &pizza);
+    let (_, sent) = there.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    let sent = &sent["result"];
+
+    let here = support::spawn_app();
+    let nadia = here.core.create_person("Nadia").expect("person");
+    let nadia_key = here
+        .core
+        .mint_access_key(&nadia, "browser", false)
+        .unwrap()
+        .secret;
+    let nadia_kitchen = home_kitchen_of(&here, &nadia);
+
+    let report = receive(&here, &nadia_key, &bytes);
+    assert_eq!(report["source_kind"], json!("bundle"), "{report}");
+    assert_eq!(report["kitchen_id"], json!(nadia_kitchen));
+    assert_eq!(report["unreadable"], json!([]), "{report}");
+    for (branch, subject) in [(&pizza, true), (&french, true), (&dough, false)] {
+        let row = arrived_row(&report, branch);
+        assert_eq!(row["status"], json!("created"), "{row}");
+        assert_eq!(
+            row["branch_id"],
+            json!(branch),
+            "under the sender's Branch id"
+        );
+        assert_eq!(row["subject"], json!(subject), "{row}");
+    }
+    assert_eq!(arrived_row(&report, &pizza)["lineage_id"], json!(lineage));
+
+    let (status, held) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{held}");
+    let held = &held["result"];
+    assert_eq!(
+        held["kitchen_id"],
+        json!(nadia_kitchen),
+        "held by a Kitchen here"
+    );
+    assert_eq!(held["lineage_id"], json!(lineage));
+    assert_eq!(
+        held["hand_id"], sent["hand_id"],
+        "under the sender's Kitchen's Hand"
+    );
+    assert_eq!(held["head_version_id"], sent["head_version_id"]);
+    assert_eq!(held["origin_address"], json!("https://aurelien.example"));
+    let sent_versions = sent["versions"].as_array().unwrap();
+    let held_versions = held["versions"].as_array().unwrap();
+    assert_eq!(held_versions.len(), sent_versions.len());
+    for (held, sent) in held_versions.iter().zip(sent_versions) {
+        for field in [
+            "sequence",
+            "version_id",
+            "parent_version_id",
+            "hand_id",
+            "name",
+            "change_note",
+            "created_at",
+            "content",
+        ] {
+            assert_eq!(
+                held[field], sent[field],
+                "{field} arrives as it was written"
+            );
+        }
+    }
+
+    // Byte for byte: the receiver stores what arrived and remakes nothing.
+    for hash in &photos {
+        let (_, _, left) = there.get_bytes(&format!("/api/photographs/{hash}"), Some(&key));
+        let (status, _, stored) =
+            here.get_bytes(&format!("/api/photographs/{hash}"), Some(&nadia_key));
+        assert_eq!(status, 200);
+        assert_eq!(stored, left, "{hash} is the bytes that left");
+    }
+
+    // Carried, never recomputed.
+    let head = held["head_version_id"].as_str().unwrap();
+    let readings = readings_held(&here, head);
+    assert_eq!(
+        readings,
+        readings_held(&there, head),
+        "the Readings are the sender's, line for line"
+    );
+    assert!(
+        readings
+            .iter()
+            .any(|r| r.3.as_deref() == Some("fior di latte")),
+        "{readings:?}"
+    );
+
+    // The Food arrives by its names alone, and nothing about it that was
+    // learned there — the Cup Weight stays behind.
+    let food = food_named(&here, &nadia_key, "en", "fior di latte");
+    let (_, food) = here.post_op(
+        "get_food",
+        Some(&nadia_key),
+        &json!({ "food_id": food }).to_string(),
+    );
+    assert_eq!(food["result"]["cup_weight_grams"], Value::Null, "{food}");
+
+    // The Tag lands in the receiving Kitchen's own list, and files the recipe.
+    let (_, tags) = here.post_op(
+        "list_tags",
+        Some(&nadia_key),
+        &json!({ "kitchen_id": nadia_kitchen }).to_string(),
+    );
+    let weekend = tags["result"]["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tag| tag["name"] == json!("Weekend"))
+        .unwrap_or_else(|| panic!("the Tag arrived: {tags}"));
+    assert_eq!(weekend["kitchen_id"], json!(nadia_kitchen));
+
+    // The Hands' names travel on: resharing names Aurélien, not Nadia.
+    let reshared = bundle_of(&here, &nadia_key, &pizza);
+    let files = unzip(&reshared);
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    let record = sidecar["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["branch_id"] == json!(pizza))
+        .unwrap();
+    assert_eq!(record["hand"]["name"], json!("Aurélien's Kitchen"));
+    assert_eq!(record["versions"][0]["hand"]["name"], json!("Aurélien"));
+    assert_eq!(record["origin_address"], json!("https://aurelien.example"));
+}
+
+/// **Receipt is not a Copy** (ADR 0020, #54): the Bundle puts the sender's
+/// Branch in your Kitchen and makes nothing of your own. Changing it does —
+/// your Branch, forking at the Version you changed, carrying their chain behind
+/// it — and the sender's Branch is left exactly as it arrived.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, lineage, french, _dough, _photos) = a_pizza_worth_sending(&there);
+    let bytes = bundle_of(&there, &key, &pizza);
+
+    let here = support::spawn_app();
+    let nadia = here.core.create_person("Nadia").expect("person");
+    let nadia_key = here
+        .core
+        .mint_access_key(&nadia, "browser", false)
+        .unwrap()
+        .secret;
+    let nadia_kitchen = home_kitchen_of(&here, &nadia);
+    receive(&here, &nadia_key, &bytes);
+
+    let mut expected = vec![pizza.clone(), french.clone()];
+    expected.sort();
+    assert_eq!(
+        branches_of_lineage(&here, &lineage),
+        expected,
+        "receipt alone makes no Branch of your own"
+    );
+
+    let (_, before) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    let (status, saved) = here.post_op(
+        "save_recipe_version",
+        Some(&nadia_key),
+        &json!({
+            "branch_id": pizza,
+            "title": "Pizza Margherita",
+            "ingredients": [{ "kind": "ingredient", "text": "A lot more basil" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["copied"], json!(true), "{saved}");
+    let mine = saved["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_ne!(mine, pizza);
+    assert_eq!(
+        saved["result"]["parent_version_id"], before["result"]["head_version_id"],
+        "forking at the Version changed"
+    );
+
+    let (_, theirs) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(
+        theirs["result"], before["result"],
+        "the sender's Branch is untouched"
+    );
+    let (_, copy) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": mine }).to_string(),
+    );
+    assert_eq!(
+        copy["result"]["hand_id"],
+        json!(nadia_kitchen),
+        "yours from then on"
+    );
+    assert_eq!(copy["result"]["kitchen_id"], json!(nadia_kitchen));
+    assert_eq!(
+        copy["result"]["versions"].as_array().unwrap().len(),
+        before["result"]["versions"].as_array().unwrap().len() + 1,
+        "their whole chain behind it"
+    );
+
+    // Saying what Language it is in is a change too, and changes only yours.
+    let (status, relabelled) = here.post_op(
+        "set_recipe_language",
+        Some(&nadia_key),
+        &json!({ "branch_id": french, "language": "es" }).to_string(),
+    );
+    assert_eq!(status, 200, "{relabelled}");
+    let relabelled_branch = relabelled["result"]["branch_id"].as_str().unwrap();
+    assert_ne!(
+        relabelled_branch, french,
+        "a Copy, not a line in their history"
+    );
+    let (_, french_after) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": french }).to_string(),
+    );
+    assert_eq!(french_after["result"]["language"], json!("fr"));
+}
+
+/// **A second Bundle continues the Branch it continues** (ADR 0020): the same
+/// friend's pizza, three Versions on, extends the Branch already held rather
+/// than lining up beside it. A Reading corrected here on a Version already
+/// held stays as corrected (ADR 0021).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, lineage, french, _dough, _photos) = a_pizza_worth_sending(&there);
+    let first = bundle_of(&there, &key, &pizza);
+
+    let here = support::spawn_app();
+    let nadia = here.core.create_person("Nadia").expect("person");
+    let nadia_key = here
+        .core
+        .mint_access_key(&nadia, "browser", false)
+        .unwrap()
+        .secret;
+    receive(&here, &nadia_key, &first);
+    let (_, held) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    let held_head = held["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Nadia corrects a Reading on the Version she holds.
+    let (status, corrected) = here.post_op(
+        "set_reading",
+        Some(&nadia_key),
+        &json!({
+            "branch_id": pizza, "line_index": 3,
+            "amount": "125", "unit": "g", "target": "burrata",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{corrected}");
+
+    // Aurélien keeps writing.
+    backdate_branch_head(&there, &pizza);
+    let (_, current) = there.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    let mut next = current["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["content"]
+        .clone();
+    next["branch_id"] = json!(pizza);
+    next["note"] = json!("Make the dough two days before if you can.");
+    next["name"] = json!("Two days");
+    let (status, saved) = there.post_op("save_recipe_version", Some(&key), &next.to_string());
+    assert_eq!(status, 200, "{saved}");
+    let second = bundle_of(&there, &key, &pizza);
+
+    let report = receive(&here, &nadia_key, &second);
+    assert_eq!(report["unreadable"], json!([]), "{report}");
+    assert_eq!(
+        arrived_row(&report, &pizza)["status"],
+        json!("extended"),
+        "{report}"
+    );
+    assert_eq!(arrived_row(&report, &pizza)["branch_id"], json!(pizza));
+    assert_eq!(arrived_row(&report, &french)["status"], json!("unchanged"));
+
+    let mut expected = vec![pizza.clone(), french.clone()];
+    expected.sort();
+    assert_eq!(
+        branches_of_lineage(&here, &lineage),
+        expected,
+        "no third Branch"
+    );
+    let (_, after) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    let versions = after["result"]["versions"].as_array().unwrap();
+    assert_eq!(versions.len(), 3);
+    assert_eq!(versions[2]["name"], json!("Two days"));
+    assert_eq!(versions[2]["parent_version_id"], json!(held_head));
+    assert_eq!(
+        after["result"]["head_version_id"],
+        saved["result"]["version_id"]
+    );
+
+    assert!(
+        readings_held(&here, &held_head)
+            .iter()
+            .any(|r| r.0 == 3 && r.3.as_deref() == Some("burrata")),
+        "yours stay"
+    );
+
+    // A Branch has one Kitchen writing it: the same Branch id under somebody
+    // else's Hand is not its next chapter, however well its chain lines up.
+    backdate_branch_head(&there, &pizza);
+    next["note"] = json!("Three days, even.");
+    next["name"] = json!("Three days");
+    let (status, saved) = there.post_op("save_recipe_version", Some(&key), &next.to_string());
+    assert_eq!(status, 200, "{saved}");
+    let forged = with_sidecar(&bundle_of(&there, &key, &pizza), |sidecar| {
+        for branch in sidecar["branches"].as_array_mut().unwrap() {
+            branch["hand"]["id"] = json!("k_somebody_else");
+        }
+    });
+    let report = receive(&here, &nadia_key, &forged);
+    assert!(
+        report["unreadable"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["foreign_id"] == json!(pizza)),
+        "{report}"
+    );
+    let (_, still) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(still["result"]["versions"].as_array().unwrap().len(), 3);
+}
+
+/// **A Bundle that left here and came back can only extend, never conflict**
+/// (ADR 0020). Marc received Aurélien's pizza and forked it; while he did,
+/// Aurélien moved on. Marc's Bundle carries Aurélien's own Branch as it stood
+/// when it left, which changes nothing here, and Marc's fork arrives beside it
+/// as the second Branch of the same recipe — sharing Aurélien's Versions, so
+/// where the two diverged is a fact rather than a guess.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_that_left_here_and_came_back_extends_and_never_conflicts() {
+    let here = support::spawn_app();
+    let (key, _kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&here);
+    let outbound = bundle_of(&here, &key, &pizza);
+
+    let there = support::spawn_app();
+    let marc = there.core.create_person("Marc").expect("person");
+    let marc_key = there
+        .core
+        .mint_access_key(&marc, "browser", false)
+        .unwrap()
+        .secret;
+    receive(&there, &marc_key, &outbound);
+    let (status, forked) = there.post_op(
+        "save_recipe_version",
+        Some(&marc_key),
+        &json!({
+            "branch_id": pizza,
+            "title": "Pizza Margherita",
+            "ingredients": [{ "kind": "ingredient", "text": "A lot more basil" }],
+            "name": "Marc's",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{forked}");
+    let marcs = forked["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Meanwhile, here, Aurélien moves on.
+    backdate_branch_head(&here, &pizza);
+    let (status, moved) = here.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": pizza, "title": "Pizza Margherita", "note": "Hotter oven." })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{moved}");
+    let (_, before) = here.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+
+    // Aurélien's own Branch comes back as it left.
+    let returning = bundle_of(&there, &marc_key, &pizza);
+    let report = receive(&here, &key, &returning);
+    assert_eq!(report["unreadable"], json!([]), "{report}");
+    assert_eq!(
+        arrived_row(&report, &pizza)["status"],
+        json!("unchanged"),
+        "{report}"
+    );
+    let (_, after) = here.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(
+        after["result"], before["result"],
+        "nothing written here is undone"
+    );
+
+    // And Marc's fork arrives beside it, sharing Aurélien's Versions.
+    let report = receive(&here, &key, &bundle_of(&there, &marc_key, &marcs));
+    assert_eq!(
+        arrived_row(&report, &marcs)["status"],
+        json!("created"),
+        "{report}"
+    );
+    assert!(branches_of_lineage(&here, &lineage).contains(&marcs));
+    let (status, point) = here.post_op(
+        "branch_point",
+        Some(&key),
+        &json!({ "branch_a_id": pizza, "branch_b_id": marcs }).to_string(),
+    );
+    assert_eq!(status, 200, "{point}");
+    assert_eq!(
+        point["result"]["version_id"], forked["result"]["parent_version_id"],
+        "{point}"
+    );
+}
+
+/// **A damaged Bundle keeps the dinner and loses the provenance** (ADR 0020):
+/// a chain that does not reach the first Version, or a Version whose words do
+/// not match its own name, has its history refused. The words arrive as a new
+/// recipe of the receiver's own, with no Lineage id of the sender's — and the
+/// Report says all three things.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_damaged_bundle_keeps_the_words_as_a_new_recipe_and_says_so() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, lineage, _french, dough, _photos) = a_pizza_worth_sending(&there);
+    let bytes = bundle_of(&there, &key, &pizza);
+
+    let find = |sidecar: &mut Value, branch: &str| -> usize {
+        sidecar["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|b| b["branch_id"] == json!(branch))
+            .unwrap()
+    };
+    let short = with_sidecar(&bytes, |sidecar| {
+        let at = find(sidecar, &pizza);
+        sidecar["branches"][at]["versions"]
+            .as_array_mut()
+            .unwrap()
+            .remove(0);
+    });
+    let forged = with_sidecar(&bytes, |sidecar| {
+        let at = find(sidecar, &pizza);
+        sidecar["branches"][at]["versions"][0]["content"]["title"] = json!("Pizza Bianca");
+    });
+
+    for (damage, mangled) in [
+        ("a short chain", short),
+        ("a Version's words changed", forged),
+    ] {
+        let here = support::spawn_app();
+        let nadia = here.core.create_person("Nadia").expect("person");
+        let nadia_key = here
+            .core
+            .mint_access_key(&nadia, "browser", false)
+            .unwrap()
+            .secret;
+        let nadia_kitchen = home_kitchen_of(&here, &nadia);
+
+        let report = receive(&here, &nadia_key, &mangled);
+        assert!(
+            !report["arrived"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["foreign_id"] == json!(pizza)),
+            "{damage}: one row, not two: {report}"
+        );
+        let refused = report["unreadable"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["foreign_id"] == json!(pizza))
+            .unwrap_or_else(|| panic!("{damage}: the damage is named: {report}"));
+        let reason = refused["reason"].as_str().unwrap();
+        for said in ["history", "new recipe", "no link"] {
+            assert!(reason.contains(said), "{damage}: says {said:?}: {reason}");
+        }
+        let row = &refused["kept_as"];
+        assert_ne!(
+            row["branch_id"],
+            json!(pizza),
+            "{damage}: not under the sender's Branch id"
+        );
+        assert_ne!(row["lineage_id"], json!(lineage), "{damage}: no Lineage id");
+        assert_eq!(
+            row["title"],
+            json!("Pizza Margherita"),
+            "{damage}: the words as they read"
+        );
+
+        assert!(
+            !branches_of_lineage(&here, &lineage).contains(&pizza),
+            "{damage}: the damaged Branch is not placed; its sound Translation is"
+        );
+        let rescued = row["branch_id"].as_str().unwrap();
+        let (_, recipe) = here.post_op(
+            "get_recipe",
+            Some(&nadia_key),
+            &json!({ "branch_id": rescued }).to_string(),
+        );
+        let recipe = &recipe["result"];
+        let versions = recipe["versions"].as_array().unwrap();
+        assert_eq!(versions.len(), 1, "{damage}: no history");
+        assert_eq!(
+            versions[0]["hand_id"],
+            json!(nadia),
+            "{damage}: a recipe of your own"
+        );
+        assert_eq!(recipe["hand_id"], json!(nadia_kitchen));
+        assert_eq!(
+            versions[0]["content"]["ingredients"][3]["text"],
+            json!("125 g mozzarella")
+        );
+
+        // One damaged Branch costs only itself.
+        assert_eq!(
+            arrived_row(&report, &dough)["status"],
+            json!("created"),
+            "{damage}"
+        );
+        assert_eq!(arrived_row(&report, &dough)["branch_id"], json!(dough));
+    }
+}
+
+/// **A photograph that is not what its name says is left out**, and said, and
+/// costs the recipe nothing (ADR 0017): its words are still what their names
+/// say, so the history is kept.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_photograph_mangled_in_transit_is_left_out_and_named() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, photos) = a_pizza_worth_sending(&there);
+    let mut files = unzip(&bundle_of(&there, &key, &pizza));
+    files.insert(
+        "photographs/Pizza Margherita.webp".to_string(),
+        b"not the picture".to_vec(),
+    );
+
+    let here = support::spawn_app();
+    let nadia = here.core.create_person("Nadia").expect("person");
+    let nadia_key = here
+        .core
+        .mint_access_key(&nadia, "browser", false)
+        .unwrap()
+        .secret;
+    let report = receive(&here, &nadia_key, &rezip(&files));
+    assert_eq!(arrived_row(&report, &pizza)["status"], json!("created"));
+    assert_eq!(arrived_row(&report, &pizza)["branch_id"], json!(pizza));
+    let unreadable = report["unreadable"].as_array().unwrap();
+    assert_eq!(unreadable.len(), 1, "{report}");
+    assert_eq!(
+        unreadable[0]["foreign_id"],
+        json!("photographs/Pizza Margherita.webp")
+    );
+    let (status, _, _) =
+        here.get_bytes(&format!("/api/photographs/{}", photos[0]), Some(&nadia_key));
+    assert_eq!(
+        status, 404,
+        "nothing stored under a name its bytes do not have"
+    );
+    let (status, _, _) =
+        here.get_bytes(&format!("/api/photographs/{}", photos[1]), Some(&nadia_key));
+    assert_eq!(status, 200, "the other picture arrived");
+}
+
+/// **Something that is not a Bundle at all** is named in the Report with why,
+/// rather than failing the Job: the Report is a ledger, not an error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_file_that_is_not_a_bundle_is_named_with_its_reason() {
+    let here = support::spawn_app();
+    let nadia = here.core.create_person("Nadia").expect("person");
+    let nadia_key = here
+        .core
+        .mint_access_key(&nadia, "browser", false)
+        .unwrap()
+        .secret;
+
+    let not_a_zip = receive(&here, &nadia_key, b"a shopping list, not a recipe");
+    let mut files = std::collections::BTreeMap::new();
+    files.insert(
+        "notes.txt".to_string(),
+        b"nothing here is a recipe".to_vec(),
+    );
+    let nothing_readable = receive(&here, &nadia_key, &rezip(&files));
+    for report in [not_a_zip, nothing_readable] {
+        assert_eq!(report["arrived"], json!([]), "{report}");
+        let unreadable = report["unreadable"].as_array().unwrap();
+        assert_eq!(unreadable.len(), 1, "{report}");
+        assert_eq!(unreadable[0]["foreign_id"], Value::Null);
+        assert!(!unreadable[0]["reason"].as_str().unwrap().is_empty());
+    }
+}
+
+/// **A Bundle that lost its machine half still keeps the dinner** (ADR 0020,
+/// ADR 0003): with no `.kamosu/` to trust, each note is read back into a new
+/// recipe of your own, and the Report says what was lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_without_its_sidecar_is_read_back_from_its_notes() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&there);
+    let mut files = unzip(&bundle_of(&there, &key, &pizza));
+    files.remove(".kamosu/bundle.json");
+
+    let here = support::spawn_app();
+    let nadia = here.core.create_person("Nadia").expect("person");
+    let nadia_key = here
+        .core
+        .mint_access_key(&nadia, "browser", false)
+        .unwrap()
+        .secret;
+    let report = receive(&here, &nadia_key, &rezip(&files));
+    assert_eq!(report["arrived"], json!([]), "{report}");
+    let kept = report["unreadable"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["foreign_id"] == json!("Pizza Margherita.md"))
+        .unwrap_or_else(|| panic!("the pizza's note is named: {report}"));
+    for said in ["history", "new recipe", "no link"] {
+        assert!(kept["reason"].as_str().unwrap().contains(said), "{kept}");
+    }
+    assert_ne!(kept["kept_as"]["lineage_id"], json!(lineage));
+    let (_, recipe) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": kept["kept_as"]["branch_id"] }).to_string(),
+    );
+    let content = &recipe["result"]["versions"][0]["content"];
+    assert_eq!(content["title"], json!("Pizza Margherita"));
+    assert_eq!(
+        content["ingredients"],
+        json!([
+            { "kind": "section", "text": "For the base" },
+            { "kind": "ingredient", "text": "500 g Neapolitan pizza dough" },
+            { "kind": "section", "text": "To finish" },
+            { "kind": "ingredient", "text": "125 g mozzarella" },
+        ]),
+        "{content}"
+    );
+    assert_eq!(content["steps"][1]["text"], json!("Bake 6 to 8 minutes."));
+    assert_eq!(
+        content["note"],
+        json!("The dough wants making the day before.")
+    );
+}
+
+/// **A Food arriving known by two names that hit two Foods here makes a
+/// third** (ADR 0022, #47): somebody on another server put *farine* and
+/// *flour* in one Food, which is testimony, and testimony is kept as a Food and
+/// a suggestion — never acted on by welding the two here together.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggestion() {
+    let there = support::spawn_app();
+    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&there, "Marc");
+    let bread = read_a_word(&there, &marc_key, &marc_kitchen, "fr", "farine");
+    let farine = food_named(&there, &marc_key, "fr", "farine");
+    let (status, named) = there.post_op(
+        "set_food_name",
+        Some(&marc_key),
+        &json!({ "food_id": farine, "language": "en", "name": "flour" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    let bytes = bundle_of(&there, &marc_key, &bread);
+
+    let here = support::spawn_app();
+    let (key, kitchen_id) = operator_with_kitchen(&here);
+    read_a_word(&here, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&here, &key, &kitchen_id, "en", "flour");
+    let ours_fr = food_named(&here, &key, "fr", "farine");
+    let ours_en = food_named(&here, &key, "en", "flour");
+
+    let report = receive(&here, &key, &bytes);
+    assert_eq!(
+        arrived_row(&report, &bread)["status"],
+        json!("created"),
+        "{report}"
+    );
+
+    let (_, listed) = here.post_op("list_foods", Some(&key), "{}");
+    let third: Vec<&Value> = listed["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|food| food["names"].as_array().unwrap().len() == 2)
+        .collect();
+    assert_eq!(third.len(), 1, "a third Food carrying both names: {listed}");
+    let third_id = third[0]["id"].as_str().unwrap();
+    assert_ne!(third_id, ours_fr, "nothing merged");
+    assert_ne!(third_id, ours_en, "nothing merged");
+
+    let (_, suggestions) = here.post_op("list_merge_suggestions", Some(&key), "{}");
+    assert!(
+        !suggestions["result"]["suggestions"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "the collision is kept as a suggestion: {suggestions}"
+    );
+    let (_, held) = here.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": bread }).to_string(),
+    );
+    let head = held["result"]["head_version_id"].as_str().unwrap();
+    let food_of_line: Option<String> = here
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT food_id FROM readings WHERE version_id = ?1 AND line_index = 0",
+                rusqlite::params![head],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(
+        food_of_line.as_deref(),
+        Some(third_id),
+        "the Reading points at the third"
+    );
 }

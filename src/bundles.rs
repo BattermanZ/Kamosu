@@ -773,6 +773,330 @@ fn guard_start(text: &str) -> String {
     text.to_string()
 }
 
+// ── Opening one (#67) ────────────────────────────────────────────────────────
+
+/// The most of any one file inside a Bundle that is ever read. A zip says how
+/// big its files are and can lie about it, so this is the ceiling rather than
+/// the header: a sidecar or a Photograph larger than this is not something any
+/// Kamosu wrote, and inflating it would spend the instance's memory on a file
+/// built to do exactly that.
+const MOST_READ: u64 = 64 * 1024 * 1024;
+
+/// A Bundle opened: its sidecar, and every Photograph the sidecar names.
+pub struct Opened {
+    pub sidecar: Value,
+    pub photographs: Vec<CarriedPhotograph>,
+}
+
+/// A file that could not be opened as a Bundle: why, and the words of every
+/// recipe note it still holds, read back out as best they can be.
+pub struct Unopened {
+    pub reason: String,
+    /// `(note file name, recipe content)` for every note that yielded a title.
+    pub notes: Vec<(String, Value)>,
+}
+
+/// One Photograph a Bundle names, as it turned out once opened.
+pub enum CarriedPhotograph {
+    /// The bytes are the picture the sidecar says: they hash to its id (ADR 0017).
+    Sound { hash: String, bytes: Vec<u8> },
+    /// Absent, or not that picture. `name` is the file inside the Bundle,
+    /// which is what a person looking at it would recognise.
+    Unusable { name: String, reason: String },
+}
+
+/// Open a Bundle's bytes.
+///
+/// A Bundle is read from its sidecar, since that is where the complete states
+/// and the ids are (ADR 0020). One whose sidecar is missing or unreadable is
+/// the folder ADR 0003 describes arriving with no `.kamosu/` — "imported
+/// best-effort from the notes, and says so" — so its notes are read back
+/// instead, and the caller keeps their words.
+pub fn open(bytes: &[u8]) -> Result<Opened, Unopened> {
+    let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(bytes)) else {
+        return Err(Unopened {
+            reason: "this file is not a Bundle: it is not a zip".to_string(),
+            notes: Vec::new(),
+        });
+    };
+    let sidecar = match read_entry(&mut archive, SIDECAR) {
+        None => Err(format!("it has no {SIDECAR}")),
+        Some(text) => match serde_json::from_slice::<Value>(&text) {
+            Ok(sidecar) if sidecar["branches"].is_array() => Ok(sidecar),
+            _ => Err(format!("its {SIDECAR} cannot be read")),
+        },
+    };
+    let sidecar = match sidecar {
+        Ok(sidecar) => sidecar,
+        Err(why) => {
+            let notes = read_notes(&mut archive);
+            let reason = if notes.is_empty() {
+                format!("this zip is not a Bundle: {why}, and no recipe note in it could be read")
+            } else {
+                why
+            };
+            return Err(Unopened { reason, notes });
+        }
+    };
+
+    let named: Vec<(String, String)> = sidecar["photographs"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(hash, name)| Some((hash.clone(), name.as_str()?.to_string())))
+        .collect();
+    let photographs = named
+        .into_iter()
+        .map(|(hash, name)| match read_entry(&mut archive, &name) {
+            None => CarriedPhotograph::Unusable {
+                name,
+                reason: "this photograph is missing from the Bundle".to_string(),
+            },
+            Some(bytes) if crate::photographs::hash_bytes(&bytes) == hash => {
+                CarriedPhotograph::Sound { hash, bytes }
+            }
+            Some(_) => CarriedPhotograph::Unusable {
+                name,
+                reason: "this photograph is not the picture the Bundle says it is, so it was \
+                         left out; the recipe shows no picture there"
+                    .to_string(),
+            },
+        })
+        .collect();
+    Ok(Opened {
+        sidecar,
+        photographs,
+    })
+}
+
+/// Every top-level recipe note in the zip, read back into a recipe's words.
+fn read_notes(archive: &mut zip::ZipArchive<std::io::Cursor<&[u8]>>) -> Vec<(String, Value)> {
+    let mut names: Vec<String> = archive
+        .file_names()
+        .filter(|name| name.ends_with(".md") && !name.contains('/'))
+        .map(str::to_string)
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let text = String::from_utf8(read_entry(archive, &name)?).ok()?;
+            Some((name, read_note(&text)?))
+        })
+        .collect()
+}
+
+/// A note read back into a recipe's words: the title, the Ingredients and the
+/// Method with their Sections, and the Note — the parts of the layout `note`
+/// writes that are the recipe as it reads today. Everything else in it is
+/// Kamosu's own furniture or history, and a note with no machine half behind
+/// it carries no history anyone can trust. `None` when there is no title,
+/// since a recipe needs one and nothing less is a recipe (#43).
+///
+/// Best effort, as ADR 0003 promises and no more: a note somebody has edited
+/// by hand reads as far as it still looks like one Kamosu wrote.
+pub fn read_note(text: &str) -> Option<Value> {
+    #[derive(PartialEq)]
+    enum Part {
+        Other,
+        Ingredients,
+        Method,
+        Note,
+    }
+    let heading = |title: &str| {
+        let title = title.trim();
+        [&EN, &FR, &ES]
+            .iter()
+            .find_map(|words| {
+                if title == words.ingredients {
+                    Some(Part::Ingredients)
+                } else if title == words.method {
+                    Some(Part::Method)
+                } else if title == words.note {
+                    Some(Part::Note)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(Part::Other)
+    };
+
+    let mut title: Option<String> = None;
+    let mut part = Part::Other;
+    let mut ingredients: Vec<Value> = Vec::new();
+    let mut steps: Vec<Value> = Vec::new();
+    let mut note: Vec<String> = Vec::new();
+    // The list item a continuation line belongs to: the written line break
+    // that `block` turned into a hard break comes back as a newline.
+    let mut open = false;
+    for line in text.lines() {
+        if line.trim() == "---" {
+            break;
+        }
+        if let Some(rest) = line.strip_prefix("# ") {
+            title.get_or_insert_with(|| unescape(rest.trim()));
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("## ") {
+            part = heading(rest);
+            open = false;
+            continue;
+        }
+        let section = line
+            .strip_prefix("**")
+            .and_then(|rest| rest.strip_suffix("**"))
+            .filter(|_| !line.starts_with("***"));
+        match part {
+            Part::Ingredients | Part::Method => {
+                let list = if part == Part::Ingredients {
+                    &mut ingredients
+                } else {
+                    &mut steps
+                };
+                if let Some(text) = section {
+                    list.push(json!({ "kind": "section", "text": unescape(text) }));
+                    open = false;
+                    continue;
+                }
+                let item = if part == Part::Ingredients {
+                    line.strip_prefix("- ")
+                } else {
+                    let digits = line.chars().take_while(char::is_ascii_digit).count();
+                    (digits > 0)
+                        .then(|| line[digits..].strip_prefix(". "))
+                        .flatten()
+                };
+                if let Some(text) = item {
+                    let kind = if part == Part::Ingredients {
+                        "ingredient"
+                    } else {
+                        "step"
+                    };
+                    list.push(json!({ "kind": kind, "text": unescape(text.trim_end()) }));
+                    open = true;
+                    continue;
+                }
+                let indented = line.starts_with(' ');
+                let trimmed = line.trim();
+                // A Component's quiet line and a Step's picture are Kamosu's
+                // furniture, not the recipe's words.
+                let furniture = trimmed.starts_with("- ") || trimmed.starts_with("![");
+                match list.last_mut() {
+                    Some(item) if open && indented && !trimmed.is_empty() && !furniture => {
+                        let held = item["text"].as_str().unwrap_or_default().to_string();
+                        item["text"] = json!(format!("{held}\n{}", unescape(trimmed)));
+                    }
+                    _ if trimmed.is_empty() || indented => {}
+                    _ => open = false,
+                }
+            }
+            Part::Note => {
+                // The Tags line follows the Note, and is filing, not words.
+                let tags = [&EN, &FR, &ES]
+                    .iter()
+                    .any(|words| line.starts_with(&format!("{}: ", words.tags)));
+                if tags {
+                    continue;
+                }
+                if !line.trim().is_empty() {
+                    note.push(unescape(line.trim()));
+                } else if note.last().is_some_and(|held| !held.is_empty()) {
+                    note.push(String::new());
+                }
+            }
+            Part::Other => {}
+        }
+    }
+    let title = title.filter(|title| !title.is_empty())?;
+    let note = note.join("\n").trim().replace("\n\n\n", "\n\n");
+    Some(json!({
+        "title": title,
+        "ingredients": ingredients,
+        "steps": steps,
+        "note": if note.is_empty() { Value::Null } else { json!(note) },
+    }))
+}
+
+/// Undo `inline`: every backslash it put before a mark comes back out.
+fn unescape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.peek().is_some_and(|next| next.is_ascii_punctuation()) {
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn read_entry(
+    archive: &mut zip::ZipArchive<std::io::Cursor<&[u8]>>,
+    name: &str,
+) -> Option<Vec<u8>> {
+    let entry = archive.by_name(name).ok()?;
+    let mut held = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(entry, MOST_READ + 1), &mut held).ok()?;
+    (held.len() as u64 <= MOST_READ).then_some(held)
+}
+
+/// What is wrong with a carried Branch's history, in words, or `None` when it
+/// is whole.
+///
+/// Whole means what ADR 0018 made it mean: the chain reaches the first
+/// Version, each Version following the one before it, and each Version's
+/// contents are what its id was taken from — the receiver recomputes every
+/// fingerprint, so damage is arithmetic rather than trust (ADR 0020). The ids
+/// that place the Branch, and the Hand on it and on each Version, have to be
+/// there too, or there is nothing to place it under: a Version's Hand is a
+/// column no row can be without. A missing date is not damage; the Version
+/// takes the day it arrived.
+///
+/// Nothing else is checked. A field this writer does not know is not damage
+/// (ADR 0020), and the Hand is never verified (ADR 0015).
+pub fn damage(record: &Value) -> Option<String> {
+    for field in ["branch_id", "lineage_id"] {
+        if record[field].as_str().is_none_or(str::is_empty) {
+            return Some(format!("it carries no {}", field.replace('_', " ")));
+        }
+    }
+    if record["hand"]["id"].as_str().is_none_or(str::is_empty) {
+        return Some("it does not say which Kitchen wrote it".to_string());
+    }
+    let versions = match record["versions"].as_array() {
+        Some(versions) if !versions.is_empty() => versions,
+        _ => return Some("it carries no Versions".to_string()),
+    };
+    let mut previous: Option<&str> = None;
+    for (index, version) in versions.iter().enumerate() {
+        let number = index + 1;
+        let Some(id) = version["version_id"].as_str() else {
+            return Some(format!("Version {number} has no id"));
+        };
+        if version["sequence"].as_u64() != Some(number as u64)
+            || version["parent_version_id"].as_str() != previous
+        {
+            return Some(if index == 0 {
+                "its history does not reach its first Version".to_string()
+            } else {
+                format!("its history has a gap before Version {number}")
+            });
+        }
+        if !version["content"].is_object()
+            || crate::fingerprint::fingerprint_content(&version["content"]) != id
+        {
+            return Some(format!(
+                "the words of Version {number} do not match the id they were saved under"
+            ));
+        }
+        if version["hand"]["id"].as_str().is_none_or(str::is_empty) {
+            return Some(format!("Version {number} does not say who wrote it"));
+        }
+        previous = Some(id);
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -799,6 +1123,51 @@ mod tests {
         assert_eq!(inline("salt & pepper"), "salt \\& pepper");
         assert_eq!(inline("*bold*"), "\\*bold\\*");
         assert_eq!(inline("2 tbsp (Note 1)"), "2 tbsp (Note 1)");
+    }
+
+    /// A note is read back into the words it was written from — the escaping
+    /// undone, a broken line still broken, the furniture left behind.
+    #[test]
+    fn a_note_reads_back_into_the_words_it_was_written_from() {
+        let mut written = contents();
+        written.branches[0].record["versions"][1]["content"] = json!({
+            "title": "Bœuf *bourguignon*",
+            "note": "Better the next day.\n\n# Not a heading",
+            "ingredients": [
+                { "kind": "section", "text": "Pour la sauce" },
+                { "kind": "ingredient", "text": "1 bouteille de vin\nrouge, de Bourgogne" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "1. Mariner une nuit." },
+                { "kind": "step", "text": "Cuire trois heures.", "photo": "p_x" },
+            ],
+        });
+        let written = write(&written).expect("writes");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(written.bytes)).expect("a zip");
+        let name = archive
+            .file_names()
+            .find(|name| name.ends_with(".md"))
+            .expect("a note")
+            .to_string();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut archive.by_name(&name).unwrap(), &mut text).unwrap();
+        assert_eq!(
+            read_note(&text).expect("a title"),
+            json!({
+                "title": "Bœuf *bourguignon*",
+                "note": "Better the next day.\n\n# Not a heading",
+                "ingredients": [
+                    { "kind": "section", "text": "Pour la sauce" },
+                    { "kind": "ingredient", "text": "1 bouteille de vin\nrouge, de Bourgogne" },
+                ],
+                "steps": [
+                    { "kind": "step", "text": "1. Mariner une nuit." },
+                    { "kind": "step", "text": "Cuire trois heures." },
+                ],
+            }),
+            "{text}"
+        );
+        assert_eq!(read_note("no title here"), None);
     }
 
     #[test]

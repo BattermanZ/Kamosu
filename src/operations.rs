@@ -825,6 +825,20 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
     core.get_recipe(&caller.person_id, branch_id)
 }
 
+/// Receive a Bundle (#67): the zip, base64-encoded as every Door can carry it,
+/// landed in the caller's Home Kitchen as a Job answering the Import Report.
+pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let data = input.get("data").and_then(Value::as_str).ok_or_else(|| {
+        OpError::bad_request("import_bundle takes { data } — the Bundle's zip, base64-encoded")
+    })?;
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+    let caller = caller_of(invocation)?;
+    core.import_bundle(caller, &bytes, invocation.job.as_ref())
+}
+
 /// Write a Bundle of one recipe and say where to fetch it (#66, ADR 0020).
 pub fn export_bundle(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input

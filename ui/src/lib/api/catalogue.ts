@@ -842,7 +842,8 @@ export type ImportOutput = {
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
-		status: "created" | "unchanged";
+		status: "created" | "extended" | "unchanged";
+		subject?: boolean;
 		title: string;
 	}[];
 	import_id: string;
@@ -857,6 +858,11 @@ export type ImportOutput = {
 	source_kind: string;
 	unreadable: {
 		foreign_id: string | null;
+		kept_as?: {
+			branch_id: string;
+			lineage_id: string;
+			title: string;
+		};
 		reason: string;
 	}[];
 };
@@ -871,7 +877,8 @@ export type ImportWebLinkOutput = {
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
-		status: "created" | "unchanged";
+		status: "created" | "extended" | "unchanged";
+		subject?: boolean;
 		title: string;
 	}[];
 	import_id: string;
@@ -886,6 +893,11 @@ export type ImportWebLinkOutput = {
 	source_kind: string;
 	unreadable: {
 		foreign_id: string | null;
+		kept_as?: {
+			branch_id: string;
+			lineage_id: string;
+			title: string;
+		};
 		reason: string;
 	}[];
 };
@@ -1370,6 +1382,41 @@ export type ExportBundleOutput = {
 	subjects: {
 		lineage_id: string;
 		title: string | null;
+	}[];
+};
+
+/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
+export type ImportBundleInput = {
+	data: string;
+};
+/** What import_bundle eventually produces, read back through `get_job`. */
+export type ImportBundleOutput = {
+	arrived: {
+		branch_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		status: "created" | "extended" | "unchanged";
+		subject?: boolean;
+		title: string;
+	}[];
+	import_id: string;
+	kitchen_id: string;
+	offered: {
+		branch_id: string;
+		candidate_version_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		title: string;
+	}[];
+	source_kind: string;
+	unreadable: {
+		foreign_id: string | null;
+		kept_as?: {
+			branch_id: string;
+			lineage_id: string;
+			title: string;
+		};
+		reason: string;
 	}[];
 };
 
@@ -3517,6 +3564,12 @@ export interface Operations {
 		input: ExportBundleInput;
 		output: ExportBundleOutput;
 		kind: 'immediate';
+		permission: 'person';
+	};
+	import_bundle: {
+		input: ImportBundleInput;
+		output: ImportBundleOutput;
+		kind: 'job';
 		permission: 'person';
 	};
 	read_shared_recipe: {
@@ -7813,8 +7866,13 @@ export const CATALOGUE = [
 							"status": {
 								"enum": [
 									"created",
+									"extended",
 									"unchanged"
 								]
+							},
+							"subject": {
+								"description": "From a Bundle: whether this recipe is what the Bundle is about, rather than a Passenger that travelled because something needed it.",
+								"type": "boolean"
 							},
 							"title": {
 								"type": "string"
@@ -7881,6 +7939,27 @@ export const CATALOGUE = [
 									"string",
 									"null"
 								]
+							},
+							"kept_as": {
+								"additionalProperties": false,
+								"description": "From a damaged Bundle: the new recipe of your own its words were kept as, with no history and no link to the recipe it came from.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"lineage_id",
+									"branch_id",
+									"title"
+								],
+								"type": "object"
 							},
 							"reason": {
 								"type": "string"
@@ -7943,8 +8022,13 @@ export const CATALOGUE = [
 							"status": {
 								"enum": [
 									"created",
+									"extended",
 									"unchanged"
 								]
+							},
+							"subject": {
+								"description": "From a Bundle: whether this recipe is what the Bundle is about, rather than a Passenger that travelled because something needed it.",
+								"type": "boolean"
 							},
 							"title": {
 								"type": "string"
@@ -8011,6 +8095,27 @@ export const CATALOGUE = [
 									"string",
 									"null"
 								]
+							},
+							"kept_as": {
+								"additionalProperties": false,
+								"description": "From a damaged Bundle: the new recipe of your own its words were kept as, with no history and no link to the recipe it came from.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"lineage_id",
+									"branch_id",
+									"title"
+								],
+								"type": "object"
 							},
 							"reason": {
 								"type": "string"
@@ -10494,6 +10599,162 @@ export const CATALOGUE = [
 				"notes",
 				"photographs",
 				"missing_photographs"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "import_bundle",
+		"summary": "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"data": {
+					"description": "The Bundle's zip, base64-encoded.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"data"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"arrived": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"status": {
+								"enum": [
+									"created",
+									"extended",
+									"unchanged"
+								]
+							},
+							"subject": {
+								"description": "From a Bundle: whether this recipe is what the Bundle is about, rather than a Passenger that travelled because something needed it.",
+								"type": "boolean"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"status",
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"import_id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"offered": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"candidate_version_id": {
+								"description": "The Version this candidate's content became, held but not yet on the Branch.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"lineage_id",
+							"branch_id",
+							"title",
+							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"source_kind": {
+					"type": "string"
+				},
+				"unreadable": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"foreign_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"kept_as": {
+								"additionalProperties": false,
+								"description": "From a damaged Bundle: the new recipe of your own its words were kept as, with no history and no link to the recipe it came from.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"lineage_id",
+									"branch_id",
+									"title"
+								],
+								"type": "object"
+							},
+							"reason": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"import_id",
+				"kitchen_id",
+				"source_kind",
+				"arrived",
+				"offered",
+				"unreadable"
 			],
 			"type": "object"
 		}
@@ -19948,6 +20209,7 @@ export const METHOD_NAMES = {
 	get_share_link: 'getShareLink',
 	set_public_address: 'setPublicAddress',
 	export_bundle: 'exportBundle',
+	import_bundle: 'importBundle',
 	read_shared_recipe: 'readSharedRecipe',
 	branch_point: 'branchPoint',
 	divergence: 'divergence',
@@ -20098,6 +20360,8 @@ export interface KamosuClient {
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;
+	/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
+	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
 	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
 	/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */

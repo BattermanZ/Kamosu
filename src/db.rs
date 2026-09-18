@@ -1162,6 +1162,26 @@ pub const MIGRATIONS: &[Migration] = &[
         DROP TABLE temp.refingerprint;
         "#,
     },
+    Migration {
+        version: 30,
+        description: "the name a Hand arrived under, for a Hand minted elsewhere (#67)",
+        sql: r#"
+        -- A Hand is a name and a permanent id (CONTEXT.md, "Hand"). On the
+        -- instance that minted it the name is looked up live, from `people`
+        -- or `kitchens`, so renaming yourself reaches all your history at
+        -- once. A Hand that arrived in a Bundle has no row in either: "anywhere
+        -- else the name that arrived is all there will ever be" — and this is
+        -- where that name is kept, so a received recipe's Thread and every
+        -- reshare of it still say who wrote it.
+        --
+        -- Never a Hand this instance minted: a returning Bundle that carries
+        -- one does not get to rename a Person or a Kitchen here.
+        CREATE TABLE arrived_hands (
+            hand_id TEXT PRIMARY KEY,
+            name    TEXT NOT NULL
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
