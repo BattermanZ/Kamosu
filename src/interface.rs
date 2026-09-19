@@ -115,8 +115,14 @@ fn content_type_for(path: &str) -> &'static str {
 /// SvelteKit puts everything content-hashed under `_app/immutable/`; its name
 /// changes when its bytes do, so it can be cached for as long as a browser
 /// likes. Everything else is a plain name that may be replaced in place.
+///
+/// The service worker is the exception to that (#76): it is what decides which
+/// build a phone runs, so an hour-old copy of it would hold an old interface in
+/// place for an hour after an upgrade. It is always asked for again.
 fn cache_control_for(path: &str) -> &'static str {
-    if path.starts_with("_app/immutable/") {
+    if path == "service-worker.js" {
+        "no-cache"
+    } else if path.starts_with("_app/immutable/") {
         "public, max-age=31536000, immutable"
     } else {
         "public, max-age=3600"
@@ -137,6 +143,11 @@ mod tests {
             cache_control_for("manifest.webmanifest"),
             "public, max-age=3600"
         );
+    }
+
+    #[test]
+    fn the_service_worker_is_always_asked_for_again() {
+        assert_eq!(cache_control_for("service-worker.js"), "no-cache");
     }
 
     #[test]

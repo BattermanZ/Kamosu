@@ -92,6 +92,7 @@
 	page and an agent at the MCP door say exactly what this screen says.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -102,6 +103,11 @@
 	import MarkedRow from './MarkedRow.svelte';
 	import Correcting from './Correcting.svelte';
 	import Promotion from './Promotion.svelte';
+	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { Online, refreshed } from '$lib/offline/device.svelte';
+	import { useLibrary } from '$lib/offline/library.svelte';
+	import { keptAt } from '$lib/offline/reads';
+	import { standing } from '$lib/offline/standing.svelte';
 	import {
 		prose,
 		draftVersion,
@@ -156,6 +162,50 @@
 	let onTheList = $state(false);
 	let shopping = $state(false);
 
+	// ---- on the phone (#76) ---------------------------------------------
+
+	const online = new Online();
+	const library = useLibrary();
+	/**
+	 * When the phone kept the copy being shown, for a recipe the Person's
+	 * Kitchens do not hold. Their own recipes are the library and always on
+	 * the phone; anything else is only the copy from the day it was opened,
+	 * and offline the page says so.
+	 */
+	const keptOn = $derived(standing.branchId === branchId ? standing.keptAt : undefined);
+	const onlyKept = $derived(
+		!online.current && library.onlyOpened(branchId) && keptOn !== undefined,
+	);
+
+	$effect(() => {
+		const id = branchId;
+		standing.branchId = id;
+		void keptAt('get_recipe', { branch_id: id }).then((at) => {
+			if (standing.branchId === id) standing.keptAt = at;
+		});
+		return () => {
+			if (standing.branchId === id) {
+				standing.branchId = undefined;
+				standing.keptAt = undefined;
+			}
+		};
+	});
+
+	// The phone answered first and the server has since said something else:
+	// read again, from the copy that is now level.
+	let seenRefreshes: number | undefined;
+	$effect(() => {
+		const seen =
+			(refreshed.get('get_recipe') ?? 0) +
+			(refreshed.get('get_thread') ?? 0) +
+			(refreshed.get('divergence') ?? 0);
+		if (seenRefreshes !== undefined && seen > seenRefreshes) untrack(() => (reread += 1));
+		seenRefreshes = seen;
+	});
+
+	/** Which Branch Home has been told was opened: once per visit, not per read. */
+	let notedOpening: string | undefined;
+
 	$effect(() => {
 		// Read again when a Promotion has just put a Version on this Branch, so
 		// the recipe below the band becomes the recipe that was cooked (#58).
@@ -178,7 +228,10 @@
 				// timestamp that never travels and costs nothing if lost, so it
 				// may never be the reason a cook cannot read a recipe — a
 				// read-only Key is refused here every time, and reads on.
-				void kamosu.noteRecipeOpened({ branch_id: branchId }).catch(() => {});
+				if (notedOpening !== branchId) {
+					notedOpening = branchId;
+					void kamosu.noteRecipeOpened({ branch_id: branchId }).catch(() => {});
+				}
 
 				void kamosu
 					.getShoppingList({})
@@ -597,6 +650,11 @@
 				<p class="mt-1 px-gutter text-read text-accent">{markOf(name)}</p>
 			{/if}
 		{/each}
+		{#if onlyKept && keptOn}
+			<p class="mt-3 px-gutter text-read text-ink-2">
+				{m.offline_kept_from({ date: keptOn.toLocaleDateString() })}
+			</p>
+		{/if}
 
 		<!--
 			One Ingredient Line, marked or not — the same row either way, because
@@ -1097,13 +1155,16 @@
 						})}
 			</p>
 			<div class="flex gap-2">
-				<button
-					type="button"
+				<!-- Saving a Version is editing the recipe: it waits for the server,
+				     and what was carried across stays carried until then (#76). -->
+				<NeedsServer
+					label={m.divergence_save()}
+					waiting={m.offline_waits_save()}
 					onclick={startSaving}
-					class="flex-1 bg-on-accent p-2 text-center text-read text-accent"
-				>
-					{m.divergence_save()}
-				</button>
+					shapeClass="flex-1 p-2 text-center text-read"
+					lookClass="bg-on-accent text-accent"
+					idleClass="border border-on-accent/40 text-on-accent opacity-55"
+				/>
 				<button
 					type="button"
 					onclick={() => (taken = new Map())}
@@ -1136,13 +1197,13 @@
 		<p class="mt-2 text-read text-ink-2">
 			{m.divergence_save_hint({ kitchen: divergence.theirs.kitchen_name })}
 		</p>
-		<button
-			type="button"
+		<NeedsServer
+			label={m.divergence_save()}
+			waiting={m.offline_waits_save()}
 			onclick={save}
-			class="mt-4 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
-		>
-			{m.divergence_save()}
-		</button>
+			shapeClass="mt-4 block w-full p-4 text-center font-display text-body"
+			lookClass="bg-accent text-on-accent"
+		/>
 		<button
 			type="button"
 			onclick={() => (saving = false)}

@@ -9,7 +9,7 @@
  * comparison view, the screen has gone wrong.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
@@ -1261,5 +1261,48 @@ describe('correcting a Reading beside a Divergence', () => {
 		expect(
 			await screen.findByRole('button', { name: /Add to shopping list/i }),
 		).toBeInTheDocument();
+	});
+});
+
+describe('on the phone (#76)', () => {
+	const kept = new Date(2026, 8, 12);
+
+	function offlineWithKeptCopy() {
+		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+		vi.stubGlobal('caches', {
+			match: async () =>
+				new Response('{}', { headers: { 'x-kamosu-kept': String(kept.getTime()) } }),
+		});
+	}
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		Reflect.deleteProperty(navigator, 'onLine');
+		localStorage.clear();
+	});
+
+	it('says offline that a recipe the Kitchen does not hold is a copy, and from when', async () => {
+		localStorage.setItem('kamosu.library', JSON.stringify({ held: ['another'] }));
+		offlineWithKeptCopy();
+		renderRecipe();
+		expect(await screen.findByText(`Kept from ${kept.toLocaleDateString()}`)).toBeInTheDocument();
+	});
+
+	it('says nothing of the kind before the phone knows what the Kitchen holds', async () => {
+		offlineWithKeptCopy();
+		renderRecipe();
+		await screen.findByText('Maison Batterman');
+		expect(screen.queryByText(/Kept from/)).not.toBeInTheDocument();
+	});
+
+	it('says nothing of the kind about a recipe the Kitchen holds', async () => {
+		localStorage.setItem(
+			'kamosu.library',
+			JSON.stringify({ filledAt: Date.now(), held: ['mine'] }),
+		);
+		offlineWithKeptCopy();
+		renderRecipe();
+		await screen.findByText('Maison Batterman');
+		expect(screen.queryByText(/Kept from/)).not.toBeInTheDocument();
 	});
 });

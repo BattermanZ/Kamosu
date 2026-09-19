@@ -234,15 +234,18 @@ describe('promotion, on the recipe', () => {
 
 	it('refuses in words rather than failing when there is no server', async () => {
 		// Everything on an Attempt's side of Promotion works offline and this
-		// does not (ADR 0013) — so the control says so before it is reached for.
+		// does not (ADR 0013) — so the control says what it is waiting for
+		// before it is reached for (#76, option C), and no other answer is
+		// offered in its place.
 		const online = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
 		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
 		try {
 			show([attempt()], ['v_1']);
-			expect(await screen.findByText(/needs the server/i)).toBeInTheDocument();
 			expect(
-				await screen.findByRole('button', { name: /keep it as a new version/i }),
+				await screen.findByRole('button', { name: /keeping it waits for the server/i }),
 			).toBeDisabled();
+			expect(screen.queryByRole('button', { name: /keep it as a new version/i })).toBeNull();
+			expect(screen.queryByRole('button', { name: /leave it in the diary/i })).toBeNull();
 		} finally {
 			if (online) Object.defineProperty(Navigator.prototype, 'onLine', online);
 		}

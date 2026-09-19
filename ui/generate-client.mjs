@@ -201,6 +201,19 @@ function generate(declarations) {
 	out.push('] as const;');
 	out.push('');
 
+	out.push('/**');
+	out.push(' * The Immediate Operations that change nothing. The service worker answers');
+	out.push(' * these from the phone and refreshes behind, and replays nothing else (#76,');
+	out.push(' * ADR 0013). A list of names alone, so the worker never carries the schemas.');
+	out.push(' */');
+	out.push('export const READS: readonly OperationName[] = [');
+	for (const op of declarations) {
+		if (op.write === undefined) throw new Error(`${op.name} does not say whether it writes`);
+		if (op.kind === 'immediate' && !op.write) out.push(`\t'${op.name}',`);
+	}
+	out.push('];');
+	out.push('');
+
 	out.push('/** The camelCase method the client exposes for each Operation. */');
 	out.push('export const METHOD_NAMES = {');
 	for (const op of declarations) {

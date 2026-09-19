@@ -20942,6 +20942,41 @@ export const CATALOGUE = [
 	},
 ] as const;
 
+/**
+ * The Immediate Operations that change nothing. The service worker answers
+ * these from the phone and refreshes behind, and replays nothing else (#76,
+ * ADR 0013). A list of names alone, so the worker never carries the schemas.
+ */
+export const READS: readonly OperationName[] = [
+	'instance_status',
+	'get_reading_preferences',
+	'list_backups',
+	'list_sessions',
+	'list_access_keys',
+	'list_kitchens',
+	'list_tags',
+	'search_recipes',
+	'home_shelves',
+	'meaning_search_status',
+	'get_recipe',
+	'get_thread',
+	'get_share_link',
+	'export_bundle',
+	'read_shared_recipe',
+	'branch_point',
+	'divergence',
+	'get_current_attempt',
+	'list_attempts',
+	'get_shopping_list',
+	'shopping_list_as_text',
+	'list_foods',
+	'get_food',
+	'list_merge_suggestions',
+	'preview_food_merge',
+	'get_job',
+	'list_jobs',
+];
+
 /** The camelCase method the client exposes for each Operation. */
 export const METHOD_NAMES = {
 	instance_status: 'instanceStatus',

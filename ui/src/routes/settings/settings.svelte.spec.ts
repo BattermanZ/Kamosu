@@ -345,4 +345,14 @@ describe('the settings screen', () => {
 			input: { secret: 'someones-invite-secret' },
 		});
 	});
+
+	it('keeps the "not right now" facts once their cards are put away (#76)', async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			...anonymous,
+		});
+		// The test browser is not a secure page, so this phone can keep nothing.
+		expect(await screen.findByText('This phone')).toBeInTheDocument();
+		expect(screen.getByText(/reached over http:\/\//)).toBeInTheDocument();
+	});
 });

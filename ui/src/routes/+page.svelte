@@ -19,6 +19,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { HomeShelvesOutput } from '$lib/api/catalogue';
+	import { refreshed } from '$lib/offline/device.svelte';
 	import Account from './Account.svelte';
 	import Home from './Home.svelte';
 
@@ -45,6 +46,9 @@
 		// Read before the await, so signing in re-runs this rather than leaving
 		// the form standing in front of a Person who is now signed in.
 		void asked;
+		// The phone answered first and the server has since answered otherwise —
+		// new shelves, or a Session that has ended (#76). Ask again.
+		void refreshed.get('home_shelves');
 
 		let current = true;
 		kamosu

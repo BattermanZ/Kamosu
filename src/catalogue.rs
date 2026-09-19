@@ -4215,6 +4215,10 @@ pub fn declarations() -> Value {
                         Kind::Immediate => "immediate",
                         Kind::Job => "job",
                     },
+                    // Carried out so the interface's service worker can tell a
+                    // read it may answer from the phone from a write it must
+                    // never replay (#76, ADR 0013) without a list of its own.
+                    "write": op.write,
                     "input_schema": op.input_schema.clone(),
                     "output_schema": op.output_schema.clone(),
                 })

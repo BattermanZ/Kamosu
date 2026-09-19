@@ -1,5 +1,6 @@
 import { getContext, setContext } from 'svelte';
 import { OperationError } from './api/client';
+import { sessionBegan } from './offline/library.svelte';
 
 export interface AuthClient {
 	authenticate(
@@ -35,5 +36,7 @@ export const realAuth = (): AuthClient => ({
 		});
 		if (!response.ok)
 			throw new OperationError('authentication', 'unauthorized', 'authentication failed');
+		// Whoever this is, the library on this phone was not filled for them (#76).
+		sessionBegan();
 	},
 });

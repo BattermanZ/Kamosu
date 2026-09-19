@@ -10,6 +10,8 @@
 	import { realAuth } from '$lib/auth';
 	import { realUpload } from '$lib/api/upload';
 	import { readToken } from '$lib/tokens';
+	import Notices from '$lib/offline/Notices.svelte';
+	import { listenToTheWorker, retryWhileUnreachable } from '$lib/offline/device.svelte';
 
 	let { children } = $props();
 
@@ -44,6 +46,13 @@
 			});
 		});
 	});
+
+	// The service worker says when a read it answered from the phone has since
+	// changed on the server, and whether the server is being reached at all
+	// (#76): the screens that show a changed read read again, and "offline"
+	// means the server is out of reach, not only that the browser thinks so.
+	$effect(() => listenToTheWorker());
+	$effect(() => retryWhileUnreachable(client));
 
 	const onSettings = $derived(page.url.pathname.startsWith('/settings'));
 
@@ -99,6 +108,11 @@
 	{/if}
 
 	<main>
+		<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
+		     the cooking screen, which carries nothing but the Step. -->
+		{#if !cooking}
+			<Notices />
+		{/if}
 		{@render children()}
 	</main>
 

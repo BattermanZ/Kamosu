@@ -41,6 +41,8 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { Online } from '$lib/offline/device.svelte';
 
 	type Attempt = GetThreadOutput['attempts'][number];
 
@@ -68,22 +70,11 @@
 	/**
 	 * Whether the server is reachable. Promotion is the one thing on this screen
 	 * that needs it — everything on an Attempt's side of the line works offline
-	 * and this does not (ADR 0013) — so the control says so rather than failing
-	 * when pressed. `navigator.onLine` is a hint and not a promise, which is
-	 * why the wording is about the recipe being safe rather than about the
-	 * network being definitely gone.
+	 * and this does not (ADR 0013) — so its button says what it is waiting for
+	 * rather than failing when pressed (#76). Leaving it in the diary is an
+	 * answer too, so it waits for the server with it, and is simply not offered.
 	 */
-	let offline = $state(false);
-	$effect(() => {
-		const read = () => (offline = typeof navigator !== 'undefined' && !navigator.onLine);
-		read();
-		addEventListener('online', read);
-		addEventListener('offline', read);
-		return () => {
-			removeEventListener('online', read);
-			removeEventListener('offline', read);
-		};
-	});
+	const online = new Online();
 
 	/**
 	 * The cooking being offered: the most recent one that departed from the
@@ -222,14 +213,14 @@
 				{/each}
 			</ul>
 
-			<button
-				type="button"
+			<NeedsServer
+				label={m.recipe_save_as_version()}
+				waiting={m.offline_waits_keep()}
 				disabled={saving}
 				onclick={promote}
-				class="mt-3 block w-full bg-accent p-4 text-center font-display text-body text-on-accent disabled:opacity-60"
-			>
-				{m.recipe_save_as_version()}
-			</button>
+				shapeClass="mt-3 block w-full p-4 text-center font-display text-body"
+				lookClass="bg-accent text-on-accent disabled:opacity-60"
+			/>
 			<button
 				type="button"
 				onclick={() => (opened = false)}
@@ -237,30 +228,23 @@
 			>
 				{m.recipe_not_now()}
 			</button>
-		{:else if offline}
-			<p class="mt-3 text-body text-ink-2">{m.recipe_promote_offline()}</p>
-			<button
-				type="button"
-				disabled
-				class="mt-3 block w-full border border-rule p-4 text-center font-display text-body text-ink-2 opacity-55"
-			>
-				{m.recipe_keep_as_version()}
-			</button>
 		{:else}
-			<button
-				type="button"
+			<NeedsServer
+				label={m.recipe_keep_as_version()}
+				waiting={m.offline_waits_keep()}
 				onclick={() => (opened = true)}
-				class="mt-3 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
-			>
-				{m.recipe_keep_as_version()}
-			</button>
-			<button
-				type="button"
-				onclick={decline}
-				class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
-			>
-				{m.recipe_leave_in_diary()}
-			</button>
+				shapeClass="mt-3 block w-full p-4 text-center font-display text-body"
+				lookClass="bg-accent text-on-accent"
+			/>
+			{#if online.current}
+				<button
+					type="button"
+					onclick={decline}
+					class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
+				>
+					{m.recipe_leave_in_diary()}
+				</button>
+			{/if}
 		{/if}
 
 		{#if failed}

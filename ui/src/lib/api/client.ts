@@ -39,6 +39,11 @@ export interface TransportOptions {
 	secret?: () => string | undefined;
 	/** How the request is made. The tests substitute this; the app does not. */
 	fetch?: typeof globalThis.fetch;
+	/**
+	 * Told what each request came to — the response, or what was thrown —
+	 * so the app can tell a server out of reach from a refusal (#76).
+	 */
+	observe?: (outcome: unknown) => void;
 }
 
 interface Envelope {
@@ -78,11 +83,13 @@ export function httpTransport(options: TransportOptions = {}): Transport {
 		} catch (cause) {
 			// The instance was not reached at all — a kitchen on a bad connection,
 			// not an Operation that refused. Named apart so a screen can say so.
+			options.observe?.(cause);
 			throw new OperationError(operation, 'internal', 'Kamosu could not be reached.', {
 				cause,
 			});
 		}
 
+		options.observe?.(response);
 		return readEnvelope(operation, response);
 	};
 }

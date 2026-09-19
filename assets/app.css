@@ -306,6 +306,9 @@
   .mx-gutter {
     margin-inline: var(--spacing-gutter);
   }
+  .my-4 {
+    margin-block: var(--spacing-4);
+  }
   .ms-auto {
     margin-inline-start: auto;
   }
@@ -377,6 +380,9 @@
   }
   .hidden {
     display: none;
+  }
+  .inline-block {
+    display: inline-block;
   }
   .inline-flex {
     display: inline-flex;
@@ -536,6 +542,9 @@
   .scroll-pl-gutter {
     scroll-padding-left: var(--spacing-gutter);
   }
+  .list-decimal {
+    list-style-type: decimal;
+  }
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -590,6 +599,11 @@
   .gap-6 {
     gap: var(--spacing-6);
   }
+  :where(.space-y-3 > :not(:last-child)) {
+    --tw-space-y-reverse: 0;
+    margin-block-start: calc(var(--spacing-3) * var(--tw-space-y-reverse));
+    margin-block-end: calc(var(--spacing-3) * calc(1 - var(--tw-space-y-reverse)));
+  }
   .gap-x-3 {
     column-gap: var(--spacing-3);
   }
@@ -638,6 +652,10 @@
   .border-t-2 {
     border-top-style: var(--tw-border-style);
     border-top-width: 2px;
+  }
+  .border-t-3 {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 3px;
   }
   .border-b {
     border-bottom-style: var(--tw-border-style);
@@ -696,6 +714,12 @@
   }
   .border-support-2 {
     border-color: var(--color-support-2);
+  }
+  .border-t-accent {
+    border-top-color: var(--color-accent);
+  }
+  .border-t-support {
+    border-top-color: var(--color-support);
   }
   .bg-\[var\(--whose\)\] {
     background-color: var(--whose);
@@ -862,6 +886,9 @@
   .pl-4 {
     padding-left: var(--spacing-4);
   }
+  .pl-6 {
+    padding-left: var(--spacing-6);
+  }
   .text-center {
     text-align: center;
   }
@@ -870,6 +897,9 @@
   }
   .text-right {
     text-align: right;
+  }
+  .align-\[-2px\] {
+    vertical-align: -2px;
   }
   .font-display {
     font-family: var(--font-display);
@@ -1209,6 +1239,11 @@
   inherits: false;
   initial-value: proximity;
 }
+@property --tw-space-y-reverse {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
 @property --tw-border-style {
   syntax: "*";
   inherits: false;
@@ -1287,6 +1322,7 @@
       --tw-skew-x: initial;
       --tw-skew-y: initial;
       --tw-scroll-snap-strictness: proximity;
+      --tw-space-y-reverse: 0;
       --tw-border-style: solid;
       --tw-leading: initial;
       --tw-font-weight: initial;

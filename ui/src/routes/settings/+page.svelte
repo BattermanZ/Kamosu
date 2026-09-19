@@ -16,6 +16,9 @@
 	import Section from '$lib/shell/Section.svelte';
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import ImportCrouton from './ImportCrouton.svelte';
+	import InstallSteps from '$lib/offline/InstallSteps.svelte';
+	import { thisDevice } from '$lib/offline/device.svelte';
+	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
 	import type {
 		InstanceStatusOutput,
 		ListSessionsOutput,
@@ -59,6 +62,13 @@
 
 	const meaning = new MeaningSearch(kamosu);
 	$effect(() => meaning.ask());
+
+	// --- This phone (#76) --------------------------------------------------
+	//
+	// Where the "not right now" facts live once their cards are put away: the
+	// card says a thing once, and this is where it can be read again.
+	const device = thisDevice();
+	const library = useLibrary();
 
 	const names: Record<Locale, () => string> = {
 		en: () => m.language_en(),
@@ -277,6 +287,52 @@
 				</li>
 			{/each}
 		</ul>
+	</Section>
+
+	<Section heading={m.settings_phone()}>
+		<div class="space-y-3 text-body">
+			<p class={device.secure ? '' : 'text-support'}>
+				{device.secure ? m.offline_phone_secure() : m.offline_insecure_body()}
+			</p>
+			{#if device.secure}
+				{#if device.installed}
+					<p>{m.offline_phone_installed()}</p>
+				{:else}
+					<div><InstallSteps apple={device.apple} /></div>
+				{/if}
+				{#if library.phase === 'filling'}
+					<p>{m.offline_library_filling({ done: library.done, total: library.total })}</p>
+				{:else if library.phase === 'kept' && library.filledAt}
+					<p>
+						{m.offline_phone_kept({
+							count: library.held.size,
+							date: library.filledAt.toLocaleDateString(),
+						})}
+					</p>
+					<button
+						type="button"
+						onclick={() => void library.fill()}
+						class="min-h-12 rounded-sm border border-rule bg-card px-4 text-body text-accent"
+					>
+						{m.offline_phone_refresh()}
+					</button>
+				{:else if library.phase === 'absent'}
+					<p>
+						{m.offline_library_body({
+							count: library.count,
+							size: readableSize(library.bytes),
+						})}
+					</p>
+					<button
+						type="button"
+						onclick={() => void library.fill()}
+						class="min-h-12 rounded-sm border border-accent bg-accent px-4 text-body text-on-accent"
+					>
+						{m.offline_library_fetch()}
+					</button>
+				{/if}
+			{/if}
+		</div>
 	</Section>
 
 	{#if signedIn && preferences}

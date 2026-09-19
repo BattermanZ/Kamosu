@@ -28,6 +28,7 @@
 	import Tile from './Tile.svelte';
 	import AddOrImport from '$lib/AddOrImport.svelte';
 	import MeaningOffer from './MeaningOffer.svelte';
+	import { refreshed } from '$lib/offline/device.svelte';
 
 	const kamosu = useKamosu();
 
@@ -87,6 +88,8 @@
 		// search is asked again — which is the only confirmation worth giving:
 		// the recipe you were looking for appears.
 		const generation = meaning.generation;
+		// The phone answered first and the server has since answered otherwise (#76).
+		void refreshed.get('search_recipes');
 
 		let current = true;
 		const timer = setTimeout(() => {
