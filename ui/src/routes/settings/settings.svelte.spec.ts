@@ -59,6 +59,8 @@ const readsInAmerican: Answers = {
 	// discovered — that is inside *nothing found* (ADR 0029) — so its absence
 	// here is the ordinary case rather than an omission.
 	meaning_search_status: meaningStatus(),
+	// No Crouton library brought in yet, so Settings links to no Report (#69).
+	list_jobs: { jobs: [] },
 };
 
 describe('the settings screen', () => {

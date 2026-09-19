@@ -839,6 +839,57 @@ pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Resu
     core.import_bundle(caller, &bytes, invocation.job.as_ref())
 }
 
+/// Bring in a Crouton export (#69) — the whole library as a zip of `.crumb`
+/// files, or one `.crumb`. The file arrives one of two ways, both carrying the
+/// same bytes to the same reader (ADR 0001): `upload_id` names a file already
+/// sent out of band to `POST /api/uploads`, which is how a browser sends a
+/// 114 MB library; `data` carries it base64-encoded, the fallback for a Door
+/// that can send nothing but JSON. A staged upload is used once: it is deleted
+/// whatever the import's outcome, so a retry sends the file again.
+pub fn import_crouton(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "import_crouton takes { upload_id } or { data }: the export \
+                       sent to POST /api/uploads, or base64-encoded";
+    let caller = caller_of(invocation)?;
+    let progress = invocation.job.as_ref();
+    match (
+        input.get("upload_id").and_then(Value::as_str),
+        input.get("data").and_then(Value::as_str),
+    ) {
+        (Some(upload_id), None) => {
+            let path = core.staged_upload(&caller.person_id, upload_id)?;
+            let outcome = std::fs::File::open(&path)
+                .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
+                .and_then(crate::crouton::Export::open)
+                .and_then(|export| core.import_crouton(caller, export, progress));
+            let _ = std::fs::remove_file(&path);
+            outcome
+        }
+        (None, Some(data)) => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+            let export = crate::crouton::Export::open(std::io::Cursor::new(bytes))?;
+            core.import_crouton(caller, export, progress)
+        }
+        _ => Err(OpError::bad_request(USAGE)),
+    }
+}
+
+/// Throw an Import's ledger away whole (ADR 0025); every recipe it made stays.
+pub fn forget_import(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let import_id = input
+        .get("import_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("forget_import takes { import_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.forget_import(&caller.person_id, import_id)
+}
+
 /// Write a Bundle of one recipe and say where to fetch it (#66, ADR 0020).
 pub fn export_bundle(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input

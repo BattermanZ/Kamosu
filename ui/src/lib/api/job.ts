@@ -33,6 +33,10 @@ const ENDED = ['completed', 'failed', 'cancelled'] as const;
  * Jobs are long — downloading a model is hundreds of megabytes — so
  * `giveUpAfter` is the caller's to set rather than a constant that fits the
  * shortest one.
+ *
+ * `stopped` lets a screen that has closed stop asking: the waiting ends with
+ * the last answer read, and the Job itself carries on — only the reading of it
+ * stops.
  */
 export async function waitForJob(
 	kamosu: KamosuClient,
@@ -41,10 +45,12 @@ export async function waitForJob(
 		every = 400,
 		giveUpAfter = 120_000,
 		whileWaiting,
+		stopped,
 	}: {
 		every?: number;
 		giveUpAfter?: number;
 		whileWaiting?: (job: GetJobOutput) => void;
+		stopped?: () => boolean;
 	} = {},
 ): Promise<GetJobOutput> {
 	const until = Date.now() + giveUpAfter;
@@ -55,6 +61,7 @@ export async function waitForJob(
 			throw new Error(job.error ?? `the job ${job.status}`);
 		}
 		whileWaiting?.(job);
+		if (stopped?.()) return job;
 		if (Date.now() > until) throw new Error('the job is still running');
 		await new Promise((wake) => setTimeout(wake, every));
 	}

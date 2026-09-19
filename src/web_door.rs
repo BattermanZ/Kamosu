@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use axum::body::Bytes;
+use axum::body::{Body, Bytes};
 use axum::extract::Path;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -88,6 +88,19 @@ pub fn router(core: Arc<Core>) -> Router {
                 },
             ),
         );
+    // A file too large for any envelope — a whole Crouton library (#69) —
+    // is staged the same way, streamed to disk rather than held in memory,
+    // and named afterwards by the Operation that reads it. The Door's body
+    // limit is lifted here only because the stream enforces its own.
+    let staging_core = core.clone();
+    router = router.route(
+        "/api/uploads",
+        post(move |headers: HeaderMap, body: Body| {
+            let core = staging_core.clone();
+            async move { stage_upload(&core, &headers, body).await }
+        })
+        .layer(axum::extract::DefaultBodyLimit::disable()),
+    );
     // A Backup travels the same way and for the same reason (#78): it is one
     // archive of the whole instance, far past anything a JSON envelope should
     // carry, so it is fetched as its own bytes under the same Credential.
@@ -250,6 +263,61 @@ fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response 
         Ok(result) => respond(Ok(result)),
         Err(err) => respond(Err(err)),
     }
+}
+
+/// The largest file `POST /api/uploads` stages. Aurélien's 86-recipe library
+/// is 114 MB, almost all of it photographs; this leaves room for a library
+/// many times that size without letting one request fill the disk.
+const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// `POST /api/uploads`: the raw bytes are the whole body, written to a staged
+/// file under the sender and answered with its id — the envelope every
+/// Operation answers, since the Operation that reads the file comes next.
+async fn stage_upload(core: &Core, headers: &HeaderMap, body: Body) -> Response {
+    let secret = bearer_from_headers(headers);
+    let staged = match core
+        .authenticate_for_write(secret.as_deref())
+        .and_then(|caller| core.begin_upload(&caller.person_id))
+    {
+        Ok(staged) => staged,
+        Err(err) => return respond(Err(err)),
+    };
+    let (upload_id, path) = staged;
+    match write_upload(body, &path).await {
+        Ok(()) => respond(Ok(json!({ "upload_id": upload_id }))),
+        Err(err) => {
+            let _ = tokio::fs::remove_file(&path).await;
+            respond(Err(err))
+        }
+    }
+}
+
+async fn write_upload(body: Body, path: &std::path::Path) -> Result<(), OpError> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+
+    let mut file = tokio::fs::File::create(path)
+        .await
+        .map_err(|e| OpError::internal(format!("cannot stage the upload: {e}")))?;
+    let mut stream = body.into_data_stream();
+    let mut written: u64 = 0;
+    while let Some(chunk) = stream.next().await {
+        let chunk =
+            chunk.map_err(|e| OpError::bad_request(format!("the upload stopped partway: {e}")))?;
+        written += chunk.len() as u64;
+        if written > MAX_UPLOAD_BYTES {
+            return Err(OpError::bad_request("the file is larger than 2 GB"));
+        }
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| OpError::internal(format!("cannot stage the upload: {e}")))?;
+    }
+    if written == 0 {
+        return Err(OpError::bad_request("the upload is empty"));
+    }
+    file.flush()
+        .await
+        .map_err(|e| OpError::internal(format!("cannot stage the upload: {e}")))
 }
 
 /// `GET /api/photographs/{hash}`: the Photograph's own bytes, WebP.

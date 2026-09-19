@@ -8,17 +8,27 @@
 	import type { KamosuClient } from '$lib/api/catalogue';
 	import { provideKamosu } from '$lib/kamosu';
 	import { provideAuth, type AuthClient } from '$lib/auth';
+	import { provideUpload, type Uploader } from '$lib/api/upload';
 
 	interface Props {
 		client: KamosuClient;
 		auth?: AuthClient;
+		upload?: Uploader;
 		children: Snippet;
 	}
 
-	let { client, auth = { authenticate: async () => {} }, children }: Props = $props();
+	let {
+		client,
+		auth = { authenticate: async () => {} },
+		upload = async () => {
+			throw new Error('this test sent a file without giving an uploader');
+		},
+		children,
+	}: Props = $props();
 
 	provideKamosu(() => client);
 	provideAuth(() => auth);
+	provideUpload(() => upload);
 </script>
 
 {@render children()}

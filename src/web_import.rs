@@ -19,6 +19,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::core::OpError;
+use crate::entities::decode_entities;
 
 /// Kamosu never pretends to be a browser (ADR 0033, ADR 0015).
 const USER_AGENT: &str = "Kamosu/1.0";
@@ -197,55 +198,6 @@ fn decode_step_entities(step: StepEntry) -> StepEntry {
         StepEntry::Section(text) => StepEntry::Section(decode_entities(&text)),
         StepEntry::Step(text) => StepEntry::Step(decode_entities(&text)),
     }
-}
-
-/// Decode the five XML-predefined entities and numeric character references
-/// — the only kinds a JSON-LD string value plausibly carries, since it was
-/// never HTML to begin with. A run with no `&` at all (the overwhelming
-/// majority) costs one scan and no allocation beyond the final `String`.
-fn decode_entities(text: &str) -> String {
-    if !text.contains('&') {
-        return text.to_string();
-    }
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(amp) = rest.find('&') {
-        out.push_str(&rest[..amp]);
-        let tail = &rest[amp..];
-        match decode_one_entity(tail) {
-            Some((decoded, consumed)) => {
-                out.push(decoded);
-                rest = &tail[consumed..];
-            }
-            None => {
-                out.push('&');
-                rest = &tail[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// `text` starts with `&`. Decodes one entity and reports how many bytes of
-/// `text` it consumed, or `None` if `text` doesn't start with a recognised
-/// one — in which case the `&` is kept literally rather than guessed at.
-fn decode_one_entity(text: &str) -> Option<(char, usize)> {
-    let end = text.find(';').filter(|&end| end <= 10)?;
-    let body = &text[1..end];
-    let decoded = match body {
-        "amp" => '&',
-        "lt" => '<',
-        "gt" => '>',
-        "quot" => '"',
-        "apos" => '\'',
-        _ if body.len() > 2 && (body.starts_with("#x") || body.starts_with("#X")) => {
-            char::from_u32(u32::from_str_radix(&body[2..], 16).ok()?)?
-        }
-        _ if body.len() > 1 && body.starts_with('#') => char::from_u32(body[1..].parse().ok()?)?,
-        _ => return None,
-    };
-    Some((decoded, end + 1))
 }
 
 fn text_field(node: &Value, field: &str) -> Option<String> {

@@ -1139,8 +1139,10 @@ fn word_it(measured: Measured, language: &str) -> String {
     }
 }
 
-/// `4½`, because that is how the cups in the drawer are marked.
-fn as_fraction(quantity: f64) -> String {
+/// `4½`, because that is how the cups in the drawer are marked. Public so the
+/// Crouton importer writes a rebuilt line's amount the way this module reads
+/// it back (#69).
+pub fn as_fraction(quantity: f64) -> String {
     let whole = quantity.trunc();
     let part = quantity - whole;
     let glyph = FRACTIONS
@@ -1155,7 +1157,7 @@ fn as_fraction(quantity: f64) -> String {
 }
 
 /// A plain number with no trailing zeroes — `250`, `1.5`, never `1.50`.
-fn as_decimal(quantity: f64) -> String {
+pub fn as_decimal(quantity: f64) -> String {
     let rendered = format!("{quantity:.2}");
     rendered
         .trim_end_matches('0')

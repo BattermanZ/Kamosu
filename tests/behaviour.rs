@@ -16971,3 +16971,484 @@ async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggesti
         "the Reading points at the third"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The Crouton importer (#69, ADR 0025): a whole library in one Job, through a
+// file staged out of band, with a Report that says what arrived, what waits
+// for a tap and what could not be read.
+// ---------------------------------------------------------------------------
+
+mod crouton {
+    use super::*;
+    use std::io::Write;
+
+    /// A Crouton export as Crouton writes one: a flat zip of `.crumb` files.
+    fn an_export(files: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            for (name, bytes) in files {
+                zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                zip.write_all(bytes).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buffer.into_inner()
+    }
+
+    fn crumb(value: Value) -> Vec<u8> {
+        value.to_string().into_bytes()
+    }
+
+    /// The library the tests share: a dish with two photos and a site icon,
+    /// a second go at it saved by hand, a link-only stub, and a damaged file.
+    fn a_library() -> Vec<u8> {
+        an_export(&[
+            (
+                "Korean Fried Chicken.crumb",
+                crumb(json!({
+                    "uuid": "KFC-1", "name": "Korean Fried Chicken", "serves": 4,
+                    "sourceName": "mykoreankitchen.com",
+                    "webLink": "https://mykoreankitchen.com/korean-fried-chicken/",
+                    "sourceImage": a_picture(9),
+                    "neutritionalInfo": "Calories: 610 kcal",
+                    "images": [a_picture(1), a_picture(2)],
+                    "ingredients": [
+                        { "order": 0, "ingredient": { "name": "Chicken" }, "quantity": { "quantityType": "SECTION" } },
+                        { "order": 1, "ingredient": { "name": "chicken wings" }, "quantity": { "amount": 1, "quantityType": "KGS" } },
+                        { "order": 2, "ingredient": { "name": "cloves minced garlic" }, "quantity": { "amount": 2, "secondaryAmount": 3, "quantityType": "ITEM" } },
+                        { "order": 3, "ingredient": { "name": "salt" } },
+                    ],
+                    "steps": [
+                        { "order": 0, "isSection": true, "step": "Noodles &amp; choi sum:" },
+                        { "order": 1, "isSection": false, "step": "Fry twice." },
+                    ],
+                })),
+            ),
+            (
+                "Korean Fried Chicken-1.crumb",
+                crumb(json!({
+                    "uuid": "KFC-2", "name": "Korean Fried Chicken",
+                    "webLink": "https://mykoreankitchen.com/korean-fried-chicken/",
+                    "ingredients": [
+                        { "order": 0, "ingredient": { "name": "soy sauce" }, "quantity": { "amount": 0.25, "quantityType": "CUP" } },
+                    ],
+                    "steps": [],
+                })),
+            ),
+            (
+                "Gochujang Pasta.crumb",
+                crumb(json!({
+                    "uuid": "GOCHU", "name": "Gochujang Pasta",
+                    "webLink": "https://youtube.com/shorts/E9omFgkaCTA",
+                    "ingredients": [], "steps": [],
+                })),
+            ),
+            (
+                "Îles Flottantes.crumb",
+                "{\"uuid\": \"ILES\", \"name\": \"Îles".as_bytes().to_vec(),
+            ),
+        ])
+    }
+
+    fn a_person(app: &support::TestApp) -> (String, String) {
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        (person, key)
+    }
+
+    fn upload(app: &support::TestApp, key: &str, bytes: &[u8]) -> String {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/zip", bytes);
+        assert_eq!(status, 200, "{staged}");
+        staged["result"]["upload_id"]
+            .as_str()
+            .expect("an upload id")
+            .to_string()
+    }
+
+    fn import_crouton(app: &support::TestApp, key: &str, bytes: &[u8]) -> Value {
+        let upload_id = upload(app, key, bytes);
+        let (status, ask) = app.post_op(
+            "import_crouton",
+            Some(key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+        let finished = wait_terminal(app, Some(key), job_id);
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        assert_eq!(finished["progress"]["done"], json!(4), "{finished}");
+        finished["result"].clone()
+    }
+
+    fn recipe(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+        let (status, recipe) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{recipe}");
+        recipe["result"].clone()
+    }
+
+    fn arrived_titled<'a>(report: &'a Value, foreign_id: &str) -> &'a Value {
+        report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["foreign_id"] == json!(foreign_id))
+            .unwrap_or_else(|| panic!("{foreign_id} did not arrive: {report}"))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_whole_library_arrives_in_one_job_and_the_report_says_what_happened() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let report = import_crouton(&app, &key, &a_library());
+
+        assert_eq!(report["source_kind"], json!("crouton"));
+        assert_eq!(report["arrived"].as_array().unwrap().len(), 3, "{report}");
+
+        // What could not be read is named by its file, with what to do.
+        let unreadable = report["unreadable"].as_array().unwrap();
+        assert_eq!(unreadable.len(), 1, "{report}");
+        assert_eq!(unreadable[0]["name"], json!("Îles Flottantes.crumb"));
+        assert_eq!(unreadable[0]["foreign_id"], Value::Null);
+        assert!(
+            unreadable[0]["reason"]
+                .as_str()
+                .unwrap()
+                .contains("export it from Crouton again"),
+            "{report}"
+        );
+
+        // The stub is a real recipe that arrived bare, not a failure.
+        assert_eq!(arrived_titled(&report, "GOCHU")["bare"], json!(true));
+        assert_eq!(arrived_titled(&report, "KFC-1")["bare"], json!(false));
+
+        // The two hand-made versions are offered to tick, never joined.
+        let pairs = report["related_candidates"].as_array().unwrap();
+        assert_eq!(pairs.len(), 1, "{report}");
+        assert_eq!(pairs[0]["shared"], json!(["name", "page"]));
+        let lineages: Vec<&Value> = pairs[0]["recipes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|side| &side["lineage_id"])
+            .collect();
+        assert_ne!(
+            lineages[0], lineages[1],
+            "importing never joins two Lineages"
+        );
+
+        // The favicon and the second photo are left out and said so.
+        let left_out: Vec<(&str, u64)> = report["left_out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["what"].as_str().unwrap(),
+                    row["count"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            left_out,
+            vec![("site_icon", 1), ("extra_photos", 1)],
+            "{report}"
+        );
+
+        // The icon rides in the Report so the Report can show it — and only there.
+        let icon = report["left_out"][0]["icon"].as_str().expect("the icon");
+        assert!(icon.starts_with("data:image/jpeg;base64,"), "{icon}");
+
+        // The recipe itself: ordinary content, lines rebuilt with no mark.
+        let chicken = arrived_titled(&report, "KFC-1");
+        let branch_id = chicken["branch_id"].as_str().unwrap();
+        let content = &recipe(&app, &key, branch_id)["versions"][0]["content"];
+        assert_eq!(
+            content["ingredients"],
+            json!([
+                { "kind": "section", "text": "Chicken" },
+                { "kind": "ingredient", "text": "1 kg chicken wings" },
+                { "kind": "ingredient", "text": "2-3 cloves minced garlic" },
+                { "kind": "ingredient", "text": "salt" },
+            ])
+        );
+        assert_eq!(content["steps"][0]["text"], json!("Noodles & choi sum:"));
+        assert_eq!(
+            content["yield"],
+            json!({ "amount": "4", "noun": "servings" })
+        );
+        assert_eq!(
+            content["nutrition"],
+            Value::Null,
+            "Crouton's nutrition text is dropped"
+        );
+        let photo = content["main_photo"].as_str().expect("a Main Photo");
+        assert_eq!(chicken["main_photo"], json!(photo));
+
+        // Only the first picture was stored: no favicon, no second photo.
+        let stored: i64 = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row("SELECT COUNT(*) FROM photographs", [], |row| row.get(0))
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(stored, 1);
+
+        // The staged file was used once and is gone.
+        let uploads = app.data_dir().unwrap().join("uploads");
+        let left: usize = std::fs::read_dir(&uploads)
+            .unwrap()
+            .flatten()
+            .map(|person| std::fs::read_dir(person.path()).unwrap().count())
+            .sum();
+        assert_eq!(left, 0, "the staged upload outlived its import");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn importing_the_same_library_again_matches_through_the_ledger() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let first = import_crouton(&app, &key, &a_library());
+        let second = import_crouton(&app, &key, &a_library());
+
+        let statuses: Vec<&Value> = second["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| &row["status"])
+            .collect();
+        assert_eq!(statuses, vec![&json!("unchanged"); 3], "{second}");
+        assert_eq!(first["import_id"], second["import_id"]);
+        for (a, b) in first["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(second["arrived"].as_array().unwrap())
+        {
+            assert_eq!(a["branch_id"], b["branch_id"], "the library doubled");
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_pair_once_related_is_not_offered_again() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let report = import_crouton(&app, &key, &a_library());
+        let pair = &report["related_candidates"][0]["recipes"];
+        let (status, related) = app.post_op(
+            "set_related_recipe",
+            Some(&key),
+            &json!({
+                "branch_id": pair[0]["branch_id"],
+                "related_branch_id": pair[1]["branch_id"],
+                "related": true,
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{related}");
+
+        let again = import_crouton(&app, &key, &a_library());
+        assert_eq!(again["related_candidates"], json!([]), "{again}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_forgotten_ledger_leaves_every_recipe_and_matches_nothing_after() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let first = import_crouton(&app, &key, &a_library());
+
+        let (status, forgotten) = app.post_op(
+            "forget_import",
+            Some(&key),
+            &json!({ "import_id": first["import_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{forgotten}");
+        assert_eq!(forgotten["result"]["forgotten"], json!(3));
+
+        // Every recipe it made is still on the shelf, untouched.
+        for row in first["arrived"].as_array().unwrap() {
+            recipe(&app, &key, row["branch_id"].as_str().unwrap());
+        }
+
+        // And the memory is really gone: the same file now arrives as new.
+        let again = import_crouton(&app, &key, &a_library());
+        assert_ne!(again["import_id"], first["import_id"]);
+        assert!(
+            again["arrived"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|row| row["status"] == json!("created")),
+            "{again}"
+        );
+
+        let (status, missing) = app.post_op(
+            "forget_import",
+            Some(&key),
+            &json!({ "import_id": first["import_id"] }).to_string(),
+        );
+        assert_eq!(status, 404, "{missing}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_persons_ledger_cannot_be_forgotten() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let report = import_crouton(&app, &key, &a_library());
+        let stranger = app.core.create_person("Marc").expect("person");
+        let stranger_key = app
+            .core
+            .mint_access_key(&stranger, "marc", false)
+            .unwrap()
+            .secret;
+        let (status, refused) = app.post_op(
+            "forget_import",
+            Some(&stranger_key),
+            &json!({ "import_id": report["import_id"] }).to_string(),
+        );
+        assert_ne!(status, 200, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn one_crumb_sent_as_base64_at_the_mcp_door_lands_the_same_way() {
+        use base64::Engine;
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let data = base64::engine::general_purpose::STANDARD.encode(crumb(json!({
+            "uuid": "ONE", "name": "Avocado Rice",
+            "ingredients": [{ "order": 0, "ingredient": { "name": "rice" }, "quantity": { "amount": 1.5, "quantityType": "CUP" } }],
+        })));
+        let payload = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {
+                "name": "import_crouton",
+                "arguments": { "data": data },
+                "_meta": tasks_meta()["_meta"],
+            },
+        });
+        let (status, answer) = app.post_mcp(&payload.to_string(), Some(&key));
+        assert_eq!(status, 200, "{answer}");
+        let job_id = answer["result"]["taskId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{answer}"));
+        let finished = wait_terminal(&app, Some(&key), job_id);
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        let branch_id = finished["result"]["arrived"][0]["branch_id"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            recipe(&app, &key, branch_id)["versions"][0]["content"]["ingredients"][0]["text"],
+            json!("1½ cups rice")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_upload_is_its_senders_alone_and_a_read_only_key_cannot_send_one() {
+        let app = support::spawn_app();
+        let (person, key) = a_person(&app);
+        let upload_id = upload(&app, &key, &a_library());
+
+        let marc = app.core.create_person("Marc").expect("person");
+        let marc_key = app
+            .core
+            .mint_access_key(&marc, "marc", false)
+            .unwrap()
+            .secret;
+        let (status, asked) = app.post_op(
+            "import_crouton",
+            Some(&marc_key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{asked}");
+        let finished = wait_terminal(
+            &app,
+            Some(&marc_key),
+            asked["result"]["job_id"].as_str().unwrap(),
+        );
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+        assert!(
+            finished["error"]
+                .as_str()
+                .unwrap()
+                .contains("no such upload"),
+            "{finished}"
+        );
+
+        let (status, bad) = app.post_op(
+            "import_crouton",
+            Some(&key),
+            &json!({ "upload_id": "../../kamosu.db" }).to_string(),
+        );
+        assert_eq!(status, 200, "{bad}");
+        let finished = wait_terminal(&app, Some(&key), bad["result"]["job_id"].as_str().unwrap());
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+
+        let reader = app
+            .core
+            .mint_access_key(&person, "reader", true)
+            .unwrap()
+            .secret;
+        let (status, refused) =
+            app.post_bytes("/api/uploads", Some(&reader), "application/zip", b"PK");
+        assert_eq!(status, 401, "{refused}");
+        let (status, refused) = app.post_bytes("/api/uploads", None, "application/zip", b"PK");
+        assert_eq!(status, 401, "{refused}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_that_is_not_a_crouton_export_fails_the_job_and_says_why() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let upload_id = upload(&app, &key, &an_export(&[("photo.jpg", vec![1, 2, 3])]));
+        let (_, asked) = app.post_op(
+            "import_crouton",
+            Some(&key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        let finished = wait_terminal(
+            &app,
+            Some(&key),
+            asked["result"]["job_id"].as_str().unwrap(),
+        );
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+        assert!(
+            finished["error"]
+                .as_str()
+                .unwrap()
+                .contains("not a Crouton export"),
+            "{finished}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_upload_nobody_used_is_swept_after_a_day() {
+        let app = support::spawn_app();
+        let (person, key) = a_person(&app);
+        let stale = upload(&app, &key, b"PK stale");
+        let fresh = upload(&app, &key, b"PK fresh");
+        let dir = app.data_dir().unwrap().join("uploads").join(&person);
+        let two_days_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 24 * 60 * 60);
+        std::fs::File::options()
+            .write(true)
+            .open(dir.join(&stale))
+            .unwrap()
+            .set_modified(two_days_ago)
+            .unwrap();
+
+        assert_eq!(app.core.sweep_uploads().unwrap(), 1);
+        assert!(!dir.join(&stale).exists(), "the stale upload stayed");
+        assert!(dir.join(&fresh).exists(), "a fresh upload was taken");
+    }
+}

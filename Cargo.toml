@@ -99,6 +99,9 @@ whatlang = "0.18.0"
 # to read. The database deflates well; the Photographs are stored uncompressed,
 # already being compressed pictures.
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+# Streams a large upload to disk a chunk at a time (#69); already in the
+# tree through axum, so this adds no crate.
+futures-util = { version = "0.3.34", default-features = false }
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can

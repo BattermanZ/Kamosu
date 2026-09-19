@@ -15,6 +15,7 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import { MeaningSearch } from '$lib/meaning.svelte';
+	import ImportCrouton from './ImportCrouton.svelte';
 	import type {
 		InstanceStatusOutput,
 		ListSessionsOutput,
@@ -300,6 +301,10 @@
 				{/each}
 			</ul>
 		</Section>
+	{/if}
+
+	{#if signedIn}
+		<ImportCrouton />
 	{/if}
 
 	<Section heading={m.settings_instance()}>

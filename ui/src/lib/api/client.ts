@@ -83,26 +83,35 @@ export function httpTransport(options: TransportOptions = {}): Transport {
 			});
 		}
 
-		let envelope: Envelope;
-		try {
-			envelope = (await response.json()) as Envelope;
-		} catch {
-			throw new OperationError(
-				operation,
-				'internal',
-				`Kamosu answered ${response.status} with something that was not an envelope.`,
-			);
-		}
-
-		if (!envelope.ok) {
-			throw new OperationError(
-				operation,
-				asKind(envelope.error?.kind),
-				envelope.error?.message ?? `${operation} was refused.`,
-			);
-		}
-		return envelope.result;
+		return readEnvelope(operation, response);
 	};
+}
+
+/**
+ * The answer inside the envelope every Door route answers with — an
+ * Operation's, or an out-of-band upload's (ADR 0001) — or the refusal it
+ * carries, as the kind the Core named.
+ */
+export async function readEnvelope(operation: string, response: Response): Promise<unknown> {
+	let envelope: Envelope;
+	try {
+		envelope = (await response.json()) as Envelope;
+	} catch {
+		throw new OperationError(
+			operation,
+			'internal',
+			`Kamosu answered ${response.status} with something that was not an envelope.`,
+		);
+	}
+
+	if (!envelope.ok) {
+		throw new OperationError(
+			operation,
+			asKind(envelope.error?.kind),
+			envelope.error?.message ?? `${operation} was refused.`,
+		);
+	}
+	return envelope.result;
 }
 
 /**

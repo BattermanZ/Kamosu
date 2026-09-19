@@ -53,6 +53,8 @@ fn arguments_for(name: &str) -> Value {
         "get_recipe" => json!({ "branch_id": "b_parity" }),
         "export_bundle" => json!({ "branch_id": "b_parity" }),
         "import_bundle" => json!({ "data": "" }),
+        "import_crouton" => json!({ "upload_id": "u_parity" }),
+        "forget_import" => json!({ "import_id": "i_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
         "get_food" => json!({ "food_id": "f_parity" }),
         "set_food_name" => json!({ "food_id": "f_parity", "language": "en", "name": "parity" }),
@@ -122,6 +124,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "import"
             | "import_web_link"
             | "import_bundle"
+            | "import_crouton"
+            | "forget_import"
             | "rename_version"
             | "search_recipes"
             | "home_shelves"
@@ -281,6 +285,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "import"
                 | "import_web_link"
                 | "import_bundle"
+                | "import_crouton"
+                | "forget_import"
                 | "rename_version"
                 | "search_recipes"
                 | "home_shelves"

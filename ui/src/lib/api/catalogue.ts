@@ -839,21 +839,41 @@ export type ImportInput = {
 /** What import eventually produces, read back through `get_job`. */
 export type ImportOutput = {
 	arrived: {
+		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
+		main_photo?: string | null;
 		status: "created" | "extended" | "unchanged";
 		subject?: boolean;
 		title: string;
 	}[];
 	import_id: string;
 	kitchen_id: string;
+	left_out: {
+		branch_id: string;
+		count: number;
+		foreign_id: string;
+		icon?: string;
+		title: string;
+		what: "site_icon" | "extra_photos" | "unreadable_photos";
+	}[];
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		title: string;
+	}[];
+	related_candidates: {
+		recipes: {
+			branch_id: string;
+			ingredients: number;
+			lineage_id: string;
+			main_photo: string | null;
+			title: string;
+		}[];
+		shared: ("name" | "page")[];
 	}[];
 	source_kind: string;
 	unreadable: {
@@ -863,8 +883,76 @@ export type ImportOutput = {
 			lineage_id: string;
 			title: string;
 		};
+		name?: string;
 		reason: string;
 	}[];
+};
+
+/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your Home Kitchen through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+export type ImportCroutonInput = {
+	data?: string;
+	upload_id?: string;
+};
+/** What import_crouton eventually produces, read back through `get_job`. */
+export type ImportCroutonOutput = {
+	arrived: {
+		bare?: boolean;
+		branch_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		main_photo?: string | null;
+		status: "created" | "extended" | "unchanged";
+		subject?: boolean;
+		title: string;
+	}[];
+	import_id: string;
+	kitchen_id: string;
+	left_out: {
+		branch_id: string;
+		count: number;
+		foreign_id: string;
+		icon?: string;
+		title: string;
+		what: "site_icon" | "extra_photos" | "unreadable_photos";
+	}[];
+	offered: {
+		branch_id: string;
+		candidate_version_id: string;
+		foreign_id: string;
+		lineage_id: string;
+		title: string;
+	}[];
+	related_candidates: {
+		recipes: {
+			branch_id: string;
+			ingredients: number;
+			lineage_id: string;
+			main_photo: string | null;
+			title: string;
+		}[];
+		shared: ("name" | "page")[];
+	}[];
+	source_kind: string;
+	unreadable: {
+		foreign_id: string | null;
+		kept_as?: {
+			branch_id: string;
+			lineage_id: string;
+			title: string;
+		};
+		name?: string;
+		reason: string;
+	}[];
+};
+
+/** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
+export type ForgetImportInput = {
+	import_id: string;
+};
+/** What forget_import answers. */
+export type ForgetImportOutput = {
+	forgotten: number;
+	import_id: string;
 };
 
 /** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
@@ -874,21 +962,41 @@ export type ImportWebLinkInput = {
 /** What import_web_link eventually produces, read back through `get_job`. */
 export type ImportWebLinkOutput = {
 	arrived: {
+		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
+		main_photo?: string | null;
 		status: "created" | "extended" | "unchanged";
 		subject?: boolean;
 		title: string;
 	}[];
 	import_id: string;
 	kitchen_id: string;
+	left_out: {
+		branch_id: string;
+		count: number;
+		foreign_id: string;
+		icon?: string;
+		title: string;
+		what: "site_icon" | "extra_photos" | "unreadable_photos";
+	}[];
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		title: string;
+	}[];
+	related_candidates: {
+		recipes: {
+			branch_id: string;
+			ingredients: number;
+			lineage_id: string;
+			main_photo: string | null;
+			title: string;
+		}[];
+		shared: ("name" | "page")[];
 	}[];
 	source_kind: string;
 	unreadable: {
@@ -898,6 +1006,7 @@ export type ImportWebLinkOutput = {
 			lineage_id: string;
 			title: string;
 		};
+		name?: string;
 		reason: string;
 	}[];
 };
@@ -1392,21 +1501,41 @@ export type ImportBundleInput = {
 /** What import_bundle eventually produces, read back through `get_job`. */
 export type ImportBundleOutput = {
 	arrived: {
+		bare?: boolean;
 		branch_id: string;
 		foreign_id: string;
 		lineage_id: string;
+		main_photo?: string | null;
 		status: "created" | "extended" | "unchanged";
 		subject?: boolean;
 		title: string;
 	}[];
 	import_id: string;
 	kitchen_id: string;
+	left_out: {
+		branch_id: string;
+		count: number;
+		foreign_id: string;
+		icon?: string;
+		title: string;
+		what: "site_icon" | "extra_photos" | "unreadable_photos";
+	}[];
 	offered: {
 		branch_id: string;
 		candidate_version_id: string;
 		foreign_id: string;
 		lineage_id: string;
 		title: string;
+	}[];
+	related_candidates: {
+		recipes: {
+			branch_id: string;
+			ingredients: number;
+			lineage_id: string;
+			main_photo: string | null;
+			title: string;
+		}[];
+		shared: ("name" | "page")[];
 	}[];
 	source_kind: string;
 	unreadable: {
@@ -1416,6 +1545,7 @@ export type ImportBundleOutput = {
 			lineage_id: string;
 			title: string;
 		};
+		name?: string;
 		reason: string;
 	}[];
 };
@@ -3450,6 +3580,18 @@ export interface Operations {
 		input: ImportInput;
 		output: ImportOutput;
 		kind: 'job';
+		permission: 'person';
+	};
+	import_crouton: {
+		input: ImportCroutonInput;
+		output: ImportCroutonOutput;
+		kind: 'job';
+		permission: 'person';
+	};
+	forget_import: {
+		input: ForgetImportInput;
+		output: ForgetImportOutput;
+		kind: 'immediate';
 		permission: 'person';
 	};
 	import_web_link: {
@@ -7854,6 +7996,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"bare": {
+								"description": "It came as a bare name (and usually a link): no Ingredient Line and no Step. A real recipe that arrived correctly, not a failure.",
+								"type": "boolean"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -7862,6 +8008,13 @@ export const CATALOGUE = [
 							},
 							"lineage_id": {
 								"type": "string"
+							},
+							"main_photo": {
+								"description": "The Photograph the recipe arrived with as its Main Photo, or null.",
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"status": {
 								"enum": [
@@ -7895,6 +8048,46 @@ export const CATALOGUE = [
 				"kitchen_id": {
 					"type": "string"
 				},
+				"left_out": {
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"count": {
+								"type": "integer"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"icon": {
+								"description": "For a `site_icon`: the icon itself as a `data:` URI, so the Report can show what was left out. Carried only here, never stored as a Photograph.",
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"what": {
+								"enum": [
+									"site_icon",
+									"extra_photos",
+									"unreadable_photos"
+								]
+							}
+						},
+						"required": [
+							"foreign_id",
+							"branch_id",
+							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"offered": {
 					"items": {
 						"additionalProperties": false,
@@ -7922,6 +8115,63 @@ export const CATALOGUE = [
 							"branch_id",
 							"title",
 							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"related_candidates": {
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"ingredients": {
+											"type": "integer"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"lineage_id",
+										"branch_id",
+										"title",
+										"main_photo",
+										"ingredients"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"shared": {
+								"items": {
+									"enum": [
+										"name",
+										"page"
+									]
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"recipes",
+							"shared"
 						],
 						"type": "object"
 					},
@@ -7961,6 +8211,10 @@ export const CATALOGUE = [
 								],
 								"type": "object"
 							},
+							"name": {
+								"description": "What the source called it, where even its own id could not be read — a Crouton file's name.",
+								"type": "string"
+							},
 							"reason": {
 								"type": "string"
 							}
@@ -7980,7 +8234,315 @@ export const CATALOGUE = [
 				"source_kind",
 				"arrived",
 				"offered",
-				"unreadable"
+				"unreadable",
+				"left_out",
+				"related_candidates"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "import_crouton",
+		"summary": "Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your Home Kitchen through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"data": {
+					"description": "The export itself, base64-encoded — for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for the export. Used once, then deleted.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"arrived": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"bare": {
+								"description": "It came as a bare name (and usually a link): no Ingredient Line and no Step. A real recipe that arrived correctly, not a failure.",
+								"type": "boolean"
+							},
+							"branch_id": {
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"main_photo": {
+								"description": "The Photograph the recipe arrived with as its Main Photo, or null.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"status": {
+								"enum": [
+									"created",
+									"extended",
+									"unchanged"
+								]
+							},
+							"subject": {
+								"description": "From a Bundle: whether this recipe is what the Bundle is about, rather than a Passenger that travelled because something needed it.",
+								"type": "boolean"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"status",
+							"lineage_id",
+							"branch_id",
+							"title"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"import_id": {
+					"type": "string"
+				},
+				"kitchen_id": {
+					"type": "string"
+				},
+				"left_out": {
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"count": {
+								"type": "integer"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"icon": {
+								"description": "For a `site_icon`: the icon itself as a `data:` URI, so the Report can show what was left out. Carried only here, never stored as a Photograph.",
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"what": {
+								"enum": [
+									"site_icon",
+									"extra_photos",
+									"unreadable_photos"
+								]
+							}
+						},
+						"required": [
+							"foreign_id",
+							"branch_id",
+							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"offered": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"candidate_version_id": {
+								"description": "The Version this candidate's content became, held but not yet on the Branch.",
+								"type": "string"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"lineage_id",
+							"branch_id",
+							"title",
+							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"related_candidates": {
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"ingredients": {
+											"type": "integer"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"lineage_id",
+										"branch_id",
+										"title",
+										"main_photo",
+										"ingredients"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"shared": {
+								"items": {
+									"enum": [
+										"name",
+										"page"
+									]
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"recipes",
+							"shared"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"source_kind": {
+					"type": "string"
+				},
+				"unreadable": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"foreign_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"kept_as": {
+								"additionalProperties": false,
+								"description": "From a damaged Bundle: the new recipe of your own its words were kept as, with no history and no link to the recipe it came from.",
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"lineage_id",
+									"branch_id",
+									"title"
+								],
+								"type": "object"
+							},
+							"name": {
+								"description": "What the source called it, where even its own id could not be read — a Crouton file's name.",
+								"type": "string"
+							},
+							"reason": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"foreign_id",
+							"reason"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"import_id",
+				"kitchen_id",
+				"source_kind",
+				"arrived",
+				"offered",
+				"unreadable",
+				"left_out",
+				"related_candidates"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "forget_import",
+		"summary": "Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"import_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"import_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"forgotten": {
+					"description": "How many ledger entries were thrown away.",
+					"type": "integer"
+				},
+				"import_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"import_id",
+				"forgotten"
 			],
 			"type": "object"
 		}
@@ -8010,6 +8572,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"bare": {
+								"description": "It came as a bare name (and usually a link): no Ingredient Line and no Step. A real recipe that arrived correctly, not a failure.",
+								"type": "boolean"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -8018,6 +8584,13 @@ export const CATALOGUE = [
 							},
 							"lineage_id": {
 								"type": "string"
+							},
+							"main_photo": {
+								"description": "The Photograph the recipe arrived with as its Main Photo, or null.",
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"status": {
 								"enum": [
@@ -8051,6 +8624,46 @@ export const CATALOGUE = [
 				"kitchen_id": {
 					"type": "string"
 				},
+				"left_out": {
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"count": {
+								"type": "integer"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"icon": {
+								"description": "For a `site_icon`: the icon itself as a `data:` URI, so the Report can show what was left out. Carried only here, never stored as a Photograph.",
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"what": {
+								"enum": [
+									"site_icon",
+									"extra_photos",
+									"unreadable_photos"
+								]
+							}
+						},
+						"required": [
+							"foreign_id",
+							"branch_id",
+							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"offered": {
 					"items": {
 						"additionalProperties": false,
@@ -8078,6 +8691,63 @@ export const CATALOGUE = [
 							"branch_id",
 							"title",
 							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"related_candidates": {
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"ingredients": {
+											"type": "integer"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"lineage_id",
+										"branch_id",
+										"title",
+										"main_photo",
+										"ingredients"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"shared": {
+								"items": {
+									"enum": [
+										"name",
+										"page"
+									]
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"recipes",
+							"shared"
 						],
 						"type": "object"
 					},
@@ -8117,6 +8787,10 @@ export const CATALOGUE = [
 								],
 								"type": "object"
 							},
+							"name": {
+								"description": "What the source called it, where even its own id could not be read — a Crouton file's name.",
+								"type": "string"
+							},
 							"reason": {
 								"type": "string"
 							}
@@ -8136,7 +8810,9 @@ export const CATALOGUE = [
 				"source_kind",
 				"arrived",
 				"offered",
-				"unreadable"
+				"unreadable",
+				"left_out",
+				"related_candidates"
 			],
 			"type": "object"
 		}
@@ -10628,6 +11304,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"bare": {
+								"description": "It came as a bare name (and usually a link): no Ingredient Line and no Step. A real recipe that arrived correctly, not a failure.",
+								"type": "boolean"
+							},
 							"branch_id": {
 								"type": "string"
 							},
@@ -10636,6 +11316,13 @@ export const CATALOGUE = [
 							},
 							"lineage_id": {
 								"type": "string"
+							},
+							"main_photo": {
+								"description": "The Photograph the recipe arrived with as its Main Photo, or null.",
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"status": {
 								"enum": [
@@ -10669,6 +11356,46 @@ export const CATALOGUE = [
 				"kitchen_id": {
 					"type": "string"
 				},
+				"left_out": {
+					"description": "What the importer read and deliberately did not bring in, recipe by recipe: `site_icon` is a source site's favicon, which is not a photograph of the dish (ADR 0017); `extra_photos` are pictures past the first, since a recipe keeps one Main Photo and Kamosu does not guess which Step another shows; `unreadable_photos` could not be decoded.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": "string"
+							},
+							"count": {
+								"type": "integer"
+							},
+							"foreign_id": {
+								"type": "string"
+							},
+							"icon": {
+								"description": "For a `site_icon`: the icon itself as a `data:` URI, so the Report can show what was left out. Carried only here, never stored as a Photograph.",
+								"type": "string"
+							},
+							"title": {
+								"type": "string"
+							},
+							"what": {
+								"enum": [
+									"site_icon",
+									"extra_photos",
+									"unreadable_photos"
+								]
+							}
+						},
+						"required": [
+							"foreign_id",
+							"branch_id",
+							"title",
+							"what",
+							"count"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"offered": {
 					"items": {
 						"additionalProperties": false,
@@ -10696,6 +11423,63 @@ export const CATALOGUE = [
 							"branch_id",
 							"title",
 							"candidate_version_id"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"related_candidates": {
+					"description": "Pairs of recipes this Import landed that share a name or a web page, offered as Related Recipes to tick with `set_related_recipe` — never joined into one Lineage (ADR 0025). A pair already related is not offered.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"recipes": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": "string"
+										},
+										"ingredients": {
+											"type": "integer"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"main_photo": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"title": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"lineage_id",
+										"branch_id",
+										"title",
+										"main_photo",
+										"ingredients"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"shared": {
+								"items": {
+									"enum": [
+										"name",
+										"page"
+									]
+								},
+								"type": "array"
+							}
+						},
+						"required": [
+							"recipes",
+							"shared"
 						],
 						"type": "object"
 					},
@@ -10735,6 +11519,10 @@ export const CATALOGUE = [
 								],
 								"type": "object"
 							},
+							"name": {
+								"description": "What the source called it, where even its own id could not be read — a Crouton file's name.",
+								"type": "string"
+							},
 							"reason": {
 								"type": "string"
 							}
@@ -10754,7 +11542,9 @@ export const CATALOGUE = [
 				"source_kind",
 				"arrived",
 				"offered",
-				"unreadable"
+				"unreadable",
+				"left_out",
+				"related_candidates"
 			],
 			"type": "object"
 		}
@@ -20190,6 +20980,8 @@ export const METHOD_NAMES = {
 	start_translation: 'startTranslation',
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
+	import_crouton: 'importCrouton',
+	forget_import: 'forgetImport',
 	import_web_link: 'importWebLink',
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
@@ -20322,6 +21114,10 @@ export interface KamosuClient {
 	setRecipeLanguage(input: SetRecipeLanguageInput): Promise<Answer<'set_recipe_language'>>;
 	/** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 	import(input: ImportInput): Promise<Answer<'import'>>;
+	/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your Home Kitchen through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	importCrouton(input: ImportCroutonInput): Promise<Answer<'import_crouton'>>;
+	/** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
+	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
 	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */

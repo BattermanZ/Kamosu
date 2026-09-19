@@ -693,6 +693,74 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::import,
         },
         Operation {
+            name: "import_crouton",
+            summary: "Bring in a Crouton library, as a Job: the whole export \
+                      (a zip of .crumb files) or one .crumb. Each recipe lands \
+                      in your Home Kitchen through the same ledger `import` \
+                      uses, keyed by its Crouton id, so running it again \
+                      matches instead of doubling the library. Ingredient \
+                      Lines are rebuilt from Crouton's split fields; the \
+                      site's favicon and Crouton's nutrition text are left \
+                      out. Send the file to POST /api/uploads and pass the \
+                      `upload_id` it answers, or pass it base64-encoded as \
+                      `data`.",
+            permission: Permission::Person,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for the \
+                                         export. Used once, then deleted.",
+                    },
+                    "data": {
+                        "type": "string",
+                        "description": "The export itself, base64-encoded — for a \
+                                         Door that can send only JSON.",
+                    },
+                },
+                "additionalProperties": false,
+            }),
+            output_schema: import_report_schema(),
+            handler: crate::operations::import_crouton,
+        },
+        Operation {
+            name: "forget_import",
+            summary: "Throw an Import's ledger away whole — the memory of \
+                      which outside recipe became which of yours. Every \
+                      recipe it made stays exactly as it is. Once forgotten, \
+                      importing the same file again brings everything in as \
+                      new, so do this when the place it came from is gone.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "import_id": { "type": "string" } },
+                "required": ["import_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "import_id": { "type": "string" },
+                    "forgotten": {
+                        "type": "integer",
+                        "description": "How many ledger entries were thrown away.",
+                    },
+                },
+                "required": ["import_id", "forgotten"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::forget_import,
+        },
+        Operation {
             name: "import_web_link",
             summary: "Bring in a recipe straight from a URL, as a Job. Reads \
                       the page's schema.org JSON-LD (#70) — no per-site \
@@ -3174,6 +3242,17 @@ fn import_report_schema() -> Value {
                                              Bundle is about, rather than a Passenger that \
                                              travelled because something needed it.",
                         },
+                        "main_photo": {
+                            "type": ["string", "null"],
+                            "description": "The Photograph the recipe arrived with as its \
+                                             Main Photo, or null.",
+                        },
+                        "bare": {
+                            "type": "boolean",
+                            "description": "It came as a bare name (and usually a link): no \
+                                             Ingredient Line and no Step. A real recipe that \
+                                             arrived correctly, not a failure.",
+                        },
                     },
                     "required": ["foreign_id", "status", "lineage_id", "branch_id", "title"],
                     "additionalProperties": false,
@@ -3205,6 +3284,11 @@ fn import_report_schema() -> Value {
                     "type": "object",
                     "properties": {
                         "foreign_id": { "type": ["string", "null"] },
+                        "name": {
+                            "type": "string",
+                            "description": "What the source called it, where even its own \
+                                             id could not be read — a Crouton file's name.",
+                        },
                         "reason": { "type": "string" },
                         "kept_as": {
                             "type": "object",
@@ -3224,8 +3308,72 @@ fn import_report_schema() -> Value {
                     "additionalProperties": false,
                 },
             },
+            "left_out": {
+                "type": "array",
+                "description": "What the importer read and deliberately did not bring in, \
+                                 recipe by recipe: `site_icon` is a source site's favicon, \
+                                 which is not a photograph of the dish (ADR 0017); \
+                                 `extra_photos` are pictures past the first, since a recipe \
+                                 keeps one Main Photo and Kamosu does not guess which Step \
+                                 another shows; `unreadable_photos` could not be decoded.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "foreign_id": { "type": "string" },
+                        "branch_id": { "type": "string" },
+                        "title": { "type": "string" },
+                        "what": { "enum": ["site_icon", "extra_photos", "unreadable_photos"] },
+                        "count": { "type": "integer" },
+                        "icon": {
+                            "type": "string",
+                            "description": "For a `site_icon`: the icon itself as a \
+                                             `data:` URI, so the Report can show what \
+                                             was left out. Carried only here, never \
+                                             stored as a Photograph.",
+                        },
+                    },
+                    "required": ["foreign_id", "branch_id", "title", "what", "count"],
+                    "additionalProperties": false,
+                },
+            },
+            "related_candidates": {
+                "type": "array",
+                "description": "Pairs of recipes this Import landed that share a name or a \
+                                 web page, offered as Related Recipes to tick with \
+                                 `set_related_recipe` — never joined into one Lineage \
+                                 (ADR 0025). A pair already related is not offered.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "recipes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "lineage_id": { "type": "string" },
+                                    "branch_id": { "type": "string" },
+                                    "title": { "type": "string" },
+                                    "main_photo": { "type": ["string", "null"] },
+                                    "ingredients": { "type": "integer" },
+                                },
+                                "required": ["lineage_id", "branch_id", "title", "main_photo", "ingredients"],
+                                "additionalProperties": false,
+                            },
+                        },
+                        "shared": {
+                            "type": "array",
+                            "items": { "enum": ["name", "page"] },
+                        },
+                    },
+                    "required": ["recipes", "shared"],
+                    "additionalProperties": false,
+                },
+            },
         },
-        "required": ["import_id", "kitchen_id", "source_kind", "arrived", "offered", "unreadable"],
+        "required": [
+            "import_id", "kitchen_id", "source_kind", "arrived", "offered", "unreadable",
+            "left_out", "related_candidates"
+        ],
         "additionalProperties": false,
     })
 }
