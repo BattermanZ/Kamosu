@@ -967,10 +967,22 @@ pub fn start_attempt(core: &Core, invocation: &Invocation, input: Value) -> Resu
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("start_attempt takes { branch_id, version_id? }"))?;
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "start_attempt takes { branch_id, version_id?, attempt_id?, started_at? }",
+            )
+        })?;
     let version_id = input.get("version_id").and_then(Value::as_str);
+    let attempt_id = input.get("attempt_id").and_then(Value::as_str);
+    let started_at = input.get("started_at").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.start_attempt(&caller.person_id, branch_id, version_id)
+    core.start_attempt(
+        &caller.person_id,
+        branch_id,
+        version_id,
+        attempt_id,
+        started_at,
+    )
 }
 
 pub fn get_thread(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -1105,6 +1117,7 @@ pub fn advance_attempt(
         current_step_index,
         ticked_ingredients.as_deref(),
         cooking_yield,
+        written_at(&input),
     )
 }
 
@@ -1125,10 +1138,25 @@ pub fn finish_attempt(
     core.finish_attempt(
         &caller.person_id,
         attempt_id,
-        input.get("note"),
-        input.get("rating"),
-        input.get("photographs"),
+        judgement(&input),
+        written_at(&input),
     )
+}
+
+/// What finishing or correcting a cooking says, as `finish_attempt` and
+/// `edit_attempt` both take it.
+fn judgement(input: &Value) -> crate::core::Judgement<'_> {
+    crate::core::Judgement {
+        note: input.get("note"),
+        rating: input.get("rating"),
+        photographs: input.get("photographs"),
+        add_photographs: input.get("add_photographs"),
+    }
+}
+
+/// When a write was made, where a phone that held it offline says (#77).
+fn written_at(input: &Value) -> Option<&str> {
+    input.get("written_at").and_then(Value::as_str)
 }
 
 pub fn edit_attempt(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -1136,13 +1164,17 @@ pub fn edit_attempt(core: &Core, invocation: &Invocation, input: Value) -> Resul
         .get("attempt_id")
         .and_then(Value::as_str)
         .ok_or_else(|| {
-            OpError::bad_request("edit_attempt takes { attempt_id, note?, rating?, photographs? }")
+            OpError::bad_request(
+                "edit_attempt takes { attempt_id, note?, rating?, photographs?, add_photographs? }",
+            )
         })?;
-    let note = input.get("note");
-    let rating = input.get("rating");
-    let photographs = input.get("photographs");
     let caller = caller_of(invocation)?;
-    core.edit_attempt(&caller.person_id, attempt_id, note, rating, photographs)
+    core.edit_attempt(
+        &caller.person_id,
+        attempt_id,
+        judgement(&input),
+        written_at(&input),
+    )
 }
 
 /// Make a picture taken while cooking the recipe's Main Photo or a Step's
@@ -1199,7 +1231,7 @@ pub fn set_as_cooked(core: &Core, invocation: &Invocation, input: Value) -> Resu
     // thing here — this cooking followed the recipe.
     let as_cooked = input.get("as_cooked");
     let caller = caller_of(invocation)?;
-    core.set_as_cooked(&caller.person_id, attempt_id, as_cooked)
+    core.set_as_cooked(&caller.person_id, attempt_id, as_cooked, written_at(&input))
 }
 
 pub fn decline_promotion(
@@ -1545,6 +1577,19 @@ pub fn get_shopping_list(
     core.shopping_list(&caller.person_id)
 }
 
+pub fn shopping_basis(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("shopping_basis takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.shopping_basis(&caller.person_id, branch_id)
+}
+
 pub fn shopping_list_as_text(
     core: &Core,
     invocation: &Invocation,
@@ -1557,10 +1602,10 @@ pub fn shopping_list_as_text(
 pub fn empty_shopping_list(
     core: &Core,
     invocation: &Invocation,
-    _input: Value,
+    input: Value,
 ) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
-    core.empty_shopping_list(&caller.person_id)
+    core.empty_shopping_list(&caller.person_id, written_at(&input))
 }
 
 pub fn add_to_shopping_list(
@@ -1573,7 +1618,12 @@ pub fn add_to_shopping_list(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("add_to_shopping_list takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.add_to_shopping_list(&caller.person_id, branch_id, input.get("shopping_yield"))
+    core.add_to_shopping_list(
+        &caller.person_id,
+        branch_id,
+        input.get("shopping_yield"),
+        written_at(&input),
+    )
 }
 
 pub fn remove_from_shopping_list(
@@ -1586,7 +1636,7 @@ pub fn remove_from_shopping_list(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("remove_from_shopping_list takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.remove_from_shopping_list(&caller.person_id, branch_id)
+    core.remove_from_shopping_list(&caller.person_id, branch_id, written_at(&input))
 }
 
 pub fn set_shopping_yield(
@@ -1599,7 +1649,12 @@ pub fn set_shopping_yield(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("set_shopping_yield takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
-    core.set_shopping_yield(&caller.person_id, branch_id, input.get("shopping_yield"))
+    core.set_shopping_yield(
+        &caller.person_id,
+        branch_id,
+        input.get("shopping_yield"),
+        written_at(&input),
+    )
 }
 
 pub fn add_loose_item(
@@ -1612,7 +1667,12 @@ pub fn add_loose_item(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("add_loose_item takes { text }"))?;
     let caller = caller_of(invocation)?;
-    core.add_loose_item(&caller.person_id, text)
+    core.add_loose_item(
+        &caller.person_id,
+        text,
+        input.get("item_id").and_then(Value::as_str),
+        written_at(&input),
+    )
 }
 
 pub fn remove_loose_item(
@@ -1625,5 +1685,5 @@ pub fn remove_loose_item(
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("remove_loose_item takes { item_id }"))?;
     let caller = caller_of(invocation)?;
-    core.remove_loose_item(&caller.person_id, item_id)
+    core.remove_loose_item(&caller.person_id, item_id, written_at(&input))
 }

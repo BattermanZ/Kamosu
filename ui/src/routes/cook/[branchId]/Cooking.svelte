@@ -54,7 +54,18 @@
 	import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
 	import { timer, clock } from './timer.svelte';
 	import { wakeLock } from './wake-lock.svelte';
-	import { seed, serialise, differs, type AsCooked, type Line } from './as-cooked.svelte';
+	import {
+		seed,
+		serialise,
+		differs,
+		keepDraft,
+		readDraft,
+		forgetDraft,
+		type AsCooked,
+		type Line,
+	} from './as-cooked.svelte';
+	import { useKeeping } from '$lib/offline/outbox';
+	import { photographCooking, pickedFile } from '$lib/offline/photograph';
 
 	interface Props {
 		branchId: string;
@@ -63,6 +74,7 @@
 	let { branchId }: Props = $props();
 
 	const kamosu = useKamosu();
+	const keeping = useKeeping();
 	const countdown = timer();
 	const awake = wakeLock();
 
@@ -89,6 +101,8 @@
 	let writeFailed = $state(false);
 	let discarding = $state(false);
 	let discarded = $state(false);
+	/** A photograph that could not be kept, even on the phone. */
+	let photoFailed = $state(false);
 
 	/**
 	 * The Step's own element, and whether its text is taller than the box it was
@@ -198,8 +212,14 @@
 	 * somebody who is typing.
 	 */
 	$effect(() => {
-		if (asCooked || !content) return;
-		asCooked = seed(content, attempt?.as_cooked ?? null);
+		if (asCooked || !content || !attempt) return;
+		// Words written with no network are the cook's until the server has
+		// them (#77): the phone keeps them here, because what the server makes
+		// of them — which line changed, which was added — is the server's to
+		// read (ADR 0019), and it has not read them yet.
+		const waiting = keeping.holds(attempt.id);
+		if (!waiting) forgetDraft(attempt.id);
+		asCooked = (waiting ? readDraft(attempt.id) : undefined) ?? seed(content, attempt.as_cooked);
 	});
 
 	/**
@@ -424,6 +444,8 @@
 			// replacing the Attempt wholesale would throw the cook back a step
 			// whenever this one answered second.
 			if (attempt) attempt = { ...attempt, as_cooked: answer.as_cooked };
+			if (attempt && keeping.holds(attempt.id)) keepDraft(attempt.id, asCooked);
+			else if (attempt) forgetDraft(attempt.id);
 			unsaved = false;
 			writeFailed = false;
 		} catch (error) {
@@ -473,11 +495,33 @@
 		if (!attempt) return;
 		try {
 			await kamosu.deleteAttempt({ attempt_id: attempt.id });
+			forgetDraft(attempt.id);
 			discarding = false;
 			discarded = true;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = true;
+		}
+	}
+
+	/**
+	 * A picture of the cooking, taken at the stove (#77, option A). It is kept
+	 * on the phone before anything else, so it is never lost to a network that
+	 * blinked, and put on the cooking beside the others. Only the pictures are
+	 * taken from the answer: the rest of the Attempt it carries left before the
+	 * step the cook may have moved to since.
+	 */
+	async function takePhoto(event: Event) {
+		const picture = pickedFile(event);
+		if (!attempt || !picture) return;
+		const id = attempt.id;
+		try {
+			const photographs = await photographCooking(kamosu, keeping, id, picture);
+			if (attempt?.id === id) attempt = { ...attempt, photographs };
+			photoFailed = false;
+		} catch (error) {
+			if (!(error instanceof OperationError) && !(error instanceof DOMException)) throw error;
+			photoFailed = true;
 		}
 	}
 
@@ -704,6 +748,9 @@
 			{#if writeFailed}
 				<p class="pb-2 text-read text-cook-ink-2" role="alert">{m.cook_write_failed()}</p>
 			{/if}
+			{#if photoFailed}
+				<p class="pb-2 text-read text-cook-ink-2" role="alert">{m.cook_photo_failed()}</p>
+			{/if}
 			{#if writing}
 				<!--
 					The amounts, as fields, in the place they already occupied and at
@@ -876,8 +923,14 @@
 				number, so `800 ml` with nothing saying 800 ml towards what is half
 				a fact. It was in the header until it made that row wrap (#88).
 			-->
+			<!--
+				It gives way first when the row is full — a timer's offer and the
+				Photo word beside it are things to press, and this is a thing to
+				read — so it shrinks and ellipsises rather than pushing them off
+				the edge of a narrow phone (#77).
+			-->
 			{#if cookingYield && !writing}
-				<span class="shrink-0 truncate text-read text-cook-ink-2">{cookingYield}</span>
+				<span class="min-w-0 truncate text-read text-cook-ink-2">{cookingYield}</span>
 			{/if}
 			{#if writing}
 				<p class="min-w-0 truncate text-label font-semibold text-cook-accent uppercase">
@@ -925,10 +978,40 @@
 				A cooking that deviated from nothing pays this word and nothing
 				else — no row, no panel, no badge, and no stored state.
 			-->
+			<!--
+				A PICTURE OF THE COOKING, one quiet word beside "Changed it" and the
+				same size, at the stove where the dish is (#77). Aurélien chose this
+				over offering it once the cooking is finished, on 19 September 2026:
+				the dough at step 4 is photographed at step 4. It opens the phone's
+				camera, the cook comes back to the step they were on, and the word
+				counts what has been taken.
+
+				A label around the file picker rather than a button that clicks
+				one: a label is the one way iOS Safari always opens a picker, and
+				the picker inside stays reachable for a keyboard. It goes while the
+				step is being written on, where the row belongs to Done.
+			-->
+			{#if !writing}
+				<label
+					class="tap-out ms-auto flex h-8 shrink-0 cursor-pointer items-center text-read text-cook-ink-2"
+				>
+					{attempt.photographs.length > 0
+						? m.cook_photo_count({ count: attempt.photographs.length })
+						: m.cook_photo()}
+					<input
+						type="file"
+						accept="image/*"
+						capture="environment"
+						class="sr-only"
+						aria-label={m.cook_photo_take()}
+						onchange={takePhoto}
+					/>
+				</label>
+			{/if}
 			<button
 				type="button"
-				class="tap-out ms-auto h-8 shrink-0 text-read {writing
-					? 'font-semibold text-cook-accent'
+				class="tap-out h-8 shrink-0 text-read {writing
+					? 'ms-auto font-semibold text-cook-accent'
 					: 'text-cook-ink-2'}"
 				onclick={() => {
 					if (writing) void save();

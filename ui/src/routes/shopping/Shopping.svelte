@@ -41,6 +41,7 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
+	import { rereads } from '$lib/offline/device.svelte';
 
 	const kamosu = useKamosu();
 
@@ -66,7 +67,15 @@
 	let sent = $state<'no' | 'yes' | 'failed'>('no');
 	let offering = $state(false);
 
+	/**
+	 * Read the list again once changes written with no network have reached
+	 * the server (#77). The last device to write the list wins, so the
+	 * server's list may not be the one this phone was showing.
+	 */
+	const reread = rereads('get_shopping_list');
+
 	$effect(() => {
+		void reread.count;
 		let current = true;
 		kamosu
 			.getShoppingList({})

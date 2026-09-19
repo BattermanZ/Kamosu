@@ -17888,3 +17888,525 @@ async fn a_persons_sheet_is_fetched_only_under_their_credential() {
     );
     assert_eq!(job["status"], json!("failed"), "{job}");
 }
+
+// --- Cooking and shopping with no network (issue #77, ADR 0013) --------------
+//
+// A phone with no signal keeps the writes on the Attempt's side of Promotion,
+// and the Shopping List's, and sends them when it can. These are those writes
+// arriving late, through the same Doors as any other.
+
+/// A time `minutes` before now, as a phone writes one.
+fn minutes_ago(app: &support::TestApp, minutes: i64) -> String {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now', ?1)",
+                rusqlite::params![format!("-{minutes} minutes")],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("a time")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_started_offline_lands_under_the_id_the_phone_gave_it_and_on_the_day_it_happened()
+{
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let saturday = minutes_ago(&app, 2 * 24 * 60);
+
+    let start = json!({
+        "branch_id": branch_id,
+        "attempt_id": "at_0123456789abcdef",
+        "started_at": saturday,
+    })
+    .to_string();
+    let (status, started) = app.post_op("start_attempt", Some(&key), &start);
+    assert_eq!(status, 200, "{started}");
+    assert_eq!(started["result"]["id"], json!("at_0123456789abcdef"));
+    assert_eq!(
+        started["result"]["created_at"],
+        json!(saturday),
+        "a cooking at your parents' on Saturday is dated Saturday, whenever it arrives"
+    );
+
+    // A phone that sent it and never heard back sends it again.
+    let (status, again) = app.post_op("start_attempt", Some(&key), &start);
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["result"]["id"], json!("at_0123456789abcdef"));
+    let count: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row("SELECT COUNT(*) FROM attempts", [], |r| r.get(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(count, 1, "the same start sent twice is one cooking");
+
+    // An id in any other shape is refused rather than stored.
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "attempt_id": "mine" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, refused) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "started_at": "last saturday" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_started_offline_follows_the_one_another_device_already_began() {
+    // One Attempt per person per Lineage (ADR 0010). The iPad started this
+    // cooking while the phone had no signal and started it too; when the
+    // phone's start arrives it is handed the iPad's, and nobody is asked
+    // which cooking they meant.
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, on_the_ipad) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let (status, from_the_phone) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "attempt_id": "at_00000000000000aa",
+            "started_at": minutes_ago(&app, 30),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{from_the_phone}");
+    assert_eq!(from_the_phone["result"]["id"], on_the_ipad["result"]["id"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_move_that_arrives_late_never_puts_the_cook_back_a_step() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+
+    // Only opening the screen on the iPad is not moving on: a move the phone
+    // made before that, sent afterwards, still lands.
+    let (status, landed) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "current_step_index": 1,
+            "ticked_ingredients": [0],
+            "written_at": minutes_ago(&app, 20),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{landed}");
+    assert_eq!(landed["result"]["current_step_index"], json!(1));
+
+    // The iPad moves on to the last step, now.
+    app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 2 }).to_string(),
+    );
+
+    // The phone's older move, held while it had no signal, arrives after it.
+    let (status, late) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "current_step_index": 0,
+            "ticked_ingredients": [],
+            "written_at": minutes_ago(&app, 10),
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{late}");
+    assert_eq!(
+        late["result"]["current_step_index"],
+        json!(2),
+        "the last one moved on is where the cook is (ADR 0010), by when it moved"
+    );
+    assert_eq!(late["result"]["ticked_ingredients"], json!([0]));
+
+    // A clock running fast cannot win every argument: a time after now is now.
+    let (status, fast) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "current_step_index": 1,
+            "written_at": "2099-01-01T00:00:00.000Z",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{fast}");
+    let (_, next) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 2 }).to_string(),
+    );
+    assert_eq!(
+        next["result"]["current_step_index"],
+        json!(2),
+        "a move from a phone whose clock is in 2099 does not outrank every move after it"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_recorded_offline_lands_unchanged_against_a_recipe_edited_meanwhile() {
+    // The ugly case in most offline systems, closed here by decisions made for
+    // other reasons (ADR 0013): the Version cooked still exists, so the
+    // cooking lands exactly as it was recorded and says it cooked that one.
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, before) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let cooked_version = before["result"]["head_version_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // While the phone is out, somebody edits the recipe at home.
+    backdate_branch_head(&app, &branch_id);
+    let (status, edited) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Katsu Curry",
+            "ingredients": [
+                { "kind": "ingredient", "text": "3 escalopes de poulet" },
+                { "kind": "ingredient", "text": "200 g de riz" },
+            ],
+            "steps": [{ "kind": "step", "text": "Tout frire" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    assert_ne!(edited["result"]["version_id"], json!(cooked_version));
+
+    // The phone comes home and sends what it did, in order, each saying when.
+    let photograph = upload_a_picture(&app, &key, 77);
+    let attempt_id = "at_77777777777777aa";
+    let finished_at = minutes_ago(&app, 60);
+    let sent = [
+        (
+            "start_attempt",
+            json!({ "branch_id": branch_id, "version_id": cooked_version, "attempt_id": attempt_id, "started_at": minutes_ago(&app, 90) }),
+        ),
+        (
+            "advance_attempt",
+            json!({ "attempt_id": attempt_id, "current_step_index": 2, "ticked_ingredients": [0, 1], "written_at": minutes_ago(&app, 80) }),
+        ),
+        (
+            "set_as_cooked",
+            json!({ "attempt_id": attempt_id, "written_at": minutes_ago(&app, 70), "as_cooked": {
+            "title": "Katsu Curry",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 escalopes de poulet" },
+                { "kind": "ingredient", "text": "150 g de riz" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Paner les escalopes" },
+                { "kind": "step", "text": "Frire jusqu'à dorer" },
+                { "kind": "step", "text": "Servir avec le riz" },
+            ],
+        } }),
+        ),
+        (
+            "edit_attempt",
+            json!({ "attempt_id": attempt_id, "add_photographs": [photograph], "written_at": minutes_ago(&app, 65) }),
+        ),
+        (
+            "finish_attempt",
+            json!({ "attempt_id": attempt_id, "written_at": finished_at }),
+        ),
+        (
+            "edit_attempt",
+            json!({ "attempt_id": attempt_id, "rating": "again", "note": "Chez mes parents", "written_at": minutes_ago(&app, 50) }),
+        ),
+    ];
+    let mut last = Value::Null;
+    for (operation, input) in sent {
+        let (status, answered) = app.post_op(operation, Some(&key), &input.to_string());
+        assert_eq!(status, 200, "{operation}: {answered}");
+        last = answered;
+    }
+
+    let attempt = &last["result"];
+    assert_eq!(attempt["id"], json!(attempt_id));
+    assert_eq!(
+        attempt["version_id"],
+        json!(cooked_version),
+        "the cooking still says which Version it cooked, not the one written since"
+    );
+    assert_eq!(attempt["current_step_index"], json!(2));
+    assert_eq!(attempt["ticked_ingredients"], json!([0, 1]));
+    assert_eq!(attempt["photographs"], json!([photograph]));
+    assert_eq!(attempt["rating"], json!("again"));
+    assert_eq!(attempt["note"], json!("Chez mes parents"));
+    assert_eq!(
+        attempt["as_cooked"]["content"]["ingredients"][1]["text"],
+        json!("150 g de riz")
+    );
+    assert_eq!(
+        attempt["finished_at"],
+        json!(finished_at),
+        "it finished when the cook finished, not when the phone got home"
+    );
+
+    // And the recipe is exactly what the edit at home made it: the cooking's
+    // words never reached it.
+    let (_, after) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        after["result"]["head_version_id"],
+        edited["result"]["version_id"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_picture_taken_on_one_device_never_erases_one_taken_on_another() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let on_the_phone = upload_a_picture(&app, &key, 11);
+    let on_the_ipad = upload_a_picture(&app, &key, 22);
+
+    for picture in [&on_the_phone, &on_the_ipad, &on_the_phone] {
+        let (status, added) = app.post_op(
+            "edit_attempt",
+            Some(&key),
+            &json!({ "attempt_id": attempt_id, "add_photographs": [picture] }).to_string(),
+        );
+        assert_eq!(status, 200, "{added}");
+    }
+    let (_, current) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "add_photographs": [] }).to_string(),
+    );
+    assert_eq!(
+        current["result"]["photographs"],
+        json!([on_the_phone, on_the_ipad]),
+        "added beside each other, once each, in the order taken"
+    );
+
+    let (status, refused) = app.post_op(
+        "edit_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "add_photographs": ["not-a-photograph"] }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_last_device_to_write_a_shopping_list_wins() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    // Yesterday, with no signal, the phone chose the chicken and typed a line.
+    let yesterday = minutes_ago(&app, 24 * 60);
+    // This morning, online, the iPad chose the coq au vin.
+    let (_, ipad) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": coq }).to_string(),
+    );
+    assert_eq!(ipad["result"]["chosen"].as_array().unwrap().len(), 1);
+
+    // The phone's writes arrive now, older than the iPad's.
+    for (operation, input) in [
+        (
+            "add_to_shopping_list",
+            json!({ "branch_id": chicken, "written_at": yesterday }),
+        ),
+        (
+            "add_loose_item",
+            json!({ "text": "bin bags", "item_id": "i_00000000000000bb", "written_at": yesterday }),
+        ),
+        (
+            "remove_from_shopping_list",
+            json!({ "branch_id": coq, "written_at": yesterday }),
+        ),
+        ("empty_shopping_list", json!({ "written_at": yesterday })),
+    ] {
+        let (status, answered) = app.post_op(operation, Some(&key), &input.to_string());
+        assert_eq!(status, 200, "{operation}: {answered}");
+        assert_eq!(
+            answered["result"], ipad["result"],
+            "{operation} written before the iPad's list changes nothing"
+        );
+    }
+
+    // A write the phone made after the iPad's does land, a line typed offline
+    // keeps the id the phone gave it, and the same line sent twice is one.
+    let later = json!({ "text": "coffee", "item_id": "i_00000000000000cc" }).to_string();
+    app.post_op("add_loose_item", Some(&key), &later);
+    let (_, twice) = app.post_op("add_loose_item", Some(&key), &later);
+    let loose = twice["result"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["kind"] == json!("loose"))
+        .collect::<Vec<_>>();
+    assert_eq!(loose.len(), 1, "{twice}");
+    assert_eq!(loose[0]["id"], json!("i_00000000000000cc"));
+    let (_, removed) = app.post_op(
+        "remove_loose_item",
+        Some(&key),
+        &json!({ "item_id": "i_00000000000000cc" }).to_string(),
+    );
+    assert!(
+        removed["result"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["kind"] != json!("loose"))
+    );
+
+    let (status, refused) = app.post_op(
+        "add_loose_item",
+        Some(&key),
+        &json!({ "text": "tea", "item_id": "not-mine" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipes_shopping_basis_is_what_its_rows_are_added_up_from() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (_chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+
+    let (status, basis) = app.post_op(
+        "shopping_basis",
+        Some(&key),
+        &json!({ "branch_id": coq }).to_string(),
+    );
+    assert_eq!(status, 200, "{basis}");
+    let basis = &basis["result"];
+    assert_eq!(basis["branch_id"], json!(coq));
+    assert_eq!(
+        basis["written_yield"],
+        json!({ "amount": "4", "noun": "servings" })
+    );
+    let lines = basis["lines"].as_array().unwrap();
+    assert!(
+        lines
+            .iter()
+            .all(|line| line["text"] != json!("For the braise")),
+        "a Section is not a thing to buy"
+    );
+    let soy = lines
+        .iter()
+        .find(|line| line["text"] == json!("1 tbsp soy sauce"))
+        .expect("the soy sauce line");
+    assert_eq!(
+        soy["index"],
+        json!(2),
+        "named by where it sits in the recipe"
+    );
+    assert_eq!(soy["food"]["name"], json!("soy sauce"));
+    assert_eq!(soy["food"]["amount"], json!(1.0));
+    assert_eq!(soy["food"]["unit_id"], json!("tablespoon"));
+
+    // Somebody who cannot see the recipe cannot read what it would buy.
+    let (_other, stranger, _kitchen) = person_with_kitchen(&app, "Marie");
+    let (status, refused) = app.post_op(
+        "shopping_basis",
+        Some(&stranger),
+        &json!({ "branch_id": coq }).to_string(),
+    );
+    assert_ne!(status, 200, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finished_cooking_is_final_whatever_arrives_late() {
+    // Finished on the iPad; the phone, with no network, went on moving through
+    // it and finished it too. What the phone sends later changes nothing and
+    // fails nothing: one cooking, finished once (#77).
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (_, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id }).to_string(),
+    );
+    let finished_at = finished["result"]["finished_at"].clone();
+
+    for (operation, input) in [
+        (
+            "advance_attempt",
+            json!({ "attempt_id": attempt_id, "current_step_index": 2, "written_at": minutes_ago(&app, 5) }),
+        ),
+        (
+            "finish_attempt",
+            json!({ "attempt_id": attempt_id, "rating": "again", "note": "Chez mes parents", "written_at": minutes_ago(&app, 5) }),
+        ),
+    ] {
+        let (status, answered) = app.post_op(operation, Some(&key), &input.to_string());
+        assert_eq!(status, 200, "{operation}: {answered}");
+        assert_eq!(
+            answered["result"]["finished_at"], finished_at,
+            "{operation}"
+        );
+        assert_eq!(
+            answered["result"]["current_step_index"],
+            json!(0),
+            "{operation}"
+        );
+    }
+
+    // What the cook said with the late finish still lands: only the finish
+    // itself is the first one's.
+    let (_, diary) = app.post_op("list_attempts", Some(&key), "{}");
+    let kept = &diary["result"]["attempts"][0];
+    assert_eq!(kept["rating"], json!("again"));
+    assert_eq!(kept["note"], json!("Chez mes parents"));
+
+    // Asked live, with no time of its own, it is still a mistake worth saying.
+    let (status, refused) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "current_step_index": 1 }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}

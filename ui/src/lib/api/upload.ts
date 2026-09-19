@@ -42,11 +42,47 @@ export const realUpload =
 				body: file,
 			});
 		} catch (cause) {
-			throw new OperationError('upload', 'internal', 'Kamosu could not be reached.', { cause });
+			throw new OperationError('upload', 'internal', 'Kamosu could not be reached.', {
+				cause,
+				reached: false,
+			});
 		}
 		const staged = (await readEnvelope('upload', response)) as { upload_id?: string };
 		if (!staged?.upload_id) {
 			throw new OperationError('upload', 'internal', 'Kamosu staged the file but named no id.');
 		}
 		return staged.upload_id;
+	};
+
+/**
+ * Send one picture to `POST /api/photographs`, where it is remade at the door
+ * and named by its own bytes (ADR 0017). Answers that name.
+ */
+export const realPhotographUpload =
+	(doFetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis)) =>
+	async (picture: Blob): Promise<string> => {
+		let response: Response;
+		try {
+			response = await doFetch('/api/photographs', {
+				method: 'POST',
+				headers: { 'content-type': picture.type || 'application/octet-stream' },
+				body: picture,
+			});
+		} catch (cause) {
+			throw new OperationError('upload_photograph', 'internal', 'Kamosu could not be reached.', {
+				cause,
+				reached: false,
+			});
+		}
+		const made = (await readEnvelope('upload_photograph', response)) as {
+			photograph_id?: string;
+		};
+		if (!made?.photograph_id) {
+			throw new OperationError(
+				'upload_photograph',
+				'internal',
+				'Kamosu kept the picture but named no Photograph.',
+			);
+		}
+		return made.photograph_id;
 	};

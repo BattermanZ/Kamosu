@@ -179,6 +179,10 @@
      tokenised here rather than written as an arbitrary utility, because the
      spacing scale above is deliberately the whole of what exists (#61). */
   --noren-h: 3px;
+  /* A cooking's photograph in the diary, square. 72px is Aurélien's choice on
+     #77 (option A, the diary's Photographs row): big enough to tell one plate
+     from another, small enough that a row of them is a glance. */
+  --photo-thumb: 72px;
 }
 
 /* ── Fonts, served by the binary at /assets/fonts/ ─────────────────────────── */

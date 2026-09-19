@@ -5,17 +5,19 @@
 -->
 <script lang="ts">
 	import type { KamosuClient } from '$lib/api/catalogue';
+	import type { Keeping } from '$lib/offline/outbox';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 	import Cooking from './Cooking.svelte';
 
 	interface Props {
 		client: KamosuClient;
 		branchId: string;
+		keeping?: Keeping;
 	}
 
-	let { client, branchId }: Props = $props();
+	let { client, branchId, keeping }: Props = $props();
 </script>
 
-<Kamosu {client}>
+<Kamosu {client} {keeping}>
 	<Cooking {branchId} />
 </Kamosu>

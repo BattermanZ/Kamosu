@@ -11,11 +11,13 @@
 	import { realUpload } from '$lib/api/upload';
 	import { readToken } from '$lib/tokens';
 	import Notices from '$lib/offline/Notices.svelte';
-	import { listenToTheWorker, retryWhileUnreachable } from '$lib/offline/device.svelte';
+	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
+	import { realOutbox } from '$lib/offline/outbox';
 
 	let { children } = $props();
 
-	const client = realKamosu();
+	const outbox = realOutbox();
+	const client = realKamosu(outbox);
 	const auth = realAuth();
 	const upload = realUpload();
 
@@ -54,6 +56,18 @@
 	$effect(() => listenToTheWorker());
 	$effect(() => retryWhileUnreachable(client));
 
+	// What was written with no network goes as soon as the server answers
+	// again (#77): on opening, whenever the server is found again, and when the
+	// browser says the network is back.
+	$effect(() => {
+		if (reach.server) void outbox.flush();
+	});
+	$effect(() => {
+		const again = () => void outbox.flush();
+		addEventListener('online', again);
+		return () => removeEventListener('online', again);
+	});
+
 	const onSettings = $derived(page.url.pathname.startsWith('/settings'));
 
 	/**
@@ -66,7 +80,7 @@
 	const cooking = $derived(page.url.pathname.startsWith('/cook/'));
 </script>
 
-<Kamosu {client} {auth} {upload}>
+<Kamosu {client} {auth} {upload} keeping={outbox}>
 	{#if !cooking}
 		<header class="sticky top-0 z-10 border-b border-rule bg-ground pt-safe">
 			<div class="mx-auto flex max-w-2xl px-gutter py-3">

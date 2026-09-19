@@ -153,3 +153,40 @@ export function differs(content: Content, asCooked: AsCooked): boolean {
 	};
 	return !(same(asCooked.ingredients, content.ingredients) && same(asCooked.steps, content.steps));
 }
+
+// ---- words written with no network (#77) --------------------------------------
+
+/** Where a cooking's own words wait on the phone while the server has not read them. */
+const draftKey = (attemptId: string) => `kamosu.as-cooked.${attemptId}`;
+
+/**
+ * Keep what the cook has written on this phone. While a cooking waits to be
+ * sent, the server has not yet read the cook's words back into lines it can
+ * pair with the recipe's, so reopening the screen offline starts from these
+ * rather than from the recipe as written.
+ */
+export function keepDraft(attemptId: string, asCooked: AsCooked | undefined): void {
+	if (!asCooked) return;
+	try {
+		localStorage.setItem(draftKey(attemptId), JSON.stringify(asCooked));
+	} catch {
+		// Storage refused: the words are still on screen and still sent.
+	}
+}
+
+export function readDraft(attemptId: string): AsCooked | undefined {
+	try {
+		const raw = localStorage.getItem(draftKey(attemptId));
+		return raw ? (JSON.parse(raw) as AsCooked) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function forgetDraft(attemptId: string): void {
+	try {
+		localStorage.removeItem(draftKey(attemptId));
+	} catch {
+		// Nothing kept, then nothing to forget.
+	}
+}

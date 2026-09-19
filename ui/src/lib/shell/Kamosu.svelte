@@ -10,6 +10,7 @@
 	import { provideAuth, type AuthClient } from '$lib/auth';
 	import { provideUpload, type Uploader } from '$lib/api/upload';
 	import { Library, provideLibrary } from '$lib/offline/library.svelte';
+	import { provideKeeping, type Keeping } from '$lib/offline/outbox';
 
 	interface Props {
 		client: KamosuClient;
@@ -17,6 +18,8 @@
 		upload?: Uploader;
 		/** What is on the phone (#76). One per app; a test may bring its own. */
 		library?: Library;
+		/** What the phone holds for the server (#77). A test may bring its own. */
+		keeping?: Keeping;
 		children: Snippet;
 	}
 
@@ -27,6 +30,13 @@
 			throw new Error('this test sent a file without giving an uploader');
 		},
 		library,
+		keeping = {
+			holds: () => false,
+			keepPhotograph: async () => {
+				throw new Error('this test took a photograph without giving an outbox');
+			},
+			photographSrc: async (id, size) => `/api/photographs/${id}/${size}`,
+		},
 		children,
 	}: Props = $props();
 
@@ -38,6 +48,7 @@
 	provideAuth(() => auth);
 	provideUpload(() => upload);
 	provideLibrary(() => theLibrary);
+	provideKeeping(() => keeping);
 </script>
 
 {@render children()}

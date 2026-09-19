@@ -25,7 +25,7 @@
 	$effect(() => {
 		colours = COLOUR_ORDER.map((name) => ({ name, value: readToken(name) }));
 		radii = RADIUS_ORDER.map((name) => ({ name, value: readToken(name) }));
-		layout = ['--tile-w', '--hero-h', '--rule-w'].map((name) => ({
+		layout = ['--tile-w', '--hero-h', '--rule-w', '--noren-h', '--photo-thumb'].map((name) => ({
 			name,
 			value: readToken(name),
 		}));

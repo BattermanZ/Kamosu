@@ -2078,7 +2078,9 @@ export type ReadIngredientLinesOutput = {
 
 /** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 export type StartAttemptInput = {
+	attempt_id?: string;
 	branch_id: string;
+	started_at?: string;
 	version_id?: string;
 };
 /** What start_attempt answers. */
@@ -2175,6 +2177,7 @@ export type AdvanceAttemptInput = {
 	} | null;
 	current_step_index?: number;
 	ticked_ingredients?: number[];
+	written_at?: string;
 };
 /** What advance_attempt answers. */
 export type AdvanceAttemptOutput = {
@@ -2263,10 +2266,12 @@ export type AdvanceAttemptOutput = {
 
 /** End an In Progress Attempt, taking the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked. */
 export type FinishAttemptInput = {
+	add_photographs?: string[] | null;
 	attempt_id: string;
 	note?: string | null;
 	photographs?: string[] | null;
 	rating?: "again" | "tweak" | "no" | null;
+	written_at?: string;
 };
 /** What finish_attempt answers. */
 export type FinishAttemptOutput = {
@@ -2355,10 +2360,12 @@ export type FinishAttemptOutput = {
 
 /** Change an Attempt's free text, its rating or its Photographs, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
 export type EditAttemptInput = {
+	add_photographs?: string[] | null;
 	attempt_id: string;
 	note?: string | null;
 	photographs?: string[] | null;
 	rating?: "again" | "tweak" | "no" | null;
+	written_at?: string;
 };
 /** What edit_attempt answers. */
 export type EditAttemptOutput = {
@@ -2506,6 +2513,7 @@ export type SetAsCookedInput = {
 		} | null;
 	} | null;
 	attempt_id: string;
+	written_at?: string;
 };
 /** What set_as_cooked answers. */
 export type SetAsCookedOutput = {
@@ -2921,6 +2929,34 @@ export type GetShoppingListOutput = {
 	}[];
 };
 
+/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
+export type ShoppingBasisInput = {
+	branch_id: string;
+};
+/** What shopping_basis answers. */
+export type ShoppingBasisOutput = {
+	branch_id: string;
+	lines: {
+		food: {
+			amount: number | null;
+			cup_weight_grams: number | null;
+			id: string;
+			name: string | null;
+			name_language: string | null;
+			unit: string | null;
+			unit_id: string | null;
+			unit_key: string | null;
+		} | null;
+		index: number;
+		text: string;
+	}[];
+	title: string;
+	written_yield: {
+		amount: string;
+		noun: string;
+	} | null;
+};
+
 /** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 export type AddToShoppingListInput = {
 	branch_id: string;
@@ -2928,6 +2964,7 @@ export type AddToShoppingListInput = {
 		amount: string;
 		noun: string;
 	} | null;
+	written_at?: string;
 };
 /** What add_to_shopping_list answers. */
 export type AddToShoppingListOutput = {
@@ -2965,6 +3002,7 @@ export type AddToShoppingListOutput = {
 /** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
 export type RemoveFromShoppingListInput = {
 	branch_id: string;
+	written_at?: string;
 };
 /** What remove_from_shopping_list answers. */
 export type RemoveFromShoppingListOutput = {
@@ -3006,6 +3044,7 @@ export type SetShoppingYieldInput = {
 		amount: string;
 		noun: string;
 	} | null;
+	written_at?: string;
 };
 /** What set_shopping_yield answers. */
 export type SetShoppingYieldOutput = {
@@ -3048,7 +3087,9 @@ export type ShoppingListAsTextOutput = {
 };
 
 /** Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
-export type EmptyShoppingListInput = Record<string, never>;
+export type EmptyShoppingListInput = {
+	written_at?: string;
+};
 /** What empty_shopping_list answers. */
 export type EmptyShoppingListOutput = {
 	chosen: {
@@ -3084,7 +3125,9 @@ export type EmptyShoppingListOutput = {
 
 /** Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
 export type AddLooseItemInput = {
+	item_id?: string;
 	text: string;
+	written_at?: string;
 };
 /** What add_loose_item answers. */
 export type AddLooseItemOutput = {
@@ -3122,6 +3165,7 @@ export type AddLooseItemOutput = {
 /** Take one typed line off your Shopping List. Answers the whole list. */
 export type RemoveLooseItemInput = {
 	item_id: string;
+	written_at?: string;
 };
 /** What remove_loose_item answers. */
 export type RemoveLooseItemOutput = {
@@ -3853,6 +3897,12 @@ export interface Operations {
 	get_shopping_list: {
 		input: GetShoppingListInput;
 		output: GetShoppingListOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	shopping_basis: {
+		input: ShoppingBasisInput;
+		output: ShoppingBasisOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -14467,7 +14517,15 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"attempt_id": {
+					"description": "The id to give this cooking, for one started with no network (#77): at_ and sixteen lower-case hex digits. Sending the same start twice answers the same Attempt; where the Lineage already has one In Progress, that one is answered instead.",
+					"type": "string"
+				},
 				"branch_id": {
+					"type": "string"
+				},
+				"started_at": {
+					"description": "When cooking really started, for a start that waited on a phone with no network (#77). The same form as written_at.",
 					"type": "string"
 				},
 				"version_id": {
@@ -14971,6 +15029,10 @@ export const CATALOGUE = [
 						"type": "integer"
 					},
 					"type": "array"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
 				}
 			},
 			"required": [
@@ -15438,6 +15500,16 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"add_photographs": {
+					"description": "Photographs to put beside those the cooking already holds, rather than replacing them: what a device sends when it takes a picture, so two devices never erase each other's (#77).",
+					"items": {
+						"type": "string"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				},
 				"attempt_id": {
 					"type": "string"
 				},
@@ -15467,6 +15539,10 @@ export const CATALOGUE = [
 						"string",
 						"null"
 					]
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
 				}
 			},
 			"required": [
@@ -15934,6 +16010,16 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"add_photographs": {
+					"description": "Photographs to put beside those the cooking already holds, rather than replacing them: what a device sends when it takes a picture, so two devices never erase each other's (#77).",
+					"items": {
+						"type": "string"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				},
 				"attempt_id": {
 					"type": "string"
 				},
@@ -15963,6 +16049,10 @@ export const CATALOGUE = [
 						"string",
 						"null"
 					]
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
 				}
 			},
 			"required": [
@@ -16717,6 +16807,10 @@ export const CATALOGUE = [
 					]
 				},
 				"attempt_id": {
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
 					"type": "string"
 				}
 			},
@@ -18893,6 +18987,146 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "shopping_basis",
+		"summary": "What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"lines": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"food": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"number",
+											"null"
+										]
+									},
+									"cup_weight_grams": {
+										"type": [
+											"number",
+											"null"
+										]
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"name_language": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit_id": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit_key": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"name_language",
+									"amount",
+									"unit",
+									"unit_id",
+									"unit_key",
+									"cup_weight_grams"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"index": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"index",
+							"text",
+							"food"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"title": {
+					"type": "string"
+				},
+				"written_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"title",
+				"written_yield",
+				"lines"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "add_to_shopping_list",
 		"summary": "Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list.",
 		"permission": "person",
@@ -18921,6 +19155,10 @@ export const CATALOGUE = [
 						"object",
 						"null"
 					]
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
 				}
 			},
 			"required": [
@@ -19101,6 +19339,10 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"branch_id": {
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
 					"type": "string"
 				}
 			},
@@ -19302,6 +19544,10 @@ export const CATALOGUE = [
 						"object",
 						"null"
 					]
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
 				}
 			},
 			"required": [
@@ -19503,7 +19749,12 @@ export const CATALOGUE = [
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
-			"properties": {},
+			"properties": {
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+					"type": "string"
+				}
+			},
 			"type": "object"
 		},
 		"output_schema": {
@@ -19678,7 +19929,15 @@ export const CATALOGUE = [
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"item_id": {
+					"description": "The id to give this line, for one typed with no network (#77): i_ and sixteen lower-case hex digits. Sending the same line twice adds it once.",
+					"type": "string"
+				},
 				"text": {
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
 					"type": "string"
 				}
 			},
@@ -19860,6 +20119,10 @@ export const CATALOGUE = [
 			"additionalProperties": false,
 			"properties": {
 				"item_id": {
+					"type": "string"
+				},
+				"written_at": {
+					"description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
 					"type": "string"
 				}
 			},
@@ -21114,6 +21377,7 @@ export const READS: readonly OperationName[] = [
 	'get_current_attempt',
 	'list_attempts',
 	'get_shopping_list',
+	'shopping_basis',
 	'shopping_list_as_text',
 	'list_foods',
 	'get_food',
@@ -21202,6 +21466,7 @@ export const METHOD_NAMES = {
 	get_current_attempt: 'getCurrentAttempt',
 	list_attempts: 'listAttempts',
 	get_shopping_list: 'getShoppingList',
+	shopping_basis: 'shoppingBasis',
 	add_to_shopping_list: 'addToShoppingList',
 	remove_from_shopping_list: 'removeFromShoppingList',
 	set_shopping_yield: 'setShoppingYield',
@@ -21379,6 +21644,8 @@ export interface KamosuClient {
 	listAttempts(input?: ListAttemptsInput): Promise<Answer<'list_attempts'>>;
 	/** Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
 	getShoppingList(input?: GetShoppingListInput): Promise<Answer<'get_shopping_list'>>;
+	/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
+	shoppingBasis(input: ShoppingBasisInput): Promise<Answer<'shopping_basis'>>;
 	/** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 	addToShoppingList(input: AddToShoppingListInput): Promise<Answer<'add_to_shopping_list'>>;
 	/** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
@@ -21388,7 +21655,7 @@ export interface KamosuClient {
 	/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
 	shoppingListAsText(input?: ShoppingListAsTextInput): Promise<Answer<'shopping_list_as_text'>>;
 	/** Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
-	emptyShoppingList(input?: EmptyShoppingListInput): Promise<Answer<'empty_shopping_list'>>;
+	emptyShoppingList(input: EmptyShoppingListInput): Promise<Answer<'empty_shopping_list'>>;
 	/** Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
 	addLooseItem(input: AddLooseItemInput): Promise<Answer<'add_loose_item'>>;
 	/** Take one typed line off your Shopping List. Answers the whole list. */

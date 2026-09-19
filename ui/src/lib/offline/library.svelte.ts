@@ -17,6 +17,7 @@ import { SvelteSet } from 'svelte/reactivity';
 import type { KamosuClient } from '$lib/api/catalogue';
 import { OperationError } from '$lib/api/client';
 import { PHOTOGRAPHS_CACHE, keptAt } from './reads';
+import { forgetEverythingHeld } from './outbox';
 
 /**
  * What one recipe costs the phone, measured on the dev library (2026-09-19,
@@ -228,6 +229,13 @@ export class Library {
 	 */
 	async #read(entry: Entry): Promise<Entry[]> {
 		const recipe = await this.#kamosu.getRecipe({ branch_id: entry.branch_id });
+		// What it puts on a Shopping List, so the list's rows can be worked out
+		// here with no network (#77, ADR 0024).
+		// Refused, the list simply waits for the server to add this recipe up;
+		// only a network gone stops the fill.
+		await this.#kamosu.shoppingBasis({ branch_id: entry.branch_id }).catch((error: unknown) => {
+			if (!(error instanceof OperationError) || unreachable(error)) throw error;
+		});
 		const page = recipe.versions.at(-1)?.content.main_photo;
 		await Promise.all([
 			entry.main_photo ? picture(`/api/photographs/${entry.main_photo}/card`) : undefined,
@@ -257,8 +265,7 @@ export class Library {
 }
 
 /** The network is gone, or the Session is: no point asking for the next recipe. */
-const unreachable = (error: OperationError) =>
-	error.cause !== undefined || error.kind === 'unauthorized';
+const unreachable = (error: OperationError) => !error.reached || error.kind === 'unauthorized';
 
 /** Whether a service worker is answering this page's requests, so reading is keeping. */
 async function controlled(): Promise<boolean> {
@@ -284,6 +291,7 @@ async function controlled(): Promise<boolean> {
 /** Whether the phone still owes this recipe. */
 async function missing(entry: Entry): Promise<boolean> {
 	if (!(await keptAt('get_recipe', { branch_id: entry.branch_id }))) return true;
+	if (!(await keptAt('shopping_basis', { branch_id: entry.branch_id }))) return true;
 	if (!entry.main_photo) return false;
 	const cached = await caches.match(`/api/photographs/${entry.main_photo}/card`, {
 		cacheName: PHOTOGRAPHS_CACHE,
@@ -323,6 +331,8 @@ export function sessionBegan(): void {
 	} catch {
 		// Nothing kept, then nothing to forget.
 	}
+	// And nothing the last person wrote offline is sent as this one (#77).
+	void forgetEverythingHeld();
 	sessions.began += 1;
 }
 

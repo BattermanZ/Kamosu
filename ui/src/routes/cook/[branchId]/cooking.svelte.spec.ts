@@ -15,6 +15,7 @@ import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
 import CookingTestHarness from './CookingTestHarness.svelte';
+import { keepingForTests } from '../../../testing/render';
 
 const INGREDIENTS = [
 	{ kind: 'section' as const, text: 'For the cutlets' },
@@ -495,5 +496,37 @@ describe('writing down what you actually cooked', () => {
 		// Null rather than the recipe: the Core would reach the same answer by
 		// fingerprint, and this saves it the round trip.
 		expect((written?.input as { as_cooked: unknown }).as_cooked).toBeNull();
+	});
+});
+
+describe('photographing the cooking (#77)', () => {
+	it('offers one quiet word at the stove, and counts what has been taken', async () => {
+		const keeping = keepingForTests();
+		const kamosu = standIn(
+			answers({ edit_attempt: attempt({ photographs: ['local:0000000000000001'] }) }),
+		);
+		render(CookingTestHarness, { props: { client: kamosu.client, branchId: 'b_1', keeping } });
+
+		const picker = await screen.findByLabelText('Take a photograph of this cooking');
+		expect(picker).toHaveAttribute('accept', 'image/*');
+		expect(picker).toHaveAttribute('capture', 'environment');
+		expect(screen.getByText('Photo')).toBeInTheDocument();
+
+		const picture = new File(['a plate'], 'plate.jpg', { type: 'image/jpeg' });
+		await fireEvent.change(picker, { target: { files: [picture] } });
+
+		// Kept on the phone first, then put beside the cooking's others — never
+		// sent as the whole list, which would erase a picture another device took.
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.find((call) => call.operation === 'edit_attempt');
+			expect(asked?.input).toEqual({
+				attempt_id: 'at_1',
+				add_photographs: ['local:0000000000000001'],
+			});
+		});
+		expect(keeping.kept).toEqual([picture]);
+		expect(await screen.findByText('Photo · 1')).toBeInTheDocument();
+		// The cook is still on the step they were on.
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
 	});
 });

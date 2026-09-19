@@ -264,6 +264,10 @@
 				if (notedOpening !== branchId) {
 					notedOpening = branchId;
 					void kamosu.noteRecipeOpened({ branch_id: branchId }).catch(() => {});
+					// What it would put on a Shopping List, read once so the list
+					// can be worked out on the phone with no network (#77). The
+					// library fill reads it too; this covers a recipe written since.
+					void kamosu.shoppingBasis({ branch_id: branchId }).catch(() => {});
 				}
 
 				void kamosu

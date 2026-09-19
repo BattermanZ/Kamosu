@@ -5,16 +5,18 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
 	import type { KamosuClient } from '$lib/api/catalogue';
+	import type { Keeping } from '$lib/offline/outbox';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 
 	interface Props {
 		component: Component<Record<string, never>>;
 		client: KamosuClient;
+		keeping?: Keeping;
 	}
 
-	let { component: Screen, client }: Props = $props();
+	let { component: Screen, client, keeping }: Props = $props();
 </script>
 
-<Kamosu {client}>
+<Kamosu {client} {keeping}>
 	<Screen />
 </Kamosu>

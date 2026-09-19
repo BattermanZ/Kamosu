@@ -18,16 +18,34 @@ import { CATALOGUE, METHOD_NAMES, type KamosuClient, type OperationName } from '
 export type ErrorKind =
 	'unauthorized' | 'unknown_operation' | 'not_found' | 'busy' | 'bad_request' | 'internal';
 
-/** An Operation that was reached and refused. Not a network failure. */
+/**
+ * An Operation that failed: refused by Kamosu, or — where `reached` is false —
+ * never answered by it at all.
+ */
 export class OperationError extends Error {
 	readonly kind: ErrorKind;
 	readonly operation: string;
+	/**
+	 * Whether Kamosu itself answered. False where the request never arrived, or
+	 * something standing in front of Kamosu answered for it: the proxy's 502
+	 * for a server at home that is off, or a hotel wifi's login page (#76).
+	 * What a phone with no network may keep and send later is decided on this
+	 * (#77): a refusal will refuse again, and a request that never arrived has
+	 * not been asked yet.
+	 */
+	readonly reached: boolean;
 
-	constructor(operation: string, kind: ErrorKind, message: string, options?: ErrorOptions) {
+	constructor(
+		operation: string,
+		kind: ErrorKind,
+		message: string,
+		options?: ErrorOptions & { reached?: boolean },
+	) {
 		super(message, options);
 		this.name = 'OperationError';
 		this.kind = kind;
 		this.operation = operation;
+		this.reached = options?.reached ?? true;
 	}
 }
 
@@ -86,6 +104,7 @@ export function httpTransport(options: TransportOptions = {}): Transport {
 			options.observe?.(cause);
 			throw new OperationError(operation, 'internal', 'Kamosu could not be reached.', {
 				cause,
+				reached: false,
 			});
 		}
 
@@ -108,6 +127,7 @@ export async function readEnvelope(operation: string, response: Response): Promi
 			operation,
 			'internal',
 			`Kamosu answered ${response.status} with something that was not an envelope.`,
+			{ reached: false },
 		);
 	}
 

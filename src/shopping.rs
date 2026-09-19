@@ -212,7 +212,7 @@ struct AsWritten {
 /// this takes a final `s`, or `x` for the French `choux`, or `es` where English
 /// puts it after a sibilant (`pinch` · `pinches`), and nothing else. Two-letter
 /// stems are left whole, so `os` stays `os`.
-fn unit_key(word: &str) -> String {
+pub fn unit_key(word: &str) -> String {
     let folded = units::fold(word);
     let sibilant = |stem: &str| {
         stem.ends_with(['s', 'x', 'z']) || stem.ends_with("ch") || stem.ends_with("sh")
@@ -253,6 +253,117 @@ fn remember(sources: &mut Vec<String>, recipe: &str) {
     if !sources.iter().any(|seen| seen == recipe) {
         sources.push(recipe.to_string());
     }
+}
+
+/// One chosen recipe, as `rows` adds it up: what `shopping_basis` answers for
+/// it (#77), and how far its Yield scales it.
+pub struct Chosen<'a> {
+    pub branch_id: &'a str,
+    /// The title it carries now, which is what a row that breaks open names.
+    pub title: &'a str,
+    /// The Yield being shopped for over the Yield written — 1 where the two
+    /// cannot honestly be compared.
+    pub scale: f64,
+    /// `shopping_basis`'s `lines`.
+    pub lines: &'a [Value],
+}
+
+/// **Every row of a Shopping List, worked out from the choosing** (ADR 0024).
+///
+/// Two kinds of row: a Food row that merges every mention of one Food, and a
+/// verbatim line that merges with nothing. The Loose Items join them, and the
+/// whole is sorted into one list.
+///
+/// **It takes nothing but what `shopping_basis` answers**, which is why it
+/// lives here rather than beside the database: a phone with no network adds
+/// the same facts up in `ui/src/lib/offline/shopping.ts` (#77), and
+/// `shopping_parity` runs both over the same cases. If this changes, that test
+/// fails until the phone's copy says the same thing.
+pub fn rows(
+    chosen: &[Chosen<'_>],
+    loose: &[Value],
+    measures: Measures,
+    language: &str,
+) -> Vec<Value> {
+    // The Foods are held as a map beside the order they were first met, rather
+    // than as a list searched from the top for every line: a list of a few
+    // recipes is already several hundred Ingredient Lines, and the order still
+    // has to be the order they arrived in so that two reads of one list agree.
+    let mut foods: std::collections::HashMap<&str, (Vec<Contribution>, &Value)> =
+        std::collections::HashMap::new();
+    let mut food_order: Vec<&str> = Vec::new();
+    let mut out: Vec<Value> = Vec::new();
+
+    for entry in chosen {
+        for line in entry.lines {
+            let text = line["text"].as_str().unwrap_or_default();
+            let food = &line["food"];
+            let Some(food_id) = food["id"].as_str() else {
+                out.push(json!({
+                    "id": format!("{}:{}", entry.branch_id, line["index"]),
+                    "kind": "line",
+                    "name": text,
+                    "name_language": Value::Null,
+                    "parts": Vec::<Value>::new(),
+                    "lines": [{ "branch_id": entry.branch_id, "recipe": entry.title, "text": text }],
+                }));
+                continue;
+            };
+            let contribution = Contribution {
+                recipe: entry.title.to_string(),
+                text: text.to_string(),
+                branch_id: entry.branch_id.to_string(),
+                amount: food["amount"].as_f64().map(|amount| amount * entry.scale),
+                unit: food["unit"].as_str().map(str::to_string),
+                cup_weight_grams: food["cup_weight_grams"].as_f64(),
+            };
+            foods
+                .entry(food_id)
+                .or_insert_with(|| {
+                    food_order.push(food_id);
+                    (Vec::new(), food)
+                })
+                .0
+                .push(contribution);
+        }
+    }
+
+    for food_id in food_order {
+        let (contributions, food) = foods.remove(food_id).expect("gathered above");
+        out.push(json!({
+            "id": food_id,
+            "kind": "food",
+            // A Food with no name at all should not exist — one is created
+            // from whatever word a Reading found — but if ever one does, the
+            // row falls back to the line that put it here rather than printing
+            // an amount beside nothing. A blank row is the one thing a
+            // shopping list cannot afford: it cannot be bought and it cannot
+            // be asked about.
+            "name": food["name"].as_str().unwrap_or_else(|| contributions
+                .first()
+                .map(|first| first.text.as_str())
+                .unwrap_or_default()),
+            // Which Language that name is in, so a name borrowed from another
+            // Language can be marked as borrowed (CONTEXT.md, "Shopping Row").
+            "name_language": food["name_language"],
+            "parts": parts_json(&parts_for(&contributions, measures, language)),
+            "lines": contributions
+                .iter()
+                .map(|contribution| json!({
+                    "branch_id": contribution.branch_id,
+                    "recipe": contribution.recipe,
+                    "text": contribution.text,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+    out.extend(loose.iter().cloned());
+
+    // One list, one order: a Loose Item and a line nobody read sort among the
+    // Foods rather than into a block of their own, because a heading over the
+    // rows that merged would teach that the others are somehow less true.
+    out.sort_by_key(|row| sort_key(row["name"].as_str().unwrap_or_default()));
+    out
 }
 
 /// The rows as the Catalogue declares them.
@@ -674,6 +785,414 @@ mod tests {
         assert!(
             text.contains("about 30 ml pour Korean Fried Chicken; 4 cloves pour"),
             "{text}"
+        );
+    }
+
+    // ── The phone's copy (#77) ────────────────────────────────────────────
+
+    /// A Food as one test line gives it: its id, its name, the amount, the
+    /// Unit as written, and a Cup Weight.
+    type TestFood<'a> = (
+        &'a str,
+        Option<&'a str>,
+        Option<f64>,
+        Option<&'a str>,
+        Option<f64>,
+    );
+
+    /// A line of `shopping_basis`, as a phone receives it.
+    fn basis_line(index: usize, text: &str, food: Option<TestFood<'_>>) -> Value {
+        match food {
+            None => json!({ "index": index, "text": text, "food": Value::Null }),
+            Some((id, name, amount, unit, cup_weight)) => json!({
+                "index": index,
+                "text": text,
+                "food": {
+                    "id": id,
+                    "name": name,
+                    "name_language": name.map(|_| "en"),
+                    "amount": amount,
+                    "unit": unit,
+                    "unit_id": unit.and_then(units::recognise).map(|known| known.id),
+                    "unit_key": unit.map(unit_key),
+                    "cup_weight_grams": cup_weight,
+                },
+            }),
+        }
+    }
+
+    /// Every case the phone's copy is held to. Built rather than listed, so
+    /// that every Unit Kamosu knows, every kitchen and every Language is in it.
+    fn parity_cases() -> Vec<Value> {
+        let measures = [
+            ("us", Measures::Us),
+            ("metric", Measures::Metric),
+            ("as_written", Measures::AsWritten),
+        ];
+        let languages = ["en", "fr", "es"];
+        let amounts = [0.3, 1.0, 7.0, 99.0, 1234.5];
+
+        // One recipe per Unit, at every amount, with and without a Cup Weight
+        // — each on its own Food, so each is its own row.
+        let mut singles = Vec::new();
+        for (at, unit) in UNITS_FOR_PARITY.iter().enumerate() {
+            let mut lines = Vec::new();
+            for (n, amount) in amounts.iter().enumerate() {
+                let food = format!("f_{at}_{n}");
+                let cup = if n % 2 == 0 { Some(125.0) } else { None };
+                lines.push(basis_line(
+                    lines.len(),
+                    &format!("{amount} {unit} of thing {at} {n}"),
+                    Some((food.as_str(), Some("thing"), Some(*amount), Some(unit), cup)),
+                ));
+            }
+            singles.push(lines);
+        }
+
+        // The rows that merge, break open, or stand alone.
+        let flour_a = vec![
+            basis_line(0, "Pastry", None),
+            basis_line(
+                1,
+                "500 g flour",
+                Some((
+                    "f_flour",
+                    Some("flour"),
+                    Some(500.0),
+                    Some("g"),
+                    Some(125.0),
+                )),
+            ),
+            basis_line(
+                2,
+                "2 cloves garlic",
+                Some(("f_garlic", Some("Garlic"), Some(2.0), Some("cloves"), None)),
+            ),
+            basis_line(3, "salt", Some(("f_salt", Some("sel"), None, None, None))),
+            basis_line(
+                4,
+                "3 large eggs",
+                Some(("f_egg", Some("Œufs"), Some(3.0), None, None)),
+            ),
+            basis_line(
+                5,
+                "une poignée de persil",
+                Some((
+                    "f_parsley",
+                    Some("persil"),
+                    Some(1.0),
+                    Some("poignée"),
+                    None,
+                )),
+            ),
+            basis_line(6, "a pinch of cumin", None),
+            basis_line(
+                7,
+                "1 unnamed thing",
+                Some(("f_unnamed", None, Some(1.0), None, None)),
+            ),
+        ];
+        let flour_b = vec![
+            basis_line(
+                0,
+                "2 cups flour",
+                Some((
+                    "f_flour",
+                    Some("flour"),
+                    Some(2.0),
+                    Some("cups"),
+                    Some(125.0),
+                )),
+            ),
+            basis_line(
+                1,
+                "1 clove garlic",
+                Some(("f_garlic", Some("Garlic"), Some(1.0), Some("clove"), None)),
+            ),
+            basis_line(
+                2,
+                "2 tbsp minced garlic",
+                Some(("f_garlic", Some("Garlic"), Some(2.0), Some("tbsp"), None)),
+            ),
+            basis_line(
+                3,
+                "2 poignées de persil",
+                Some((
+                    "f_parsley",
+                    Some("persil"),
+                    Some(2.0),
+                    Some("poignées"),
+                    None,
+                )),
+            ),
+            basis_line(
+                4,
+                "3 pinches salt",
+                Some(("f_salt", Some("sel"), Some(3.0), Some("pinches"), None)),
+            ),
+            basis_line(
+                5,
+                "½ tasse de lait",
+                Some(("f_milk", Some("lait"), Some(0.5), Some("tasse"), None)),
+            ),
+            basis_line(
+                6,
+                "250 ml lait",
+                Some(("f_milk", Some("lait"), Some(250.0), Some("ml"), None)),
+            ),
+            basis_line(
+                7,
+                "2 choux",
+                Some(("f_cabbage", Some("chou"), Some(2.0), Some("choux"), None)),
+            ),
+            basis_line(
+                8,
+                "1 chou",
+                Some(("f_cabbage", Some("chou"), Some(1.0), Some("chou"), None)),
+            ),
+            basis_line(
+                9,
+                "Échalote",
+                Some(("f_shallot", Some("échalote"), Some(2.0), None, None)),
+            ),
+            basis_line(
+                10,
+                "1 lb butter",
+                Some(("f_butter", Some("butter"), Some(1.0), Some("lb"), None)),
+            ),
+            basis_line(
+                11,
+                "8 oz butter",
+                Some(("f_butter", Some("butter"), Some(8.0), Some("oz"), None)),
+            ),
+            basis_line(
+                12,
+                "Straße salt",
+                Some(("f_strasse", Some("Straße"), Some(1.0), Some("kg"), None)),
+            ),
+            basis_line(13, "zucchini", None),
+        ];
+        let loose = vec![
+            json!({ "id": "i_0000000000000001", "kind": "loose", "name": "bin bags", "name_language": Value::Null, "parts": [], "lines": [] }),
+            json!({ "id": "i_0000000000000002", "kind": "loose", "name": "Éponges", "name_language": Value::Null, "parts": [], "lines": [] }),
+            json!({ "id": "i_0000000000000003", "kind": "loose", "name": "  coffee.  beans ", "name_language": Value::Null, "parts": [], "lines": [] }),
+        ];
+
+        let mut cases = Vec::new();
+        for (measures_name, measures) in measures {
+            for language in languages {
+                for (at, lines) in singles.iter().enumerate() {
+                    // Scaling is the same arithmetic in every Language, so
+                    // it is held to once rather than three times.
+                    let scales: &[f64] = if language == "en" {
+                        &[1.0, 2.0]
+                    } else {
+                        &[1.0]
+                    };
+                    for &scale in scales {
+                        let chosen = [Chosen {
+                            branch_id: "b_one",
+                            title: "One",
+                            scale,
+                            lines,
+                        }];
+                        cases.push(json!({
+                            "name": format!("unit {} ×{scale} {measures_name} {language}", UNITS_FOR_PARITY[at]),
+                            "measures": measures_name,
+                            "language": language,
+                            "chosen": [{ "branch_id": "b_one", "title": "One", "scale": scale, "lines": lines }],
+                            "loose": [],
+                            "rows": rows(&chosen, &[], measures, language),
+                        }));
+                    }
+                }
+                for (scale_a, scale_b) in [(1.0, 1.0), (1.5, 0.5), (3.0, 2.0 / 3.0)] {
+                    let chosen = [
+                        Chosen {
+                            branch_id: "b_a",
+                            title: "Tarte",
+                            scale: scale_a,
+                            lines: &flour_a,
+                        },
+                        Chosen {
+                            branch_id: "b_b",
+                            title: "Gratin",
+                            scale: scale_b,
+                            lines: &flour_b,
+                        },
+                    ];
+                    cases.push(json!({
+                        "name": format!("merging ×{scale_a}/×{scale_b} {measures_name} {language}"),
+                        "measures": measures_name,
+                        "language": language,
+                        "chosen": [
+                            { "branch_id": "b_a", "title": "Tarte", "scale": scale_a, "lines": flour_a },
+                            { "branch_id": "b_b", "title": "Gratin", "scale": scale_b, "lines": flour_b },
+                        ],
+                        "loose": loose,
+                        "rows": rows(&chosen, &loose, measures, language),
+                    }));
+                }
+            }
+        }
+        cases
+    }
+
+    /// One written spelling of every Unit, and a few Kamosu does not know.
+    const UNITS_FOR_PARITY: &[&str] = &[
+        "g",
+        "kg",
+        "oz",
+        "lb",
+        "ml",
+        "cl",
+        "dl",
+        "l",
+        "tsp",
+        "tbsp",
+        "cup",
+        "cups",
+        "fl oz",
+        "imperial tbsp",
+        "aus tbsp",
+        "c. à s.",
+        "cuillère à café",
+        "cucharada",
+        "tasse",
+        "sachet",
+        "pincée",
+        "",
+    ];
+
+    fn parity_file() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shopping-parity.json")
+    }
+
+    /// **The phone adds a Shopping List up exactly as the server does** (#77).
+    ///
+    /// Aurélien chose, on #77, to have a phone with no network work the rows
+    /// out itself rather than wait for the server, which means the sum exists
+    /// twice: here, and in `ui/src/lib/offline/shopping.ts`. This is what keeps
+    /// the two one sum. It writes every case above, with what this file
+    /// answers for it, into `tests/fixtures/shopping-parity.json`, and fails if what is
+    /// committed there is not what this code says today. The screen tests read
+    /// the same file and fail if the phone says anything else.
+    ///
+    /// **If this fails, the server's sum changed.** Rewrite the file with
+    /// `KAMOSU_WRITE_PARITY=1 cargo test shopping_parity`, then make the
+    /// phone's copy agree until `just test` passes — both halves, in the same
+    /// commit.
+    #[test]
+    fn shopping_parity() {
+        let folds = [
+            "Flour",
+            "  Crème   fraîche. ",
+            "ÉCHALOTE",
+            "Œufs",
+            "Straße",
+            "c. à c.",
+            "ΣΊΣΥΦΟΣ",
+            "maïs",
+            "mais",
+            "e\u{301}chalote",
+            "ﬁne sugar",
+        ]
+        .iter()
+        .map(|text| json!({ "text": text, "folded": units::fold(text) }))
+        .collect::<Vec<_>>();
+        let amounts = [
+            "2", "2.5", "2,5", "1/2", "1 1/2", "½", "4½", "1 ½", " 3 ", "a dozen", "2-3", "", "0",
+            "1/0",
+        ]
+        .iter()
+        .map(|text| json!({ "text": text, "value": units::parse_amount(text) }))
+        .collect::<Vec<_>>();
+        let yields = [
+            (
+                json!({"amount": "8", "noun": "servings"}),
+                json!({"amount": "4", "noun": "servings"}),
+            ),
+            (
+                json!({"amount": "2", "noun": "loaves"}),
+                json!({"amount": "4", "noun": "servings"}),
+            ),
+            (
+                json!({"amount": "1½", "noun": "tarts"}),
+                json!({"amount": "1", "noun": "tarts"}),
+            ),
+            (
+                json!({"amount": "a dozen", "noun": "cookies"}),
+                json!({"amount": "24", "noun": "cookies"}),
+            ),
+            (Value::Null, json!({"amount": "4", "noun": "servings"})),
+            (json!({"amount": "6", "noun": "servings"}), Value::Null),
+            (
+                json!({"amount": "0", "noun": "servings"}),
+                json!({"amount": "4", "noun": "servings"}),
+            ),
+        ]
+        .into_iter()
+        .map(|(wanted, written)| {
+            let scale = crate::core::yield_scale(&wanted, &written);
+            json!({ "wanted": wanted, "written": written, "scale": scale })
+        })
+        .collect::<Vec<_>>();
+        let cases = parity_cases();
+        let texts = cases
+            .iter()
+            .filter(|case| case["name"].as_str().is_some_and(|name| name.starts_with("merging")))
+            .map(|case| {
+                let list = json!({
+                    "chosen": [
+                        { "branch_id": "b_a", "title": "Tarte", "gone": false, "shopping_yield": Value::Null, "written_yield": Value::Null },
+                        { "branch_id": "b_b", "title": "Gratin", "gone": false, "shopping_yield": Value::Null, "written_yield": Value::Null },
+                        { "branch_id": "b_c", "title": "Old soup", "gone": true, "shopping_yield": Value::Null, "written_yield": Value::Null },
+                    ],
+                    "rows": case["rows"],
+                });
+                let language = case["language"].as_str().unwrap_or("en");
+                json!({
+                    "list": list,
+                    "today": "2026-09-19",
+                    "language": language,
+                    "text": as_text(&list, "2026-09-19", language),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        // One case to a line, so a change to the sum reads as a diff of the
+        // cases it moved rather than of one enormous line.
+        let lines = |items: &[Value]| {
+            items
+                .iter()
+                .map(|item| serde_json::to_string(item).expect("serialisable"))
+                .collect::<Vec<_>>()
+                .join(",\n")
+        };
+        let said = format!(
+            "{{\"about\": {},\n\"folds\": [\n{}\n],\n\"amounts\": [\n{}\n],\n\"yield_scales\": [\n{}\n],\n\"cases\": [\n{}\n],\n\"texts\": [\n{}\n]}}\n",
+            json!(
+                "Written by shopping_parity in src/shopping.rs (#77). Do not edit: rewrite it with KAMOSU_WRITE_PARITY=1 cargo test shopping_parity."
+            ),
+            lines(&folds),
+            lines(&amounts),
+            lines(&yields),
+            lines(&cases),
+            lines(&texts),
+        );
+
+        let path = parity_file();
+        if std::env::var_os("KAMOSU_WRITE_PARITY").is_some() {
+            std::fs::write(&path, &said).expect("write the parity cases");
+            return;
+        }
+        let committed = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            committed == said,
+            "{} is not what the server's Shopping List sum says today. Rewrite it with \
+             KAMOSU_WRITE_PARITY=1 cargo test shopping_parity, then make \
+             ui/src/lib/offline/shopping.ts agree.",
+            path.display()
         );
     }
 }

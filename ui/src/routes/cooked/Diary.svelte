@@ -23,8 +23,13 @@
 	import type { ListAttemptsOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
+	import { rereads } from '$lib/offline/device.svelte';
+	import { useKeeping } from '$lib/offline/outbox';
+	import { photographCooking, pickedFile } from '$lib/offline/photograph';
+	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 
 	const kamosu = useKamosu();
+	const keeping = useKeeping();
 
 	/** One line of the diary: an Attempt, and the recipe it was cooked from. */
 	type Entry = ListAttemptsOutput['attempts'][number];
@@ -32,7 +37,16 @@
 	let entries = $state<Entry[] | undefined>(undefined);
 	let failed = $state(false);
 
+	/**
+	 * Read the diary again once what this phone wrote with no network has
+	 * reached the server (#77): the server's diary is then the truth, and it
+	 * may say something the phone could not, such as a cooking the iPad
+	 * started first.
+	 */
+	const reread = rereads('list_attempts');
+
 	$effect(() => {
+		void reread.count;
 		let current = true;
 		kamosu
 			.listAttempts({})
@@ -141,6 +155,27 @@
 			writeFailed = error.message;
 		} finally {
 			saving = false;
+		}
+	}
+
+	/**
+	 * A picture added to a cooking after the fact (#77): the other way in,
+	 * beside the one at the stove, for the plate photographed at the table.
+	 */
+	let photographing = $state(false);
+	async function photograph(entry: Entry, event: Event) {
+		const picture = pickedFile(event);
+		if (!picture) return;
+		photographing = true;
+		writeFailed = undefined;
+		try {
+			const photographs = await photographCooking(kamosu, keeping, entry.id, picture);
+			layOver(entry.id, { photographs });
+		} catch (error) {
+			if (!(error instanceof OperationError) && !(error instanceof DOMException)) throw error;
+			writeFailed = error.message;
+		} finally {
+			photographing = false;
 		}
 	}
 
@@ -266,6 +301,37 @@
 												</li>
 											{/each}
 										</ul>
+									</div>
+
+									<!--
+										The cooking's pictures, and a way to add one (#77,
+										option A). Taken at the stove or here, with or without a
+										network: one not yet sent is shown from the phone.
+									-->
+									<div class="mt-3 border-t border-rule pt-3">
+										<h3 class="mb-2 text-label text-ink-2 uppercase">
+											{m.cooked_photographs()}
+										</h3>
+										<div class="flex flex-wrap items-center gap-2">
+											{#each entry.photographs as id (id)}
+												<AttemptPhoto {id} alt={m.cooked_photo_alt()} />
+											{/each}
+											<label
+												class="flex min-h-12 cursor-pointer items-center rounded-sm border border-rule px-3 text-read text-ink-2
+													{photographing ? 'opacity-60' : ''}"
+											>
+												{entry.photographs.length > 0
+													? m.cooked_add_another()
+													: m.cooked_add_photo()}
+												<input
+													type="file"
+													accept="image/*"
+													class="sr-only"
+													disabled={photographing}
+													onchange={(event) => photograph(entry, event)}
+												/>
+											</label>
+										</div>
 									</div>
 
 									<label class="mt-3 grid gap-1 text-label text-ink-2 uppercase">

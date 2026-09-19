@@ -18,7 +18,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/svelte';
 import Cooked from './+page.svelte';
-import { renderScreen } from '../../testing/render';
+import { keepingForTests, renderScreen } from '../../testing/render';
 
 /**
  * One Attempt as `edit_attempt` answers it — with everything the Catalogue
@@ -192,6 +192,40 @@ describe('the cooking diary', () => {
 		// The correction shows here without a refetch: editing an Attempt makes
 		// no Version and there is no history for it to appear in (ADR 0005).
 		expect(await screen.findByText('Mieux au dashi.')).toBeInTheDocument();
+	});
+
+	it('shows a cooking’s photographs and adds one beside them (#77)', async () => {
+		const keeping = keepingForTests();
+		const { kamosu } = renderScreen(
+			Cooked,
+			{
+				list_attempts: { attempts: [entry({ photographs: ['p_plate'] })] },
+				edit_attempt: attempt({ photographs: ['p_plate', 'local:0000000000000001'] }),
+			},
+			keeping,
+		);
+
+		await fireEvent.click(await screen.findByRole('button', { name: /Miso Soup/ }));
+		expect(screen.getByRole('heading', { name: 'Photographs' })).toBeInTheDocument();
+		const shown = await screen.findAllByAltText('A photograph of this cooking');
+		expect(shown.map((image) => image.getAttribute('src'))).toEqual([
+			'/api/photographs/p_plate/card',
+		]);
+
+		const picture = new File(['a plate'], 'plate.jpg', { type: 'image/jpeg' });
+		await fireEvent.change(screen.getByLabelText('Add another'), {
+			target: { files: [picture] },
+		});
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.find((call) => call.operation === 'edit_attempt');
+			expect(asked?.input).toEqual({
+				attempt_id: 'at_1',
+				add_photographs: ['local:0000000000000001'],
+			});
+		});
+		await vi.waitFor(() =>
+			expect(screen.getAllByAltText('A photograph of this cooking')).toHaveLength(2),
+		);
 	});
 
 	it('asks before deleting a cooking, and takes it out of the diary once it has', async () => {

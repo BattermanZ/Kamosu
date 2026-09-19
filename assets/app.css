@@ -67,6 +67,7 @@
     --hero-h: 320px;
     --rule-w: 1px;
     --noren-h: 3px;
+    --photo-thumb: 72px;
   }
 }
 @layer base {

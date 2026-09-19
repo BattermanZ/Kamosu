@@ -1182,6 +1182,28 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 31,
+        description: "when a cook last moved, and when a Shopping List was last written (#77)",
+        sql: r#"
+        -- **Where the cook is belongs to whoever moved last** (ADR 0010), and
+        -- since #77 a move can arrive hours after it was made: a phone with no
+        -- signal holds it and sends it when it can. So the moment of the last
+        -- move is kept apart from `last_action_at`, which merely opening the
+        -- screen on the iPad also refreshes. An older move arriving late is
+        -- then told apart from a newer one, and never puts the cook back a
+        -- step. NULL on every Attempt already written, which reads as "never
+        -- moved", so the first move lands whenever it was made.
+        ALTER TABLE attempts ADD COLUMN moved_at TEXT;
+
+        -- The same rule for a Shopping List, kept on the Person because the
+        -- list has no row of its own (migration 25): the last device to write
+        -- the list wins, so a change written offline yesterday does not undo
+        -- one written on the iPad this morning. NULL is a list nobody has
+        -- written since this column arrived.
+        ALTER TABLE people ADD COLUMN shopping_written_at TEXT;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

@@ -102,6 +102,7 @@ const library = (): Answers => ({
 	// b_2's Thread names b_1 as its one other Branch, so its page would ask.
 	divergence: { refuse: 'not_found' },
 	list_kitchens: { kitchens: [kitchen('k_b_1'), kitchen('k_b_2')] },
+	shopping_basis: { branch_id: 'b_1', title: 'b_1', written_yield: null, lines: [] },
 });
 
 const device = (over: Partial<Device> = {}): Device => ({
@@ -176,6 +177,8 @@ describe('the first fill', () => {
 		const asked = kamosu.calls.map((c) => c.operation);
 		expect(asked.filter((o) => o === 'get_recipe')).toHaveLength(2);
 		expect(asked.filter((o) => o === 'get_thread')).toHaveLength(2);
+		// What each puts on a Shopping List, so the list adds up with no network (#77).
+		expect(asked.filter((o) => o === 'shopping_basis')).toHaveLength(2);
 		// b_1 has exactly one other Branch, so its page would lay it over this
 		// one; b_2 then sees two others, and its page would not.
 		expect(asked.filter((o) => o === 'divergence')).toHaveLength(1);

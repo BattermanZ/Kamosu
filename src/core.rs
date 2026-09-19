@@ -5,7 +5,6 @@
 //! Authorisation lives here, beneath both Doors, keyed on a Credential. A
 //! permission check written inside a Door is a bug.
 
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -4328,12 +4327,30 @@ impl Core {
     /// instead of the head — it must actually be one of this Branch's own
     /// Versions, so an Attempt can never be pinned to content the caller
     /// never had in front of them.
+    ///
+    /// `attempt_id` and `started_at` are how a cooking started with no
+    /// network arrives (#77, ADR 0013). The phone names the Attempt itself,
+    /// so everything it did afterwards can say which cooking it belongs to
+    /// before the server has ever heard of it; sending the same start twice
+    /// hands back the same Attempt. Where the Lineage already has one In
+    /// Progress, begun on another device while this one was out, that one
+    /// is handed back as always and the phone follows it. Two devices are
+    /// one cooking staying in step, and nobody is asked which they meant.
     pub fn start_attempt(
         &self,
         person_id: &str,
         branch_id: &str,
         version_id: Option<&str>,
+        attempt_id: Option<&str>,
+        started_at: Option<&str>,
     ) -> Result<Value, OpError> {
+        if let Some(id) = attempt_id
+            && !is_minted_attempt_id(id)
+        {
+            return Err(OpError::bad_request(
+                "attempt_id must be at_ followed by sixteen lower-case hex digits",
+            ));
+        }
         self.db().with_conn(|conn| {
             let (lineage_id, kitchen_id, head_version_id): (String, String, String) = conn
                 .query_row(
@@ -4366,17 +4383,39 @@ impl Core {
                 }
             };
 
+            let moment = written_moment(conn, started_at)?;
+
+            // The same start sent twice: a phone that sent it and never heard
+            // the answer sends it again, and must get the same cooking back.
+            if let Some(id) = attempt_id {
+                let owner: Option<String> = conn
+                    .query_row(
+                        "SELECT person_id FROM attempts WHERE id = ?1",
+                        params![id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?;
+                match owner {
+                    Some(owner) if owner == person_id => return attempt_by_id(conn, id),
+                    Some(_) => return Err(OpError::bad_request("that attempt_id is taken")),
+                    None => {}
+                }
+            }
+
             if let Some(existing) = in_progress_attempt(conn, &lineage_id, person_id)? {
                 let id = existing["id"].as_str().expect("id is always a string");
-                touch_attempt(conn, id)?;
+                touch_attempt_at(conn, id, &moment)?;
                 return attempt_by_id(conn, id);
             }
 
-            let id = format!("at_{}", hex::encode(random_bytes(8)));
+            let id = attempt_id
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("at_{}", hex::encode(random_bytes(8))));
             conn.execute(
-                "INSERT INTO attempts (id, lineage_id, person_id, version_id) \
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![id, lineage_id, person_id, pinned_version_id],
+                "INSERT INTO attempts (id, lineage_id, person_id, version_id, created_at, last_action_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                params![id, lineage_id, person_id, pinned_version_id, moment],
             )
             .map_err(|e| OpError::internal(format!("cannot start Attempt: {e}")))?;
             attempt_by_id(conn, &id)
@@ -4389,6 +4428,12 @@ impl Core {
     /// (ADR 0010). Each of the three is sent whole, the same convention
     /// `save_recipe_version` and `set_reading` use — never a per-field
     /// patch — and any absent one is simply left as it stood.
+    ///
+    /// **The last one moved on is where the cook is** (ADR 0010), and since
+    /// #77 that is decided by when a move was made rather than when it
+    /// arrived. A move written with no signal and sent hours later, after the
+    /// iPad has moved the same cooking on, is older than where the cook now
+    /// stands, so it changes nothing and the Attempt comes back as it is.
     pub fn advance_attempt(
         &self,
         person_id: &str,
@@ -4396,6 +4441,7 @@ impl Core {
         current_step_index: Option<i64>,
         ticked_ingredients: Option<&[i64]>,
         cooking_yield: Option<&Value>,
+        written_at: Option<&str>,
     ) -> Result<Value, OpError> {
         if current_step_index.is_none() && ticked_ingredients.is_none() && cooking_yield.is_none() {
             return Err(OpError::bad_request(
@@ -4412,7 +4458,22 @@ impl Core {
         self.db().with_conn(|conn| {
             let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
             if state.finished_at.is_some() {
+                // A move a phone held with no network, arriving after the
+                // cooking was finished on another device: a finished cooking
+                // is final, so it changes nothing, like any move older than
+                // where the cook stands (#77). Asked live, it is a mistake.
+                if written_at.is_some() {
+                    return attempt_by_id(conn, attempt_id);
+                }
                 return Err(OpError::bad_request("this Attempt has already finished"));
+            }
+            let moment = written_moment(conn, written_at)?;
+            if state
+                .moved_at
+                .as_deref()
+                .is_some_and(|moved| moment.as_str() < moved)
+            {
+                return attempt_by_id(conn, attempt_id);
             }
             let version_id = state.version_id;
 
@@ -4468,7 +4529,12 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot set the cooking Yield: {e}")))?;
             }
 
-            touch_attempt(conn, attempt_id)?;
+            conn.execute(
+                "UPDATE attempts SET moved_at = ?2 WHERE id = ?1",
+                params![attempt_id, moment],
+            )
+            .map_err(|e| OpError::internal(format!("cannot advance Attempt: {e}")))?;
+            touch_attempt_at(conn, attempt_id, &moment)?;
             attempt_by_id(conn, attempt_id)
         })
     }
@@ -4483,25 +4549,40 @@ impl Core {
     /// Finishing writes the same three fields `edit_attempt` does, through
     /// the same code, so that filling them in at the stove and correcting them
     /// a week later cannot validate differently.
+    ///
+    /// `written_at` is when the cook finished, for a finish that waited on a
+    /// phone with no signal (#77): the cooking ended on Saturday, whenever
+    /// Monday's connection delivered it.
     pub fn finish_attempt(
         &self,
         person_id: &str,
         attempt_id: &str,
-        note: Option<&Value>,
-        rating: Option<&Value>,
-        photographs: Option<&Value>,
+        judgement: Judgement<'_>,
+        written_at: Option<&str>,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
             if state.finished_at.is_some() {
+                // Finished twice: once on each device, or a finish sent again
+                // by a phone that never heard the answer to the first (#77).
+                // Either way it is one cooking finished once, so the second
+                // finish keeps the first one's time. What the cook said with
+                // it — a rating, a note, pictures — is still theirs to say,
+                // exactly as a late `edit_attempt` would land it, and a phone's
+                // sending does not fail over it.
+                if written_at.is_some() {
+                    write_attempt_judgement(conn, attempt_id, &judgement)?;
+                    return attempt_by_id(conn, attempt_id);
+                }
                 return Err(OpError::bad_request("this Attempt has already finished"));
             }
-            write_attempt_judgement(conn, attempt_id, note, rating, photographs)?;
+            let moment = written_moment(conn, written_at)?;
+            write_attempt_judgement(conn, attempt_id, &judgement)?;
             conn.execute(
-                "UPDATE attempts SET finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), \
-                                      last_action_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
+                "UPDATE attempts SET finished_at = ?2, \
+                                      last_action_at = max(last_action_at, ?2) \
                  WHERE id = ?1",
-                params![attempt_id],
+                params![attempt_id, moment],
             )
             .map_err(|e| OpError::internal(format!("cannot finish Attempt: {e}")))?;
             attempt_by_id(conn, attempt_id)
@@ -4517,25 +4598,25 @@ impl Core {
         &self,
         person_id: &str,
         attempt_id: &str,
-        note: Option<&Value>,
-        rating: Option<&Value>,
-        photographs: Option<&Value>,
+        judgement: Judgement<'_>,
+        written_at: Option<&str>,
     ) -> Result<Value, OpError> {
-        if note.is_none() && rating.is_none() && photographs.is_none() {
+        if judgement.is_empty() {
             return Err(OpError::bad_request(
-                "edit_attempt takes at least one of note, rating, photographs",
+                "edit_attempt takes at least one of note, rating, photographs, add_photographs",
             ));
         }
         self.db().with_conn(|conn| {
             let state = attempt_state_owned_by(conn, attempt_id, person_id)?;
-            write_attempt_judgement(conn, attempt_id, note, rating, photographs)?;
+            let moment = written_moment(conn, written_at)?;
+            write_attempt_judgement(conn, attempt_id, &judgement)?;
 
             // Correcting a note or a rating mid-cook is itself an action —
             // the resume window counts from it exactly as advancing a Step
             // does. Once finished, resuming is never offered regardless, so
             // there is nothing to refresh.
             if state.finished_at.is_none() {
-                touch_attempt(conn, attempt_id)?;
+                touch_attempt_at(conn, attempt_id, &moment)?;
             }
             attempt_by_id(conn, attempt_id)
         })
@@ -4726,6 +4807,7 @@ impl Core {
         person_id: &str,
         attempt_id: &str,
         content: Option<&Value>,
+        written_at: Option<&str>,
     ) -> Result<Value, OpError> {
         // Parsed outside the connection: a malformed recipe is a bad request
         // that touches nothing, and shape checking has no business holding the
@@ -4792,8 +4874,9 @@ impl Core {
             // three-day resume window counts from it. Once finished there is
             // nothing to resume, and correcting the record a week later must
             // not pretend otherwise.
+            let moment = written_moment(conn, written_at)?;
             if state.finished_at.is_none() {
-                touch_attempt(conn, attempt_id)?;
+                touch_attempt_at(conn, attempt_id, &moment)?;
             }
             attempt_by_id(conn, attempt_id)
         })
@@ -6192,11 +6275,15 @@ impl Core {
         person_id: &str,
         branch_id: &str,
         shopping_yield: Option<&Value>,
+        written_at: Option<&str>,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
             ensure_member(conn, &head.kitchen_id, person_id)?;
             let title = branch_title(conn, &head.head_version_id)?;
+            let Some(moment) = shopping_moment(conn, person_id, written_at)? else {
+                return shopping_list(conn, person_id);
+            };
             conn.execute(
                 // Choosing one already on the list makes no second entry — and
                 // it does not quietly ignore what was asked for either. The
@@ -6206,8 +6293,8 @@ impl Core {
                 // recipe as written. Keeping the old figure would shop for
                 // four while saying nothing, which is the one failure a
                 // shopping list must never have.
-                "INSERT INTO shopping_choices (person_id, branch_id, shopping_yield, known_as) \
-                 VALUES (?1, ?2, ?3, ?4) \
+                "INSERT INTO shopping_choices (person_id, branch_id, shopping_yield, known_as, chosen_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) \
                  ON CONFLICT (person_id, branch_id) DO UPDATE SET \
                      known_as = excluded.known_as, \
                      shopping_yield = excluded.shopping_yield",
@@ -6215,7 +6302,8 @@ impl Core {
                     person_id,
                     branch_id,
                     stored_yield(shopping_yield)?,
-                    title.as_str()
+                    title.as_str(),
+                    moment
                 ],
             )
             .map_err(|e| OpError::internal(format!("cannot choose a recipe to shop for: {e}")))?;
@@ -6259,8 +6347,15 @@ impl Core {
     ///
     /// It takes the choosing and the Loose Items together, because a half-empty
     /// list is not a state anybody asked for.
-    pub fn empty_shopping_list(&self, person_id: &str) -> Result<Value, OpError> {
+    pub fn empty_shopping_list(
+        &self,
+        person_id: &str,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
+            if shopping_moment(conn, person_id, written_at)?.is_none() {
+                return shopping_list(conn, person_id);
+            }
             conn.execute(
                 "DELETE FROM shopping_choices WHERE person_id = ?1",
                 params![person_id],
@@ -6287,8 +6382,12 @@ impl Core {
         &self,
         person_id: &str,
         branch_id: &str,
+        written_at: Option<&str>,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
+            if shopping_moment(conn, person_id, written_at)?.is_none() {
+                return shopping_list(conn, person_id);
+            }
             conn.execute(
                 "DELETE FROM shopping_choices WHERE person_id = ?1 AND branch_id = ?2",
                 params![person_id, branch_id],
@@ -6305,10 +6404,14 @@ impl Core {
         person_id: &str,
         branch_id: &str,
         shopping_yield: Option<&Value>,
+        written_at: Option<&str>,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
             ensure_member(conn, &head.kitchen_id, person_id)?;
+            if shopping_moment(conn, person_id, written_at)?.is_none() {
+                return shopping_list(conn, person_id);
+            }
             let changed = conn
                 .execute(
                     "UPDATE shopping_choices SET shopping_yield = ?3, known_as = ?4 \
@@ -6332,18 +6435,52 @@ impl Core {
     /// interpreted (ADR 0024): typing *flour* beside a recipe that wants flour
     /// gives two lines, which is the accepted cost of never guessing at a
     /// number somebody is about to shop by.
-    pub fn add_loose_item(&self, person_id: &str, text: &str) -> Result<Value, OpError> {
+    ///
+    /// `item_id` is how a line typed with no network arrives (#77): the phone
+    /// names it, so taking it off again before the phone is back online can
+    /// say which line it meant, and a line sent twice is one line.
+    pub fn add_loose_item(
+        &self,
+        person_id: &str,
+        text: &str,
+        item_id: Option<&str>,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
         let text = required_text(text, "text")?.to_string();
+        if let Some(id) = item_id
+            && !is_minted_item_id(id)
+        {
+            return Err(OpError::bad_request(
+                "item_id must be i_ followed by sixteen lower-case hex digits",
+            ));
+        }
         self.db().with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO shopping_loose_items (id, person_id, text) VALUES (?1, ?2, ?3)",
-                params![
-                    format!("i_{}", hex::encode(random_bytes(8))),
-                    person_id,
-                    text
-                ],
-            )
-            .map_err(|e| OpError::internal(format!("cannot add a Loose Item: {e}")))?;
+            let Some(moment) = shopping_moment(conn, person_id, written_at)? else {
+                return shopping_list(conn, person_id);
+            };
+            let id = item_id
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("i_{}", hex::encode(random_bytes(8))));
+            let owner: Option<String> = conn
+                .query_row(
+                    "SELECT person_id FROM shopping_loose_items WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read a Loose Item: {e}")))?;
+            match owner {
+                Some(owner) if owner == person_id => {}
+                Some(_) => return Err(OpError::bad_request("that item_id is taken")),
+                None => {
+                    conn.execute(
+                        "INSERT INTO shopping_loose_items (id, person_id, text, added_at) \
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![id, person_id, text, moment],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot add a Loose Item: {e}")))?;
+                }
+            }
             shopping_list(conn, person_id)
         })
     }
@@ -6352,8 +6489,16 @@ impl Core {
     /// an error, for the reason `remove_from_shopping_list` gives: the two are
     /// siblings and a caller should not have to remember which of them is
     /// strict.
-    pub fn remove_loose_item(&self, person_id: &str, item_id: &str) -> Result<Value, OpError> {
+    pub fn remove_loose_item(
+        &self,
+        person_id: &str,
+        item_id: &str,
+        written_at: Option<&str>,
+    ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
+            if shopping_moment(conn, person_id, written_at)?.is_none() {
+                return shopping_list(conn, person_id);
+            }
             conn.execute(
                 "DELETE FROM shopping_loose_items WHERE id = ?1 AND person_id = ?2",
                 params![item_id, person_id],
@@ -6366,6 +6511,37 @@ impl Core {
     /// The whole list: the choosing, and the rows worked out from it.
     pub fn shopping_list(&self, person_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| shopping_list(conn, person_id))
+    }
+
+    /// **What one recipe puts on a Shopping List, before anything is added
+    /// up** (#77, ADR 0024): the facts a phone with no network needs to work
+    /// the rows out itself.
+    ///
+    /// ADR 0024 says the rows compute offline for the recipes the phone
+    /// holds, and Aurélien chose on #77 to have the phone do that sum rather
+    /// than leave it until the server is back. The sum is the easy half. What
+    /// the phone cannot know by itself is everything behind it: which Food
+    /// each line was read as, the name that Food goes by for this reader, how
+    /// much the line said, which of Kamosu's Units its word is, and what a cup
+    /// of that Food weighs. Those are read here, exactly as `shopping_list`
+    /// reads them, and the phone adds them up in `ui/src/lib/offline/shopping.ts`.
+    /// `shopping_parity` fails the build if the two ever add differently.
+    ///
+    /// Always the Branch's latest Version, as the list itself is (ADR 0024).
+    pub fn shopping_basis(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let head = branch_head(conn, branch_id)?;
+            ensure_member(conn, &head.kitchen_id, person_id)?;
+            let reader = Reader::of(conn, person_id)?;
+            let content = version_content(conn, &head.head_version_id)?;
+            let lines = basis_lines(conn, &reader, &head.head_version_id, &content)?;
+            Ok(json!({
+                "branch_id": branch_id,
+                "title": content["title"],
+                "written_yield": content["yield"],
+                "lines": lines,
+            }))
+        })
     }
 }
 
@@ -7505,7 +7681,7 @@ fn cooking_scale(
 /// nobody wrote, an amount that is not a number (`a dozen`), or two different
 /// nouns — four *servings* against two *loaves* is not a ratio, and inventing
 /// one would put a wrong number on a worktop.
-fn yield_scale(wanted: &Value, written: &Value) -> f64 {
+pub(crate) fn yield_scale(wanted: &Value, written: &Value) -> f64 {
     let same_noun = wanted["noun"].as_str() == written["noun"].as_str();
     let wanted_amount = wanted["amount"].as_str().and_then(units::parse_amount);
     let written_amount = written["amount"].as_str().and_then(units::parse_amount);
@@ -7925,6 +8101,8 @@ fn spawn_orphan_sweep(core: Arc<Core>) {
 struct AttemptState {
     version_id: String,
     finished_at: Option<String>,
+    /// When the cook last moved: the Step, the ticks or the Yield (#77).
+    moved_at: Option<String>,
 }
 
 /// Look up an Attempt's state and prove the caller owns it — the one check
@@ -7936,11 +8114,16 @@ fn attempt_state_owned_by(
     attempt_id: &str,
     person_id: &str,
 ) -> Result<AttemptState, OpError> {
-    let (owner_id, version_id, finished_at): (String, String, Option<String>) = conn
+    let (owner_id, version_id, finished_at, moved_at): (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = conn
         .query_row(
-            "SELECT person_id, version_id, finished_at FROM attempts WHERE id = ?1",
+            "SELECT person_id, version_id, finished_at, moved_at FROM attempts WHERE id = ?1",
             params![attempt_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
@@ -7953,6 +8136,7 @@ fn attempt_state_owned_by(
     Ok(AttemptState {
         version_id,
         finished_at,
+        moved_at,
     })
 }
 
@@ -8123,8 +8307,33 @@ fn parse_attempt_photographs(conn: &Connection, value: &Value) -> Result<Vec<Str
     Ok(photographs)
 }
 
-/// Write the three things a cook's judgement is made of — a note, a rating
-/// and Photographs — onto one Attempt. `None` leaves a field as it stood.
+/// What finishing or correcting a cooking may say: each field left out stays
+/// as it stood, `Some(Null)` clears it, and anything else sets it.
+#[derive(Default, Clone, Copy)]
+pub struct Judgement<'a> {
+    pub note: Option<&'a Value>,
+    pub rating: Option<&'a Value>,
+    /// The whole list, replacing what was there.
+    pub photographs: Option<&'a Value>,
+    /// Pictures to put beside what is already there (#77). A cooking
+    /// photographed on the phone and on the iPad, one of them offline, keeps
+    /// every picture: sending the whole list from each would leave only
+    /// whichever list arrived last.
+    pub add_photographs: Option<&'a Value>,
+}
+
+impl Judgement<'_> {
+    fn is_empty(&self) -> bool {
+        self.note.is_none()
+            && self.rating.is_none()
+            && self.photographs.is_none()
+            && self.add_photographs.is_none()
+    }
+}
+
+/// Write what a cook's judgement is made of — a note, a rating and
+/// Photographs, whole or added to — onto one Attempt. `None` leaves a field
+/// as it stood.
 ///
 /// Shared by `finish_attempt` and `edit_attempt` rather than written twice:
 /// filling these in at the stove and correcting them a week later are the
@@ -8133,10 +8342,14 @@ fn parse_attempt_photographs(conn: &Connection, value: &Value) -> Result<Vec<Str
 fn write_attempt_judgement(
     conn: &Connection,
     attempt_id: &str,
-    note: Option<&Value>,
-    rating: Option<&Value>,
-    photographs: Option<&Value>,
+    judgement: &Judgement<'_>,
 ) -> Result<(), OpError> {
+    let Judgement {
+        note,
+        rating,
+        photographs,
+        add_photographs,
+    } = *judgement;
     if let Some(value) = note {
         let stored = match value {
             Value::Null => None,
@@ -8163,6 +8376,24 @@ fn write_attempt_judgement(
             other => parse_attempt_photographs(conn, other)?,
         };
         let stored = serde_json::to_string(&stored).expect("serialisable Photograph ids");
+        conn.execute(
+            "UPDATE attempts SET photographs = ?2 WHERE id = ?1",
+            params![attempt_id, stored],
+        )
+        .map_err(|e| OpError::internal(format!("cannot save Photographs: {e}")))?;
+    }
+    if let Some(value) = add_photographs {
+        let adding = match value {
+            Value::Null => Vec::new(),
+            other => parse_attempt_photographs(conn, other)?,
+        };
+        let mut held = attempt_photographs(conn, attempt_id)?;
+        for id in adding {
+            if !held.contains(&id) {
+                held.push(id);
+            }
+        }
+        let stored = serde_json::to_string(&held).expect("serialisable Photograph ids");
         conn.execute(
             "UPDATE attempts SET photographs = ?2 WHERE id = ?1",
             params![attempt_id, stored],
@@ -8635,15 +8866,106 @@ fn version_content(conn: &Connection, version_id: &str) -> Result<Value, OpError
         })
 }
 
-/// Record that the cook just did something — starting, resuming or
-/// advancing — so the three-day resume window (ADR 0010) counts from now.
-fn touch_attempt(conn: &Connection, id: &str) -> Result<(), OpError> {
+/// **The last device to write a Shopping List wins** (#77, ADR 0024).
+///
+/// The moment this write was made, and a note that the list was written then —
+/// or nothing, where the list has since been written later by another device
+/// and this write, sent late by a phone that had no signal, is older than what
+/// the list now says. The write is then dropped whole, and the caller answers
+/// the list as it stands: the list the iPad left this morning is not undone by
+/// what the phone did yesterday.
+///
+/// Kept per list rather than per recipe on it: a write older than the list's
+/// last one changes nothing anywhere on it, not only where the two touched the
+/// same recipe. Each write is judged on its own, in the order it was made, so
+/// a phone that wrote before *and* after the iPad keeps the change it made
+/// after — that one is the last write, and it is made to the list as the iPad
+/// left it.
+fn shopping_moment(
+    conn: &Connection,
+    person_id: &str,
+    written_at: Option<&str>,
+) -> Result<Option<String>, OpError> {
+    let moment = written_moment(conn, written_at)?;
+    let last: Option<String> = conn
+        .query_row(
+            "SELECT shopping_written_at FROM people WHERE id = ?1",
+            params![person_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Shopping List: {e}")))?
+        .flatten();
+    if last.as_deref().is_some_and(|last| moment.as_str() < last) {
+        return Ok(None);
+    }
     conn.execute(
-        "UPDATE attempts SET last_action_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?1",
-        params![id],
+        "UPDATE people SET shopping_written_at = ?2 WHERE id = ?1",
+        params![person_id, moment],
+    )
+    .map_err(|e| OpError::internal(format!("cannot write the Shopping List: {e}")))?;
+    Ok(Some(moment))
+}
+
+/// Whether a Loose Item id is one a phone may mint: the shape the server
+/// mints its own in.
+fn is_minted_item_id(id: &str) -> bool {
+    id.strip_prefix("i_").is_some_and(is_sixteen_hex)
+}
+
+fn is_sixteen_hex(hex: &str) -> bool {
+    hex.len() == 16
+        && hex
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Whether an Attempt id is one a phone may mint: the very shape the server
+/// mints its own in, so the two are indistinguishable once stored.
+fn is_minted_attempt_id(id: &str) -> bool {
+    id.strip_prefix("at_").is_some_and(is_sixteen_hex)
+}
+
+/// Record that the cook did something — starting, resuming, advancing,
+/// writing — at `moment`, so the three-day resume window (ADR 0010) counts
+/// from it. Since #77 that moment may be hours before the action arrives, and
+/// an action arriving late never winds the clock back past one that arrived
+/// before it.
+fn touch_attempt_at(conn: &Connection, id: &str, moment: &str) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE attempts SET last_action_at = max(last_action_at, ?2) WHERE id = ?1",
+        params![id, moment],
     )
     .map_err(|e| OpError::internal(format!("cannot update Attempt: {e}")))?;
     Ok(())
+}
+
+/// **When a write was made**, in the form every stored time in Kamosu takes
+/// (#77, ADR 0013).
+///
+/// A phone with no signal keeps the writes it may make, the Attempt's and the
+/// Shopping List's, and sends them once it can. Each then says when it was
+/// really made, as `written_at`, so an Attempt started at your parents' on
+/// Saturday is dated Saturday, and a change made yesterday cannot undo one
+/// made this morning on the iPad. Absent is now, which is every write that
+/// reached the server when it was made.
+///
+/// The phone's clock is trusted to say *when*, since it is the cook's own
+/// record, but never to say *later than now*: a clock running fast would
+/// otherwise win every argument against every other device until the real
+/// time caught up.
+fn written_moment(conn: &Connection, written_at: Option<&str>) -> Result<String, OpError> {
+    let (moment, now): (Option<String>, String) = conn
+        .query_row(
+            "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', ?1), strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+            params![written_at.unwrap_or("now")],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read the time: {e}")))?;
+    let moment = moment.ok_or_else(|| {
+        OpError::bad_request("written_at must be a time, such as 2026-09-19T14:05:00.000Z")
+    })?;
+    Ok(if moment > now { now } else { moment })
 }
 
 /// How many entries a Version's `"steps"` or `"ingredients"` list holds —
@@ -11538,135 +11860,32 @@ fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
     let reader = Reader::of(conn, person_id)?;
     let chosen = chosen_recipes(conn, person_id)?;
 
-    // Two kinds of row (ADR 0024): a Food row that merges every mention of one
-    // Food, and a verbatim line that merges with nothing.
-    //
-    // The Foods are held as a map beside the order they were first met, rather
-    // than as a list searched from the top for every line: a list of a few
-    // recipes is already several hundred Ingredient Lines, and the order still
-    // has to be the order they arrived in so that two reads of one list agree.
-    let mut foods: HashMap<String, Vec<shopping::Contribution>> = HashMap::new();
-    let mut food_order: Vec<String> = Vec::new();
-    let mut verbatim: Vec<Value> = Vec::new();
-
+    // What each readable recipe puts on the list — the same answer
+    // `shopping_basis` hands a phone (#77) — and then the rows added up from
+    // those, in `shopping::rows`, which is the one sum the phone's copy is
+    // checked against.
+    let mut bases = Vec::with_capacity(chosen.len());
     for entry in &chosen {
         let (Some(content), Some(version_id)) = (&entry.content, &entry.head_version_id) else {
             continue;
         };
-        let scale = yield_scale(&entry.shopping_yield, &entry.written_yield);
-        // The very same reader the recipe page's subordinate lines are built
-        // from, Cup Weights and all — because a cup of flour must not weigh one
-        // thing on a recipe page and another in a shop.
-        let readings = readings_to_measure(conn, version_id)?;
-        let empty = Vec::new();
-        for (line_index, line) in content["ingredients"]
-            .as_array()
-            .unwrap_or(&empty)
-            .iter()
-            .enumerate()
-        {
-            // A Section heads a list; it is not a thing to buy.
-            if line.get("kind").and_then(Value::as_str) == Some("section") {
-                continue;
-            }
-            let text = line.get("text").and_then(Value::as_str).unwrap_or_default();
-            let reading = readings
-                .iter()
-                .find(|reading| reading.line_index == line_index as i64);
-
-            // An Ingredient Line nobody ever read, and one whose Reading found
-            // no Food, are the same thing on a list: there is no Food to merge
-            // it under, so the line stands exactly as written (ADR 0024). It
-            // loses nothing — the amount, where there was one, is in the line.
-            let Some(reading) = reading.filter(|reading| reading.food_id.is_some()) else {
-                verbatim.push(json!({
-                    "id": format!("{}:{line_index}", entry.branch_id),
-                    "kind": "line",
-                    "name": text,
-                    "name_language": Value::Null,
-                    "parts": Vec::<Value>::new(),
-                    "lines": [{ "branch_id": entry.branch_id, "recipe": entry.title, "text": text }],
-                }));
-                continue;
-            };
-
-            let food_id = reading.food_id.clone().expect("filtered to a Food above");
-            let contribution = shopping::Contribution {
-                recipe: entry.title.clone(),
-                text: text.to_string(),
-                branch_id: entry.branch_id.clone(),
-                // An amount Kamosu could not read is an amount nobody stated,
-                // as far as adding up goes — and the written line, one tap
-                // away, still says whatever it says.
-                amount: reading
-                    .amount
-                    .as_deref()
-                    .and_then(units::parse_amount)
-                    .map(|amount| amount * scale),
-                unit: reading.unit.clone(),
-                cup_weight_grams: reading.cup_weight,
-            };
-            match foods.entry(food_id.clone()) {
-                Entry::Occupied(mut gathered) => gathered.get_mut().push(contribution),
-                Entry::Vacant(empty) => {
-                    empty.insert(vec![contribution]);
-                    food_order.push(food_id);
-                }
-            }
-        }
+        bases.push((entry, basis_lines(conn, &reader, version_id, content)?));
     }
-
-    let named_foods = food_names_of(conn, &food_order)?;
-    let mut rows = verbatim;
-    for food_id in food_order {
-        let contributions = foods.remove(&food_id).expect("gathered above");
-        let named = named_foods.get(&food_id).cloned().unwrap_or_default();
-        let shown = shown_name(&named, &reader.language);
-        rows.push(json!({
-            "id": food_id,
-            "kind": "food",
-            // A Shopping Row is the one place a Food's name is read instead of
-            // an Ingredient Line (ADR 0024), which is what makes flour and
-            // farine one row.
-            //
-            // A Food with no name at all should not exist — one is created
-            // from whatever word a Reading found — but if ever one does, the
-            // row falls back to the line that put it here rather than printing
-            // an amount beside nothing. A blank row is the one thing a shopping
-            // list cannot afford: it cannot be bought and it cannot be asked
-            // about.
-            "name": shown
-                .map(|(_, name)| name.as_str())
-                .unwrap_or_else(|| contributions
-                    .first()
-                    .map(|first| first.text.as_str())
-                    .unwrap_or_default()),
-            // Which Language that name is in, so a name borrowed from another
-            // Language can be marked as borrowed (CONTEXT.md, "Shopping Row").
-            "name_language": shown.map(|(language, _)| language.as_str()),
-            "parts": shopping::parts_json(&shopping::parts_for(
-                &contributions,
-                reader.measures,
-                &reader.language,
-            )),
-            "lines": contributions
-                .iter()
-                .map(|contribution| json!({
-                    "branch_id": contribution.branch_id,
-                    "recipe": contribution.recipe,
-                    "text": contribution.text,
-                }))
-                .collect::<Vec<_>>(),
-        }));
-    }
-    for item in loose_items(conn, person_id)? {
-        rows.push(item);
-    }
-
-    // One list, one order: a Loose Item and a line nobody read sort among the
-    // Foods rather than into a block of their own, because a heading over the
-    // rows that merged would teach that the others are somehow less true.
-    rows.sort_by_key(|row| shopping::sort_key(row["name"].as_str().unwrap_or_default()));
+    let gathered = bases
+        .iter()
+        .map(|(entry, lines)| shopping::Chosen {
+            branch_id: &entry.branch_id,
+            title: &entry.title,
+            scale: yield_scale(&entry.shopping_yield, &entry.written_yield),
+            lines,
+        })
+        .collect::<Vec<_>>();
+    let rows = shopping::rows(
+        &gathered,
+        &loose_items(conn, person_id)?,
+        reader.measures,
+        &reader.language,
+    );
 
     Ok(json!({
         "chosen": chosen
@@ -11681,6 +11900,80 @@ fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
             .collect::<Vec<_>>(),
         "rows": rows,
     }))
+}
+
+/// Every Ingredient Line of one Version as a Shopping List reads it: the Food
+/// it was read as and that Food's name for this reader, how much it said, and
+/// its Unit — or, where no Food was read, only its words (ADR 0024). What
+/// `shopping_basis` answers (#77) and what `shopping_list` adds up, so the
+/// phone and the server start from the same facts.
+fn basis_lines(
+    conn: &Connection,
+    reader: &Reader,
+    version_id: &str,
+    content: &Value,
+) -> Result<Vec<Value>, OpError> {
+    let readings = readings_to_measure(conn, version_id)?;
+    let food_ids = readings
+        .iter()
+        .filter_map(|reading| reading.food_id.clone())
+        .collect::<Vec<_>>();
+    let named = food_names_of(conn, &food_ids)?;
+
+    let empty = Vec::new();
+    let mut lines = Vec::new();
+    for (index, line) in content["ingredients"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .enumerate()
+    {
+        // A Section heads a list; it is not a thing to buy.
+        if line.get("kind").and_then(Value::as_str) == Some("section") {
+            continue;
+        }
+        let text = line.get("text").and_then(Value::as_str).unwrap_or_default();
+        // An Ingredient Line nobody ever read, and one whose Reading found no
+        // Food, are the same thing on a list: there is no Food to merge it
+        // under, so the line stands exactly as written (ADR 0024).
+        let Some(reading) = readings
+            .iter()
+            .find(|reading| reading.line_index == index as i64)
+            .filter(|reading| reading.food_id.is_some())
+        else {
+            lines.push(json!({ "index": index, "text": text, "food": Value::Null }));
+            continue;
+        };
+        let food_id = reading.food_id.clone().expect("filtered to a Food above");
+        let names = named.get(&food_id).cloned().unwrap_or_default();
+        let shown = shown_name(&names, &reader.language);
+        let unit = reading.unit.as_deref();
+        lines.push(json!({
+            "index": index,
+            "text": text,
+            "food": {
+                "id": food_id,
+                // A Shopping Row is the one place a Food's name is read
+                // instead of an Ingredient Line (ADR 0024), which is what
+                // makes flour and farine one row.
+                "name": shown.map(|(_, name)| name.as_str()),
+                "name_language": shown.map(|(language, _)| language.as_str()),
+                // An amount Kamosu could not read is an amount nobody stated,
+                // as far as adding up goes — and the written line, one tap
+                // away, still says whatever it says.
+                "amount": reading.amount.as_deref().and_then(units::parse_amount),
+                "unit": unit,
+                "unit_id": unit.and_then(units::recognise).map(|known| known.id),
+                "unit_key": unit.map(shopping::unit_key),
+                // The very same reader the recipe page's subordinate lines
+                // are built from, Cup Weights and all — because a cup of flour
+                // must not weigh one thing on a recipe page and another in a
+                // shop.
+                "cup_weight_grams": reading.cup_weight,
+            },
+        }));
+    }
+    Ok(lines)
 }
 
 /// The choosing as stored, in the order it was made, each entry looked up.

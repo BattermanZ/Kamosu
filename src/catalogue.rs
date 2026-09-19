@@ -1572,6 +1572,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "properties": {
                     "branch_id": { "type": "string" },
                     "version_id": { "type": "string" },
+                    "attempt_id": {
+                        "type": "string",
+                        "description": "The id to give this cooking, for one started with no network (#77): at_ and sixteen lower-case hex digits. Sending the same start twice answers the same Attempt; where the Lineage already has one In Progress, that one is answered instead.",
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "description": "When cooking really started, for a start that waited on a phone with no network (#77). The same form as written_at.",
+                    },
                 },
                 "required": ["branch_id"],
                 "additionalProperties": false,
@@ -1601,6 +1609,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "items": { "type": "integer", "minimum": 0 },
                     },
                     "cooking_yield": attempt_yield_schema(),
+                    "written_at": written_at_schema(),
                 },
                 "required": ["attempt_id"],
                 "additionalProperties": false,
@@ -1630,6 +1639,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "type": ["array", "null"],
                         "items": { "type": "string" },
                     },
+                    "add_photographs": {
+                        "type": ["array", "null"],
+                        "items": { "type": "string" },
+                        "description": "Photographs to put beside those the cooking already holds, rather than replacing them: what a device sends when it takes a picture, so two devices never erase each other's (#77).",
+                    },
+                    "written_at": written_at_schema(),
                 },
                 "required": ["attempt_id"],
                 "additionalProperties": false,
@@ -1658,6 +1673,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "type": ["array", "null"],
                         "items": { "type": "string" },
                     },
+                    "add_photographs": {
+                        "type": ["array", "null"],
+                        "items": { "type": "string" },
+                        "description": "Photographs to put beside those the cooking already holds, rather than replacing them: what a device sends when it takes a picture, so two devices never erase each other's (#77).",
+                    },
+                    "written_at": written_at_schema(),
                 },
                 "required": ["attempt_id"],
                 "additionalProperties": false,
@@ -1887,6 +1908,29 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_shopping_list,
         },
         Operation {
+            name: "shopping_basis",
+            summary: "What one recipe puts on a Shopping List before anything \
+                      is added up: each Ingredient Line, the Food it was read \
+                      as and the name that Food goes by for you, how much it \
+                      said, its Unit, and what a cup of the Food weighs. Always \
+                      the Branch's latest Version. It is how a phone with no \
+                      network works out the list's rows itself for the recipes \
+                      it holds (#77); get_shopping_list is the list itself.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: shopping_basis_schema(),
+            handler: crate::operations::shopping_basis,
+        },
+        Operation {
             name: "add_to_shopping_list",
             summary: "Choose a recipe to shop for, at a Yield or as it is \
                       written. It holds the Branch at its latest Version, \
@@ -1912,6 +1956,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // means "back to the recipe as written", a misspelling and
                     // a deliberate reset were the same request.
                     "shopping_yield": yield_schema(),
+                    "written_at": written_at_schema(),
                 },
                 "required": ["branch_id"],
                 "additionalProperties": false,
@@ -1931,7 +1976,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "branch_id": { "type": "string" } },
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "written_at": written_at_schema(),
+                },
                 "required": ["branch_id"],
                 "additionalProperties": false,
             }),
@@ -1956,6 +2004,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // Named as on `add_to_shopping_list` above, and for the
                     // same reason (#85).
                     "shopping_yield": yield_schema(),
+                    "written_at": written_at_schema(),
                 },
                 "required": ["branch_id"],
                 "additionalProperties": false,
@@ -2005,7 +2054,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             write: true,
             session_only: false,
             job_lane: JobLane::ByCaller,
-            input_schema: empty_input(),
+            input_schema: json!({
+                "type": "object",
+                "properties": { "written_at": written_at_schema(), },
+                "additionalProperties": false,
+            }),
             output_schema: shopping_list_schema(),
             handler: crate::operations::empty_shopping_list,
         },
@@ -2023,7 +2076,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "text": { "type": "string" } },
+                "properties": {
+                    "text": { "type": "string" },
+                    "item_id": {
+                        "type": "string",
+                        "description": "The id to give this line, for one typed with no network (#77): i_ and sixteen lower-case hex digits. Sending the same line twice adds it once.",
+                    },
+                    "written_at": written_at_schema(),
+                },
                 "required": ["text"],
                 "additionalProperties": false,
             }),
@@ -2041,7 +2101,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "item_id": { "type": "string" } },
+                "properties": {
+                    "item_id": { "type": "string" },
+                    "written_at": written_at_schema(),
+                },
                 "required": ["item_id"],
                 "additionalProperties": false,
             }),
@@ -4060,6 +4123,7 @@ fn set_as_cooked_input_schema() -> Value {
                 "required": ["title"],
                 "additionalProperties": false,
             },
+            "written_at": written_at_schema(),
         },
         "required": ["attempt_id", "as_cooked"],
         "additionalProperties": false,
@@ -4240,6 +4304,79 @@ fn shopping_list_schema() -> Value {
         },
         "required": ["chosen", "rows"],
         "additionalProperties": false,
+    })
+}
+
+/// **What one recipe puts on a Shopping List** (#77): `shopping_basis`'s
+/// answer. Every figure in it is one `shopping_list` reads for itself, so a
+/// phone adding them up gets the rows the server would.
+fn shopping_basis_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "branch_id": { "type": "string" },
+            "title": { "type": "string" },
+            "written_yield": yield_schema(),
+            // The Ingredient Lines in the recipe's order, Sections left out:
+            // a Section heads a list and is not a thing to buy.
+            "lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        // Where the line sits in the recipe's own list, which
+                        // is what a row that merges with nothing is named by.
+                        "index": { "type": "integer", "minimum": 0 },
+                        "text": { "type": "string" },
+                        // Null where no Food was read: the line then stands
+                        // on the list exactly as written and merges with
+                        // nothing (ADR 0024).
+                        "food": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "id": { "type": "string" },
+                                // The name this reader sees, and its Language.
+                                // Null where the Food has no name at all.
+                                "name": { "type": ["string", "null"] },
+                                "name_language": { "type": ["string", "null"] },
+                                // The amount as a number, for the recipe as
+                                // written. Null where nobody put a number on
+                                // the line, or Kamosu could not read one.
+                                "amount": { "type": ["number", "null"] },
+                                // The Unit exactly as the cook wrote it.
+                                "unit": { "type": ["string", "null"] },
+                                // Which of Kamosu's own Units that word is,
+                                // or null for a Unit it does not convert.
+                                "unit_id": { "type": ["string", "null"] },
+                                // The word as two spellings of one Unit are
+                                // matched: `clove` and `cloves` alike.
+                                "unit_key": { "type": ["string", "null"] },
+                                "cup_weight_grams": { "type": ["number", "null"] },
+                            },
+                            "required": [
+                                "id", "name", "name_language", "amount", "unit",
+                                "unit_id", "unit_key", "cup_weight_grams"
+                            ],
+                            "additionalProperties": false,
+                        },
+                    },
+                    "required": ["index", "text", "food"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["branch_id", "title", "written_yield", "lines"],
+        "additionalProperties": false,
+    })
+}
+
+/// **When a write was really made** (#77, ADR 0013), on every write a phone
+/// may make with no network: the Attempt's and the Shopping List's. Absent is
+/// now. A time later than now is taken as now.
+fn written_at_schema() -> Value {
+    json!({
+        "type": "string",
+        "description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
     })
 }
 

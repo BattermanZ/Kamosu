@@ -5,6 +5,7 @@
  * Settings and the buttons that reword themselves can never disagree about it.
  */
 
+import { untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
 import type { KamosuClient } from '$lib/api/catalogue';
 import { serverAnswered } from './reads';
@@ -166,4 +167,21 @@ export function retryWhileUnreachable(kamosu: KamosuClient): () => void {
 		void kamosu.instanceStatus().catch(() => {});
 	}, RETRY_MS);
 	return () => clearInterval(retry);
+}
+
+/**
+ * A number that goes up each time any of these reads comes back different
+ * from what a page was shown — the service worker's refresh behind, or the
+ * outbox having sent what it held (#77). A screen reads it in the effect that
+ * loads it, so it loads again. It does not go up the first time it is read.
+ */
+export function rereads(...operations: string[]): { readonly count: number } {
+	const total = () =>
+		operations.reduce((sum, operation) => sum + (refreshed.get(operation) ?? 0), 0);
+	const from = untrack(total);
+	return {
+		get count() {
+			return total() - from;
+		},
+	};
 }

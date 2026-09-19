@@ -9,8 +9,8 @@
 
 import { getContext, setContext } from 'svelte';
 import type { KamosuClient } from './api/catalogue';
-import { createClient, httpTransport } from './api/client';
-import { noteReach } from './offline/device.svelte';
+import { createClient } from './api/client';
+import type { Outbox } from './offline/outbox';
 
 const KEY = Symbol('kamosu');
 
@@ -39,5 +39,7 @@ export function useKamosu(): KamosuClient {
 /**
  * The real client: same origin, no configuration. In development vite proxies
  * `/api` to the binary on 5266, and in the built app the binary serves both.
+ * Every call goes through the phone's outbox (#77), which sends a write
+ * straight on and only keeps the ones a phone with no network may make.
  */
-export const realKamosu = (): KamosuClient => createClient(httpTransport({ observe: noteReach }));
+export const realKamosu = (outbox: Outbox): KamosuClient => createClient(outbox.transport);
