@@ -17478,3 +17478,392 @@ mod crouton {
         assert!(dir.join(&fresh).exists(), "a fresh upload was taken");
     }
 }
+
+// ── Sheets (#75, ADR 0023) ───────────────────────────────────────────────────
+
+/// Ask for a Sheet, wait for its Job, and fetch the PDF it left: the result
+/// the Job answered, the PDF's content type, and its text with every run of
+/// whitespace made one space — so a sentence the page wrapped still reads as
+/// one sentence.
+fn a_sheet(
+    app: &support::TestApp,
+    operation: &str,
+    bearer: Option<&str>,
+    input: Value,
+) -> (Value, String, String) {
+    let (status, asked) = app.post_op(operation, bearer, &input.to_string());
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"]
+        .as_str()
+        .expect("a job id")
+        .to_string();
+    let job = wait_terminal(app, bearer, &job_id);
+    assert_eq!(job["status"], json!("completed"), "{job}");
+    let result = job["result"].clone();
+    assert_eq!(result["fetch_at"], json!(format!("/api/sheets/{job_id}")));
+    let (status, content_type, bytes) = app.get_bytes(&format!("/api/sheets/{job_id}"), bearer);
+    assert_eq!(status, 200);
+    (result, content_type, pdf_text(&bytes))
+}
+
+fn pdf_text(bytes: &[u8]) -> String {
+    assert!(bytes.starts_with(b"%PDF-"), "a Sheet is a PDF");
+    pdf_extract::extract_text_from_mem(bytes)
+        .expect("a Sheet's text can be read back")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A Sheet's text with no whitespace at all: for what the page may wrap, and
+/// for lines set one under the other, which a PDF reader can run together.
+fn compact(text: &str) -> String {
+    text.split_whitespace().collect()
+}
+
+fn read_in(app: &support::TestApp, key: &str, measures: &str) {
+    let (status, set) = app.post_op(
+        "set_reading_preferences",
+        Some(key),
+        &json!({ "reading_language": "en", "reading_measures": measures }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+}
+
+/// **A Sheet carries the recipe, not the library** (ADR 0023). Everything that
+/// is a fact about the dish is on the page — title, Yield, times, Sections,
+/// Ingredient Lines exactly as written, Steps, Note, the Component unfolded
+/// after it — and nothing about how Kamosu files it: no Tag, no past Version,
+/// no *what changed*, no Attempt, no Reading.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sheet_carries_the_recipe_and_leaves_the_library_behind() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    read_in(&app, &key, "metric");
+
+    // A cooking of it, finished, with a verdict and a note: the Sheet must not
+    // know about any of it.
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": started["result"]["id"],
+            "note": "Too salty this time",
+            "rating": "tweak",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    let (result, content_type, text) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": pizza }),
+    );
+    assert_eq!(content_type, "application/pdf");
+    assert_eq!(result["file_name"], json!("Pizza Margherita.pdf"));
+
+    // Every page carries its footer, and the page ends saying which Version it
+    // was set from, by fingerprint.
+    let (status, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{recipe}");
+    let fingerprint = recipe["result"]["head_version_id"].as_str().unwrap();
+    assert!(compact(&text).contains(fingerprint), "{text}");
+    let pages = result["pages"].as_u64().unwrap();
+    assert!(text.contains(&format!("page {pages} of {pages}")), "{text}");
+    assert!(text.contains("printed "), "{text}");
+
+    // The same page asked for again is the Sheet already set, not a second
+    // one (ADR 0032).
+    let (again, _, _) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": pizza }),
+    );
+    assert_eq!(again["kept_as"], result["kept_as"]);
+    assert_eq!(
+        result["paper"],
+        json!("a4"),
+        "metric Reading Measures print A4"
+    );
+    assert!(result["pages"].as_u64().unwrap() >= 1);
+
+    for on_the_page in [
+        "Pizza Margherita",
+        "Makes 2 pizzas",
+        "Prep 20 min",
+        "Cook 8 min",
+        "For the base",
+        "500 g Neapolitan pizza dough",
+        "To finish",
+        "125 g mozzarella",
+        "Bake 6 to 8 minutes.",
+        "The dough wants making the day before.",
+        // The Component, unfolded after the parent and already scaled: half
+        // of a dough that makes a kilo.
+        "Neapolitan Pizza Dough",
+        "½ of the recipe",
+        "600 g tipo 00 flour",
+        "about 300 g",
+        "Knead for ten minutes.",
+        // Where it came from: the Version's name, the bare Hand.
+        "Less cheese, written",
+        "Aurélien",
+    ] {
+        assert!(
+            text.contains(on_the_page),
+            "{on_the_page:?} is on the Sheet: {text}"
+        );
+    }
+    for left_behind in [
+        "Weekend",             // a Tag is how this Kitchen files it
+        "250 g mozzarella",    // a past Version
+        "drowning the tomato", // what changed, which belongs to the Thread
+        "Too salty",           // an Attempt
+        "di bufala",           // what a Reading points at, never printed
+        "about 125",           // no Reading beneath a line the recipe is not scaled on
+    ] {
+        assert!(
+            !text.contains(left_behind),
+            "{left_behind:?} is not on the Sheet: {text}"
+        );
+    }
+}
+
+/// **The Sheet is the Branch on screen, printed as it stands** (ADR 0023): a
+/// cooking that has scaled the recipe scales the page, the one place a Reading
+/// reaches paper is the amount beneath a scaled line, and a Reading that would
+/// print badly never does — the written line is printed, not what Kamosu read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_scaled_sheet_prints_the_written_line_and_the_scaled_amount_beneath_it() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    read_in(&app, &key, "metric");
+
+    // A Reading gone wrong: the mozzarella line read as anchovy paste.
+    let (status, read) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": pizza, "line_index": 3,
+            "amount": "125", "unit": "g", "target": "anchovy paste",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": started["result"]["id"],
+            "cooking_yield": { "amount": "4", "noun": "pizzas" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+
+    let (_result, _type, text) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": pizza }),
+    );
+    assert!(
+        text.contains("Scaled to 4 pizzas — as written, makes 2"),
+        "{text}"
+    );
+    assert!(
+        compact(&text).contains("125gmozzarellaabout250g"),
+        "the written line, then the scaled amount beneath it: {text}"
+    );
+    assert!(
+        !text.contains("anchovy"),
+        "a Reading is never printed: {text}"
+    );
+    // Twice the pizza wants the whole kilo of dough, so the dough is printed
+    // as written and gains nothing beneath its lines.
+    assert!(text.contains("the whole recipe"), "{text}");
+    assert!(text.contains("600 g tipo 00 flour"), "{text}");
+    assert!(!text.contains("about 600"), "{text}");
+}
+
+/// **A stranger holding a Share Link is offered a Sheet too** (ADR 0023): no
+/// account, no Credential, the page size decided by their locale, the dough
+/// carried as a Passenger and printed at the amount the pizza asks for, and
+/// the link itself in the provenance block.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stranger_with_a_share_link_gets_a_sheet_without_an_account() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    let (token, url) = share(&app, &key, &pizza);
+
+    let (result, content_type, text) = a_sheet(
+        &app,
+        "make_shared_sheet",
+        None,
+        json!({ "token": token, "locale": "en-US,en;q=0.9" }),
+    );
+    assert_eq!(content_type, "application/pdf");
+    assert_eq!(
+        result["paper"],
+        json!("us-letter"),
+        "a US locale prints Letter"
+    );
+    for on_the_page in [
+        "Pizza Margherita",
+        "125 g mozzarella",
+        "Neapolitan Pizza Dough",
+        "½ of the recipe",
+        "about 300 g",
+    ] {
+        assert!(
+            text.contains(on_the_page),
+            "{on_the_page:?} is on the Sheet: {text}"
+        );
+    }
+    // The link itself, which the page is free to wrap.
+    assert!(
+        compact(&text).contains(&url),
+        "the Share Link is on the Sheet: {text}"
+    );
+    assert!(!text.contains("Weekend"), "{text}");
+
+    // Any other locale, or none, prints A4.
+    let (result, _, _) = a_sheet(&app, "make_shared_sheet", None, json!({ "token": token }));
+    assert_eq!(result["paper"], json!("a4"));
+
+    // One of its Translations, in its own words.
+    let (_, _, french) = a_sheet(
+        &app,
+        "make_shared_sheet",
+        None,
+        json!({ "token": token, "language": "fr" }),
+    );
+    assert!(french.contains("125 g de mozzarella"), "{french}");
+    assert!(
+        french.contains("Pour 2 pizzas"),
+        "the page speaks the recipe's Language: {french}"
+    );
+    assert!(french.contains("imprimée le"), "{french}");
+}
+
+/// The Share Link page runs no script, so its Sheet is a link: it starts the
+/// Job and sends the reader to the Job's own address, which is the PDF once it
+/// is set.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_share_link_pages_sheet_is_a_link_that_ends_in_the_pdf() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    let (token, _url) = share(&app, &key, &pizza);
+
+    let (status, _, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(
+        page.contains(&format!("href=\"/s/{token}/sheet\"")),
+        "the page offers a Sheet"
+    );
+
+    let asked = kamosu::http_min::get(app.addr, &format!("/s/{token}/sheet")).expect("a reply");
+    assert_eq!(asked.status, 303);
+    let at = asked
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("location"))
+        .map(|(_, value)| value.clone())
+        .expect("sent on to the Sheet's own address");
+    assert!(at.starts_with(&format!("/s/{token}/sheet/j_")), "{at}");
+
+    let mut fetched = None;
+    for _ in 0..400 {
+        let (status, content_type, bytes) = app.get_bytes(&at, None);
+        assert_eq!(status, 200);
+        if content_type == "application/pdf" {
+            fetched = Some(bytes);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let text = pdf_text(&fetched.expect("the address becomes the PDF"));
+    assert!(text.contains("Pizza Margherita"), "{text}");
+
+    // Ending the link ends the Sheet with it — one already set included,
+    // since fetching it through the link is arriving (ADR 0018).
+    let (status, ended) = app.post_op(
+        "end_share_link",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+    let (_, content_type, _) = app.get_bytes(&at, None);
+    assert_ne!(
+        content_type, "application/pdf",
+        "the ended link hands over nothing"
+    );
+    let job_id = at.rsplit('/').next().unwrap();
+    let (status, _, _) = app.get_bytes(&format!("/api/sheets/{job_id}"), None);
+    assert_eq!(status, 404);
+    let (status, asked) = app.post_op(
+        "make_shared_sheet",
+        None,
+        &json!({ "token": token }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let job = wait_terminal(&app, None, asked["result"]["job_id"].as_str().unwrap());
+    assert_eq!(job["status"], json!("failed"), "{job}");
+}
+
+/// A Person's Sheet is theirs: fetched under the Credential that asked for it,
+/// and by nobody else. The paper follows their Reading Measures.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_persons_sheet_is_fetched_only_under_their_credential() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    // US measures are the stated default, and they print Letter.
+    let (result, _, _) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": pizza }),
+    );
+    assert_eq!(result["paper"], json!("us-letter"));
+    let fetch_at = result["fetch_at"].as_str().unwrap().to_string();
+
+    let (status, _, _) = app.get_bytes(&fetch_at, None);
+    assert_ne!(status, 200, "a stranger cannot fetch a Person's Sheet");
+    let (_other, other_key, _) = person_with_kitchen(&app, "Someone else");
+    let (status, _, _) = app.get_bytes(&fetch_at, Some(&other_key));
+    assert_ne!(status, 200, "nor can another Person");
+
+    // And nobody outside the Kitchen can ask for one of this recipe at all.
+    let (status, asked) = app.post_op(
+        "make_sheet",
+        Some(&other_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let job = wait_terminal(
+        &app,
+        Some(&other_key),
+        asked["result"]["job_id"].as_str().unwrap(),
+    );
+    assert_eq!(job["status"], json!("failed"), "{job}");
+}

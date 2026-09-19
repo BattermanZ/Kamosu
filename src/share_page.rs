@@ -1,8 +1,10 @@
 //! The public Share Link page (#65, ADR 0026, ADR 0018).
 //!
-//! **This page is not an Operation.** It *consumes* one — `read_shared_recipe`,
-//! which is Public because holding the token is the whole of the permission —
-//! and renders what comes back as plain HTML. Parity is therefore untouched:
+//! **This page is not an Operation.** It *consumes* them — `read_shared_recipe`
+//! to show the recipe and `make_shared_sheet` to print it (#75), both Public
+//! because holding the token is the whole of the permission — and renders what
+//! comes back as plain HTML. Whether a stranger's Sheet may be handed over is
+//! answered by the Core (`Core::shared_sheet`), never decided here. Parity is therefore untouched:
 //! both Doors still materialise exactly the Catalogue, and this is a third
 //! thing built on top of it, the way the interface and the design tokens are.
 //!
@@ -38,12 +40,12 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::Path;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::Value;
 
-use crate::core::{Core, OpError};
+use crate::core::{Core, OpError, SheetState};
 use crate::cover::cover_for;
 use crate::photographs::DisplaySize;
 
@@ -54,6 +56,9 @@ pub fn router(core: Arc<Core>) -> Router {
     let photo_core = core.clone();
     let card_core = core.clone();
     let translation_core = core.clone();
+    let sheet_core = core.clone();
+    let translated_sheet_core = core.clone();
+    let waiting_core = core.clone();
     Router::new()
         .route(
             "/s/{token}",
@@ -83,6 +88,33 @@ pub fn router(core: Arc<Core>) -> Router {
             get(move |Path((token, language)): Path<(String, String)>| {
                 let core = translation_core.clone();
                 async move { translated(&core, &token, &language) }
+            }),
+        )
+        // The Sheet (#75, ADR 0023). A stranger's page runs no script, so
+        // asking for one is a link: it starts the Job and sends the browser to
+        // the Job's own address, which is a short page that refreshes itself
+        // until the PDF is ready and then is the PDF.
+        .route(
+            "/s/{token}/sheet",
+            get(move |Path(token): Path<String>, headers: HeaderMap| {
+                let core = sheet_core.clone();
+                async move { ask_sheet(&core, &token, None, &headers) }
+            }),
+        )
+        .route(
+            "/s/{token}/in/{language}/sheet",
+            get(
+                move |Path((token, language)): Path<(String, String)>, headers: HeaderMap| {
+                    let core = translated_sheet_core.clone();
+                    async move { ask_sheet(&core, &token, Some(&language), &headers) }
+                },
+            ),
+        )
+        .route(
+            "/s/{token}/sheet/{job_id}",
+            get(move |Path((token, job_id)): Path<(String, String)>| {
+                let core = waiting_core.clone();
+                async move { sheet(&core, &token, &job_id) }
             }),
         )
         .route(
@@ -116,6 +148,11 @@ struct Words {
     keep: &'static str,
     bundle: &'static str,
     sheet: &'static str,
+    /// The page shown while a Sheet is being set (#75): a heading and a line.
+    sheet_making: &'static str,
+    sheet_making_body: &'static str,
+    /// The page shown when a Sheet could not be made; the reason follows it.
+    sheet_failed: &'static str,
     written_down: &'static str,
     /// The standing line, in the same words every time (ADR 0018).
     standing: &'static str,
@@ -152,6 +189,9 @@ const EN: Words = Words {
     keep: "Keep this recipe",
     bundle: "Recipe file",
     sheet: "Print a sheet",
+    sheet_making: "Setting your sheet",
+    sheet_making_body: "This takes a moment. The sheet opens here by itself when it is ready.",
+    sheet_failed: "The sheet could not be made",
     written_down: "Written down",
     standing: "Everything this recipe has ever been travels with it, back to the first version. \
                 Ending this link stops anyone new from opening it — it cannot reach a copy \
@@ -178,6 +218,9 @@ const FR: Words = Words {
     keep: "Garder cette recette",
     bundle: "Fichier de recette",
     sheet: "Imprimer une fiche",
+    sheet_making: "Mise en page de votre fiche",
+    sheet_making_body: "Cela prend un instant. La fiche s'ouvre ici d'elle-même dès qu'elle est prête.",
+    sheet_failed: "La fiche n'a pas pu être faite",
     written_down: "Écrite",
     standing: "Tout ce que cette recette a été l'accompagne, jusqu'à la première version. \
                 Mettre fin à ce lien empêche quiconque de l'ouvrir désormais — cela n'atteint \
@@ -204,6 +247,9 @@ const ES: Words = Words {
     keep: "Guardar esta receta",
     bundle: "Archivo de receta",
     sheet: "Imprimir una hoja",
+    sheet_making: "Preparando tu hoja",
+    sheet_making_body: "Tarda un momento. La hoja se abre aquí sola cuando esté lista.",
+    sheet_failed: "No se pudo hacer la hoja",
     written_down: "Escrita",
     standing: "Todo lo que esta receta ha sido viaja con ella, hasta la primera versión. \
                 Terminar este enlace impide que alguien nuevo lo abra — no alcanza ninguna \
@@ -294,10 +340,81 @@ fn card(core: &Core, token: &str) -> Response {
     }
 }
 
+/// Start a Sheet for whoever followed the link, and send them to it.
+///
+/// The browser's `Accept-Language` is passed on as the reader's locale, and it
+/// decides one thing: A4 or Letter (ADR 0023). It is a guess at a page size,
+/// never authority for anything (ADR 0033), and a wrong one costs margins.
+fn ask_sheet(core: &Core, token: &str, language: Option<&str>, headers: &HeaderMap) -> Response {
+    let locale = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok());
+    let mut input = serde_json::json!({ "token": token });
+    if let Some(language) = language {
+        input["language"] = language.into();
+    }
+    if let Some(locale) = locale {
+        input["locale"] = locale.into();
+    }
+    // Asked exactly as any stranger asks at either Door: no Credential, so the
+    // work lands in the stranger lane and a full line refuses (ADR 0032).
+    match core.execute(None, "make_shared_sheet", input) {
+        Ok(asked) => {
+            let job_id = asked["job_id"].as_str().unwrap_or_default();
+            (
+                StatusCode::SEE_OTHER,
+                [(header::LOCATION, format!("/s/{token}/sheet/{job_id}"))],
+            )
+                .into_response()
+        }
+        Err(err) => sheet_failed(core, token, &err),
+    }
+}
+
+/// A Sheet's own address: the PDF once it is set, and until then a page that
+/// says so and looks again in a second. Whether this link may still hand it
+/// over is the Core's to say (`Core::shared_sheet`), not this page's.
+fn sheet(core: &Core, token: &str, job_id: &str) -> Response {
+    match core.shared_sheet(token, job_id) {
+        Ok(SheetState::Ready { name, bytes }) => crate::web_door::pdf_response(&name, bytes),
+        Ok(SheetState::Failed(reason)) => sheet_failed(core, token, &OpError::internal(reason)),
+        Ok(SheetState::Setting) => {
+            let language = language_of_share(core, token);
+            let words = words(&language);
+            let page = plain_page(&language, words.sheet_making, words.sheet_making_body).replacen(
+                "</head>",
+                "<meta http-equiv=\"refresh\" content=\"1\">\n</head>",
+                1,
+            );
+            html(StatusCode::OK, page)
+        }
+        Err(err) => sheet_failed(core, token, &err),
+    }
+}
+
+/// The Language a Share Link's own pages speak: its recipe's, or English when
+/// there is no recipe to read one from.
+fn language_of_share(core: &Core, token: &str) -> String {
+    core.read_shared_recipe(token)
+        .ok()
+        .and_then(|shared| text_at(&shared["recipe"], "language").map(str::to_string))
+        .unwrap_or_else(|| "en".to_string())
+}
+
+fn sheet_failed(core: &Core, token: &str, err: &OpError) -> Response {
+    let language = language_of_share(core, token);
+    html(
+        status_for(err),
+        plain_page(&language, words(&language).sheet_failed, &err.to_sentence()),
+    )
+}
+
 fn status_for(err: &OpError) -> StatusCode {
     match err.kind {
         crate::core::ErrorKind::NotFound => StatusCode::NOT_FOUND,
         crate::core::ErrorKind::BadRequest => StatusCode::BAD_REQUEST,
+        // Only asking for a Sheet can meet this: the stranger lane was full.
+        crate::core::ErrorKind::Busy => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
@@ -411,6 +528,9 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         return plain_page("en", EN.ended_title, EN.ended_body);
     }
 
+    // A Translation is on screen only when the Language asked for is one this
+    // share carries; the Sheet then prints that one, as the page shows it.
+    let reading_a_translation = !std::ptr::eq(recipe, shared_recipe);
     let language = text_at(recipe, "language").unwrap_or("en");
     let words = words(language);
     let content = &recipe["content"];
@@ -449,19 +569,18 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
       {note}
       {translations}
       <!--
-        What a reader can take away, and none of it built yet: keeping this
-        recipe is a Copy (ADR 0026), the recipe file is #66 and the printed
-        sheet is #75 — which is itself blocked on this ticket. They are drawn
-        because the page is meant to offer them and greyed because it cannot:
-        an indigo button leading nowhere would be the one thing on this page
-        that lies.
+        What a reader can take away. The Sheet is real (#75): a link, because
+        this page runs no script. Keeping the recipe is a Copy (ADR 0026) and
+        the recipe file is #66's to offer here; neither is built for a
+        stranger yet, so both stay drawn and greyed — an indigo button leading
+        nowhere would be the one thing on this page that lies.
       -->
       <div class="mt-8 border-t border-rule pt-4">
-        <p class="text-label text-ink-2 uppercase">{not_yet}</p>
+        <a href="{sheet_href}" class="block rounded-sm bg-accent p-3 text-center font-display text-read text-on-accent">{sheet}</a>
+        <p class="mt-4 text-label text-ink-2 uppercase">{not_yet}</p>
         <div class="mt-2 flex flex-wrap gap-3">
           <span class="flex-1 border border-rule p-3 text-center font-display text-read text-ink-2">{keep}</span>
           <span class="flex-1 border border-rule p-3 text-center font-display text-read text-ink-2">{bundle}</span>
-          <span class="flex-1 border border-rule p-3 text-center font-display text-read text-ink-2">{sheet}</span>
         </div>
       </div>
     </div>
@@ -483,6 +602,10 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         keep = escape(words.keep),
         bundle = escape(words.bundle),
         sheet = escape(words.sheet),
+        sheet_href = match showing.filter(|_| reading_a_translation) {
+            Some(language) => format!("/s/{}/in/{}/sheet", escape(token), escape(language)),
+            None => format!("/s/{}/sheet", escape(token)),
+        },
         not_yet = escape(words.not_yet),
         thread = thread,
         standing = escape(words.standing),

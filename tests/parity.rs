@@ -51,7 +51,7 @@ fn arguments_for(name: &str) -> Value {
         "set_recipe_language" => json!({ "branch_id": "b_parity", "language": "fr" }),
         "rename_version" => json!({ "branch_id": "b_parity", "sequence": 1, "name": "Parity" }),
         "get_recipe" => json!({ "branch_id": "b_parity" }),
-        "export_bundle" => json!({ "branch_id": "b_parity" }),
+        "export_bundle" | "make_sheet" => json!({ "branch_id": "b_parity" }),
         "import_bundle" => json!({ "data": "" }),
         "import_crouton" => json!({ "upload_id": "u_parity" }),
         "forget_import" => json!({ "import_id": "i_parity" }),
@@ -81,6 +81,9 @@ fn arguments_for(name: &str) -> Value {
         // so what it must demonstrate is that it routes and refuses on the
         // token alone rather than on a Credential.
         "read_shared_recipe" => json!({ "token": "parity-no-such-token" }),
+        // Public too, and a Job: asking is accepted on the token alone, and it
+        // is the Job that then finds the token opens nothing.
+        "make_shared_sheet" => json!({ "token": "parity-no-such-token" }),
         _ => json!({}),
     }
 }
@@ -132,6 +135,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "note_recipe_opened"
             | "get_recipe"
             | "export_bundle"
+            | "make_sheet"
             | "get_thread"
             | "branch_point"
             | "divergence"
@@ -186,6 +190,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             // Public, and answered on the token alone: a token nobody minted
             // is not found, which is the routing this check is after.
             "read_shared_recipe" => (r#"{"token":"parity-no-such-token"}"#, 404),
+            "make_shared_sheet" => (r#"{"token":"parity-no-such-token"}"#, 200),
             _ => ("{}", 200),
         };
         let (status, body) = app.post_op(op.name, None, body_text);
@@ -249,7 +254,14 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
         );
         let result = &body["result"];
         if result["resultType"] == "task" {
-            follow_task(&app, name, result["taskId"].clone());
+            // A Sheet asked for with a token nobody minted is accepted, and then
+            // fails on the token — that failure is the routing being proved.
+            let ends = if name == "make_shared_sheet" {
+                "failed"
+            } else {
+                "completed"
+            };
+            follow_task(&app, name, result["taskId"].clone(), ends);
         } else if matches!(
             name,
             "get_job"
@@ -293,6 +305,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "note_recipe_opened"
                 | "get_recipe"
                 | "export_bundle"
+                | "make_sheet"
                 | "get_thread"
                 | "branch_point"
                 | "divergence"
@@ -363,9 +376,9 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
     }
 }
 
-/// Poll one task to its end and require it completed — the generic proof that
-/// every Job Operation in the Catalogue is readable back through tasks/get.
-fn follow_task(app: &support::TestApp, name: &str, task_id: serde_json::Value) {
+/// Poll one task to its end and require the end expected — the generic proof
+/// that every Job Operation in the Catalogue is readable back through tasks/get.
+fn follow_task(app: &support::TestApp, name: &str, task_id: serde_json::Value, ends: &str) {
     for _ in 0..200 {
         let poll = json!({
             "jsonrpc": "2.0",
@@ -384,8 +397,8 @@ fn follow_task(app: &support::TestApp, name: &str, task_id: serde_json::Value) {
         {
             assert_eq!(
                 task["status"],
-                json!("completed"),
-                "task for tool '{name}' ended other than completed"
+                json!(ends),
+                "task for tool '{name}' ended other than {ends}"
             );
             return;
         }

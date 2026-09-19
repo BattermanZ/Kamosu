@@ -1494,6 +1494,34 @@ export type ExportBundleOutput = {
 	}[];
 };
 
+/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
+export type MakeSheetInput = {
+	branch_id: string;
+};
+/** What make_sheet eventually produces, read back through `get_job`. */
+export type MakeSheetOutput = {
+	fetch_at: string;
+	file_name: string;
+	kept_as: string;
+	pages: number;
+	paper: "a4" | "us-letter";
+};
+
+/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
+export type MakeSharedSheetInput = {
+	language?: string;
+	locale?: string;
+	token: string;
+};
+/** What make_shared_sheet eventually produces, read back through `get_job`. */
+export type MakeSharedSheetOutput = {
+	fetch_at: string;
+	file_name: string;
+	kept_as: string;
+	pages: number;
+	paper: "a4" | "us-letter";
+};
+
 /** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
 export type ImportBundleInput = {
 	data: string;
@@ -3707,6 +3735,18 @@ export interface Operations {
 		output: ExportBundleOutput;
 		kind: 'immediate';
 		permission: 'person';
+	};
+	make_sheet: {
+		input: MakeSheetInput;
+		output: MakeSheetOutput;
+		kind: 'job';
+		permission: 'person';
+	};
+	make_shared_sheet: {
+		input: MakeSharedSheetInput;
+		output: MakeSharedSheetOutput;
+		kind: 'job';
+		permission: 'public';
 	};
 	import_bundle: {
 		input: ImportBundleInput;
@@ -11275,6 +11315,112 @@ export const CATALOGUE = [
 				"notes",
 				"photographs",
 				"missing_photographs"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "make_sheet",
+		"summary": "Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"fetch_at": {
+					"type": "string"
+				},
+				"file_name": {
+					"type": "string"
+				},
+				"kept_as": {
+					"type": "string"
+				},
+				"pages": {
+					"minimum": 1,
+					"type": "integer"
+				},
+				"paper": {
+					"enum": [
+						"a4",
+						"us-letter"
+					]
+				}
+			},
+			"required": [
+				"file_name",
+				"fetch_at",
+				"paper",
+				"pages",
+				"kept_as"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "make_shared_sheet",
+		"summary": "Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>.",
+		"permission": "public",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"language": {
+					"type": "string"
+				},
+				"locale": {
+					"type": "string"
+				},
+				"token": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"token"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"fetch_at": {
+					"type": "string"
+				},
+				"file_name": {
+					"type": "string"
+				},
+				"kept_as": {
+					"type": "string"
+				},
+				"pages": {
+					"minimum": 1,
+					"type": "integer"
+				},
+				"paper": {
+					"enum": [
+						"a4",
+						"us-letter"
+					]
+				}
+			},
+			"required": [
+				"file_name",
+				"fetch_at",
+				"paper",
+				"pages",
+				"kept_as"
 			],
 			"type": "object"
 		}
@@ -21036,6 +21182,8 @@ export const METHOD_NAMES = {
 	get_share_link: 'getShareLink',
 	set_public_address: 'setPublicAddress',
 	export_bundle: 'exportBundle',
+	make_sheet: 'makeSheet',
+	make_shared_sheet: 'makeSharedSheet',
 	import_bundle: 'importBundle',
 	read_shared_recipe: 'readSharedRecipe',
 	branch_point: 'branchPoint',
@@ -21191,6 +21339,10 @@ export interface KamosuClient {
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;
+	/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
+	makeSheet(input: MakeSheetInput): Promise<Answer<'make_sheet'>>;
+	/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
+	makeSharedSheet(input: MakeSharedSheetInput): Promise<Answer<'make_shared_sheet'>>;
 	/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
 	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
 	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */

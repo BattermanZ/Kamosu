@@ -50,6 +50,12 @@ impl JobProgress {
         }
     }
 
+    /// The Job this is the progress of — what work that leaves a file behind
+    /// names the file after, so it can be fetched by the id the caller holds.
+    pub fn job_id(&self) -> &str {
+        &self.job_id
+    }
+
     /// Say how far the work has got: how much done, of what total if it knows,
     /// and one sentence a reader can act on. Read back through `get_job`.
     pub fn report(&self, done: u64, total: Option<u64>, message: impl Into<String>) {

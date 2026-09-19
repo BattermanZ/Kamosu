@@ -1264,6 +1264,69 @@ describe('correcting a Reading beside a Divergence', () => {
 	});
 });
 
+describe('a Sheet (#75)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const sheetJob = {
+		id: 'j_sheet',
+		operation: 'make_sheet',
+		status: 'completed' as const,
+		progress: {},
+		error: null,
+		errorCode: null,
+		created_at: '2026-09-19T20:00:00.000Z',
+		updated_at: '2026-09-19T20:00:01.000Z',
+		result: {
+			file_name: 'Korean Fried Chicken.pdf',
+			fetch_at: '/api/sheets/j_sheet',
+			paper: 'a4',
+			pages: 1,
+			kept_as: 's_0-1.pdf',
+		},
+	};
+
+	it('asks the server to set this recipe, waits on the Job, and opens the PDF in a tab', async () => {
+		// The tab is opened at the tap and filled once the Job ends: a tab
+		// opened from a promise is one a browser may block.
+		const tab = { location: { href: '' }, close: vi.fn() };
+		const open = vi.fn(() => tab);
+		vi.stubGlobal('open', open);
+		const { kamosu } = renderRecipe({
+			...forked(),
+			make_sheet: { job_id: 'j_sheet' },
+			get_job: sheetJob,
+		});
+		await screen.findByText('Maison Batterman');
+
+		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+		expect(open).toHaveBeenCalledWith('', '_blank');
+		await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
+		expect(kamosu.calls.find((call) => call.operation === 'make_sheet')?.input).toEqual({
+			branch_id: 'mine',
+		});
+	});
+
+	it('says so when the sheet could not be made, and closes the tab it opened', async () => {
+		const tab = { location: { href: '' }, close: vi.fn() };
+		vi.stubGlobal(
+			'open',
+			vi.fn(() => tab),
+		);
+		renderRecipe({
+			...forked(),
+			make_sheet: { job_id: 'j_sheet' },
+			get_job: { ...sheetJob, status: 'failed', result: null, error: 'no such Branch' },
+		});
+		await screen.findByText('Maison Batterman');
+
+		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be made/);
+		expect(tab.close).toHaveBeenCalled();
+	});
+});
+
 describe('on the phone (#76)', () => {
 	const kept = new Date(2026, 8, 12);
 

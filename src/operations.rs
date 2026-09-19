@@ -900,6 +900,34 @@ pub fn export_bundle(core: &Core, invocation: &Invocation, input: Value) -> Resu
     core.export_bundle(&caller.person_id, branch_id)
 }
 
+/// Set a Sheet of one recipe as this Person sees it (#75, ADR 0023).
+pub fn make_sheet(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("make_sheet takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.make_sheet(&caller.person_id, branch_id, invocation.job.as_ref())
+}
+
+/// Set a Sheet of what a Share Link shows, for whoever holds it (#75).
+pub fn make_shared_sheet(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let token = input
+        .get("token")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("make_shared_sheet takes { token }"))?;
+    core.make_shared_sheet(
+        token,
+        input.get("language").and_then(Value::as_str),
+        input.get("locale").and_then(Value::as_str),
+        invocation.job.as_ref(),
+    )
+}
+
 pub fn set_reading(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let branch_id = input
         .get("branch_id")

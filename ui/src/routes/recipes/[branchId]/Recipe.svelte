@@ -96,7 +96,13 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import type { DivergenceOutput, GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+	import { waitForJob } from '$lib/api/job';
+	import type {
+		DivergenceOutput,
+		GetRecipeOutput,
+		GetThreadOutput,
+		MakeSheetOutput,
+	} from '$lib/api/catalogue';
 	import Cover from '$lib/cover/Cover.svelte';
 	import { ratingLabel } from '$lib/rating';
 	import Threshold from './Threshold.svelte';
@@ -161,6 +167,33 @@
 	 */
 	let onTheList = $state(false);
 	let shopping = $state(false);
+	/** Where asking for a Sheet has got to (#75). */
+	let printing = $state<'idle' | 'setting' | 'failed'>('idle');
+
+	/**
+	 * Print a Sheet (#75, ADR 0023): the recipe as it stands on this screen,
+	 * set for paper by the server as a Job. The PDF opens in a tab of its own
+	 * and printing is the browser's own Print — Kamosu has no dialog of its
+	 * own, and no second place where scaling could disagree with this screen.
+	 *
+	 * The tab is opened at the tap and filled once the Job ends: a tab opened
+	 * later, from a promise, is one a browser is entitled to block.
+	 */
+	async function printSheet() {
+		printing = 'setting';
+		const tab = window.open('', '_blank');
+		try {
+			const asked = await kamosu.makeSheet({ branch_id: branchId });
+			const job = await waitForJob(kamosu, asked.job_id);
+			const at = (job.result as MakeSheetOutput).fetch_at;
+			if (tab) tab.location.href = at;
+			else window.location.assign(at);
+			printing = 'idle';
+		} catch {
+			tab?.close();
+			printing = 'failed';
+		}
+	}
 
 	// ---- on the phone (#76) ---------------------------------------------
 
@@ -1107,6 +1140,21 @@
 		>
 			{m.share_title()}
 		</a>
+		<!--
+			A Sheet (#75, ADR 0023): this recipe, as it stands here, on paper.
+			It waits for the server, since the server is what sets it.
+		-->
+		<NeedsServer
+			label={printing === 'setting' ? m.recipe_print_setting() : m.recipe_print_sheet()}
+			waiting={m.offline_waits_print()}
+			onclick={printSheet}
+			disabled={printing === 'setting'}
+			shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
+			lookClass="border border-rule text-accent"
+		/>
+		{#if printing === 'failed'}
+			<p class="mx-gutter mt-2 text-read text-support" role="alert">{m.recipe_print_failed()}</p>
+		{/if}
 		<!--
 			Onto the Shopping List (#73, ADR 0024). A button and not a link: it
 			is one act that finishes here, and pressing it again takes the

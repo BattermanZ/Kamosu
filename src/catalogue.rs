@@ -1301,6 +1301,65 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             }),
             handler: crate::operations::export_bundle,
         },
+        // ── Sheets (#75, ADR 0023) ─────────────────────────────────────────
+        //
+        // A Sheet is one recipe set for paper, as a Job. Two ways in, as there
+        // are two ways to read a recipe: a Person's own, and a stranger's
+        // through a Share Link — and a Person reading through someone's link
+        // is a stranger to it, which is why the second is Public. Either way
+        // the PDF waits under the Job's id at GET /api/sheets/<job_id>.
+        Operation {
+            name: "make_sheet",
+            summary: "Set a Sheet of one recipe: the Branch as it stands on this Person's \
+                      screen, set for paper as a PDF. It carries the recipe and not the \
+                      library — no Tags, Attempts, Thread or past Versions. Written \
+                      Ingredient Lines are printed and Readings are not, except the amount \
+                      beneath a line when a cooking has scaled the recipe; Components \
+                      unfold after it, parent first, each already scaled. Letter for US \
+                      Reading Measures, A4 otherwise. When the Job completes, fetch the PDF \
+                      at GET /api/sheets/<job_id> under the same Credential. Nothing is \
+                      changed.",
+            permission: Permission::Person,
+            kind: Kind::Job,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: sheet_schema(),
+            handler: crate::operations::make_sheet,
+        },
+        Operation {
+            name: "make_shared_sheet",
+            summary: "Set a Sheet of the recipe a Share Link shows, for anyone holding the \
+                      link — no account needed. The recipe is printed as written, with its \
+                      Components unfolded after it at the amount each line asks for. \
+                      `language` picks one of the link's Translations; `locale` is the \
+                      reader's locale (a US or Canadian one prints Letter, anything else A4) and decides \
+                      nothing but the paper. When the Job completes, fetch the PDF at \
+                      GET /api/sheets/<job_id>.",
+            permission: Permission::Public,
+            kind: Kind::Job,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "token": { "type": "string" },
+                    "language": { "type": "string" },
+                    "locale": { "type": "string" },
+                },
+                "required": ["token"],
+                "additionalProperties": false,
+            }),
+            output_schema: sheet_schema(),
+            handler: crate::operations::make_shared_sheet,
+        },
         Operation {
             name: "import_bundle",
             summary: "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it \
@@ -2534,6 +2593,26 @@ fn shelf_schema() -> Value {
             "recipes": { "type": "array", "items": shelf_entry_schema() },
         },
         "required": ["query", "closest", "recipes"],
+        "additionalProperties": false,
+    })
+}
+
+/// What a finished Sheet Job answers: where to fetch the PDF, and what it
+/// came to.
+fn sheet_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "file_name": { "type": "string" },
+            "fetch_at": { "type": "string" },
+            "paper": { "enum": ["a4", "us-letter"] },
+            "pages": { "type": "integer", "minimum": 1 },
+            // The kept file this Job's PDF is read from. The same page asked
+            // for twice is set once and kept (ADR 0032), so two Jobs can name
+            // the same one.
+            "kept_as": { "type": "string" },
+        },
+        "required": ["file_name", "fetch_at", "paper", "pages", "kept_as"],
         "additionalProperties": false,
     })
 }

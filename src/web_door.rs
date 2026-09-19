@@ -125,6 +125,17 @@ pub fn router(core: Arc<Core>) -> Router {
             async move { get_bundle(core, headers, branch_id).await }
         }),
     );
+    // A Sheet is a PDF (#75), made as a Job and fetched here as its own bytes
+    // under the same Credential the Job was asked with — or none, when a
+    // stranger asked through a Share Link.
+    let sheet_core = core.clone();
+    router = router.route(
+        "/api/sheets/{job_id}",
+        get(move |Path(job_id): Path<String>, headers: HeaderMap| {
+            let core = sheet_core.clone();
+            async move { get_sheet(core, headers, job_id).await }
+        }),
+    );
     for op in catalogue::OPERATIONS.iter() {
         let core = core.clone();
         router = router.route(
@@ -428,12 +439,46 @@ async fn get_bundle(core: Arc<Core>, headers: HeaderMap, branch_id: String) -> R
         .into_response()
 }
 
+async fn get_sheet(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Response {
+    let secret = bearer_from_headers(&headers);
+    let read =
+        tokio::task::spawn_blocking(move || core.read_sheet(secret.as_deref(), &job_id)).await;
+    match read {
+        Ok(Ok((name, bytes))) => pdf_response(&name, bytes),
+        Ok(Err(err)) => respond(Err(err)),
+        Err(e) => respond(Err(OpError::internal(format!(
+            "the Sheet could not be read: {e}"
+        )))),
+    }
+}
+
+/// A Sheet as the browser should get it: shown rather than saved, so printing
+/// is the browser's own Print and Kamosu has no dialog of its own (ADR 0023).
+pub fn pdf_response(name: &str, bytes: Vec<u8>) -> Response {
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/pdf".to_string()),
+            (header::CONTENT_LENGTH, bytes.len().to_string()),
+            (header::CONTENT_DISPOSITION, disposition("inline", name)),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+/// A `Content-Disposition` saying a download is to be saved, naming a file
+/// that may not be ASCII.
+fn attachment(name: &str) -> String {
+    disposition("attachment", name)
+}
+
 /// A `Content-Disposition` naming a file that may not be ASCII.
 ///
 /// `filename*` carries the real name, percent-encoded as UTF-8 (RFC 6266), and
 /// `filename` an ASCII stand-in for a client too old to read it: a title like
 /// `Bœuf bourguignon` is ordinary, and a raw non-ASCII header is not.
-fn attachment(name: &str) -> String {
+fn disposition(kind: &str, name: &str) -> String {
     let fallback: String = name
         .chars()
         .map(|ch| {
@@ -454,7 +499,7 @@ fn attachment(name: &str) -> String {
             }
         })
         .collect();
-    format!("attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
+    format!("{kind}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}")
 }
 
 fn image_response(bytes: Vec<u8>) -> Response {

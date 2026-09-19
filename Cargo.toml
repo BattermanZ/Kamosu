@@ -102,6 +102,15 @@ zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 # Streams a large upload to disk a chunk at a time (#69); already in the
 # tree through axum, so this adds no crate.
 futures-util = { version = "0.3.34", default-features = false }
+# The Sheet (#75, ADR 0023): a recipe set for paper by Typst embedded as a
+# library, rather than a headless browser (400 MB and a browser's attack
+# surface) or a hand-rolled PDF writer (pagination is the hard part, and it is
+# what Typst already does). `typst` compiles, `typst-layout` names the paged
+# document it compiles to, and `typst-pdf` writes it out. The template and the
+# fonts are compiled into the binary; nothing is fetched while a Sheet is set.
+typst = "0.15.1"
+typst-pdf = "0.15.1"
+typst-layout = "0.15.1"
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
@@ -111,6 +120,9 @@ futures-util = { version = "0.3.34", default-features = false }
 test-jobs = []
 
 [dev-dependencies]
+# Reads a Sheet's text back out of the PDF, so the behaviour suite can assert
+# what is on the page and what was left behind (#75).
+pdf-extract = "0.12.1"
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
 
