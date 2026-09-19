@@ -11516,19 +11516,22 @@ async fn ending_a_share_link_is_permanent_and_re_enabling_mints_a_new_one() {
 async fn a_share_link_page_never_shows_an_attempt() {
     let app = support::spawn_app();
     let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let plated = upload_a_picture(&app, &key, 12);
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
             "kitchen_id": kitchen_id,
             "title": "Katsu Curry",
+            "main_photo": plated,
             "steps": [{ "kind": "step", "text": "Fry the cutlet.", "photo": null }],
         })
         .to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
-    // Cook it and say something private about the cooking.
+    // Cook it, photograph it, and say something private about the cooking.
+    let picture = upload_a_picture(&app, &key, 77);
     let (status, attempt) = app.post_op(
         "start_attempt",
         Some(&key),
@@ -11543,10 +11546,12 @@ async fn a_share_link_page_never_shows_an_attempt() {
             "attempt_id": attempt_id,
             "rating": "again",
             "note": "Cut the sugar, Marie hated it",
+            "photographs": [picture],
         })
         .to_string(),
     );
     assert_eq!(status, 200, "{finished}");
+    assert_eq!(finished["result"]["photographs"], json!([picture]));
 
     let (token, _url) = share(&app, &key, &branch_id);
     let (status, _type, page) = app.get(&format!("/s/{token}"));
@@ -11561,6 +11566,18 @@ async fn a_share_link_page_never_shows_an_attempt() {
         !page.contains("again"),
         "a rating must never reach a Share Link page"
     );
+    assert!(
+        !page.contains(&picture),
+        "an Attempt photograph must never reach a Share Link page"
+    );
+    // The token opens the recipe's own pictures, and a cooking's is not one.
+    let (status, _type, _body) = app.get(&format!("/s/{token}/photo/{plated}"));
+    assert_eq!(status, 200, "the recipe's own photograph is served");
+    let (status, _type, _body) = app.get(&format!("/s/{token}/photo/{picture}"));
+    assert_ne!(
+        status, 200,
+        "a Share Link must not serve an Attempt photograph"
+    );
 
     // Nor through the Operation the page consumes.
     let (status, read) = app.post_op(
@@ -11571,6 +11588,10 @@ async fn a_share_link_page_never_shows_an_attempt() {
     assert_eq!(status, 200, "{read}");
     let text = read.to_string();
     assert!(!text.contains("Marie"), "no Attempt in the answer: {text}");
+    assert!(
+        !text.contains(&picture),
+        "no Attempt photograph in the answer: {text}"
+    );
     assert!(
         !text.contains("attempts"),
         "no Attempts field exists at all"
