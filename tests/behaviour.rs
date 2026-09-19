@@ -12428,42 +12428,68 @@ async fn the_list_leaves_as_text_under_a_header_line_and_kamosu_lets_go_of_it() 
         "the header names the recipes it was built from, in {header:?}"
     );
 
-    // A row that added says one amount; the row that could not says both, each
-    // under the dish that wanted it — which is the whole answer to *which dish
-    // goes short* travelling out of Kamosu with the list.
+    // Every line under the header is one thing to buy, as a Markdown checklist
+    // line (#74): a Shortcut hands it to Notes, where each line becomes a
+    // checkbox, so a line that was not a thing to buy would be a box to tick.
+    let checklist: Vec<&str> = lines
+        .map(|line| {
+            line.strip_prefix("- [ ] ")
+                .unwrap_or_else(|| panic!("{line:?} is not a checklist line, in {text:?}"))
+        })
+        .collect();
+
+    // A row that added says one amount; the row that could not says both, on
+    // its one line, each naming the dish that wanted it — which is the whole
+    // answer to *which dish goes short* travelling out of Kamosu with the list.
     assert!(
-        text.contains("\nsoy sauce — about 45 ml"),
+        checklist.contains(&"soy sauce — about 45 ml"),
         "an added row carries its one amount, in {text:?}"
     );
+    let garlic = checklist
+        .iter()
+        .find(|line| line.starts_with("minced garlic — "))
+        .unwrap_or_else(|| panic!("the garlic row stays on one line, in {text:?}"));
     assert!(
-        text.contains("\nminced garlic\n"),
-        "the row that could not be added breaks open, in {text:?}"
-    );
-    assert!(
-        text.contains("Korean Fried Chicken: about 30 ml"),
-        "each amount is labelled with the dish that wanted it, in {text:?}"
-    );
-    assert!(
-        text.contains(": 4 cloves"),
-        "and so is the one that would not convert, in {text:?}"
+        garlic.contains("about 30 ml for Korean Fried Chicken")
+            && garlic.contains("; 4 cloves for "),
+        "each amount is labelled with the dish that wanted it, in {garlic:?}"
     );
 
-    // A line typed by hand goes over exactly as typed, with no amount slot.
+    // A line typed by hand goes over exactly as typed, with no amount slot,
+    // in the same alphabetical list as everything else — no block of its own.
     assert!(
-        text.contains("\nbin bags\n") || text.ends_with("\nbin bags\n"),
+        checklist.contains(&"bin bags"),
         "a Loose Item travels whole and alone, in {text:?}"
     );
-    assert!(
-        !text.contains("[ ]") && !text.contains("- ["),
-        "nothing is ticked, here least of all: {text:?}"
-    );
+    let names: Vec<String> = checklist
+        .iter()
+        .map(|line| line.split(" — ").next().unwrap().to_lowercase())
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted, "one flat alphabetical list, in {text:?}");
 
     // Reading it changed nothing: Kamosu offers to empty and does not act.
+    // Declining the offer is simply not asking, so the list is still whole —
+    // both recipes and the typed line — and sending again sends the same.
     let (_, after) = app.post_op("get_shopping_list", Some(&key), "{}");
     assert_eq!(
         after["result"]["chosen"].as_array().unwrap().len(),
         2,
         "sending the list does not empty it"
+    );
+    assert!(
+        after["result"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["name"] == "bin bags"),
+        "and it keeps the typed line too"
+    );
+    let (_, again) = app.post_op("shopping_list_as_text", Some(&key), "{}");
+    assert_eq!(
+        again["result"]["text"], sent["result"]["text"],
+        "a list that was declined sends the same the second time"
     );
 
     let (status, emptied) = app.post_op("empty_shopping_list", Some(&key), "{}");

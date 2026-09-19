@@ -3012,7 +3012,7 @@ export type SetShoppingYieldOutput = {
 	}[];
 };
 
-/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from, because a note accumulates and three trips appended with no divider are a wall. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
+/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
 export type ShoppingListAsTextInput = Record<string, never>;
 /** What shopping_list_as_text answers. */
 export type ShoppingListAsTextOutput = {
@@ -19329,7 +19329,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "shopping_list_as_text",
-		"summary": "Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from, because a note accumulates and three trips appended with no divider are a wall. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out.",
+		"summary": "Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -21198,7 +21198,7 @@ export interface KamosuClient {
 	removeFromShoppingList(input: RemoveFromShoppingListInput): Promise<Answer<'remove_from_shopping_list'>>;
 	/** Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 	setShoppingYield(input: SetShoppingYieldInput): Promise<Answer<'set_shopping_yield'>>;
-	/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from, because a note accumulates and three trips appended with no divider are a wall. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
+	/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
 	shoppingListAsText(input?: ShoppingListAsTextInput): Promise<Answer<'shopping_list_as_text'>>;
 	/** Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
 	emptyShoppingList(input?: EmptyShoppingListInput): Promise<Answer<'empty_shopping_list'>>;

@@ -283,17 +283,20 @@ pub fn sort_key(name: &str) -> String {
 /// same answer the screen draws: the note and the screen cannot disagree about
 /// a number, because there is only one number.
 ///
+/// **Every line under the header is one thing to buy, written as a Markdown
+/// checklist item** — the shape Aurélien chose on #74. The Shortcut appends it
+/// to a note as Markdown, or strips the `- [ ] ` and hands each line to Notes'
+/// *Append Checklist Item*; either way each line becomes a checkbox, so no
+/// line may be anything but a thing to buy. That is why a row that could not
+/// be added stays on one line, naming the dish behind each amount so *which
+/// dish goes short* is still on the paper, and why a recipe that has gone
+/// away is said in the header rather than on a line of its own: a thing that
+/// quietly disappears from a shopping list is a thing that does not get
+/// bought, and a line saying so must not be something to tick.
+///
 /// **The header line is a divider before it is a label.** The note accumulates,
 /// and three trips appended with no divider are a wall — so the date leads and
-/// the recipes it was built from follow. A chosen recipe that has gone away
-/// gets a line of its own rather than a silent absence, because a thing that
-/// quietly disappears from a shopping list is a thing that does not get bought,
-/// and that rule has to survive the trip out of Kamosu.
-///
-/// **A row that could not be added carries its recipes into the note too**, in
-/// the shape chosen on 2026-09-01: `about 30 ml` under one dish and `4 cloves`
-/// under another, so the answer to *which dish goes short* is on the paper and
-/// not only on the screen.
+/// the recipes it was built from follow.
 pub fn as_text(list: &Value, today: &str, language: &str) -> String {
     let empty = Vec::new();
     let chosen = list["chosen"].as_array().unwrap_or(&empty);
@@ -303,16 +306,14 @@ pub fn as_text(list: &Value, today: &str, language: &str) -> String {
         .iter()
         .partition(|entry| entry["gone"].as_bool().unwrap_or(false));
 
-    let mut out = String::new();
+    let mut out = today.to_string();
     let names = here.iter().map(|entry| title_of(entry)).collect::<Vec<_>>();
-    if names.is_empty() {
-        out.push_str(today);
-    } else {
-        out.push_str(&format!("{today} · {}", names.join(", ")));
+    if !names.is_empty() {
+        out.push_str(&format!(" · {}", names.join(", ")));
     }
     for entry in gone {
         out.push_str(&format!(
-            "\n{} — {}",
+            " · {} {}",
             title_of(entry),
             gone_written(language)
         ));
@@ -322,23 +323,28 @@ pub fn as_text(list: &Value, today: &str, language: &str) -> String {
         let name = row["name"].as_str().unwrap_or_default();
         let parts = row["parts"].as_array().unwrap_or(&empty);
         let said = |part: &Value| part["text"].as_str().unwrap_or_default().to_string();
+        out.push_str(&format!("\n- [ ] {name}"));
         match parts.len() {
             // A Loose Item, and a line nobody ever read: what is written is
             // the whole of what is known, so it goes over whole and alone.
-            0 => out.push_str(&format!("\n{name}")),
-            1 => out.push_str(&format!("\n{name} — {}", said(&parts[0]))),
+            0 => {}
+            1 => out.push_str(&format!(" — {}", said(&parts[0]))),
             _ => {
-                out.push_str(&format!("\n{name}"));
-                for part in parts {
-                    let sources = part["sources"]
-                        .as_array()
-                        .unwrap_or(&empty)
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                        .join(" · ");
-                    out.push_str(&format!("\n  {sources}: {}", said(part)));
-                }
+                let amounts = parts
+                    .iter()
+                    .map(|part| {
+                        let sources = part["sources"]
+                            .as_array()
+                            .unwrap_or(&empty)
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{} {} {sources}", said(part), for_written(language))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                out.push_str(&format!(" — {amounts}"));
             }
         }
     }
@@ -353,6 +359,16 @@ fn gone_written(language: &str) -> &'static str {
         "fr" => "ne peut plus être lu",
         "es" => "ya no se puede leer",
         _ => "can no longer be read",
+    }
+}
+
+/// The word between an amount and the dish that wants it, on a row that could
+/// not be added.
+fn for_written(language: &str) -> &'static str {
+    match language {
+        "fr" => "pour",
+        "es" => "para",
+        _ => "for",
     }
 }
 
@@ -605,5 +621,59 @@ mod tests {
         let mut names = ["zeste", "échalote", "ail"];
         names.sort_by_key(|name| sort_key(name));
         assert_eq!(names, ["ail", "échalote", "zeste"]);
+    }
+
+    fn sample_list() -> Value {
+        json!({
+            "chosen": [
+                { "title": "Korean Fried Chicken", "gone": false },
+                { "title": "Coq au Vin", "gone": false },
+                { "title": "Ratatouille", "gone": true },
+            ],
+            "rows": [
+                { "name": "bin bags", "parts": [] },
+                { "name": "minced garlic", "parts": [
+                    { "text": "about 30 ml", "sources": ["Korean Fried Chicken"] },
+                    { "text": "4 cloves", "sources": ["Coq au Vin", "Orzo"] },
+                ] },
+                { "name": "soy sauce", "parts": [
+                    { "text": "about 45 ml", "sources": ["Korean Fried Chicken", "Coq au Vin"] },
+                ] },
+            ],
+        })
+    }
+
+    #[test]
+    fn the_text_is_a_header_then_one_markdown_checklist_line_per_thing_to_buy() {
+        // The shape chosen on #74: a Shortcut hands this to Notes, and every
+        // line under the header has to be exactly one thing to buy, because
+        // every one becomes a checkbox.
+        let text = as_text(&sample_list(), "2026-09-19", "en");
+        assert_eq!(
+            text,
+            "2026-09-19 · Korean Fried Chicken, Coq au Vin · Ratatouille can no longer be read\n\
+             - [ ] bin bags\n\
+             - [ ] minced garlic — about 30 ml for Korean Fried Chicken; 4 cloves for Coq au Vin, Orzo\n\
+             - [ ] soy sauce — about 45 ml\n"
+        );
+    }
+
+    #[test]
+    fn a_list_with_nothing_on_it_is_the_header_alone() {
+        let text = as_text(&json!({ "chosen": [], "rows": [] }), "2026-09-19", "en");
+        assert_eq!(text, "2026-09-19\n");
+    }
+
+    #[test]
+    fn the_words_the_text_adds_follow_the_reader() {
+        let text = as_text(&sample_list(), "2026-09-19", "fr");
+        assert!(
+            text.contains("· Ratatouille ne peut plus être lu\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("about 30 ml pour Korean Fried Chicken; 4 cloves pour"),
+            "{text}"
+        );
     }
 }

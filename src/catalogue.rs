@@ -1910,9 +1910,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       out of Kamosu. Nothing is ticked off here, because the \
                       list leaves and something else holds the ticks — Apple \
                       Notes, through a Shortcut. The text opens with a header \
-                      line, the date and the recipes it was built from, \
-                      because a note accumulates and three trips appended with \
-                      no divider are a wall. This only reads: emptying the \
+                      line, the date and the recipes it was built from (and \
+                      any that can no longer be read), because a note \
+                      accumulates and three trips appended with no divider are \
+                      a wall. Under it, one flat alphabetical list with one \
+                      Markdown checklist line (`- [ ] `) per thing to buy, so \
+                      each line becomes one checkbox; a row whose amounts \
+                      could not be added stays on its one line, naming the \
+                      dish behind each amount. This only reads: emptying the \
                       list afterwards is a separate Operation, offered and \
                       never done on the way out.",
             permission: Permission::Person,

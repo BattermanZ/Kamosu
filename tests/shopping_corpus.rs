@@ -330,15 +330,17 @@ async fn the_whole_real_library_on_one_list_merges_adds_and_admits_what_it_canno
         header.len() > 10 && header.contains(" · "),
         "the header carries the date and the recipes it was built from: {header:?}"
     );
-    // Every row reached the note, and the note invents none of its own.
-    for row in rows {
+    // Every row reached the note as exactly one checklist line (#74), and the
+    // note invents none of its own.
+    let checklist: Vec<&str> = lines.collect();
+    assert_eq!(checklist.len(), rows.len(), "one line per row: {text:?}");
+    for (line, row) in checklist.iter().zip(rows) {
         let name = row["name"].as_str().unwrap();
-        assert!(text.contains(name), "the note dropped a row: {name:?}");
+        assert!(
+            line.starts_with(&format!("- [ ] {name}")),
+            "the note dropped or reordered a row: {name:?} against {line:?}"
+        );
     }
-    assert!(
-        !text.contains("[ ]") && !text.contains("- ["),
-        "nothing is ticked, in Kamosu or on the way out"
-    );
 
     // And reading it changed nothing: Kamosu offers to empty and does not act.
     let (_, after) = app.post_op("get_shopping_list", Some(&key), "{}");
