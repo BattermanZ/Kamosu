@@ -368,6 +368,19 @@
 										{/if}
 									</span>
 								{/if}
+								{#if row.said}
+									<!--
+										**Why a row that buys nothing buys nothing**
+										(ADR 0008): this line stands for a recipe
+										Kamosu could not open, and without the
+										sentence it reads exactly like a line
+										Kamosu could not interpret. Worded in the
+										Core, so the recipe page says it the same
+										way. Quiet, and never a warning: nobody did
+										anything wrong.
+									-->
+									<span class="mt-1 block text-read text-ink-2">{row.said}</span>
+								{/if}
 							</span>
 						</button>
 

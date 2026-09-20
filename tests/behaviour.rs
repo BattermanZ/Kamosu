@@ -14149,6 +14149,578 @@ fn versions_on_no_branch(app: &support::TestApp) -> i64 {
         .unwrap()
 }
 
+// ── A Shopping List unfolds Components to the bottom (#86, ADR 0008) ─────────
+//
+// ADR 0008's last consequence, and the one #73 shipped before it was possible:
+// a list unfolds every Component to the bottom under the same repeat guard,
+// applies the factor at each level, and then merges Foods — which is a Food
+// question rather than a link question. Choosing the pizza has to buy the
+// dough's flour.
+
+/// A pizza, its dough, and the Component that joins them — the worked example
+/// ADR 0008 itself uses. Answers the pizza's Branch, the dough's Branch and
+/// the dough's Lineage, which is what a Component actually names.
+fn a_pizza_on_a_dough(
+    app: &support::TestApp,
+    key: &str,
+    kitchen_id: &str,
+) -> (String, String, String) {
+    let (dough, dough_lineage) = recipe_with(
+        app,
+        key,
+        kitchen_id,
+        "Neapolitan Pizza Dough",
+        Some(("1", "kg")),
+        json!([
+            { "kind": "ingredient", "text": "600 g tipo 00 flour" },
+            { "kind": "ingredient", "text": "390 ml cold water" },
+        ]),
+        json!([{ "kind": "step", "text": "Knead for ten minutes." }]),
+    );
+    let (pizza, _) = recipe_with(
+        app,
+        key,
+        kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([
+            { "kind": "ingredient", "text": "Dough for 2 pizzas" },
+            { "kind": "ingredient", "text": "100 g tipo 00 flour" },
+            { "kind": "ingredient", "text": "250 g mozzarella" },
+        ]),
+        json!([{ "kind": "step", "text": "Stretch, top and bake." }]),
+    );
+    // 500 g of a dough that yields a kilo: half of it.
+    make_component(app, key, &pizza, 0, Some("500"), Some("g"), &dough_lineage);
+    (pizza, dough, dough_lineage)
+}
+
+/// Every row of a list, by name, so a test can say what the whole list holds.
+fn row_names(list: &Value) -> Vec<String> {
+    list["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row["name"].as_str().unwrap_or_default().to_string())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn choosing_a_recipe_buys_the_ingredients_of_the_recipes_inside_it() {
+    // The failure #86 names: choosing the pizza used to put *Dough for 2
+    // pizzas* on the list as an uninterpreted line and none of the dough's own
+    // flour and water at all. Now the dough contributes its Foods and no line
+    // of its own, and its flour merges with the pizza's.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    let list = &list["result"];
+
+    // 300 g of the dough's flour — half of 600 — and the pizza's own 100 g,
+    // in one row, because two mentions of one Food are one thing to buy.
+    assert_eq!(
+        amounts(row(list, "tipo 00 flour")),
+        vec!["about 400 g"],
+        "the dough's half and the pizza's own, merged"
+    );
+    assert_eq!(
+        amounts(row(list, "cold water")),
+        vec!["about 200 ml"],
+        "the dough's water, halved and then rounded for the jug in the drawer"
+    );
+
+    // **A Component contributes Foods, not a line of its own.** The written
+    // line that used to sit here uninterpreted is gone, because what it stood
+    // for is now on the list.
+    assert!(
+        !row_names(list)
+            .iter()
+            .any(|name| name == "Dough for 2 pizzas"),
+        "the Component's own line comes off once it has opened: {:?}",
+        row_names(list)
+    );
+
+    // The flour row breaks open to both written lines, each naming the recipe
+    // it is really from — the dough by name, not the pizza (ADR 0002).
+    let lines = row(list, "tipo 00 flour")["lines"].as_array().unwrap();
+    let said = lines
+        .iter()
+        .map(|line| {
+            (
+                line["recipe"].as_str().unwrap().to_string(),
+                line["text"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        said.contains(&(
+            "Neapolitan Pizza Dough".to_string(),
+            "600 g tipo 00 flour".to_string()
+        )),
+        "the dough's line says it is the dough's: {said:?}"
+    );
+    assert!(
+        said.contains(&(
+            "Pizza Margherita".to_string(),
+            "100 g tipo 00 flour".to_string()
+        )),
+        "and the pizza's says it is the pizza's: {said:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_factor_compounds_through_nested_components_and_the_shopping_yield_scales_the_chain() {
+    // ADR 0008: half of a dough that is itself half a starter is a quarter of
+    // the starter. The Shopping Yield is the outer scale on top of all of it,
+    // exactly as the cooking Yield is on the recipe page.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (_starter, starter_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Levain",
+        Some(("400", "g")),
+        json!([{ "kind": "ingredient", "text": "200 g rye flour" }]),
+        json!([{ "kind": "step", "text": "Feed it." }]),
+    );
+    let (pizza, dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    // 200 g of a starter that makes 400 g: half of it, inside a dough the
+    // pizza takes half of. A quarter of the starter reaches the pizza.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": dough,
+            "title": "Neapolitan Pizza Dough",
+            "yield": { "amount": "1", "noun": "kg" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "600 g tipo 00 flour" },
+                { "kind": "ingredient", "text": "390 ml cold water" },
+                { "kind": "ingredient", "text": "200 g levain" },
+            ],
+            "steps": [{ "kind": "step", "text": "Knead for ten minutes." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    make_component(
+        &app,
+        &key,
+        &dough,
+        2,
+        Some("200"),
+        Some("g"),
+        &starter_lineage,
+    );
+
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    assert_eq!(
+        amounts(row(&list["result"], "rye flour")),
+        vec!["about 50 g"],
+        "200 g of rye, halved into the dough and halved again into the pizza"
+    );
+
+    // Four pizzas rather than two: the whole chain doubles, the nested level
+    // included.
+    let (status, doubled) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({
+            "branch_id": pizza,
+            "shopping_yield": { "amount": "4", "noun": "pizzas" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{doubled}");
+    let doubled = &doubled["result"];
+    assert_eq!(
+        amounts(row(doubled, "rye flour")),
+        vec!["about 100 g"],
+        "the Shopping Yield is the outer scale over the compounded factor"
+    );
+    assert_eq!(
+        amounts(row(doubled, "cold water")),
+        vec!["about 390 ml"],
+        "and it reaches the first level down just the same"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_kamosu_cannot_measure_puts_its_foods_on_the_list_unmeasured() {
+    // Aurélien's call on #86. `2 poignées de pâte` cannot be compared with the
+    // dough's Yield, so there is no honest factor — and rather than dropping
+    // the dough's flour or inventing a figure for it, the list carries it in
+    // the *some* bucket ADR 0024 already gives a line written with no quantity.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (pizza, _dough, dough_lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    // A quantity in nobody's units, against a Yield in kilos.
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("2"),
+        Some("poignées"),
+        &dough_lineage,
+    );
+
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    let list = &list["result"];
+
+    // The dough's water is on the list and carries no number.
+    assert_eq!(
+        amounts(row(list, "cold water")),
+        vec!["some"],
+        "on the list, and honest about not being a quantity"
+    );
+    // And where it meets a measured amount, the row says both rather than one.
+    assert_eq!(
+        amounts(row(list, "tipo 00 flour")),
+        vec!["about 100 g", "some"],
+        "the pizza's own 100 g, and the dough's flour it could not work out"
+    );
+    // **The list says which it did**: the unmeasured part names the recipe it
+    // came from, so the shopper can see it is the dough that is unaccounted.
+    let unmeasured = row(list, "tipo 00 flour")["parts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|part| part["kind"] == json!("no_amount"))
+        .expect("the part with no amount");
+    assert_eq!(
+        unmeasured["sources"],
+        json!(["Neapolitan Pizza Dough"]),
+        "and says which recipe it could not measure"
+    );
+
+    // Scaling the list cannot rescue a factor that was never worked out.
+    let (_, doubled) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({
+            "branch_id": pizza,
+            "shopping_yield": { "amount": "4", "noun": "pizzas" },
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        amounts(row(&doubled["result"], "cold water")),
+        vec!["some"],
+        "twice nothing is still nothing"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn once_a_components_share_is_lost_everything_under_it_is_unmeasured_too() {
+    // The other half of Aurélien's call on #86. A starter inside a dough the
+    // pizza could not measure has its own perfectly good arithmetic — 200 g of
+    // a 400 g levain is half of it — but there is nothing honest to multiply
+    // that half by, because how much dough the pizza wants was never worked
+    // out. Picking the inner chain's arithmetic back up would put a figure on
+    // the list that rests on a guess Kamosu declined to make.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (_starter, starter_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Levain",
+        Some(("400", "g")),
+        json!([{ "kind": "ingredient", "text": "200 g rye flour" }]),
+        json!([{ "kind": "step", "text": "Feed it." }]),
+    );
+    let (pizza, dough, dough_lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": dough,
+            "title": "Neapolitan Pizza Dough",
+            "yield": { "amount": "1", "noun": "kg" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "600 g tipo 00 flour" },
+                { "kind": "ingredient", "text": "390 ml cold water" },
+                { "kind": "ingredient", "text": "200 g levain" },
+            ],
+            "steps": [{ "kind": "step", "text": "Knead for ten minutes." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    // The starter inside the dough: measurable on its own terms.
+    make_component(
+        &app,
+        &key,
+        &dough,
+        2,
+        Some("200"),
+        Some("g"),
+        &starter_lineage,
+    );
+    // The dough inside the pizza: not measurable at all.
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("2"),
+        Some("poignées"),
+        &dough_lineage,
+    );
+
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    let list = &list["result"];
+
+    // The rye is on the list — it does not vanish — and it carries no number,
+    // rather than the 100 g its own half-of-a-half would have given.
+    assert_eq!(
+        amounts(row(list, "rye flour")),
+        vec!["some"],
+        "the level below an unmeasured Component is unmeasured too"
+    );
+    assert_eq!(
+        row(list, "rye flour")["lines"][0]["recipe"],
+        json!("Levain"),
+        "and still says which recipe wants it"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_that_unfolds_to_nothing_keeps_its_written_line() {
+    // The trap in taking a Component's line off once it has opened: a recipe
+    // with no Ingredients at all opens perfectly well and contributes nothing,
+    // so the line would come off with nothing to replace it and the pizza
+    // would say nothing about its dough. ADR 0024's rule does not care how the
+    // disappearing happened.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (_empty, empty_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Sourdough Starter",
+        Some(("1", "kg")),
+        json!([{ "kind": "section", "text": "Nothing to buy" }]),
+        json!([{ "kind": "step", "text": "Keep feeding what you already have." }]),
+    );
+    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &empty_lineage,
+    );
+
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    let names = row_names(&list["result"]);
+    assert!(
+        names.iter().any(|name| name == "Dough for 2 pizzas"),
+        "nothing replaced it, so the written line stays: {names:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_whose_recipe_is_missing_keeps_its_written_line_on_the_list() {
+    // ADR 0024: a thing that quietly disappears from a shopping list is a
+    // thing that does not get bought. A Component that cannot be opened is the
+    // one case where the written line is all there is, so it stays — quoted
+    // whole, contributing nothing, exactly as it did before #86.
+    //
+    // A Lineage nothing in view holds is how this arrives in practice: a
+    // Bundle received without its dough, or a sharing withdrawn. ADR 0008
+    // needs no cascade and no ceremony for it, and neither does a list.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        "l_never_received_here",
+    );
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+
+    let (status, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(status, 200, "{list}");
+    let list = &list["result"];
+    let names = row_names(list);
+    assert!(
+        names.iter().any(|name| name == "Dough for 2 pizzas"),
+        "the written line is what is left, and it stays: {names:?}"
+    );
+    assert_eq!(
+        amounts(row(list, "Dough for 2 pizzas")),
+        Vec::<String>::new(),
+        "quoted whole and contributing nothing"
+    );
+    // **And it says why it contributes nothing** (ADR 0008). Without this the
+    // row reads exactly like a line Kamosu could not interpret, and nothing on
+    // the list tells the shopper that the dough's flour is their own problem.
+    assert_eq!(
+        row(list, "Dough for 2 pizzas")["said"],
+        json!("Kamosu does not have this recipe."),
+        "worded once in the Core, so the recipe page says it the same way"
+    );
+    // A row Kamosu did read has nothing to say about itself.
+    assert_eq!(row(list, "tipo 00 flour")["said"], Value::Null);
+    assert!(
+        !names.iter().any(|name| name == "cold water"),
+        "and nothing of the recipe nobody holds is invented: {names:?}"
+    );
+    // The pizza's own flour is untouched by any of it.
+    assert_eq!(amounts(row(list, "tipo 00 flour")), vec!["about 100 g"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_loop_of_components_stops_at_the_first_repeat_and_says_nothing_alarming() {
+    // ADR 0008: cycles are never refused, unfolding stops. A loop can arrive
+    // already formed from two halves on two servers, so the guard is here
+    // rather than at the door — and a shopping list meeting one simply stops
+    // rather than refusing to draw or warning about a thing nobody did wrong.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (pizza, dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let pizza_lineage = app
+        .post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza }).to_string(),
+        )
+        .1["result"]["lineage_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // The dough now names the pizza back.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": dough,
+            "title": "Neapolitan Pizza Dough",
+            "yield": { "amount": "1", "noun": "kg" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "600 g tipo 00 flour" },
+                { "kind": "ingredient", "text": "390 ml cold water" },
+                { "kind": "ingredient", "text": "1 pizza, torn up" },
+            ],
+            "steps": [{ "kind": "step", "text": "Knead for ten minutes." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    make_component(&app, &key, &dough, 2, Some("1"), None, &pizza_lineage);
+
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "the loop is drawn, not refused: {list}");
+    let list = &list["result"];
+
+    // It went round once and stopped: the dough's own lines are there, and the
+    // pizza's did not arrive a second time.
+    assert_eq!(amounts(row(list, "cold water")), vec!["about 200 ml"]);
+    assert_eq!(
+        amounts(row(list, "tipo 00 flour")),
+        vec!["about 400 g"],
+        "the pizza's 100 g and the dough's halved 600 g, counted once each"
+    );
+    // The line that closed the loop is left as the words somebody wrote —
+    // which is the whole of what the list says about it.
+    let names = row_names(list);
+    assert!(
+        names.iter().any(|name| name == "1 pizza, torn up"),
+        "the repeated line stays as written: {names:?}"
+    );
+    assert_eq!(
+        amounts(row(list, "1 pizza, torn up")),
+        Vec::<String>::new(),
+        "no amount, and no refusal"
+    );
+    // It says where it stopped, calmly. ADR 0008 asks unfolding to stop at a
+    // repeat *saying so*, on a list as much as on a page — and a plain
+    // sentence is not the alarm #86 asked it not to raise.
+    assert_eq!(
+        row(list, "1 pizza, torn up")["said"],
+        json!("Pizza Margherita is already open above — Kamosu stops here.")
+    );
+}
+
 /// **The invariant, asked of a real database after every path that writes a
 /// Version** (#89, ADR 0038).
 ///
@@ -18334,9 +18906,14 @@ async fn a_recipes_shopping_basis_is_what_its_rows_are_added_up_from() {
         .find(|line| line["text"] == json!("1 tbsp soy sauce"))
         .expect("the soy sauce line");
     assert_eq!(
-        soy["index"],
-        json!(2),
+        soy["path"],
+        json!([2]),
         "named by where it sits in the recipe"
+    );
+    assert_eq!(
+        soy["from"],
+        Value::Null,
+        "and by nothing else: it is the chosen recipe's own line, not a Component's"
     );
     assert_eq!(soy["food"]["name"], json!("soy sauce"));
     assert_eq!(soy["food"]["amount"], json!(1.0));

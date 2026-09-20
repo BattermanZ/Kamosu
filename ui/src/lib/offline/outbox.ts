@@ -635,6 +635,9 @@ export class Outbox implements Keeping {
 			name_language: null,
 			parts: [],
 			lines: [],
+			// A Loose Item is never interpreted, deliberately (ADR 0024), so
+			// Kamosu has nothing to say about it.
+			said: null,
 		}));
 		return {
 			chosen: state.chosen,

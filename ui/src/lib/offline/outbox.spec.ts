@@ -46,7 +46,9 @@ const basis = (branch_id: string, title: string, grams: number): ShoppingBasisOu
 	written_yield: { amount: '4', noun: 'servings' },
 	lines: [
 		{
-			index: 0,
+			path: [0],
+			from: null,
+			said: null,
 			text: `${grams} g flour`,
 			food: {
 				id: 'f_flour',

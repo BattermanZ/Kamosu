@@ -1912,10 +1912,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "What one recipe puts on a Shopping List before anything \
                       is added up: each Ingredient Line, the Food it was read \
                       as and the name that Food goes by for you, how much it \
-                      said, its Unit, and what a cup of the Food weighs. Always \
-                      the Branch's latest Version. It is how a phone with no \
-                      network works out the list's rows itself for the recipes \
-                      it holds (#77); get_shopping_list is the list itself.",
+                      said, its Unit, and what a cup of the Food weighs. Every \
+                      recipe this one includes is unfolded to the bottom and \
+                      its lines are here too, already carrying their share, so \
+                      a pizza's flour and its dough's flour add up to one \
+                      thing to buy. Always the Branch's latest Version. It is \
+                      how a phone with no network works out the list's rows \
+                      itself for the recipes it holds (#77); get_shopping_list \
+                      is the list itself.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -4296,8 +4300,21 @@ fn shopping_list_schema() -> Value {
                                 "additionalProperties": false,
                             },
                         },
+                        // **Why a row that buys nothing buys nothing**, where
+                        // its line stands for a Component Kamosu could not
+                        // open (ADR 0008, #86): a recipe it does not have, or
+                        // one already open above it. Without it such a row
+                        // reads exactly like a line Kamosu could not
+                        // interpret, and nothing on the list tells the two
+                        // apart. Worded in the Core so the recipe page and
+                        // the list say it the same way. Null everywhere else,
+                        // a Loose Item included — words typed at the door are
+                        // never interpreted, deliberately (ADR 0024).
+                        "said": { "type": ["string", "null"] },
                     },
-                    "required": ["id", "kind", "name", "name_language", "parts", "lines"],
+                    "required": [
+                        "id", "kind", "name", "name_language", "parts", "lines", "said"
+                    ],
                     "additionalProperties": false,
                 },
             },
@@ -4318,16 +4335,48 @@ fn shopping_basis_schema() -> Value {
             "title": { "type": "string" },
             "written_yield": yield_schema(),
             // The Ingredient Lines in the recipe's order, Sections left out:
-            // a Section heads a list and is not a thing to buy.
+            // a Section heads a list and is not a thing to buy. **Every line
+            // of every recipe this one composes is here too**, unfolded to the
+            // bottom and already scaled by its Component's factor (ADR 0008,
+            // #86) — a Component contributes its inner recipe's Foods rather
+            // than a line of its own, so the pizza's flour and its dough's
+            // flour merge into one row.
             "lines": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
-                        // Where the line sits in the recipe's own list, which
-                        // is what a row that merges with nothing is named by.
-                        "index": { "type": "integer", "minimum": 0 },
+                        // Where the line sits, as the chain of line indexes
+                        // that reaches it: `[3]` in this recipe, `[3, 1]` for
+                        // the second line of the recipe its fourth line
+                        // composes. It is what names a row that merges with
+                        // nothing, and no two lines share one.
+                        "path": {
+                            "type": "array",
+                            "items": { "type": "integer", "minimum": 0 },
+                        },
+                        // The recipe the line is really from, where that is
+                        // not this one: a line that arrived by unfolding a
+                        // Component names the inner recipe, so a row can say
+                        // the flour is the dough's. Null on this recipe's own
+                        // lines.
+                        "from": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "branch_id": { "type": "string" },
+                                "title": { "type": "string" },
+                            },
+                            "required": ["branch_id", "title"],
+                            "additionalProperties": false,
+                        },
                         "text": { "type": "string" },
+                        // **Why this line buys nothing**, where it stands for
+                        // a Component Kamosu could not open (ADR 0008, #86):
+                        // a recipe it does not have, or one already open above
+                        // it. Worded once in the Core, in the reader's
+                        // Language, so the recipe page and the list say it the
+                        // same way. Null on every other line.
+                        "said": { "type": ["string", "null"] },
                         // Null where no Food was read: the line then stands
                         // on the list exactly as written and merges with
                         // nothing (ADR 0024).
@@ -4340,8 +4389,14 @@ fn shopping_basis_schema() -> Value {
                                 "name": { "type": ["string", "null"] },
                                 "name_language": { "type": ["string", "null"] },
                                 // The amount as a number, for the recipe as
-                                // written. Null where nobody put a number on
-                                // the line, or Kamosu could not read one.
+                                // written and already carrying its Component's
+                                // factor where it came through one. Null where
+                                // nobody put a number on the line, Kamosu
+                                // could not read one, or it could work out no
+                                // factor for the Component this line arrived
+                                // through (#86) — the line then rides as one
+                                // more thing that will not add, rather than as
+                                // a figure nobody computed.
                                 "amount": { "type": ["number", "null"] },
                                 // The Unit exactly as the cook wrote it.
                                 "unit": { "type": ["string", "null"] },
@@ -4360,7 +4415,7 @@ fn shopping_basis_schema() -> Value {
                             "additionalProperties": false,
                         },
                     },
-                    "required": ["index", "text", "food"],
+                    "required": ["path", "from", "said", "text", "food"],
                     "additionalProperties": false,
                 },
             },

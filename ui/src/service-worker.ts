@@ -17,7 +17,7 @@
 
 import { build, files, version } from '$service-worker';
 import { createWorker } from '$lib/offline/worker';
-import { ASSETS_CACHE } from '$lib/offline/reads';
+import { ASSETS_CACHE, READS_CACHE } from '$lib/offline/reads';
 
 const self = globalThis.self as unknown as ServiceWorkerGlobalScope;
 
@@ -61,9 +61,28 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
 	event.waitUntil(
 		(async () => {
+			let upgraded = false;
 			for (const key of await caches.keys()) {
-				if (key.startsWith('kamosu-shell-') && key !== SHELL) await caches.delete(key);
+				if (key.startsWith('kamosu-shell-') && key !== SHELL) {
+					await caches.delete(key);
+					upgraded = true;
+				}
 			}
+			// **An upgrade throws the kept reads away.** A kept read is a copy
+			// of an answer the Catalogue of *that* build described, and an
+			// upgrade is free to change an Operation's shape — #86 moved a
+			// Shopping List's lines from an index to a path. Code written for
+			// the new shape reading a copy in the old one is the crash that
+			// cannot be caught, because nothing about the copy says which
+			// build wrote it.
+			//
+			// Discarding them costs almost nothing and the alternative is a
+			// shim per changed field, carried for ever. The database is the
+			// truth and this was only ever a copy (ADR 0003); the phone
+			// downloaded this worker moments ago, so it has a network, and
+			// `missing()` fetches back whatever the library still owes.
+			// Photographs are a separate cache and are untouched.
+			if (upgraded) await caches.delete(READS_CACHE);
 			// Take the page that installed this at once, so a first visit's reads
 			// start being kept without waiting for a second one.
 			await self.clients.claim();

@@ -6534,7 +6534,14 @@ impl Core {
             ensure_member(conn, &head.kitchen_id, person_id)?;
             let reader = Reader::of(conn, person_id)?;
             let content = version_content(conn, &head.head_version_id)?;
-            let lines = basis_lines(conn, &reader, &head.head_version_id, &content)?;
+            let lines = basis_lines(
+                conn,
+                &reader,
+                person_id,
+                &head.lineage_id,
+                &head.head_version_id,
+                &content,
+            )?;
             Ok(json!({
                 "branch_id": branch_id,
                 "title": content["title"],
@@ -6938,13 +6945,25 @@ enum Unfolds<'a> {
         kitchen_id: &'a str,
         reader: &'a Reader,
     },
+    /// **A Shopping List unfolding to the bottom** (ADR 0008, #86). Resolved
+    /// exactly as the Person's own page resolves it, because it is the same
+    /// question — which dough do I hold — asked for a different purpose.
+    ///
+    /// It carries no subordinate line. A list wants the Food each inner line
+    /// was read as, which it reads for itself line by line; the worded amount
+    /// a page shows beneath a line would be several hundred conversions
+    /// nothing on this road ever prints.
+    ForShopping {
+        person_id: &'a str,
+        reader: &'a Reader,
+    },
 }
 
 impl Unfolds<'_> {
     /// Which Branch of a Lineage this unfolding can see, if any.
     fn resolve(&self, conn: &Connection, lineage_id: &str) -> Result<Option<Held>, OpError> {
         match self {
-            Unfolds::ForReader { person_id, .. } => {
+            Unfolds::ForReader { person_id, .. } | Unfolds::ForShopping { person_id, .. } => {
                 branch_of_lineage_for(conn, lineage_id, person_id)
             }
             Unfolds::AsPassenger { kitchen_id, .. }
@@ -6957,9 +6976,9 @@ impl Unfolds<'_> {
     /// The Language the Component's own line is worded in.
     fn language(&self) -> &str {
         match self {
-            Unfolds::ForReader { reader, .. } | Unfolds::PrintedPassenger { reader, .. } => {
-                &reader.language
-            }
+            Unfolds::ForReader { reader, .. }
+            | Unfolds::PrintedPassenger { reader, .. }
+            | Unfolds::ForShopping { reader, .. } => &reader.language,
             Unfolds::AsPassenger { language, .. } => language,
         }
     }
@@ -6976,7 +6995,7 @@ impl Unfolds<'_> {
             Unfolds::ForReader { reader, .. } | Unfolds::PrintedPassenger { reader, .. } => {
                 measured_for_version(conn, content, version_id, reader, scale)
             }
-            Unfolds::AsPassenger { .. } => Ok(Value::Null),
+            Unfolds::AsPassenger { .. } | Unfolds::ForShopping { .. } => Ok(Value::Null),
         }
     }
 }
@@ -7261,6 +7280,8 @@ fn unfold_components(
             "readings": readings,
             "measured": measured,
         }));
+        walk.inside
+            .push((walk.path.clone(), inner_version_id.clone()));
 
         walk.open.push(lineage_id);
         unfold_components(conn, how, &inner_version_id, inner_scale, walk)?;
@@ -7283,6 +7304,16 @@ struct Unfolding {
     path: Vec<i64>,
     /// Every Component met so far, depth first, in the order the page meets them.
     found: Vec<Value>,
+    /// **The Version each Component that opened resolved to**, by the path that
+    /// reaches it — everything a caller needs to go and read the inner recipe
+    /// for itself, as a Shopping List does (#86).
+    ///
+    /// Beside `found` rather than in it, because `found` is what the Catalogue
+    /// declares a Component to be and a Version id is Kamosu's own bookkeeping:
+    /// nothing on a page uses it, so nothing on a page should be handed it.
+    /// A Component that did not open is absent, which is what makes finding a
+    /// path here the same question as *did this one open*.
+    inside: Vec<(Vec<i64>, String)>,
 }
 
 /// The Branch of one Lineage this reader holds, and its head Version's content.
@@ -11847,6 +11878,10 @@ struct Chosen {
     /// The recipe's own content, where it could be read.
     content: Option<Value>,
     head_version_id: Option<String>,
+    /// Which Lineage the chosen Branch is a Branch of, so that a recipe
+    /// composing itself stops at the first repeat rather than unfolding for
+    /// ever (ADR 0008).
+    lineage_id: Option<String>,
 }
 
 /// **The whole Shopping List**: the choosing as stored, and the rows worked out
@@ -11866,10 +11901,15 @@ fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
     // checked against.
     let mut bases = Vec::with_capacity(chosen.len());
     for entry in &chosen {
-        let (Some(content), Some(version_id)) = (&entry.content, &entry.head_version_id) else {
+        let (Some(content), Some(version_id), Some(lineage_id)) =
+            (&entry.content, &entry.head_version_id, &entry.lineage_id)
+        else {
             continue;
         };
-        bases.push((entry, basis_lines(conn, &reader, version_id, content)?));
+        bases.push((
+            entry,
+            basis_lines(conn, &reader, person_id, lineage_id, version_id, content)?,
+        ));
     }
     let gathered = bases
         .iter()
@@ -11902,16 +11942,203 @@ fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
     }))
 }
 
-/// Every Ingredient Line of one Version as a Shopping List reads it: the Food
-/// it was read as and that Food's name for this reader, how much it said, and
-/// its Unit — or, where no Food was read, only its words (ADR 0024). What
-/// `shopping_basis` answers (#77) and what `shopping_list` adds up, so the
-/// phone and the server start from the same facts.
+/// **What one chosen recipe puts on a Shopping List, Components and all**
+/// (ADR 0024, ADR 0008, #86).
+///
+/// Its own Ingredient Lines, and then every line of every recipe it composes,
+/// to the bottom — because ADR 0008 says a shopping list unfolds Components to
+/// the bottom and then merges Foods, which is a Food question rather than a
+/// link question. The pizza's flour and its dough's flour are the same row.
+///
+/// **The unfolding is the very walk the recipe page uses**, repeat guard and
+/// all ([`unfold_components`]). Only what is done with each Component differs,
+/// and that is the whole of what this function decides:
+///
+/// - **A Component that opened contributes its inner recipe's Foods and no
+///   line of its own.** Its written line — *500 g de pâte à pizza* — comes off
+///   the list, because the dough is now on it as flour, water, salt and yeast.
+/// - **One that did not keeps its written line and contributes nothing.** A
+///   recipe nobody in view holds, and a repeat the walk stopped at, are both
+///   this case. A thing that quietly disappears from a shopping list is a
+///   thing that does not get bought (ADR 0024), and the written line already
+///   carries the human meaning (ADR 0002).
+/// - **One Kamosu could not work out a factor for contributes its Foods
+///   carrying no amount** — Aurélien's call on #86. `2 poignées de pâte`
+///   cannot be measured against the dough's Yield, so the dough's flour rides
+///   in the *some* bucket ADR 0024 already gives the 28% of Ingredient Lines
+///   written with no quantity. Quoting the line instead would leave that flour
+///   off the list; folding the whole dough in at full strength would put a
+///   figure Kamosu declined to compute inside a row that reads as certain,
+///   which is the one thing a merged row cannot say. **Once the factor is lost
+///   it stays lost**: a Component nested under an unmeasured one is unmeasured
+///   too, because there is nothing honest left to multiply it by.
+///
+/// Every amount here is for the recipe **as written**. The Yield being shopped
+/// for is the outer scale and `shopping::rows` applies it to the lot, so the
+/// factor and the Yield compound the way the recipe page's do.
+///
+/// This is what `shopping_basis` answers (#77) and what `shopping_list` adds
+/// up, so the phone and the server start from the same facts — and a phone
+/// with no network gets the Components for free, having never been told there
+/// were any.
 fn basis_lines(
+    conn: &Connection,
+    reader: &Reader,
+    person_id: &str,
+    lineage_id: &str,
+    version_id: &str,
+    content: &Value,
+) -> Result<Vec<Value>, OpError> {
+    let mut lines = version_basis_lines(conn, reader, version_id, content, Reached::chosen())?;
+
+    let unfolds = Unfolds::ForShopping { person_id, reader };
+    let mut walk = Unfolding {
+        open: vec![lineage_id.to_string()],
+        ..Unfolding::default()
+    };
+    unfold_components(conn, &unfolds, version_id, 1.0, &mut walk)?;
+
+    // The Components whose own written line comes off, and the ones beneath
+    // which no amount can honestly be worked out. Both are held as the `path`
+    // of line indexes that reaches each — the same path the walk hands back —
+    // so a Component nested four deep is named as precisely as a top-level one.
+    let mut unfolded: Vec<Value> = Vec::new();
+    let mut unmeasured: Vec<Vec<i64>> = Vec::new();
+
+    for component in &walk.found {
+        let Some(path) = component_path(&component["path"]) else {
+            continue;
+        };
+        // A Component Kamosu could not open — a recipe nobody in view holds,
+        // or a repeat the walk stopped at — keeps its written line and
+        // contributes nothing. `inside` holds only the ones that opened, so
+        // finding this path there *is* the test.
+        let Some((_, inner_version_id)) = walk.inside.iter().find(|(at, _)| *at == path) else {
+            continue;
+        };
+        let share = if beneath(&unmeasured, &path) {
+            None
+        } else {
+            component["share"].as_f64()
+        };
+        if share.is_none() {
+            unmeasured.push(path.clone());
+        }
+        let inner = version_basis_lines(
+            conn,
+            reader,
+            inner_version_id,
+            &component["content"],
+            Reached {
+                path: &path,
+                from: Some(ArrivedAs {
+                    branch_id: component["branch_id"].as_str().unwrap_or_default(),
+                    title: component["title"].as_str().unwrap_or_default(),
+                }),
+                share,
+            },
+        )?;
+        // **Its written line comes off only once something has replaced it.**
+        // A recipe whose Ingredients are empty — or are all Sections — unfolds
+        // to nothing, and taking the line off for it would leave the pizza
+        // saying nothing at all about its dough. A thing that quietly
+        // disappears from a shopping list is a thing that does not get bought
+        // (ADR 0024), and that holds however the disappearing happens.
+        if !inner.is_empty() {
+            unfolded.push(component["path"].clone());
+        }
+        lines.extend(inner);
+    }
+
+    // The written lines of the Components that opened, now that everything
+    // beneath them is on the list.
+    lines.retain(|line| !unfolded.iter().any(|opened| *opened == line["path"]));
+
+    // **And every Component line still standing says why it is standing**
+    // (ADR 0008, Aurélien's call on #86). A line that buys nothing otherwise
+    // reads exactly like a line Kamosu could not interpret, and the shopper
+    // cannot tell from the list which they are looking at — so the one
+    // sentence the Core already words for the recipe page goes beneath it
+    // here too. *Kamosu does not have this recipe* is the one that earns it:
+    // it says the flour and the water are nobody's job but yours.
+    for component in &walk.found {
+        let at = &component["path"];
+        if unfolded.iter().any(|opened| opened == at) {
+            continue;
+        }
+        if let Some(line) = lines.iter_mut().find(|line| line["path"] == *at) {
+            line["said"] = component["said"].clone();
+        }
+    }
+    Ok(lines)
+}
+
+/// **The Component a Version arrived as**: which Branch it resolved to, and
+/// what that Branch is called. Named rather than a pair, because two strings
+/// side by side are two strings that can be swapped without anything noticing.
+#[derive(Clone, Copy)]
+struct ArrivedAs<'a> {
+    branch_id: &'a str,
+    title: &'a str,
+}
+
+/// **How a Version was reached**, for the Ingredient Lines it puts on a
+/// Shopping List: where it sits, what it arrived as, and how much of it is
+/// wanted. The three travel together because they are one answer — *this
+/// recipe, reached this way* — and separating them is how a line ends up
+/// carrying one recipe's path and another's name.
+struct Reached<'a> {
+    /// The chain of Component line indexes that reaches it. Empty for the
+    /// chosen recipe, which was reached by being chosen.
+    path: &'a [i64],
+    /// The Component it arrived as, or nothing for the chosen recipe itself.
+    from: Option<ArrivedAs<'a>>,
+    /// How much of it is wanted. `None` is Kamosu saying it could not work
+    /// that out, and every amount then goes out unstated rather than as a
+    /// number nobody computed (#86).
+    share: Option<f64>,
+}
+
+impl Reached<'_> {
+    /// The recipe somebody put on their list: the whole of it, arrived at by
+    /// nothing.
+    fn chosen() -> Reached<'static> {
+        Reached {
+            path: &[],
+            from: None,
+            share: Some(1.0),
+        }
+    }
+}
+
+/// The `path` of line indexes an unfolded Component carries, as numbers.
+fn component_path(path: &Value) -> Option<Vec<i64>> {
+    path.as_array()?.iter().map(Value::as_i64).collect()
+}
+
+/// Whether a Component sits under one Kamosu could work out no share for.
+///
+/// `unmeasured` holds the path of each such Component, and depth-first order
+/// means every one above this point has already been met — so a prefix match
+/// is the whole test.
+fn beneath(unmeasured: &[Vec<i64>], path: &[i64]) -> bool {
+    unmeasured
+        .iter()
+        .any(|above| path.len() > above.len() && path.starts_with(above))
+}
+
+/// One Version's own Ingredient Lines as a Shopping List reads them: the Food
+/// each was read as and that Food's name for this reader, how much it said,
+/// and its Unit — or, where no Food was read, only its words (ADR 0024).
+///
+/// [`Reached`] says how this Version was arrived at: where it sits, what
+/// Component it came in as, and how much of it is wanted.
+fn version_basis_lines(
     conn: &Connection,
     reader: &Reader,
     version_id: &str,
     content: &Value,
+    reached: Reached<'_>,
 ) -> Result<Vec<Value>, OpError> {
     let readings = readings_to_measure(conn, version_id)?;
     let food_ids = readings
@@ -11919,6 +12146,26 @@ fn basis_lines(
         .filter_map(|reading| reading.food_id.clone())
         .collect::<Vec<_>>();
     let named = food_names_of(conn, &food_ids)?;
+
+    // Where each line sits, as the chain of line indexes that reaches it: `[3]`
+    // in the chosen recipe, `[3, 1]` for the second line of the dough its
+    // fourth line names. It is what names a row that merges with nothing, and
+    // a plain index could not do that job any more — the pizza's line 0 and
+    // its dough's line 0 are two different things to buy.
+    let at = |index: usize| {
+        reached
+            .path
+            .iter()
+            .copied()
+            .chain(std::iter::once(index as i64))
+            .collect::<Vec<_>>()
+    };
+    // Which recipe a line is really from, for a row that breaks open to say so
+    // (ADR 0002): the dough by name, not the pizza that composes it.
+    let source = reached
+        .from
+        .map(|from| json!({ "branch_id": from.branch_id, "title": from.title }))
+        .unwrap_or(Value::Null);
 
     let empty = Vec::new();
     let mut lines = Vec::new();
@@ -11941,7 +12188,15 @@ fn basis_lines(
             .find(|reading| reading.line_index == index as i64)
             .filter(|reading| reading.food_id.is_some())
         else {
-            lines.push(json!({ "index": index, "text": text, "food": Value::Null }));
+            lines.push(json!({
+                "path": at(index),
+                "from": source,
+                "text": text,
+                "food": Value::Null,
+                // Filled in by `basis_lines` for a Component that kept its
+                // written line, and null on every other line.
+                "said": Value::Null,
+            }));
             continue;
         };
         let food_id = reading.food_id.clone().expect("filtered to a Food above");
@@ -11949,8 +12204,12 @@ fn basis_lines(
         let shown = shown_name(&names, &reader.language);
         let unit = reading.unit.as_deref();
         lines.push(json!({
-            "index": index,
+            "path": at(index),
+            "from": source,
             "text": text,
+            // A line that named a Food is a line Kamosu read; it is the ones
+            // standing for a Component it could not open that need a sentence.
+            "said": Value::Null,
             "food": {
                 "id": food_id,
                 // A Shopping Row is the one place a Food's name is read
@@ -11960,8 +12219,15 @@ fn basis_lines(
                 "name_language": shown.map(|(language, _)| language.as_str()),
                 // An amount Kamosu could not read is an amount nobody stated,
                 // as far as adding up goes — and the written line, one tap
-                // away, still says whatever it says.
-                "amount": reading.amount.as_deref().and_then(units::parse_amount),
+                // away, still says whatever it says. So is every amount of an
+                // inner recipe Kamosu could work out no factor for (#86):
+                // there is no honest number to put here, and *some* is a
+                // truthful answer where a guess would not be.
+                "amount": reached.share.and_then(|share| reading
+                    .amount
+                    .as_deref()
+                    .and_then(units::parse_amount)
+                    .map(|amount| amount * share)),
                 "unit": unit,
                 "unit_id": unit.and_then(units::recognise).map(|known| known.id),
                 "unit_key": unit.map(shopping::unit_key),
@@ -12023,6 +12289,7 @@ fn chosen_recipes(conn: &Connection, person_id: &str) -> Result<Vec<Chosen>, OpE
                 .map(|content| content["yield"].clone())
                 .unwrap_or(Value::Null),
             head_version_id: head.as_ref().map(|head| head.head_version_id.clone()),
+            lineage_id: head.as_ref().map(|head| head.lineage_id.clone()),
             gone: !readable,
             branch_id,
             shopping_yield,
@@ -12095,6 +12362,10 @@ fn loose_items(conn: &Connection, person_id: &str) -> Result<Vec<Value>, OpError
                 "name_language": Value::Null,
                 "parts": Vec::<Value>::new(),
                 "lines": Vec::<Value>::new(),
+                // Kamosu has nothing to say about words somebody typed at the
+                // door: a Loose Item is never interpreted, deliberately
+                // (ADR 0024).
+                "said": Value::Null,
             }))
         })
         .map_err(|e| OpError::internal(format!("cannot read Loose Items: {e}")))?

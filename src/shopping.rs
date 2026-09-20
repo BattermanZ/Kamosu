@@ -298,21 +298,31 @@ pub fn rows(
         for line in entry.lines {
             let text = line["text"].as_str().unwrap_or_default();
             let food = &line["food"];
+            // Which recipe the line is really from. A line that arrived by
+            // unfolding a Component names the inner recipe — the dough, not
+            // the pizza that composes it — so a row that breaks open says
+            // which dish wants which, at whatever depth it came from (#86).
+            let from = &line["from"];
+            let recipe = from["title"].as_str().unwrap_or(entry.title);
+            let branch_id = from["branch_id"].as_str().unwrap_or(entry.branch_id);
             let Some(food_id) = food["id"].as_str() else {
                 out.push(json!({
-                    "id": format!("{}:{}", entry.branch_id, line["index"]),
+                    "id": format!("{}:{}", entry.branch_id, line_key(&line["path"])),
                     "kind": "line",
                     "name": text,
                     "name_language": Value::Null,
                     "parts": Vec::<Value>::new(),
-                    "lines": [{ "branch_id": entry.branch_id, "recipe": entry.title, "text": text }],
+                    "lines": [{ "branch_id": branch_id, "recipe": recipe, "text": text }],
+                    // Set only on a line standing for a Component Kamosu could
+                    // not open, where it says which of the ways that happened.
+                    "said": line["said"].clone(),
                 }));
                 continue;
             };
             let contribution = Contribution {
-                recipe: entry.title.to_string(),
+                recipe: recipe.to_string(),
                 text: text.to_string(),
-                branch_id: entry.branch_id.to_string(),
+                branch_id: branch_id.to_string(),
                 amount: food["amount"].as_f64().map(|amount| amount * entry.scale),
                 unit: food["unit"].as_str().map(str::to_string),
                 cup_weight_grams: food["cup_weight_grams"].as_f64(),
@@ -355,6 +365,9 @@ pub fn rows(
                     "text": contribution.text,
                 }))
                 .collect::<Vec<_>>(),
+            // A Food row is every mention of one Food and belongs to no single
+            // line, so there is nothing here for a sentence to be about.
+            "said": Value::Null,
         }));
     }
     out.extend(loose.iter().cloned());
@@ -364,6 +377,27 @@ pub fn rows(
     // rows that merged would teach that the others are somehow less true.
     out.sort_by_key(|row| sort_key(row["name"].as_str().unwrap_or_default()));
     out
+}
+
+/// **What names a row that merges with nothing**, from the `path` of line
+/// indexes that reaches its line: `3` for the chosen recipe's fourth line,
+/// `3.1` for the second line of the dough that line names (#86).
+///
+/// A plain index stopped being enough the moment a Component unfolded: the
+/// pizza's first line and its dough's first line are two different things to
+/// buy, and two rows sharing an id is a list that cannot be drawn. A recipe
+/// composing nothing still gets exactly the id it got before, because a path
+/// one deep joins to the index it holds.
+fn line_key(path: &Value) -> String {
+    path.as_array()
+        .map(|steps| {
+            steps
+                .iter()
+                .map(|step| step.as_i64().unwrap_or_default().to_string())
+                .collect::<Vec<_>>()
+                .join(".")
+        })
+        .unwrap_or_default()
 }
 
 /// The rows as the Catalogue declares them.
@@ -800,12 +834,44 @@ mod tests {
         Option<f64>,
     );
 
-    /// A line of `shopping_basis`, as a phone receives it.
+    /// A line of `shopping_basis`, as a phone receives it: one of the chosen
+    /// recipe's own.
     fn basis_line(index: usize, text: &str, food: Option<TestFood<'_>>) -> Value {
+        inner_line(&[index], None, text, food)
+    }
+
+    /// A Component's own written line, kept on the list because Kamosu could
+    /// not open the recipe it names, carrying the sentence that says why (#86).
+    fn unopened_line(index: usize, text: &str, said: &str) -> Value {
+        let mut line = basis_line(index, text, None);
+        line["said"] = json!(said);
+        line
+    }
+
+    /// A line that arrived by unfolding a Component, at the `path` of line
+    /// indexes that reaches it and naming the recipe it is really from (#86).
+    fn inner_line(
+        path: &[usize],
+        from: Option<&str>,
+        text: &str,
+        food: Option<TestFood<'_>>,
+    ) -> Value {
+        let path = path.iter().map(|step| *step as i64).collect::<Vec<_>>();
+        let from = from
+            .map(|title| json!({ "branch_id": format!("b_{title}"), "title": title }))
+            .unwrap_or(Value::Null);
         match food {
-            None => json!({ "index": index, "text": text, "food": Value::Null }),
+            None => json!({
+                "path": path,
+                "from": from,
+                "said": Value::Null,
+                "text": text,
+                "food": Value::Null,
+            }),
             Some((id, name, amount, unit, cup_weight)) => json!({
-                "index": index,
+                "path": path,
+                "from": from,
+                "said": Value::Null,
                 "text": text,
                 "food": {
                     "id": id,
@@ -972,6 +1038,62 @@ mod tests {
             ),
             basis_line(13, "zucchini", None),
         ];
+        // **A recipe that composes others** (#86), as `shopping_basis` hands
+        // it over once the unfolding is done: the pizza's own flour, the
+        // dough's flour and water at the dough's share, a starter inside the
+        // dough at the compounded share, a sauce Kamosu could work out no
+        // factor for whose tomatoes ride unmeasured, and a mozzarella nobody
+        // in view holds whose written line simply stays.
+        let composed = vec![
+            basis_line(
+                0,
+                "200 g flour",
+                Some((
+                    "f_flour",
+                    Some("flour"),
+                    Some(200.0),
+                    Some("g"),
+                    Some(125.0),
+                )),
+            ),
+            inner_line(
+                &[1, 0],
+                Some("Pizza Dough"),
+                "500 g de farine T55",
+                Some((
+                    "f_flour",
+                    Some("flour"),
+                    Some(250.0),
+                    Some("g"),
+                    Some(125.0),
+                )),
+            ),
+            inner_line(
+                &[1, 1],
+                Some("Pizza Dough"),
+                "300 ml d'eau",
+                Some(("f_water", Some("water"), Some(150.0), Some("ml"), None)),
+            ),
+            inner_line(
+                &[1, 2, 0],
+                Some("Levain"),
+                "100 g de farine",
+                Some(("f_flour", Some("flour"), Some(25.0), Some("g"), Some(125.0))),
+            ),
+            inner_line(
+                &[2, 0],
+                Some("Sauce tomate"),
+                "400 g de tomates pelées",
+                Some(("f_tomato", Some("tomatoes"), None, Some("g"), None)),
+            ),
+            inner_line(&[2, 1], Some("Sauce tomate"), "une pincée de sucre", None),
+            unopened_line(
+                3,
+                "250 g de mozzarella di bufala",
+                "Kamosu does not have this recipe.",
+            ),
+            basis_line(4, "2 pincées d'origan", None),
+        ];
         let loose = vec![
             json!({ "id": "i_0000000000000001", "kind": "loose", "name": "bin bags", "name_language": Value::Null, "parts": [], "lines": [] }),
             json!({ "id": "i_0000000000000002", "kind": "loose", "name": "Éponges", "name_language": Value::Null, "parts": [], "lines": [] }),
@@ -1031,6 +1153,26 @@ mod tests {
                         ],
                         "loose": loose,
                         "rows": rows(&chosen, &loose, measures, language),
+                    }));
+                }
+                // The Shopping Yield scaling a whole chain of Components, on
+                // top of the share each already carries (#86).
+                for scale in [1.0, 2.0] {
+                    let chosen = [Chosen {
+                        branch_id: "b_pizza",
+                        title: "Pizza",
+                        scale,
+                        lines: &composed,
+                    }];
+                    cases.push(json!({
+                        "name": format!("composed ×{scale} {measures_name} {language}"),
+                        "measures": measures_name,
+                        "language": language,
+                        "chosen": [
+                            { "branch_id": "b_pizza", "title": "Pizza", "scale": scale, "lines": composed },
+                        ],
+                        "loose": [],
+                        "rows": rows(&chosen, &[], measures, language),
                     }));
                 }
             }

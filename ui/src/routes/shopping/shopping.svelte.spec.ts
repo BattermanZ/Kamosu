@@ -44,6 +44,7 @@ const added = (): Row => ({
 		{ branch_id: 'b_chicken', recipe: 'Korean Fried Chicken', text: '2 tbsp soy sauce' },
 		{ branch_id: 'b_coq', recipe: 'Coq au Vin', text: '1 tbsp soy sauce' },
 	],
+	said: null,
 });
 
 /** The real corpus case the whole design decision was about. */
@@ -60,6 +61,7 @@ const sideBySide = (): Row => ({
 		{ branch_id: 'b_chicken', recipe: 'Korean Fried Chicken', text: '2 tbsp minced garlic' },
 		{ branch_id: 'b_coq', recipe: 'Coq au Vin', text: '4 cloves minced garlic' },
 	],
+	said: null,
 });
 
 const unstated = (): Row => ({
@@ -69,6 +71,7 @@ const unstated = (): Row => ({
 	name_language: 'en',
 	parts: [{ kind: 'no_amount', text: 'some', sources: ['Coq au Vin'] }],
 	lines: [{ branch_id: 'b_coq', recipe: 'Coq au Vin', text: 'olive oil' }],
+	said: null,
 });
 
 const loose = (): Row => ({
@@ -78,6 +81,21 @@ const loose = (): Row => ({
 	name_language: null,
 	parts: [],
 	lines: [],
+	said: null,
+});
+
+/**
+ * A Component's written line, kept on the list because Kamosu could not open
+ * the recipe it names — the one row that buys nothing and says why (#86).
+ */
+const unopened = (): Row => ({
+	id: 'b_pizza:0',
+	kind: 'line',
+	name: 'Dough for 2 pizzas',
+	name_language: null,
+	parts: [],
+	lines: [{ branch_id: 'b_pizza', recipe: 'Pizza Margherita', text: 'Dough for 2 pizzas' }],
+	said: 'Kamosu does not have this recipe.',
 });
 
 const list = (over: Partial<GetShoppingListOutput> = {}): GetShoppingListOutput => ({
@@ -131,6 +149,18 @@ describe('Shopping', () => {
 		await screen.findByText('bin bags');
 		// Nothing beside it: it was typed, never read, and merges with nothing.
 		expect(rowFor('bin bags').textContent?.trim()).toBe('bin bags');
+	});
+
+	it('says why a line standing for a recipe Kamosu has not buys nothing', async () => {
+		// Without the sentence this row reads exactly like a line Kamosu could
+		// not interpret, and nothing on the list tells the shopper that the
+		// dough's flour and water are their own problem (ADR 0008, #86).
+		renderScreen(Page, { get_shopping_list: list({ rows: [unopened(), added()] }) });
+		await screen.findByText('Dough for 2 pizzas');
+		const row = rowFor('Dough for 2 pizzas');
+		expect(within(row).getByText('Kamosu does not have this recipe.')).toBeInTheDocument();
+		// And a row Kamosu did read carries no such sentence.
+		expect(rowFor('soy sauce').textContent).not.toContain('Kamosu does not have');
 	});
 
 	it('puts the written lines one tap away, whole and under their own recipes', async () => {

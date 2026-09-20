@@ -424,6 +424,17 @@ export interface Chosen {
 /** One comparison for every sort: code point order, as Rust compares strings. */
 const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+/**
+ * `shopping::line_key`: what names a row that merges with nothing, from the
+ * path of line indexes that reaches its line — `3` for the chosen recipe's
+ * fourth line, `3.1` for the second line of the dough that line names (#86).
+ *
+ * A plain index stopped being enough the moment a Component unfolded: the
+ * pizza's first line and its dough's first line are two different things to
+ * buy, and two rows sharing an id is a list Svelte cannot key.
+ */
+const lineKey = (path: number[]): string => path.join('.');
+
 /** `shopping::rows`: every row of a list, from the choosing and the Loose Items. */
 export function rows(chosen: Chosen[], loose: Row[], measures: Measures, language: string): Row[] {
 	const foods = new Map<
@@ -434,20 +445,29 @@ export function rows(chosen: Chosen[], loose: Row[], measures: Measures, languag
 
 	for (const entry of chosen) {
 		for (const line of entry.lines) {
+			// Which recipe the line is really from. A line that arrived by
+			// unfolding a Component names the inner recipe — the dough, not the
+			// pizza that composes it — so a row that breaks open says which dish
+			// wants which, at whatever depth it came from (#86).
+			const recipe = line.from?.title ?? entry.title;
+			const branchId = line.from?.branch_id ?? entry.branch_id;
 			if (!line.food) {
 				out.push({
-					id: `${entry.branch_id}:${line.index}`,
+					id: `${entry.branch_id}:${lineKey(line.path)}`,
 					kind: 'line',
 					name: line.text,
 					name_language: null,
 					parts: [],
-					lines: [{ branch_id: entry.branch_id, recipe: entry.title, text: line.text }],
+					lines: [{ branch_id: branchId, recipe, text: line.text }],
+					// Set only on a line standing for a Component Kamosu could not
+					// open, where it says which of the ways that happened.
+					said: line.said,
 				});
 				continue;
 			}
 			const contribution: Contribution = {
-				recipe: entry.title,
-				branchId: entry.branch_id,
+				recipe,
+				branchId,
 				text: line.text,
 				amount: line.food.amount === null ? null : line.food.amount * entry.scale,
 				unit: line.food.unit,
@@ -473,6 +493,9 @@ export function rows(chosen: Chosen[], loose: Row[], measures: Measures, languag
 				recipe: contribution.recipe,
 				text: contribution.text,
 			})),
+			// A Food row is every mention of one Food and belongs to no single
+			// line, so there is nothing here for a sentence to be about.
+			said: null,
 		});
 	}
 	out.push(...loose);

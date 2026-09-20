@@ -2926,10 +2926,11 @@ export type GetShoppingListOutput = {
 			sources: string[];
 			text: string;
 		}[];
+		said: string | null;
 	}[];
 };
 
-/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
+/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
 export type ShoppingBasisInput = {
 	branch_id: string;
 };
@@ -2947,7 +2948,12 @@ export type ShoppingBasisOutput = {
 			unit_id: string | null;
 			unit_key: string | null;
 		} | null;
-		index: number;
+		from: {
+			branch_id: string;
+			title: string;
+		} | null;
+		path: number[];
+		said: string | null;
 		text: string;
 	}[];
 	title: string;
@@ -2996,6 +3002,7 @@ export type AddToShoppingListOutput = {
 			sources: string[];
 			text: string;
 		}[];
+		said: string | null;
 	}[];
 };
 
@@ -3034,6 +3041,7 @@ export type RemoveFromShoppingListOutput = {
 			sources: string[];
 			text: string;
 		}[];
+		said: string | null;
 	}[];
 };
 
@@ -3076,6 +3084,7 @@ export type SetShoppingYieldOutput = {
 			sources: string[];
 			text: string;
 		}[];
+		said: string | null;
 	}[];
 };
 
@@ -3120,6 +3129,7 @@ export type EmptyShoppingListOutput = {
 			sources: string[];
 			text: string;
 		}[];
+		said: string | null;
 	}[];
 };
 
@@ -3159,6 +3169,7 @@ export type AddLooseItemOutput = {
 			sources: string[];
 			text: string;
 		}[];
+		said: string | null;
 	}[];
 };
 
@@ -3197,6 +3208,7 @@ export type RemoveLooseItemOutput = {
 			sources: string[];
 			text: string;
 		}[];
+		said: string | null;
 	}[];
 };
 
@@ -18964,6 +18976,12 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -18972,7 +18990,8 @@ export const CATALOGUE = [
 							"name",
 							"name_language",
 							"parts",
-							"lines"
+							"lines",
+							"said"
 						],
 						"type": "object"
 					},
@@ -18988,7 +19007,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "shopping_basis",
-		"summary": "What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself.",
+		"summary": "What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -19077,16 +19096,46 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
-							"index": {
-								"minimum": 0,
-								"type": "integer"
+							"from": {
+								"additionalProperties": false,
+								"properties": {
+									"branch_id": {
+										"type": "string"
+									},
+									"title": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"branch_id",
+									"title"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"path": {
+								"items": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"text": {
 								"type": "string"
 							}
 						},
 						"required": [
-							"index",
+							"path",
+							"from",
+							"said",
 							"text",
 							"food"
 						],
@@ -19308,6 +19357,12 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -19316,7 +19371,8 @@ export const CATALOGUE = [
 							"name",
 							"name_language",
 							"parts",
-							"lines"
+							"lines",
+							"said"
 						],
 						"type": "object"
 					},
@@ -19493,6 +19549,12 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -19501,7 +19563,8 @@ export const CATALOGUE = [
 							"name",
 							"name_language",
 							"parts",
-							"lines"
+							"lines",
+							"said"
 						],
 						"type": "object"
 					},
@@ -19697,6 +19760,12 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -19705,7 +19774,8 @@ export const CATALOGUE = [
 							"name",
 							"name_language",
 							"parts",
-							"lines"
+							"lines",
+							"said"
 						],
 						"type": "object"
 					},
@@ -19899,6 +19969,12 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -19907,7 +19983,8 @@ export const CATALOGUE = [
 							"name",
 							"name_language",
 							"parts",
-							"lines"
+							"lines",
+							"said"
 						],
 						"type": "object"
 					},
@@ -20088,6 +20165,12 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -20096,7 +20179,8 @@ export const CATALOGUE = [
 							"name",
 							"name_language",
 							"parts",
-							"lines"
+							"lines",
+							"said"
 						],
 						"type": "object"
 					},
@@ -20273,6 +20357,12 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"said": {
+								"type": [
+									"string",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -20281,7 +20371,8 @@ export const CATALOGUE = [
 							"name",
 							"name_language",
 							"parts",
-							"lines"
+							"lines",
+							"said"
 						],
 						"type": "object"
 					},
@@ -21644,7 +21735,7 @@ export interface KamosuClient {
 	listAttempts(input?: ListAttemptsInput): Promise<Answer<'list_attempts'>>;
 	/** Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
 	getShoppingList(input?: GetShoppingListInput): Promise<Answer<'get_shopping_list'>>;
-	/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
+	/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
 	shoppingBasis(input: ShoppingBasisInput): Promise<Answer<'shopping_basis'>>;
 	/** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 	addToShoppingList(input: AddToShoppingListInput): Promise<Answer<'add_to_shopping_list'>>;
