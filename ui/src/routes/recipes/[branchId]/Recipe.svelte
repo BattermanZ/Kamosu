@@ -91,8 +91,18 @@
 	written line all arrive worded from the Core — which is why the Share Link
 	page and an agent at the MCP door say exactly what this screen says.
 -->
+<script lang="ts" module>
+	/**
+	 * The Branch a Copy just landed on, so the page it opens can say so. It
+	 * lives on the module rather than on the component because the Copy
+	 * navigates: the component that knew is destroyed on the way (#83).
+	 */
+	let copiedInto = $state<string | undefined>(undefined);
+</script>
+
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -103,11 +113,12 @@
 		GetThreadOutput,
 		MakeSheetOutput,
 	} from '$lib/api/catalogue';
-	import Cover from '$lib/cover/Cover.svelte';
+	import Hero from './Hero.svelte';
 	import { ratingLabel } from '$lib/rating';
 	import Threshold from './Threshold.svelte';
 	import MarkedRow from './MarkedRow.svelte';
 	import Correcting from './Correcting.svelte';
+	import Writing from './Writing.svelte';
 	import Promotion from './Promotion.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online, refreshed } from '$lib/offline/device.svelte';
@@ -169,6 +180,18 @@
 	let shopping = $state(false);
 	/** Where asking for a Sheet has got to (#75). */
 	let printing = $state<'idle' | 'setting' | 'failed'>('idle');
+	/**
+	 * Whether the page is being written on rather than read (#83). It is the
+	 * same page either way, which is the whole of the direction Aurélien
+	 * chose: no second route, no compose screen.
+	 */
+	let writing = $state(false);
+	/**
+	 * What the last save did, said HERE rather than on the writing screen:
+	 * saving closes that screen, so anything it drew would be destroyed before
+	 * it could be read (#83).
+	 */
+	let wrote = $state<{ collapsed: boolean; copied: boolean } | undefined>(undefined);
 
 	/**
 	 * Print a Sheet (#75, ADR 0023): the recipe as it stands on this screen,
@@ -581,172 +604,211 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl pb-tabbar" data-side={side}>
-	{#if failed}
-		<p class="px-gutter py-6 text-body text-support" role="alert">{m.recipe_failed()}</p>
-	{:else if !content}
-		<p class="px-gutter py-6 text-body text-ink-2">{m.loading()}</p>
-	{:else}
-		{#if divergence && here && there}
-			<Threshold
-				hereKitchen={here.kitchen_name}
-				thereKitchen={there.kitchen_name}
-				{unshared}
-				{marks}
-				{cross}
-				{toggleMarks}
-			/>
-		{:else if crowded > 2}
-			<p class="border-b border-rule bg-ground-2 px-gutter py-3 text-read text-ink-2">
-				{m.divergence_too_many({ count: crowded })}
-			</p>
-		{/if}
+<!--
+	What stands on the hero on THIS screen: the Source, where a photograph is
+	carrying it, and the title. On a Cover the Source cannot clear the
+	contrast bar at 10.5px, so it is set on paper beneath the hero instead
+	(#81) — which is why this snippet asks whether there is a photograph and
+	the one on the writing screen does not.
+-->
+{#snippet titleOnHero()}
+	{#if content?.main_photo && content.source}
+		<p class="text-label text-on-accent uppercase">
+			{m.recipe_from_source({ source: content.source.text })}
+		</p>
+	{/if}
+	<h1 class="mt-1 font-display text-title font-semibold text-on-accent">
+		{content?.title}
+	</h1>
+{/snippet}
 
-		<!--
+<!--
+	Writing (#83). The page becomes writable in place, which is why this is a
+	swap on the same route and not a screen of its own: Aurélien chose that
+	over a separate compose screen, and a `/recipes/<id>/edit` route would be
+	the rejected option wearing the chosen one's name. `Writing.svelte` holds
+	why the shape is what it is.
+-->
+{#if writing && recipe && content}
+	<Writing
+		{branchId}
+		lineageId={recipe.lineage_id}
+		kitchenId={recipe.kitchen_id}
+		{content}
+		onCancel={() => (writing = false)}
+		onSaved={(landed) => {
+			writing = false;
+			// A save moves the head Version, and both of these are keyed by a
+			// line's index into the list that just changed underneath them.
+			correcting = null;
+			fixed = new Map();
+			// A Copy put the Version on a NEW Branch. Staying here would leave
+			// the cook reading the recipe they deliberately did not change, so
+			// the page follows the one they now hold.
+			if (landed.copied && landed.branch_id !== branchId) {
+				// Said on the page it lands on rather than this one, which is
+				// about to be left. `copied` is remembered across the
+				// navigation because a Copy is the one save whose outcome is
+				// not obvious from what is on screen afterwards: the recipe
+				// looks the same, and only the Kitchen it now sits in changed.
+				copiedInto = landed.branch_id;
+				void goto(`/recipes/${landed.branch_id}`);
+				return;
+			}
+			wrote = landed;
+			reread += 1;
+		}}
+	/>
+{:else}
+	<div class="mx-auto max-w-2xl pb-tabbar" data-side={side}>
+		{#if failed}
+			<p class="px-gutter py-6 text-body text-support" role="alert">{m.recipe_failed()}</p>
+		{:else if !content}
+			<p class="px-gutter py-6 text-body text-ink-2">{m.loading()}</p>
+		{:else}
+			{#if divergence && here && there}
+				<Threshold
+					hereKitchen={here.kitchen_name}
+					thereKitchen={there.kitchen_name}
+					{unshared}
+					{marks}
+					{cross}
+					{toggleMarks}
+				/>
+			{:else if crowded > 2}
+				<p class="border-b border-rule bg-ground-2 px-gutter py-3 text-read text-ink-2">
+					{m.divergence_too_many({ count: crowded })}
+				</p>
+			{/if}
+
+			<!--
 			What leads the recipe: its Main Photo, or — for the roughly one
 			recipe in three that has none — its Cover (#46). A Cover is not a
 			placeholder for a missing picture; it is what a recipe without one
 			wears. That it is one of these two things is #46's; that the title
 			stands on whichever it is, is #81's.
 		-->
-		{#if recipe}
-			<div class="relative overflow-hidden">
-				{#if content.main_photo}
-					<img
-						src="/api/photographs/{content.main_photo}/page"
-						alt=""
-						class="block w-full object-cover"
-						style="height: var(--hero-h)"
-					/>
-					<!-- The wash. A photograph's colours are nobody's choice, so
-					     the title is given ground of its own rather than hoping. -->
-					<div class="pointer-events-none absolute inset-x-0 bottom-0 wash"></div>
-				{:else}
-					<Cover lineageId={recipe.lineage_id} title={content.title} band={false} />
-				{/if}
-				<div class="absolute inset-x-0 bottom-0 px-gutter pt-8 pb-4">
-					{#if content.main_photo && content.source}
-						<p class="text-label text-on-accent uppercase">
-							{m.recipe_from_source({ source: content.source.text })}
-						</p>
-					{/if}
-					<h1 class="mt-1 font-display text-title font-semibold text-on-accent">{content.title}</h1>
-				</div>
-			</div>
-		{/if}
+			{#if recipe}
+				<Hero
+					lineageId={recipe.lineage_id}
+					title={content.title}
+					photo={content.main_photo}
+					over={titleOnHero}
+				/>
+			{/if}
 
-		<!--
+			<!--
 			On a Cover the hero carries the title alone: kinari over the pasta
 			shape measures 3.9:1, which the title clears at large-text's 3:1 and
 			10.5px text does not (the title is 25px since #88, still large text
 			at weight 600, so this is unchanged). So the Source is set here instead, on paper.
 		-->
-		{#if content.source && !content.main_photo}
-			<p class="px-gutter pt-3 text-label text-ink-2 uppercase">
-				{m.recipe_from_source({ source: content.source.text })}
-			</p>
-		{/if}
-		{#if markOf('source')}
-			<p class="px-gutter pt-2 text-read text-accent">{markOf('source')}</p>
-		{/if}
-		{#if markOf('title')}
-			<p class="px-gutter pt-2 text-read text-accent">{markOf('title')}</p>
-		{/if}
-
-		<!-- The meta: one full-bleed strip, three cells, hairlines between. -->
-		{#if content.prep_time_minutes !== null || content.cook_time_minutes !== null || content.yield}
-			<div class="mt-4 flex border-y border-rule">
-				{#if content.prep_time_minutes !== null}
-					<div class="flex-1 px-2 py-3 text-center">
-						<b class="block font-display text-panel-figure font-semibold">
-							{content.prep_time_minutes}
-						</b>
-						<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
-					</div>
-				{/if}
-				{#if content.cook_time_minutes !== null}
-					<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
-						<b class="block font-display text-panel-figure font-semibold">
-							{content.cook_time_minutes}
-						</b>
-						<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
-					</div>
-				{/if}
-				{#if content.yield}
-					<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
-						<b class="block font-display text-panel-figure font-semibold">
-							{content.yield.amount}
-						</b>
-						<span class="mt-1 block text-label text-ink-2 uppercase">{content.yield.noun}</span>
-					</div>
-				{/if}
-			</div>
-		{/if}
-		{#each ['prep_time_minutes', 'cook_time_minutes', 'yield'] as const as name (name)}
-			{#if markOf(name)}
-				<p class="mt-1 px-gutter text-read text-accent">{markOf(name)}</p>
+			{#if content.source && !content.main_photo}
+				<p class="px-gutter pt-3 text-label text-ink-2 uppercase">
+					{m.recipe_from_source({ source: content.source.text })}
+				</p>
 			{/if}
-		{/each}
-		{#if onlyKept && keptOn}
-			<p class="mt-3 px-gutter text-read text-ink-2">
-				{m.offline_kept_from({ date: keptOn.toLocaleDateString() })}
-			</p>
-		{/if}
+			{#if markOf('source')}
+				<p class="px-gutter pt-2 text-read text-accent">{markOf('source')}</p>
+			{/if}
+			{#if markOf('title')}
+				<p class="px-gutter pt-2 text-read text-accent">{markOf('title')}</p>
+			{/if}
 
-		<!--
+			<!-- The meta: one full-bleed strip, three cells, hairlines between. -->
+			{#if content.prep_time_minutes !== null || content.cook_time_minutes !== null || content.yield}
+				<div class="mt-4 flex border-y border-rule">
+					{#if content.prep_time_minutes !== null}
+						<div class="flex-1 px-2 py-3 text-center">
+							<b class="block font-display text-panel-figure font-semibold">
+								{content.prep_time_minutes}
+							</b>
+							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
+						</div>
+					{/if}
+					{#if content.cook_time_minutes !== null}
+						<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
+							<b class="block font-display text-panel-figure font-semibold">
+								{content.cook_time_minutes}
+							</b>
+							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
+						</div>
+					{/if}
+					{#if content.yield}
+						<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
+							<b class="block font-display text-panel-figure font-semibold">
+								{content.yield.amount}
+							</b>
+							<span class="mt-1 block text-label text-ink-2 uppercase">{content.yield.noun}</span>
+						</div>
+					{/if}
+				</div>
+			{/if}
+			{#each ['prep_time_minutes', 'cook_time_minutes', 'yield'] as const as name (name)}
+				{#if markOf(name)}
+					<p class="mt-1 px-gutter text-read text-accent">{markOf(name)}</p>
+				{/if}
+			{/each}
+			{#if onlyKept && keptOn}
+				<p class="mt-3 px-gutter text-read text-ink-2">
+					{m.offline_kept_from({ date: keptOn.toLocaleDateString() })}
+				</p>
+			{/if}
+
+			<!--
 			One Ingredient Line, marked or not — the same row either way, because
 			a list a cook shops from must keep one rhythm whether or not a second
 			Branch happens to exist. `at` is the line's index into the written
 			list, or -1 for a row with no line of its own to correct.
 		-->
-		{#snippet ingredientLine(text: string, at: number)}
-			{@const readable = correctable && at >= 0}
-			{@const component = componentAt([], at)}
-			<li class="flex gap-3 border-b border-rule py-3">
-				<!--
+			{#snippet ingredientLine(text: string, at: number)}
+				{@const readable = correctable && at >= 0}
+				{@const component = componentAt([], at)}
+				<li class="flex gap-3 border-b border-rule py-3">
+					<!--
 					Matcha rather than indigo where the line names a recipe (#50). The
 					token was reserved for exactly this. It has a job: every line on
 					this page is already tappable, to correct its Reading, so
 					tappability alone cannot say there is a recipe behind this one.
 				-->
-				<span
-					class="ingredient-marker shrink-0 {component ? 'bg-support-2' : 'bg-accent'}"
-					aria-hidden="true"
-				></span>
-				<div class="min-w-0 flex-1">
-					{#if readable}
-						<button
-							type="button"
-							class="block w-full text-left"
-							aria-expanded={correcting === at}
-							onclick={() => toggleCorrector(at)}
-						>
+					<span
+						class="ingredient-marker shrink-0 {component ? 'bg-support-2' : 'bg-accent'}"
+						aria-hidden="true"
+					></span>
+					<div class="min-w-0 flex-1">
+						{#if readable}
+							<button
+								type="button"
+								class="block w-full text-left"
+								aria-expanded={correcting === at}
+								onclick={() => toggleCorrector(at)}
+							>
+								{@render written(text, at, Boolean(component))}
+							</button>
+						{:else}
 							{@render written(text, at, Boolean(component))}
-						</button>
-					{:else}
-						{@render written(text, at, Boolean(component))}
-					{/if}
-					{#if component}
-						{@render componentLine(component)}
-					{/if}
-					{#if readable && correcting === at}
-						<Correcting
-							{branchId}
-							lineIndex={at}
-							reading={readingAt(at)}
-							componentTitle={component?.title}
-							onDone={(next, converted) => corrected(at, next, converted)}
-							onCancel={() => (correcting = null)}
-						/>
-					{/if}
-					{#if component && isOpen(component.path)}
-						{@render unfolded(component)}
-					{/if}
-				</div>
-			</li>
-		{/snippet}
+						{/if}
+						{#if component}
+							{@render componentLine(component)}
+						{/if}
+						{#if readable && correcting === at}
+							<Correcting
+								{branchId}
+								lineIndex={at}
+								reading={readingAt(at)}
+								componentTitle={component?.title}
+								onDone={(next, converted) => corrected(at, next, converted)}
+								onCancel={() => (correcting = null)}
+							/>
+						{/if}
+						{#if component && isOpen(component.path)}
+							{@render unfolded(component)}
+						{/if}
+					</div>
+				</li>
+			{/snippet}
 
-		<!--
+			<!--
 			The written Line, and beneath it the one subordinate line — smaller,
 			quieter, and simply absent where there is nothing to say. Nothing here
 			says whether it is a conversion or an echo, and nothing says whether
@@ -757,14 +819,14 @@
 			that opens the corrector. A button inside a button is invalid HTML and
 			gives one row two overlapping targets, which on a phone is a coin toss.
 		-->
-		{#snippet written(text: string, at: number, isComponent: boolean)}
-			<span class="block text-line">{text}</span>
-			{#if !isComponent && beneathLine(at)}
-				<span class="block text-read text-ink-2">{beneathLine(at)}</span>
-			{/if}
-		{/snippet}
+			{#snippet written(text: string, at: number, isComponent: boolean)}
+				<span class="block text-line">{text}</span>
+				{#if !isComponent && beneathLine(at)}
+					<span class="block text-read text-ink-2">{beneathLine(at)}</span>
+				{/if}
+			{/snippet}
 
-		<!--
+			<!--
 			A COMPONENT'S OWN LINE: which recipe it names and how much of it, or the
 			one sentence saying why there is no unfolding. It sits in the same slot
 			every Ingredient Line has for its conversion (#49, ADR 0016) — a
@@ -778,48 +840,48 @@
 			anyway. A Component with nothing behind it is not a target: a missing
 			recipe and a stopped repeat are sentences, not doors.
 		-->
-		{#snippet componentLine(component: Component)}
-			{#if component.content}
-				<button
-					type="button"
-					class="flex w-full items-start gap-1 text-left text-read text-support-2"
-					aria-expanded={isOpen(component.path)}
-					onclick={() => toggleComponent(component.path)}
-				>
-					<span class="min-w-0 flex-1">{component.said}</span>
-					<svg
-						viewBox="0 0 24 24"
-						aria-hidden="true"
-						class="mt-1 h-3 w-3 shrink-0"
-						style={isOpen(component.path) ? 'transform: rotate(90deg)' : ''}
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
+			{#snippet componentLine(component: Component)}
+				{#if component.content}
+					<button
+						type="button"
+						class="flex w-full items-start gap-1 text-left text-read text-support-2"
+						aria-expanded={isOpen(component.path)}
+						onclick={() => toggleComponent(component.path)}
 					>
-						<path d="m9 5 7 7-7 7" />
-					</svg>
-				</button>
-			{:else}
-				<span class="block text-read text-support-2">{component.said}</span>
-			{/if}
-		{/snippet}
+						<span class="min-w-0 flex-1">{component.said}</span>
+						<svg
+							viewBox="0 0 24 24"
+							aria-hidden="true"
+							class="mt-1 h-3 w-3 shrink-0"
+							style={isOpen(component.path) ? 'transform: rotate(90deg)' : ''}
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path d="m9 5 7 7-7 7" />
+						</svg>
+					</button>
+				{:else}
+					<span class="block text-read text-support-2">{component.said}</span>
+				{/if}
+			{/snippet}
 
-		<!--
+			<!--
 			A Step's own subordinate slot: the oven temperature in this reader's
 			measures, on the conventional ladder (ADR 0016). It is an addition
 			BESIDE the sentence and is never written into it — a Step's truth is
 			its text — and it is absent from the great majority of steps, which
 			carry no temperature or already print both.
 		-->
-		{#snippet beside(at: number)}
-			{#if at >= 0 && measured.steps[at]}
-				<span class="mt-1 block text-read text-ink-2">{measured.steps[at]}</span>
-			{/if}
-		{/snippet}
+			{#snippet beside(at: number)}
+				{#if at >= 0 && measured.steps[at]}
+					<span class="mt-1 block text-read text-ink-2">{measured.steps[at]}</span>
+				{/if}
+			{/snippet}
 
-		<!--
+			<!--
 			A COMPONENT UNFOLDED: the inner recipe's own Ingredient Lines, indented
 			under the row that names them behind a matcha rule, on the recessed
 			ground — visibly another recipe's inside without being a card.
@@ -834,57 +896,57 @@
 			Ingredient Line's slot. A Component inside a Component nests here too;
 			`componentAt` finds it by its path.
 		-->
-		{#snippet unfolded(component: Component)}
-			{#if component.content}
-				<ul class="mt-3 border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
-					{#each component.content.ingredients as item, index (index)}
-						{@const within = componentAt(component.path, index)}
-						{#if item.kind === 'section'}
-							<li class="border-b border-rule py-3 pb-1 last:border-b-0">
-								<h4 class="font-display text-label text-ink-2 uppercase">{item.text}</h4>
-							</li>
-						{:else}
-							<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
-								<span
-									class="ingredient-marker shrink-0 {within ? 'bg-support-2' : 'bg-accent'}"
-									aria-hidden="true"
-								></span>
-								<div class="min-w-0 flex-1">
-									<span class="block text-line">{item.text}</span>
-									{#if within}
-										<span class="block text-read text-support-2">{within.said}</span>
-									{:else if component.measured?.ingredients[index]}
-										<span class="block text-read text-ink-2">
-											{component.measured.ingredients[index]}
-										</span>
-									{/if}
-									{#if within}
-										{@render unfolded(within)}
-									{/if}
-								</div>
-							</li>
-						{/if}
-					{/each}
-				</ul>
-				<!--
+			{#snippet unfolded(component: Component)}
+				{#if component.content}
+					<ul class="mt-3 border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
+						{#each component.content.ingredients as item, index (index)}
+							{@const within = componentAt(component.path, index)}
+							{#if item.kind === 'section'}
+								<li class="border-b border-rule py-3 pb-1 last:border-b-0">
+									<h4 class="font-display text-label text-ink-2 uppercase">{item.text}</h4>
+								</li>
+							{:else}
+								<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
+									<span
+										class="ingredient-marker shrink-0 {within ? 'bg-support-2' : 'bg-accent'}"
+										aria-hidden="true"
+									></span>
+									<div class="min-w-0 flex-1">
+										<span class="block text-line">{item.text}</span>
+										{#if within}
+											<span class="block text-read text-support-2">{within.said}</span>
+										{:else if component.measured?.ingredients[index]}
+											<span class="block text-read text-ink-2">
+												{component.measured.ingredients[index]}
+											</span>
+										{/if}
+										{#if within}
+											{@render unfolded(within)}
+										{/if}
+									</div>
+								</li>
+							{/if}
+						{/each}
+					</ul>
+					<!--
 					WHERE THE METHOD WENT. Under treatment B a Component is in two
 					places, and the second one is a long way down the page — so the
 					row says where, and the saying is a link that takes you there.
 					Absent for a Component with no Steps: there is nothing at the foot
 					to point at.
 				-->
-				{#if component.content.steps.length}
-					<a
-						href="#annexe-{pathKey(component.path)}"
-						class="mt-2 block text-read text-support-2 underline underline-offset-2"
-					>
-						{m.recipe_component_method_below()}
-					</a>
+					{#if component.content.steps.length}
+						<a
+							href="#annexe-{pathKey(component.path)}"
+							class="mt-2 block text-read text-support-2 underline underline-offset-2"
+						>
+							{m.recipe_component_method_below()}
+						</a>
+					{/if}
 				{/if}
-			{/if}
-		{/snippet}
+			{/snippet}
 
-		<!--
+			<!--
 			THE ANNEXE (#50): one Component's own Steps, at the foot of the page,
 			under a heading in this page's own Section grammar but in matcha — so it
 			reads as belonging to the Component rather than to this recipe's method.
@@ -893,53 +955,55 @@
 			WHEN: Kamosu does not know the dough is made the day before, and where
 			the timing matters the cook writes a Step saying so.
 		-->
-		{#snippet annexe(component: Component)}
-			{#if component.content}
-				{@const number = numbering()}
-				<div id="annexe-{pathKey(component.path)}" class="mt-8 scroll-mt-12">
-					<h2 class="mx-gutter mb-1 font-display text-label font-semibold text-support-2 uppercase">
-						{component.title} · {m.recipe_component_method()}
-					</h2>
-					<p class="mx-gutter mb-2 text-read text-ink-2">{component.said}</p>
-					<ol class="mx-gutter border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
-						{#each component.content.steps as item, index (index)}
-							{#if item.kind === 'section'}
-								<li class="border-b border-rule py-4 pb-1">
-									<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
-								</li>
-							{:else}
-								<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
-									<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
-										{number(false)}
-									</span>
-									<p class="min-w-0 flex-1 text-body">{item.text}</p>
-								</li>
-							{/if}
-						{/each}
-					</ol>
-				</div>
-			{/if}
-		{/snippet}
+			{#snippet annexe(component: Component)}
+				{#if component.content}
+					{@const number = numbering()}
+					<div id="annexe-{pathKey(component.path)}" class="mt-8 scroll-mt-12">
+						<h2
+							class="mx-gutter mb-1 font-display text-label font-semibold text-support-2 uppercase"
+						>
+							{component.title} · {m.recipe_component_method()}
+						</h2>
+						<p class="mx-gutter mb-2 text-read text-ink-2">{component.said}</p>
+						<ol class="mx-gutter border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
+							{#each component.content.steps as item, index (index)}
+								{#if item.kind === 'section'}
+									<li class="border-b border-rule py-4 pb-1">
+										<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
+									</li>
+								{:else}
+									<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
+										<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
+											{number(false)}
+										</span>
+										<p class="min-w-0 flex-1 text-body">{item.text}</p>
+									</li>
+								{/if}
+							{/each}
+						</ol>
+					</div>
+				{/if}
+			{/snippet}
 
-		<!-- Ingredients ------------------------------------------------------ -->
-		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-			{m.recipe_ingredients()}
-		</h2>
-		<ul class="px-gutter">
-			{#if marking && divergence}
-				{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
-					{@const key = rowKey('ingredients', index)}
-					{@const own = side === 'mine' ? row.mine : row.theirs}
-					{#if row.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1">
-							<h3 class="font-display text-label text-ink-2 uppercase">
-								{(own ?? row.mine ?? row.theirs)?.text}
-							</h3>
-						</li>
-					{:else if row.state === 'same'}
-						{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
-					{:else}
-						<!--
+			<!-- Ingredients ------------------------------------------------------ -->
+			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+				{m.recipe_ingredients()}
+			</h2>
+			<ul class="px-gutter">
+				{#if marking && divergence}
+					{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
+						{@const key = rowKey('ingredients', index)}
+						{@const own = side === 'mine' ? row.mine : row.theirs}
+						{#if row.kind === 'section'}
+							<li class="border-b border-rule py-4 pb-1">
+								<h3 class="font-display text-label text-ink-2 uppercase">
+									{(own ?? row.mine ?? row.theirs)?.text}
+								</h3>
+							</li>
+						{:else if row.state === 'same'}
+							{@render ingredientLine(own?.text ?? '', own?.index ?? -1)}
+						{:else}
+							<!--
 							A CHANGED LINE THAT NAMES A RECIPE still says which one, in
 							the same slot (#50). It does not unfold: a marked row is
 							already carrying two Kitchens' words and a take-his offer,
@@ -947,120 +1011,124 @@
 							than this ticket's. The sentence is what stops the row
 							going silent about what it is.
 						-->
-						{@const marked = own ? componentAt([], own.index) : undefined}
-						<MarkedRow
-							{row}
-							{side}
-							{otherKitchen}
-							beneath={marked?.said ?? (own ? beneathLine(own.index) : '')}
-							open={open.has(key)}
-							taken={taken.get(key)}
-							onToggle={() => toggle(key)}
-							onCarry={(what) => carry(key, what)}
-							onFixReading={correctable && own ? () => toggleCorrector(own.index) : undefined}
-						/>
-						{#if correctable && own && correcting === own.index}
-							<li class="border-b border-rule pb-3 pl-3">
-								<Correcting
-									{branchId}
-									lineIndex={own.index}
-									reading={readingAt(own.index)}
-									onDone={(next, converted) => corrected(own.index, next, converted)}
-									onCancel={() => (correcting = null)}
-								/>
+							{@const marked = own ? componentAt([], own.index) : undefined}
+							<MarkedRow
+								{row}
+								{side}
+								{otherKitchen}
+								beneath={marked?.said ?? (own ? beneathLine(own.index) : '')}
+								open={open.has(key)}
+								taken={taken.get(key)}
+								onToggle={() => toggle(key)}
+								onCarry={(what) => carry(key, what)}
+								onFixReading={correctable && own ? () => toggleCorrector(own.index) : undefined}
+							/>
+							{#if correctable && own && correcting === own.index}
+								<li class="border-b border-rule pb-3 pl-3">
+									<Correcting
+										{branchId}
+										lineIndex={own.index}
+										reading={readingAt(own.index)}
+										onDone={(next, converted) => corrected(own.index, next, converted)}
+										onCancel={() => (correcting = null)}
+									/>
+								</li>
+							{/if}
+						{/if}
+					{/each}
+				{:else}
+					{#each content.ingredients as item, index (index)}
+						{#if item.kind === 'section'}
+							<li class="border-b border-rule py-4 pb-1">
+								<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
+							</li>
+						{:else}
+							{@render ingredientLine(item.text, index)}
+						{/if}
+					{/each}
+				{/if}
+			</ul>
+
+			<!-- Method ----------------------------------------------------------- -->
+			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+				{m.recipe_method()}
+			</h2>
+			<ol class="px-gutter">
+				{#if marking && divergence}
+					{@const number = numbering()}
+					{#each divergence.steps as row, index (rowKey('steps', index))}
+						{@const key = rowKey('steps', index)}
+						{@const own = side === 'mine' ? row.mine : row.theirs}
+						{@const n = number(!own)}
+						{#if row.kind === 'section'}
+							<li class="border-b border-rule py-4 pb-1">
+								<h3 class="font-display text-label text-ink-2 uppercase">
+									{(own ?? row.mine ?? row.theirs)?.text}
+								</h3>
+							</li>
+						{:else if row.state === 'same'}
+							<li class="flex gap-3 border-b border-rule py-3">
+								<span class="w-6 shrink-0 font-display text-line font-semibold text-accent"
+									>{n}</span
+								>
+								<div class="min-w-0 flex-1">
+									<p class="text-body">{own?.text}</p>
+									{@render beside(own?.index ?? -1)}
+								</div>
+							</li>
+						{:else}
+							<MarkedRow
+								{row}
+								{side}
+								{otherKitchen}
+								number={n}
+								beneath={own ? (measured.steps[own.index] ?? '') : ''}
+								open={open.has(key)}
+								taken={taken.get(key)}
+								onToggle={() => toggle(key)}
+								onCarry={(what) => carry(key, what)}
+							/>
+						{/if}
+					{/each}
+				{:else}
+					{@const number = numbering()}
+					{#each content.steps as item, index (index)}
+						{#if item.kind === 'section'}
+							<li class="border-b border-rule py-4 pb-1">
+								<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
+							</li>
+						{:else}
+							<li class="flex gap-3 border-b border-rule py-3">
+								<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
+									{number(false)}
+								</span>
+								<div class="min-w-0 flex-1">
+									<p class="text-body">{item.text}</p>
+									{@render beside(index)}
+								</div>
 							</li>
 						{/if}
-					{/if}
-				{/each}
-			{:else}
-				{#each content.ingredients as item, index (index)}
-					{#if item.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1">
-							<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
-						</li>
-					{:else}
-						{@render ingredientLine(item.text, index)}
-					{/if}
-				{/each}
+					{/each}
+				{/if}
+			</ol>
+
+			<!-- The annexe (#50): every Component's Steps, in the order the page met them. -->
+			{#each annexes as component (component.path.join('.'))}
+				{@render annexe(component)}
+			{/each}
+
+			{#if content.note}
+				<div
+					class="mx-gutter mt-6 border-l-2 border-accent py-1 pl-4 text-body whitespace-pre-wrap"
+				>
+					{content.note}
+				</div>
 			{/if}
-		</ul>
-
-		<!-- Method ----------------------------------------------------------- -->
-		<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-			{m.recipe_method()}
-		</h2>
-		<ol class="px-gutter">
-			{#if marking && divergence}
-				{@const number = numbering()}
-				{#each divergence.steps as row, index (rowKey('steps', index))}
-					{@const key = rowKey('steps', index)}
-					{@const own = side === 'mine' ? row.mine : row.theirs}
-					{@const n = number(!own)}
-					{#if row.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1">
-							<h3 class="font-display text-label text-ink-2 uppercase">
-								{(own ?? row.mine ?? row.theirs)?.text}
-							</h3>
-						</li>
-					{:else if row.state === 'same'}
-						<li class="flex gap-3 border-b border-rule py-3">
-							<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">{n}</span>
-							<div class="min-w-0 flex-1">
-								<p class="text-body">{own?.text}</p>
-								{@render beside(own?.index ?? -1)}
-							</div>
-						</li>
-					{:else}
-						<MarkedRow
-							{row}
-							{side}
-							{otherKitchen}
-							number={n}
-							beneath={own ? (measured.steps[own.index] ?? '') : ''}
-							open={open.has(key)}
-							taken={taken.get(key)}
-							onToggle={() => toggle(key)}
-							onCarry={(what) => carry(key, what)}
-						/>
-					{/if}
-				{/each}
-			{:else}
-				{@const number = numbering()}
-				{#each content.steps as item, index (index)}
-					{#if item.kind === 'section'}
-						<li class="border-b border-rule py-4 pb-1">
-							<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
-						</li>
-					{:else}
-						<li class="flex gap-3 border-b border-rule py-3">
-							<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
-								{number(false)}
-							</span>
-							<div class="min-w-0 flex-1">
-								<p class="text-body">{item.text}</p>
-								{@render beside(index)}
-							</div>
-						</li>
-					{/if}
-				{/each}
+			{#if markOf('note')}
+				<p class="mx-gutter mt-1 text-read text-accent">{markOf('note')}</p>
 			{/if}
-		</ol>
 
-		<!-- The annexe (#50): every Component's Steps, in the order the page met them. -->
-		{#each annexes as component (component.path.join('.'))}
-			{@render annexe(component)}
-		{/each}
-
-		{#if content.note}
-			<div class="mx-gutter mt-6 border-l-2 border-accent py-1 pl-4 text-body whitespace-pre-wrap">
-				{content.note}
-			</div>
-		{/if}
-		{#if markOf('note')}
-			<p class="mx-gutter mt-1 text-read text-accent">{markOf('note')}</p>
-		{/if}
-
-		<!--
+			<!--
 			Cooked (#59). How this dish has actually gone: how many times, when
 			last, and each Person's most recent verdict with their name.
 
@@ -1071,163 +1139,196 @@
 			was fixed months ago. A Person who cooked and said nothing simply
 			does not appear: silence is not a score of zero.
 		-->
-		{#if recipe}
-			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-				{m.recipe_cooked()}
-			</h2>
-			<div class="px-gutter">
-				{#if recipe.cooked.count === 0 || !recipe.cooked.last_cooked_at}
-					<p class="text-read text-ink-2">{m.recipe_cooked_never()}</p>
-				{:else}
-					{@const when = new Date(recipe.cooked.last_cooked_at).toLocaleDateString()}
-					<p class="text-read text-ink-2">
-						{recipe.cooked.count === 1
-							? m.recipe_cooked_once({ when })
-							: m.recipe_cooked_times({ count: recipe.cooked.count, when })}
-					</p>
-					<ul>
-						{#each recipe.cooked.ratings as verdict (verdict.person_id)}
-							<li class="flex items-baseline justify-between gap-3 border-b border-rule py-2">
-								<span class="text-line">{verdict.name}</span>
-								<span class="text-read text-accent uppercase">{ratingLabel(verdict.rating)}</span>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</div>
-		{/if}
+			{#if recipe}
+				<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+					{m.recipe_cooked()}
+				</h2>
+				<div class="px-gutter">
+					{#if recipe.cooked.count === 0 || !recipe.cooked.last_cooked_at}
+						<p class="text-read text-ink-2">{m.recipe_cooked_never()}</p>
+					{:else}
+						{@const when = new Date(recipe.cooked.last_cooked_at).toLocaleDateString()}
+						<p class="text-read text-ink-2">
+							{recipe.cooked.count === 1
+								? m.recipe_cooked_once({ when })
+								: m.recipe_cooked_times({ count: recipe.cooked.count, when })}
+						</p>
+						<ul>
+							{#each recipe.cooked.ratings as verdict (verdict.person_id)}
+								<li class="flex items-baseline justify-between gap-3 border-b border-rule py-2">
+									<span class="text-line">{verdict.name}</span>
+									<span class="text-read text-accent uppercase">{ratingLabel(verdict.rating)}</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			{/if}
 
-		{#if saved === 'yes'}
-			<p class="mx-gutter mt-4 text-read text-accent" role="status">{m.divergence_saved()}</p>
-		{:else if saved === 'failed'}
-			<p class="mx-gutter mt-4 text-read text-support" role="alert">{m.divergence_save_failed()}</p>
-		{/if}
+			{#if copiedInto === branchId}
+				<p class="mx-gutter mt-4 text-read text-accent" role="status">
+					{m.write_saved_copied()}
+				</p>
+			{:else if wrote}
+				<p class="mx-gutter mt-4 text-read text-accent" role="status">
+					{m.write_saved()}{#if wrote.collapsed}&nbsp;{m.write_saved_collapsed()}{/if}
+				</p>
+			{/if}
 
-		<!--
+			{#if saved === 'yes'}
+				<p class="mx-gutter mt-4 text-read text-accent" role="status">{m.divergence_saved()}</p>
+			{:else if saved === 'failed'}
+				<p class="mx-gutter mt-4 text-read text-support" role="alert">
+					{m.divergence_save_failed()}
+				</p>
+			{/if}
+
+			<!--
 			Into the cooking screen (#61, ADR 0011). It is a link rather than a
 			button that starts something: opening the screen IS starting the
 			Attempt, and one already In Progress is handed back rather than
 			doubled — so there is nothing here to press twice by mistake.
 		-->
-		<!--
+			<!--
 			Promotion (#58, ADR 0005). Above `Cook this` because it is a question
 			about the recipe you are standing in, and drawn at all only where a
 			cooking departed from these words and nobody has decided about it yet.
 			A recipe nobody cooked differently carries nothing here — which is
 			every recipe, nearly always.
 		-->
-		{#if recipe}
-			<Promotion {branchId} {attempts} versions={recipe.versions} promoted={() => (reread += 1)} />
-		{/if}
+			{#if recipe}
+				<Promotion
+					{branchId}
+					{attempts}
+					versions={recipe.versions}
+					promoted={() => (reread += 1)}
+				/>
+			{/if}
 
-		<a
-			href="/cook/{branchId}"
-			class="mx-gutter mt-6 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"
-		>
-			{m.recipe_cook_this()}
-		</a>
-		<a
-			href="/recipes/{branchId}/thread"
-			class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
-		>
-			{m.recipe_the_thread()}
-		</a>
-		<!--
+			<!--
+			Writing (#83). Drawn with `NeedsServer` because editing is on the
+			server's side of the line and is never queued: an offline edit
+			queue is a merge, and Kamosu does not merge (ADR 0013, #76). The
+			phrase it wears offline was written for this button before the
+			button existed.
+		-->
+			<NeedsServer
+				label={m.write_edit()}
+				waiting={m.offline_waits_edit()}
+				onclick={() => (writing = true)}
+				shapeClass="mx-gutter mt-6 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
+				lookClass="border border-rule text-accent"
+			/>
+
+			<a
+				href="/cook/{branchId}"
+				class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"
+			>
+				{m.recipe_cook_this()}
+			</a>
+			<a
+				href="/recipes/{branchId}/thread"
+				class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
+			>
+				{m.recipe_the_thread()}
+			</a>
+			<!--
 			Into the share screen (#65, ADR 0026). A link rather than a switch
 			here on purpose: turning sharing on is one deliberate act taken on a
 			screen that says what it means, not a toggle brushed past on the way
 			to cooking.
 		-->
-		<a
-			href="/recipes/{branchId}/share"
-			class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
-		>
-			{m.share_title()}
-		</a>
-		<!--
+			<a
+				href="/recipes/{branchId}/share"
+				class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
+			>
+				{m.share_title()}
+			</a>
+			<!--
 			A Sheet (#75, ADR 0023): this recipe, as it stands here, on paper.
 			It waits for the server, since the server is what sets it.
 		-->
-		<NeedsServer
-			label={printing === 'setting' ? m.recipe_print_setting() : m.recipe_print_sheet()}
-			waiting={m.offline_waits_print()}
-			onclick={printSheet}
-			disabled={printing === 'setting'}
-			shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-			lookClass="border border-rule text-accent"
-		/>
-		{#if printing === 'failed'}
-			<p class="mx-gutter mt-2 text-read text-support" role="alert">{m.recipe_print_failed()}</p>
-		{/if}
-		<!--
+			<NeedsServer
+				label={printing === 'setting' ? m.recipe_print_setting() : m.recipe_print_sheet()}
+				waiting={m.offline_waits_print()}
+				onclick={printSheet}
+				disabled={printing === 'setting'}
+				shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
+				lookClass="border border-rule text-accent"
+			/>
+			{#if printing === 'failed'}
+				<p class="mx-gutter mt-2 text-read text-support" role="alert">{m.recipe_print_failed()}</p>
+			{/if}
+			<!--
 			Onto the Shopping List (#73, ADR 0024). A button and not a link: it
 			is one act that finishes here, and pressing it again takes the
 			recipe back off. What it stores is the choosing — the Branch, at
 			whatever Version it is on when the list is next read.
 		-->
-		<button
-			type="button"
-			disabled={shopping}
-			class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] border border-rule p-4 text-center font-display text-body {onTheList
-				? 'text-ink-2'
-				: 'text-accent'}"
-			onclick={async () => {
-				shopping = true;
-				try {
-					if (onTheList) {
-						await kamosu.removeFromShoppingList({ branch_id: branchId });
-						onTheList = false;
-					} else {
-						await kamosu.addToShoppingList({ branch_id: branchId });
-						onTheList = true;
+			<button
+				type="button"
+				disabled={shopping}
+				class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] border border-rule p-4 text-center font-display text-body {onTheList
+					? 'text-ink-2'
+					: 'text-accent'}"
+				onclick={async () => {
+					shopping = true;
+					try {
+						if (onTheList) {
+							await kamosu.removeFromShoppingList({ branch_id: branchId });
+							onTheList = false;
+						} else {
+							await kamosu.addToShoppingList({ branch_id: branchId });
+							onTheList = true;
+						}
+					} catch (error: unknown) {
+						if (!(error instanceof OperationError)) throw error;
+					} finally {
+						shopping = false;
 					}
-				} catch (error: unknown) {
-					if (!(error instanceof OperationError)) throw error;
-				} finally {
-					shopping = false;
-				}
-			}}
-		>
-			{onTheList ? m.shopping_on_your_list() : m.shopping_add_this()}
-		</button>
-	{/if}
+				}}
+			>
+				{onTheList ? m.shopping_on_your_list() : m.shopping_add_this()}
+			</button>
+		{/if}
 
-	<!-- Carried across and not yet saved. It becomes real only when an ordinary
+		<!-- Carried across and not yet saved. It becomes real only when an ordinary
 	     Version is saved — there is no other kind of save here. -->
-	{#if taken.size > 0 && divergence}
-		<div
-			class="fixed inset-x-0 bottom-tabbar z-30 mx-auto max-w-2xl border-t border-on-accent/25 bg-accent px-gutter py-3 text-on-accent"
-		>
-			<p class="mb-2 text-read">
-				{taken.size === 1
-					? m.divergence_unsaved_one({ kitchen: divergence.theirs.kitchen_name })
-					: m.divergence_unsaved({
-							count: taken.size,
-							kitchen: divergence.theirs.kitchen_name,
-						})}
-			</p>
-			<div class="flex gap-2">
-				<!-- Saving a Version is editing the recipe: it waits for the server,
+		{#if taken.size > 0 && divergence}
+			<div
+				class="fixed inset-x-0 bottom-tabbar z-30 mx-auto max-w-2xl border-t border-on-accent/25 bg-accent px-gutter py-3 text-on-accent"
+			>
+				<p class="mb-2 text-read">
+					{taken.size === 1
+						? m.divergence_unsaved_one({ kitchen: divergence.theirs.kitchen_name })
+						: m.divergence_unsaved({
+								count: taken.size,
+								kitchen: divergence.theirs.kitchen_name,
+							})}
+				</p>
+				<div class="flex gap-2">
+					<!-- Saving a Version is editing the recipe: it waits for the server,
 				     and what was carried across stays carried until then (#76). -->
-				<NeedsServer
-					label={m.divergence_save()}
-					waiting={m.offline_waits_save()}
-					onclick={startSaving}
-					shapeClass="flex-1 p-2 text-center text-read"
-					lookClass="bg-on-accent text-accent"
-					idleClass="border border-on-accent/40 text-on-accent opacity-55"
-				/>
-				<button
-					type="button"
-					onclick={() => (taken = new Map())}
-					class="flex-1 border border-on-accent/40 p-2 text-center text-read"
-				>
-					{m.divergence_undo()}
-				</button>
+					<NeedsServer
+						label={m.divergence_save()}
+						waiting={m.offline_waits_save()}
+						onclick={startSaving}
+						shapeClass="flex-1 p-2 text-center text-read"
+						lookClass="bg-on-accent text-accent"
+						idleClass="border border-on-accent/40 text-on-accent opacity-55"
+					/>
+					<button
+						type="button"
+						onclick={() => (taken = new Map())}
+						class="flex-1 border border-on-accent/40 p-2 text-center text-read"
+					>
+						{m.divergence_undo()}
+					</button>
+				</div>
 			</div>
-		</div>
-	{/if}
-</div>
+		{/if}
+	</div>
+{/if}
 
 {#if saving && divergence}
 	<div class="fixed inset-0 z-40 bg-accent/40"></div>

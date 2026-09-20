@@ -8,7 +8,7 @@
 	import TabBar from '$lib/shell/TabBar.svelte';
 	import { realKamosu } from '$lib/kamosu';
 	import { realAuth } from '$lib/auth';
-	import { realUpload } from '$lib/api/upload';
+	import { realPhotographUpload, realUpload } from '$lib/api/upload';
 	import { readToken } from '$lib/tokens';
 	import Notices from '$lib/offline/Notices.svelte';
 	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
@@ -20,6 +20,7 @@
 	const client = realKamosu(outbox);
 	const auth = realAuth();
 	const upload = realUpload();
+	const photograph = realPhotographUpload();
 
 	// The document's language is the locale Paraglide resolved, which is what
 	// tells a screen reader — and Safari's translation offer — what it is reading.
@@ -80,7 +81,7 @@
 	const cooking = $derived(page.url.pathname.startsWith('/cook/'));
 </script>
 
-<Kamosu {client} {auth} {upload} keeping={outbox}>
+<Kamosu {client} {auth} {upload} {photograph} keeping={outbox}>
 	{#if !cooking}
 		<header class="sticky top-0 z-10 border-b border-rule bg-ground pt-safe">
 			<div class="mx-auto flex max-w-2xl px-gutter py-3">

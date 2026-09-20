@@ -20,6 +20,7 @@ import { OperationError, readEnvelope } from './client';
 export type Uploader = (file: Blob) => Promise<string>;
 
 const KEY = Symbol('upload');
+const PICTURE_KEY = Symbol('photograph');
 
 export function provideUpload(uploader: () => Uploader): void {
 	setContext(KEY, uploader);
@@ -28,6 +29,27 @@ export function provideUpload(uploader: () => Uploader): void {
 export function useUpload(): Uploader {
 	const uploader = getContext<(() => Uploader) | undefined>(KEY)?.();
 	if (!uploader) throw new Error('no uploader in context');
+	return uploader;
+}
+
+/**
+ * Sending a picture that has to reach the server NOW, and answer the name the
+ * recipe will carry (ADR 0017).
+ *
+ * This is not the same act as taking a photograph while cooking. That one goes
+ * to the outbox, is named `local:…` on the phone, and is given its real name
+ * when the cooking it belongs to is finally sent — which only works because
+ * the outbox rewrites those names on the way out. Nothing rewrites them inside
+ * a `save_recipe_version`, so a recipe that took that path would store a name
+ * no server has ever heard of (#83).
+ */
+export function providePhotograph(uploader: () => Uploader): void {
+	setContext(PICTURE_KEY, uploader);
+}
+
+export function usePhotograph(): Uploader {
+	const uploader = getContext<(() => Uploader) | undefined>(PICTURE_KEY)?.();
+	if (!uploader) throw new Error('no photograph uploader in context');
 	return uploader;
 }
 

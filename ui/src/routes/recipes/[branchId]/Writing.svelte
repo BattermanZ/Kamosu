@@ -1,0 +1,936 @@
+<!--
+	Writing a recipe (#83). The other half of #81, which only reads.
+
+	THE PAGE IS THE PAGE. Aurélien chose direction A on 20 September 2026,
+	against four full mockups drawn on Dan Dan Noodles out of the real
+	86-recipe export, and the reasoning is on #83 rather than repeated here.
+	What it settled, and what this file has to keep true:
+
+	  · there is NO SECOND SCREEN. Hero, the facts, Ingredients, and the Method
+	    underneath them, in the order #81 puts them, each part becoming a field
+	    where it already sits. A separate compose screen was drawn (B) and
+	    rejected, so moving any part of this onto its own route undoes the
+	    choice;
+	  · a long list is ONE RUN OF TYPING. Return at the end of a line makes the
+	    next one, so twenty-one lines is not twenty-one taps of *add another*;
+	  · both lists carry BOTH controls — a line or a step, and a heading — and
+	    each drops the new thing in where the cursor is, so a heading goes into
+	    the middle of a list without retyping what follows it.
+
+	One argument was put to Aurélien for the separate screen and it was wrong:
+	that a long list gets more room there. The hero scrolls away, so it does
+	not. That mistake is recorded on #83 so nobody re-derives it.
+
+	AN INGREDIENT LINE IS ONE FREE-TEXT FIELD (ADR 0002, #43). Never an amount
+	box, a unit box and a food box. `2 poignées de farine, environ` goes in and
+	comes out as typed, and nothing here rewrites a character of it. What
+	Kamosu understands OF that line is the Reading, which is corrected on the
+	reading page and is no part of this screen (ADR 0021).
+
+	A SECTION IS A REAL OBJECT in both lists, not a line pretending to be one:
+	it is stored as `kind: "section"` and it survives a save as itself.
+
+	A LINE IS DRAGGED, AND THE LIST REARRANGES UNDER IT. You put the line where
+	you can see it going, rather than describing the move and watching it
+	happen afterwards. This is the handle the mockup drew, and it is the
+	control Aurélien approved, so a two-step *move, then choose where* is not
+	a substitute for it.
+
+	It is built on pointer events. HTML5 drag-and-drop does not fire on touch
+	at all, which on a phone-first app would make rearranging a desktop-only
+	feature. The handle captures the pointer, so the drag survives the row
+	moving out from under the finger — which happens immediately, because that
+	is the point. The arrow keys move a row one place at a time, because a
+	control that can only be dragged cannot be reached from a keyboard and
+	`svelte-check` counts that as a build failure here (ADR 0012).
+
+	THE SAVE SAYS WHICH OF TWO THINGS IT IS ABOUT TO DO (#54), before it does
+	it, in fixed words, and the two are not the same control. Saving a recipe
+	one of your Kitchens holds writes a Version on that Branch. Saving one they
+	do not forks a Branch of the same Lineage, held by you. Whether this is a
+	fork is read off the Kitchens the caller actually cooks in, never guessed.
+
+	WHAT A SAVE DID IS SAID BY THE PAGE, NOT BY THIS SCREEN. Saving closes this
+	screen, so a line drawn here would be destroyed before anybody read it —
+	which is exactly what happened the first time it was written that way. The
+	outcome goes up through `onSaved` and the recipe page says it.
+
+	There are two things worth saying. A second save by the same Hand within
+	`COLLAPSE_WINDOW_SECONDS` joins the Version already being shaped instead of
+	appending (`src/core.rs`), and a save that silently made no Thread entry
+	reads as a save that did not happen. And a Copy lands on a DIFFERENT
+	Branch: the answer's `branch_id` is the new one, so the page has to go
+	there or the cook is left reading the recipe they did not change.
+
+	OFFLINE THIS SCREEN IS NOT REACHED (ADR 0013, #76). Editing needs the
+	server and the button that opens this says so, drawn with `NeedsServer`.
+	There is no queue, because an offline edit queue is a merge.
+
+	THERE IS NO DELETE HERE. The mockup drew one; Kamosu has no
+	`delete_recipe` Operation, and a button for an Operation that does not
+	exist is worse than its absence.
+-->
+<script lang="ts">
+	import { tick } from 'svelte';
+	import type { Attachment } from 'svelte/attachments';
+	import { m } from '$lib/paraglide/messages';
+	import { useKamosu } from '$lib/kamosu';
+	import { OperationError } from '$lib/api/client';
+	import { usePhotograph } from '$lib/api/upload';
+	import type { GetRecipeOutput, ListKitchensOutput } from '$lib/api/catalogue';
+	import Cover from '$lib/cover/Cover.svelte';
+
+	type Content = GetRecipeOutput['versions'][number]['content'];
+
+	interface Props {
+		branchId: string;
+		lineageId: string;
+		/** The Kitchen holding the Branch being written on. */
+		kitchenId: string;
+		/** The recipe as it stands, which is what the draft below starts from. */
+		content: Content;
+		onCancel: () => void;
+		/**
+		 * A Version landed. The page re-reads and this screen closes, so what
+		 * happened is handed UP rather than said here: a line drawn by a
+		 * component that is about to be destroyed is a line nobody reads.
+		 *
+		 * `branch_id` is the Branch the Version is on, which after a Copy is
+		 * the NEW one rather than the one that was open.
+		 */
+		onSaved: (landed: { branch_id: string; collapsed: boolean; copied: boolean }) => void;
+	}
+
+	let { branchId, lineageId, kitchenId, content, onCancel, onSaved }: Props = $props();
+
+	const kamosu = useKamosu();
+	const sendPhotograph = usePhotograph();
+
+	/**
+	 * A row carries an id of its own because the list is keyed by it. Keying by
+	 * index would move focus to a different row the moment anything above the
+	 * caret is inserted, removed or moved, which on a twenty-one line list is
+	 * the difference between typing and fighting.
+	 */
+	let nextId = 0;
+	const id = () => (nextId += 1);
+
+	interface Line {
+		id: number;
+		kind: 'ingredient' | 'section';
+		text: string;
+	}
+	interface Step {
+		id: number;
+		kind: 'step' | 'section';
+		text: string;
+		photo: string | null;
+	}
+
+	// ---- the draft ------------------------------------------------------
+
+	/**
+	 * Seeded ONCE from the recipe as it stood when this opened. Deliberately
+	 * not derived from the prop: a re-read landing mid-sentence must not
+	 * overwrite what somebody is halfway through typing.
+	 */
+	// svelte-ignore state_referenced_locally
+	let title = $state(content.title);
+	// svelte-ignore state_referenced_locally
+	let mainPhoto = $state<string | null>(content.main_photo);
+	// svelte-ignore state_referenced_locally
+	let prep = $state(content.prep_time_minutes === null ? '' : String(content.prep_time_minutes));
+	// svelte-ignore state_referenced_locally
+	let cook = $state(content.cook_time_minutes === null ? '' : String(content.cook_time_minutes));
+	// svelte-ignore state_referenced_locally
+	let yieldAmount = $state(content.yield?.amount ?? '');
+	// svelte-ignore state_referenced_locally
+	let yieldNoun = $state(content.yield?.noun ?? '');
+	// svelte-ignore state_referenced_locally
+	let note = $state(content.note ?? '');
+	// svelte-ignore state_referenced_locally
+	let sourceText = $state(content.source?.text ?? '');
+	// svelte-ignore state_referenced_locally
+	let sourceLink = $state(content.source?.link ?? '');
+	// svelte-ignore state_referenced_locally
+	let lines = $state<Line[]>(
+		content.ingredients.map((item) => ({ id: id(), kind: item.kind, text: item.text })),
+	);
+	// svelte-ignore state_referenced_locally
+	let steps = $state<Step[]>(
+		content.steps.map((item) => ({
+			id: id(),
+			kind: item.kind,
+			text: item.text,
+			photo: item.photo ?? null,
+		})),
+	);
+
+	/**
+	 * The row last written in, so *Add a line* and *Add a heading* put the new
+	 * thing beside it rather than always at the foot. It deliberately survives
+	 * the field losing focus, because pressing one of those buttons is what
+	 * takes focus away and the row it inserts after still has to be known. A
+	 * removal or a move clears it, since the index it holds stops meaning
+	 * anything then.
+	 */
+	let cursor = $state<{ list: 'lines' | 'steps'; index: number } | null>(null);
+	/** The row under the finger, while one is being dragged. */
+	let dragging = $state<{ list: 'lines' | 'steps'; index: number } | null>(null);
+	/** The two lists' own elements, which a drag measures the rows of. */
+	let linesEl = $state<HTMLElement | undefined>(undefined);
+	let stepsEl = $state<HTMLElement | undefined>(undefined);
+
+	let photoFailed = $state(false);
+	let asking = $state(false);
+	let saving = $state(false);
+	let failed = $state<string | undefined>(undefined);
+	let versionName = $state('');
+	let changeNote = $state('');
+
+	// ---- which of the two saves this is ---------------------------------
+
+	let kitchens = $state<ListKitchensOutput['kitchens']>([]);
+	/**
+	 * Whether the Kitchens are known yet. The save is held until they are.
+	 *
+	 * This is not caution for its own sake: which of the two saves this is, is
+	 * read off them. Unknown, `forking` is false, so the sheet would say
+	 * *writes a new Version onto your recipe, in* — with no Kitchen named —
+	 * and the server would fork anyway. A screen whose whole job at that
+	 * moment is to state the outcome must not guess it.
+	 */
+	let kitchensKnown = $state(false);
+	let kitchensFailed = $state(false);
+	$effect(() => {
+		let current = true;
+		kamosu
+			.listKitchens({})
+			.then((all) => {
+				if (!current) return;
+				kitchens = all.kitchens;
+				kitchensKnown = true;
+			})
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+				if (current) kitchensFailed = true;
+			});
+		return () => {
+			current = false;
+		};
+	});
+
+	/**
+	 * A Copy, not a Version: this Branch is held by a Kitchen the caller does
+	 * not cook in. Read off `list_kitchens` rather than guessed, and false
+	 * until that answers — the sheet is what states the outcome, and it is not
+	 * opened before the answer is in.
+	 */
+	const forking = $derived(kitchensKnown && !kitchens.some((kitchen) => kitchen.id === kitchenId));
+	const landsIn = $derived(kitchens.find((kitchen) => kitchen.is_home) ?? kitchens[0]);
+	const holding = $derived(kitchens.find((kitchen) => kitchen.id === kitchenId));
+	/** The Kitchen the save writes into, whichever of the two acts it is. */
+	const savingInto = $derived(forking ? landsIn : (holding ?? landsIn));
+
+	// ---- the lists ------------------------------------------------------
+
+	/**
+	 * A row's number within its own kind, so a heading takes none and the
+	 * first ingredient is *line 1* rather than *line 2*. The Step numbers are
+	 * also what the page shows, counted the way the reading page counts them.
+	 */
+	const numbered = (rows: { kind: string }[], kind: string) => {
+		let n = 0;
+		return rows.map((row) => (row.kind === kind ? (n += 1) : null));
+	};
+	const stepNumbers = $derived(numbered(steps, 'step'));
+	const lineNumbers = $derived(numbered(lines, 'ingredient'));
+
+	/** Where a new row goes: after the row the caret is in, else at the foot. */
+	const insertAt = (list: 'lines' | 'steps', length: number) =>
+		cursor && cursor.list === list ? cursor.index + 1 : length;
+
+	/**
+	 * THE CARET GOES INTO THE NEW ROW. Without this the row appears and the
+	 * caret stays where it was, so *Return, type, Return, type* puts the whole
+	 * list into the first field — which is exactly what it did the first time
+	 * this was tried on a real 21-line recipe. A long list being one run of
+	 * typing is the whole of why this direction was chosen, and it rests
+	 * entirely on this line.
+	 */
+	async function writeIn(list: 'lines' | 'steps', index: number) {
+		await tick();
+		rowsOf(list)[index]?.querySelector('textarea')?.focus();
+	}
+
+	function addLine(kind: 'ingredient' | 'section') {
+		const at = insertAt('lines', lines.length);
+		lines.splice(at, 0, { id: id(), kind, text: '' });
+		cursor = { list: 'lines', index: at };
+		void writeIn('lines', at);
+	}
+
+	function addStep(kind: 'step' | 'section') {
+		const at = insertAt('steps', steps.length);
+		steps.splice(at, 0, { id: id(), kind, text: '', photo: null });
+		cursor = { list: 'steps', index: at };
+		void writeIn('steps', at);
+	}
+
+	/**
+	 * Return makes the next row rather than a newline: a list is lines, and a
+	 * line that wraps is still one line. Shift and Return are left alone, so a
+	 * step that genuinely wants a paragraph can still have one.
+	 */
+	function onKey(event: KeyboardEvent, list: 'lines' | 'steps', index: number) {
+		if (event.key !== 'Enter' || event.shiftKey) return;
+		event.preventDefault();
+		cursor = { list, index };
+		if (list === 'lines') addLine('ingredient');
+		else addStep('step');
+	}
+
+	function remove(list: 'lines' | 'steps', index: number) {
+		if (list === 'lines') lines.splice(index, 1);
+		else steps.splice(index, 1);
+		cursor = null;
+	}
+
+	// ---- rearranging ----------------------------------------------------
+	//
+	// A row is DRAGGED, and the list rearranges under it as it goes — you put
+	// the line where you can see it going, rather than describing the move and
+	// watching it happen afterwards.
+	//
+	// Pointer events rather than HTML5 drag-and-drop, which does not fire on
+	// touch at all and would make this a desktop-only control on a phone-first
+	// app. The handle captures the pointer, so the drag survives the finger
+	// leaving the row it started on — which it does immediately, because the
+	// row moves out from under it.
+	//
+	// The arrow keys do the same thing one row at a time. A control that can
+	// only be dragged cannot be reached from a keyboard at all, and
+	// `svelte-check` counts that as a build failure here (ADR 0012).
+
+	/** Where the finger is, kept so the scroll tick can re-read it. */
+	let pointerAt = 0;
+	let ticking = 0;
+
+	const rowsOf = (list: 'lines' | 'steps') =>
+		Array.from(
+			(list === 'lines' ? linesEl : stepsEl)?.querySelectorAll<HTMLElement>('li[data-row]') ?? [],
+		);
+
+	/** Put a row somewhere else in its own list. The whole of the arithmetic. */
+	function shift(list: 'lines' | 'steps', from: number, to: number) {
+		const rows = list === 'lines' ? lines : steps;
+		if (to < 0 || to >= rows.length || to === from) return false;
+		const [row] = rows.splice(from, 1);
+		rows.splice(to, 0, row as never);
+		// The row the caret was in has moved, so where a new line would land
+		// stops meaning what it meant.
+		cursor = null;
+		return true;
+	}
+
+	/** Which row the finger is over now, and the list rearranged to match. */
+	function settle() {
+		if (!dragging) return;
+		const rows = rowsOf(dragging.list);
+		let to = rows.findIndex((row) => {
+			const box = row.getBoundingClientRect();
+			return pointerAt < box.top + box.height / 2;
+		});
+		if (to < 0) to = rows.length - 1;
+		if (shift(dragging.list, dragging.index, to)) dragging = { list: dragging.list, index: to };
+	}
+
+	/**
+	 * Dragging towards the top or the bottom of the screen scrolls the page.
+	 * Without it a line can only be moved as far as the screen is tall, and
+	 * the list this was built for is twenty-one lines long.
+	 */
+	function autoScroll() {
+		if (!dragging) return;
+		const EDGE = 96;
+		const above = pointerAt - EDGE;
+		const below = window.innerHeight - EDGE - pointerAt;
+		if (above < 0) window.scrollBy(0, Math.max(-20, above / 3));
+		else if (below < 0) window.scrollBy(0, Math.min(20, -below / 3));
+		settle();
+		ticking = requestAnimationFrame(autoScroll);
+	}
+
+	function startDrag(list: 'lines' | 'steps', index: number, event: PointerEvent) {
+		// Left button or a finger, never a right-click or the browser's own
+		// text selection starting under the handle.
+		if (event.button !== 0) return;
+		event.preventDefault();
+		dragging = { list, index };
+		pointerAt = event.clientY;
+
+		// THE MOVES ARE LISTENED FOR ON THE WINDOW, not on the handle. Pointer
+		// capture is the tidier mechanism and it is asked for below, but it is
+		// not what this relies on: where the browser refuses the capture the
+		// finger leaves the handle on the very first move — the row slides out
+		// from under it by design — and every move after that would be
+		// delivered somewhere else. Watching the window cannot miss them.
+		try {
+			(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+		} catch {
+			// An id the browser will not capture. The window listeners stand.
+		}
+		window.addEventListener('pointermove', onDrag);
+		window.addEventListener('pointerup', endDrag);
+		window.addEventListener('pointercancel', endDrag);
+		ticking = requestAnimationFrame(autoScroll);
+	}
+
+	function onDrag(event: PointerEvent) {
+		if (!dragging) return;
+		// Otherwise the phone reads the drag as a page scroll partway through.
+		event.preventDefault();
+		pointerAt = event.clientY;
+		settle();
+	}
+
+	function endDrag() {
+		dragging = null;
+		cancelAnimationFrame(ticking);
+		window.removeEventListener('pointermove', onDrag);
+		window.removeEventListener('pointerup', endDrag);
+		window.removeEventListener('pointercancel', endDrag);
+	}
+
+	// A drag interrupted by the screen going away leaves no listeners behind.
+	$effect(() => endDrag);
+
+	function onHandleKey(event: KeyboardEvent, list: 'lines' | 'steps', index: number) {
+		const by = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+		if (by === 0) return;
+		event.preventDefault();
+		if (!shift(list, index, index + by)) return;
+		// The focus goes with the row. Without it the next arrow press moves
+		// whatever has landed here instead, which is not what anybody holding
+		// the key down is asking for.
+		void (async () => {
+			await tick();
+			rowsOf(list)[index + by]?.querySelector<HTMLElement>('[data-handle]')?.focus();
+		})();
+	}
+
+	// ---- photographs ----------------------------------------------------
+
+	/**
+	 * A picture is remade at the door and named by its own bytes (ADR 0017),
+	 * so what a recipe stores is the name the server answers with.
+	 *
+	 * IT GOES TO THE SERVER NOW, not to the outbox. A photograph taken while
+	 * cooking is kept on the phone under a `local:…` name and given its real
+	 * one when the cooking is finally sent, because the outbox rewrites those
+	 * names on the way out. NOTHING rewrites them inside a
+	 * `save_recipe_version`, so a recipe that took that path would store a
+	 * name no server has ever heard of and draw a broken picture for ever.
+	 * This screen needs the server anyway, so there is nothing to keep.
+	 */
+	async function takePhoto(file: File, onto: (name: string) => void) {
+		photoFailed = false;
+		try {
+			onto(await sendPhotograph(file));
+		} catch {
+			photoFailed = true;
+		}
+	}
+
+	const pick = (event: Event, onto: (name: string) => void) => {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		// Cleared so choosing the same file twice in a row still fires.
+		input.value = '';
+		if (file) void takePhoto(file, onto);
+	};
+
+	// ---- saving ---------------------------------------------------------
+
+	/** A field left blank is a field with nothing in it, never an empty string. */
+	const orNothing = (value: string) => (value.trim() === '' ? null : value.trim());
+	/** Whole minutes, or nothing. A word where a number goes is nothing. */
+	const minutes = (value: string) => {
+		const n = Number.parseInt(value.trim(), 10);
+		return value.trim() === '' || Number.isNaN(n) || n < 0 ? null : n;
+	};
+
+	/**
+	 * What cannot be saved as typed, in words. A Yield is one amount AND one
+	 * noun — `4` on its own says nothing and the Catalogue will not carry it —
+	 * and a time is whole minutes. Both were being dropped in silence, which
+	 * loses something somebody typed on purpose.
+	 */
+	const wrong = $derived.by(() => {
+		const amount = yieldAmount.trim();
+		const noun = yieldNoun.trim();
+		if (title.trim() === '') return m.write_needs_title();
+		if ((amount === '') !== (noun === '')) return m.write_needs_both_yield();
+		for (const [value, label] of [
+			[prep, m.recipe_min_prep()],
+			[cook, m.recipe_min_cook()],
+		] as const) {
+			if (value.trim() !== '' && minutes(value) === null) {
+				return m.write_needs_minutes({ field: label });
+			}
+		}
+		return undefined;
+	});
+
+	function drafted() {
+		const amount = yieldAmount.trim();
+		const noun = yieldNoun.trim();
+		return {
+			branch_id: branchId,
+			title: title.trim(),
+			// A field holding nothing is no part of the fingerprint (ADR 0038),
+			// so nothing here has to invent a default to keep ids still.
+			yield: amount === '' || noun === '' ? null : { amount, noun },
+			prep_time_minutes: minutes(prep),
+			cook_time_minutes: minutes(cook),
+			note: orNothing(note),
+			main_photo: mainPhoto,
+			source:
+				sourceText.trim() === '' ? null : { text: sourceText.trim(), link: orNothing(sourceLink) },
+			// Not this screen's to edit: #84 owns showing and typing the figure.
+			// Carried through untouched so saving never drops one.
+			nutrition: content.nutrition,
+			// A row with nothing written in it is not a line of the recipe.
+			ingredients: lines
+				.filter((row) => row.text.trim() !== '')
+				.map((row) => ({ kind: row.kind, text: row.text.trim() })),
+			steps: steps
+				.filter((row) => row.text.trim() !== '')
+				.map((row) => ({ kind: row.kind, text: row.text.trim(), photo: row.photo })),
+		};
+	}
+
+	async function save() {
+		// Belt and braces: both controls are already disabled while `wrong` is
+		// set, and the reason is on screen beside them.
+		if (wrong) return;
+		saving = true;
+		failed = undefined;
+		try {
+			const answered = await kamosu.saveRecipeVersion({
+				...drafted(),
+				...(versionName.trim() === '' ? {} : { name: versionName.trim() }),
+				...(changeNote.trim() === '' ? {} : { change_note: changeNote.trim() }),
+				...(savingInto ? { kitchen_id: savingInto.id } : {}),
+			});
+			asking = false;
+			saving = false;
+			onSaved({
+				branch_id: answered.branch_id,
+				collapsed: answered.collapsed,
+				copied: answered.copied,
+			});
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			failed = error.message;
+			saving = false;
+			asking = false;
+		}
+	}
+
+	/**
+	 * A field that grows with what is in it. An attachment rather than an
+	 * action because it re-runs when the state it reads changes, which is what
+	 * makes a pasted or moved line size itself without a second mechanism.
+	 */
+	const grows = (text: string): Attachment<HTMLTextAreaElement> => {
+		return (node) => {
+			const fit = () => {
+				node.style.height = 'auto';
+				node.style.height = `${node.scrollHeight}px`;
+			};
+			// Re-runs whenever the text changes, which is what sizes a field as
+			// it is typed into, pasted into, or moved.
+			void text;
+			fit();
+
+			// Measuring once is not enough. At the moment a row mounts the page
+			// has not settled, so a line that will wrap to three measures as one
+			// and the field stays a line tall with its own words hidden inside
+			// it — which is what happened on the real 21-line Dan Dan Noodles
+			// the first time this screen was opened. Watching the field's WIDTH
+			// catches that, and the later ones a rotated phone and a font
+			// arriving late both cause.
+			//
+			// Width alone, deliberately: fitting changes the height, and a
+			// height-sensitive observer would answer its own change for ever.
+			if (typeof ResizeObserver === 'undefined') return;
+			let was = -1;
+			const watch = new ResizeObserver((entries) => {
+				const wide = entries[0]?.contentRect.width ?? -1;
+				if (wide === was) return;
+				was = wide;
+				fit();
+			});
+			watch.observe(node);
+			return () => watch.disconnect();
+		};
+	};
+
+	const FIELD =
+		'block w-full resize-none rounded-sm border border-rule bg-card px-2 py-1 text-line text-ink';
+	const HEADING_FIELD =
+		'block w-full resize-none rounded-sm border border-rule bg-card px-2 py-1 text-label text-ink-2 uppercase';
+	const SMALL = 'min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink';
+	const QUIET = 'rounded-sm border border-rule px-2 py-1 text-read text-ink-2';
+</script>
+
+<div class="mx-auto max-w-2xl pb-tabbar">
+	<!--
+		The bar that says you are writing. It stays at the top of the page
+		rather than following the scroll: this is one page, and a bar pinned
+		over it would be the beginning of the second screen A refused.
+	-->
+	<div class="flex items-center gap-2 border-b border-rule px-gutter py-2">
+		<button type="button" class="text-body text-ink-2" onclick={onCancel}>
+			{m.write_cancel()}
+		</button>
+		<span class="flex-1 text-center text-label text-ink-2 uppercase">{m.write_editing()}</span>
+		<button
+			type="button"
+			class="text-body font-medium {kitchensKnown && !wrong ? 'text-accent' : 'text-ink-2'}"
+			disabled={saving || !kitchensKnown || Boolean(wrong)}
+			onclick={() => (asking = true)}
+		>
+			{saving ? m.write_saving() : m.write_save()}
+		</button>
+	</div>
+
+	<!-- The hero, and the title typed onto it — #81's layout, made writable. -->
+	<div class="relative overflow-hidden">
+		{#if mainPhoto}
+			<img
+				src="/api/photographs/{mainPhoto}/page"
+				alt=""
+				class="block w-full object-cover"
+				style="height: var(--hero-h)"
+			/>
+			<div class="pointer-events-none absolute inset-x-0 bottom-0 wash"></div>
+		{:else}
+			<Cover {lineageId} {title} band={false} />
+		{/if}
+		<div class="absolute inset-x-0 bottom-0 px-gutter pt-8 pb-4">
+			<label class="block">
+				<span class="sr-only">{m.write_title_label()}</span>
+				<textarea
+					bind:value={title}
+					rows="1"
+					{@attach grows(title)}
+					class="block w-full resize-none rounded-sm border border-on-accent bg-card px-2 py-1 font-display text-title font-semibold text-ink"
+				></textarea>
+			</label>
+		</div>
+	</div>
+	<div class="flex flex-wrap items-center gap-2 border-b border-rule px-gutter py-2">
+		<label class="{QUIET} cursor-pointer text-accent">
+			{mainPhoto ? m.write_photo_change() : m.write_photo_add()}
+			<input
+				type="file"
+				accept="image/*"
+				class="hidden"
+				onchange={(event) => pick(event, (name) => (mainPhoto = name))}
+			/>
+		</label>
+		{#if mainPhoto}
+			<button type="button" class="{QUIET} text-support" onclick={() => (mainPhoto = null)}>
+				{m.write_photo_remove()}
+			</button>
+		{:else}
+			<span class="text-read text-ink-2">{m.write_photo_cover()}</span>
+		{/if}
+	</div>
+	{#if photoFailed}
+		<p class="px-gutter pt-2 text-read text-support" role="alert">{m.write_photo_failed()}</p>
+	{/if}
+
+	<!-- The facts: #81's one strip of three cells, each a field, each able to
+	     stay empty. The reading page's idiom, not a second one. -->
+	<div class="flex border-y border-rule">
+		<label class="flex-1 border-l border-rule p-2 first:border-l-0">
+			<span class="block text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
+			<input
+				bind:value={prep}
+				inputmode="numeric"
+				aria-label={m.write_prep_label()}
+				class={SMALL}
+			/>
+		</label>
+		<label class="flex-1 border-l border-rule p-2 first:border-l-0">
+			<span class="block text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
+			<input
+				bind:value={cook}
+				inputmode="numeric"
+				aria-label={m.write_cook_label()}
+				class={SMALL}
+			/>
+		</label>
+		<div class="flex flex-1 flex-col gap-1 border-l border-rule p-2 first:border-l-0">
+			<input
+				bind:value={yieldAmount}
+				inputmode="numeric"
+				aria-label={m.write_yield_amount()}
+				class={SMALL}
+			/>
+			<input bind:value={yieldNoun} aria-label={m.write_yield_noun()} class={SMALL} />
+		</div>
+	</div>
+
+	<!-- Ingredients. -->
+	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+		{m.recipe_ingredients()}
+	</h2>
+	<ul bind:this={linesEl}>
+		{#each lines as row, index (row.id)}
+			<li
+				data-row
+				class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
+					'lines' && dragging.index === index
+					? 'bg-card'
+					: ''}"
+			>
+				{@render handle('lines', index)}
+				{#if row.kind === 'ingredient'}
+					<span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
+				{/if}
+				<div class="min-w-0 flex-1">
+					<textarea
+						bind:value={row.text}
+						rows="1"
+						{@attach grows(row.text)}
+						aria-label={row.kind === 'section'
+							? m.write_heading_aria()
+							: m.write_line_aria({ number: lineNumbers[index] ?? 0 })}
+						class={row.kind === 'section' ? HEADING_FIELD : FIELD}
+						onfocus={() => (cursor = { list: 'lines', index })}
+						onkeydown={(event) => onKey(event, 'lines', index)}></textarea>
+					<div class="pt-1">
+						<button
+							type="button"
+							class="{QUIET} text-support"
+							onclick={() => remove('lines', index)}
+						>
+							{m.write_remove()}
+						</button>
+					</div>
+				</div>
+			</li>
+		{/each}
+	</ul>
+	{#if lines.length === 0}
+		<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_ingredients()}</p>
+	{/if}
+	<div class="flex gap-2 px-gutter pt-2">
+		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addLine('ingredient')}>
+			{m.write_add_line()}
+		</button>
+		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addLine('section')}>
+			{m.write_add_heading()}
+		</button>
+	</div>
+	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_add_where()}</p>
+
+	<!-- The Method, underneath the ingredients on the same page. -->
+	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+		{m.recipe_method()}
+	</h2>
+	<ol bind:this={stepsEl}>
+		{#each steps as row, index (row.id)}
+			<li
+				data-row
+				class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
+					'steps' && dragging.index === index
+					? 'bg-card'
+					: ''}"
+			>
+				{@render handle('steps', index)}
+				{#if row.kind === 'step'}
+					<span class="w-6 shrink-0 pt-1 font-display text-line font-semibold text-accent">
+						{stepNumbers[index]}
+					</span>
+				{/if}
+				<div class="min-w-0 flex-1">
+					<textarea
+						bind:value={row.text}
+						rows="1"
+						{@attach grows(row.text)}
+						aria-label={row.kind === 'section'
+							? m.write_heading_aria()
+							: m.write_step_aria({ number: stepNumbers[index] ?? 0 })}
+						class={row.kind === 'section' ? HEADING_FIELD : FIELD}
+						onfocus={() => (cursor = { list: 'steps', index })}
+						onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
+					<div class="flex flex-wrap items-center gap-2 pt-1">
+						{#if row.kind === 'step'}
+							<label class="{QUIET} cursor-pointer text-accent">
+								{row.photo ? m.write_photo_change() : m.write_step_photo()}
+								<input
+									type="file"
+									accept="image/*"
+									class="hidden"
+									onchange={(event) => pick(event, (name) => (row.photo = name))}
+								/>
+							</label>
+							{#if row.photo}
+								<button
+									type="button"
+									class="{QUIET} text-support"
+									onclick={() => (row.photo = null)}
+								>
+									{m.write_step_photo_remove()}
+								</button>
+							{/if}
+						{/if}
+						<button
+							type="button"
+							class="{QUIET} text-support"
+							onclick={() => remove('steps', index)}
+						>
+							{m.write_remove()}
+						</button>
+					</div>
+				</div>
+			</li>
+		{/each}
+	</ol>
+	{#if steps.length === 0}
+		<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_steps()}</p>
+	{/if}
+	<div class="flex gap-2 px-gutter pt-2">
+		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('step')}>
+			{m.write_add_step()}
+		</button>
+		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('section')}>
+			{m.write_add_heading()}
+		</button>
+	</div>
+	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_step_rule()}</p>
+
+	<!-- The note, and where the recipe came from. -->
+	<label class="mt-6 block px-gutter">
+		<span class="block text-label text-ink-2 uppercase">{m.write_note_label()}</span>
+		<textarea
+			bind:value={note}
+			rows="3"
+			class="mt-1 block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"
+		></textarea>
+	</label>
+	<label class="mt-4 block px-gutter">
+		<span class="block text-label text-ink-2 uppercase">{m.write_source_text()}</span>
+		<input bind:value={sourceText} class="mt-1 {SMALL}" />
+	</label>
+	<label class="mt-2 block px-gutter">
+		<span class="block text-label text-ink-2 uppercase">{m.write_source_link()}</span>
+		<input bind:value={sourceLink} type="url" placeholder="https://" class="mt-1 {SMALL}" />
+	</label>
+
+	{#if failed}
+		<p class="mt-4 px-gutter text-read text-support" role="alert">{failed}</p>
+	{/if}
+
+	<div class="px-gutter py-6">
+		{#if wrong}
+			<p class="mb-2 text-read text-support" role="alert">{wrong}</p>
+		{/if}
+		<button
+			type="button"
+			class="block w-full p-4 text-center font-display text-body {kitchensKnown && !wrong
+				? forking
+					? 'bg-support text-on-accent'
+					: 'bg-accent text-on-accent'
+				: 'border border-rule text-ink-2'}"
+			disabled={saving || !kitchensKnown || Boolean(wrong)}
+			onclick={() => (asking = true)}
+		>
+			{#if !kitchensKnown}
+				{kitchensFailed ? m.write_outcome_unknown() : m.loading()}
+			{:else}
+				{forking ? m.write_do_fork() : m.write_do_save()}
+			{/if}
+		</button>
+	</div>
+</div>
+
+<!--
+	The handle. It is what you drag, and the list rearranges under it as you go.
+	`touch-action: none` is what stops the phone reading the drag as a scroll
+	and taking the gesture away before this ever sees it.
+
+	It is a real button, so it takes focus, and the arrow keys move the row one
+	place at a time for anybody who is not dragging anything.
+-->
+{#snippet handle(list: 'lines' | 'steps', index: number)}
+	<button
+		type="button"
+		data-handle
+		aria-label={m.write_move()}
+		class="shrink-0 cursor-grab touch-none px-1 pt-1 text-body text-ink-2 select-none"
+		onpointerdown={(event) => startDrag(list, index, event)}
+		onkeydown={(event) => onHandleKey(event, list, index)}
+	>
+		⠿
+	</button>
+{/snippet}
+
+<!--
+	The sheet that says which of the two saves this is, before it happens
+	(#54). It names the recipe and the Kitchen, because *Save* and *Save* are
+	the same word for two different acts.
+-->
+{#if asking}
+	<div class="fixed inset-0 z-40 bg-accent/40"></div>
+	<div
+		class="py-5 fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pb-safe"
+		role="dialog"
+		aria-modal="true"
+		aria-label={forking ? m.write_will_fork() : m.write_will_save()}
+	>
+		<p class="text-label text-ink-2 uppercase">
+			{forking ? m.write_will_fork() : m.write_will_save()}
+		</p>
+		<p class="mt-2 text-body">
+			{forking
+				? m.write_said_fork({ title: title.trim(), kitchen: savingInto?.name ?? '' })
+				: m.write_said_save({ title: title.trim(), kitchen: savingInto?.name ?? '' })}
+		</p>
+		<label class="mt-4 block">
+			<span class="block text-label text-ink-2 uppercase">
+				{m.write_name_label()} · {m.write_optional()}
+			</span>
+			<input bind:value={versionName} class="mt-1 {SMALL}" />
+		</label>
+		<label class="mt-3 block">
+			<span class="block text-label text-ink-2 uppercase">
+				{m.write_changed_label()} · {m.write_optional()}
+			</span>
+			<input bind:value={changeNote} class="mt-1 {SMALL}" />
+		</label>
+		<p class="mt-1 text-read text-ink-2">{m.write_changed_now()}</p>
+		<button
+			type="button"
+			class="mt-4 block w-full p-4 text-center font-display text-body text-on-accent {forking
+				? 'bg-support'
+				: 'bg-accent'}"
+			disabled={saving}
+			onclick={save}
+		>
+			{forking ? m.write_do_fork() : m.write_do_save()}
+		</button>
+		<button
+			type="button"
+			class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
+			onclick={() => (asking = false)}
+		>
+			{m.write_back()}
+		</button>
+	</div>
+{/if}

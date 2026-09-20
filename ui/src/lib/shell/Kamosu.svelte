@@ -8,7 +8,7 @@
 	import type { KamosuClient } from '$lib/api/catalogue';
 	import { provideKamosu } from '$lib/kamosu';
 	import { provideAuth, type AuthClient } from '$lib/auth';
-	import { provideUpload, type Uploader } from '$lib/api/upload';
+	import { providePhotograph, provideUpload, type Uploader } from '$lib/api/upload';
 	import { Library, provideLibrary } from '$lib/offline/library.svelte';
 	import { provideKeeping, type Keeping } from '$lib/offline/outbox';
 
@@ -16,6 +16,8 @@
 		client: KamosuClient;
 		auth?: AuthClient;
 		upload?: Uploader;
+		/** A picture that must reach the server now, and answer its real name. */
+		photograph?: Uploader;
 		/** What is on the phone (#76). One per app; a test may bring its own. */
 		library?: Library;
 		/** What the phone holds for the server (#77). A test may bring its own. */
@@ -28,6 +30,9 @@
 		auth = { authenticate: async () => {} },
 		upload = async () => {
 			throw new Error('this test sent a file without giving an uploader');
+		},
+		photograph = async () => {
+			throw new Error('this test sent a picture without giving a photograph uploader');
 		},
 		library,
 		keeping = {
@@ -47,6 +52,7 @@
 	provideKamosu(() => client);
 	provideAuth(() => auth);
 	provideUpload(() => upload);
+	providePhotograph(() => photograph);
 	provideLibrary(() => theLibrary);
 	provideKeeping(() => keeping);
 </script>
