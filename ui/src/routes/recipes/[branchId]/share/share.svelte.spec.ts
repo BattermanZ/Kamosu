@@ -59,8 +59,23 @@ const RECIPE = {
 	],
 };
 
+/**
+ * What the recipe file holds. Read when the screen opens, so every test needs
+ * an answer for it for the same reason `get_recipe` does. A recipe carrying
+ * nothing and missing nothing is the ordinary case.
+ */
+const FILE = {
+	file_name: 'Chicken Katsu Curry.zip',
+	fetch_at: '/api/bundles/b_1',
+	subjects: [{ lineage_id: 'l_1', title: 'Chicken Katsu Curry' }],
+	passengers: [],
+	notes: ['Chicken Katsu Curry.md'],
+	photographs: 1,
+	missing_photographs: [],
+};
+
 function renderShare(answers: Answers) {
-	const kamosu = standIn({ get_recipe: RECIPE, ...answers });
+	const kamosu = standIn({ get_recipe: RECIPE, export_bundle: FILE, ...answers });
 	render(ShareTestHarness, { props: { client: kamosu.client, branchId: 'b_1' } });
 	return { kamosu };
 }
@@ -150,5 +165,100 @@ describe('the share screen', () => {
 		const ended = kamosu.calls.find((call) => call.operation === 'end_share_link');
 		expect(ended?.input).toEqual({ branch_id: 'b_1' });
 		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
+	});
+	// --- The recipe file (#65, #66, ADR 0020) --------------------------------
+	//
+	// Described before it is taken, which is the habit this whole screen keeps:
+	// the standing line, the line about Components and the shown-once note all
+	// say what an act means before you do it (option C, Aurélien, 20 September
+	// 2026).
+
+	it('says what the recipe file holds before offering to save it', async () => {
+		renderShare({ get_share_link: NOT_SHARED });
+
+		expect(await screen.findByText('Chicken Katsu Curry.zip')).toBeInTheDocument();
+		// One note and one photograph is what nearly every recipe is, so it is
+		// the case the wording has to read right in (`_one`, house style).
+		expect(screen.getByText(/It holds one note and one photograph/)).toBeInTheDocument();
+		// The half of the format a zip cannot show for itself (ADR 0020).
+		expect(screen.getByText(/another Kamosu takes it in whole/)).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Save it/ })).toBeInTheDocument();
+	});
+
+	it('offers the file whether the link is on or off, because the file is not the link', async () => {
+		renderShare({
+			get_share_link: {
+				shared: true,
+				share_id: 'sl_1',
+				url: null,
+				shared_by: 'Aurélien',
+				created_at: '2026-08-30T00:00:00Z',
+				public_address: 'https://kamosu.example',
+			},
+		});
+
+		expect(await screen.findByText(/Anyone with this link can read/)).toBeInTheDocument();
+		expect(await screen.findByText('Chicken Katsu Curry.zip')).toBeInTheDocument();
+	});
+
+	it('names the recipes travelling inside the file, and the photographs it cannot put in', async () => {
+		renderShare({
+			get_share_link: NOT_SHARED,
+			export_bundle: {
+				...FILE,
+				passengers: [{ lineage_id: 'l_2', title: 'Katsu Sauce' }],
+				notes: ['Chicken Katsu Curry.md', 'Katsu Sauce.md'],
+				photographs: 0,
+				// Answered as content hashes, so a count is the most that can
+				// honestly be said: no screen could name which picture.
+				missing_photographs: ['p_aaa', 'p_bbb'],
+			},
+		});
+
+		expect(await screen.findByText(/Katsu Sauce travels inside it/)).toBeInTheDocument();
+		expect(screen.getByText(/2 photographs are no longer on this instance/)).toBeInTheDocument();
+	});
+
+	it('saves the file straight from the server, without holding it in memory', async () => {
+		const went: string[] = [];
+		const assign = window.location.assign;
+		Object.defineProperty(window, 'location', {
+			configurable: true,
+			value: { ...window.location, assign: (to: string) => went.push(to) },
+		});
+
+		try {
+			renderShare({ get_share_link: NOT_SHARED });
+			await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+			// The address `export_bundle` named, and no second Operation: the
+			// bytes come down the Credential-bearing route as a download.
+			expect(went).toEqual(['/api/bundles/b_1']);
+		} finally {
+			Object.defineProperty(window, 'location', {
+				configurable: true,
+				value: { ...window.location, assign },
+			});
+		}
+	});
+	it('keeps the file where it is offline, saying what it waits for', async () => {
+		// `export_bundle` is answered straight through and never kept on the
+		// phone (`$lib/offline/reads`), so off the network there is nothing to
+		// describe the file with. The block stays put and greys rather than
+		// vanishing from under the reader (#76, option C).
+		const online = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
+		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+		try {
+			renderShare({
+				get_share_link: NOT_SHARED,
+				export_bundle: { refuse: 'internal' as const, message: 'never answered' },
+			});
+
+			expect(await screen.findByText(/waits for the server\./)).toBeInTheDocument();
+			expect(await screen.findByRole('button', { name: /waits for the server/i })).toBeDisabled();
+			// And it does not report the link as broken: the file is not the link.
+			expect(screen.queryByText(/The link could not be changed/)).toBeNull();
+		} finally {
+			if (online) Object.defineProperty(Navigator.prototype, 'onLine', online);
+		}
 	});
 });

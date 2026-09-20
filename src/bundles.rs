@@ -23,6 +23,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
@@ -127,6 +128,119 @@ pub fn file_name(contents: &Contents) -> String {
                 .map_or("", |c| title_of(&c.record))
         )
     )
+}
+
+// ── Keeping one, for a stranger (#65, ADR 0032) ──────────────────────────────
+//
+// A Person asking for their own Bundle builds it: they are one Credential and
+// they ask once. A Share Link is held by however many people it was passed to,
+// and building a zip means reading every Photograph off disk and deflating
+// every note, so a link on a busy day would be work that scales with the
+// strangers holding it. The same recipe makes the same bytes, so it is built
+// once and kept, exactly as a Sheet and a share card already are.
+
+/// Where kept Bundles live. Everything here rebuilds from the recipes in a
+/// moment, so nothing in this directory is truth (ADR 0032); [`prune`] empties
+/// it of anything older than a day.
+pub fn bundles_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("bundles")
+}
+
+/// How long a kept Bundle is kept. A day, which is long enough for a link
+/// passed round a family on one evening and short enough that a withdrawn
+/// recipe's bytes do not sit on disk.
+const KEPT_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Throw away kept Bundles older than a day. Called whenever one is asked for,
+/// which bounds the directory by how many different recipes a day asks for.
+pub fn prune(data_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(bundles_dir(data_dir)) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > KEPT_FOR);
+        if stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// **What a Bundle is, as a key.** Every carried Branch exactly as the sidecar
+/// will record it, and which Photographs travel with them.
+///
+/// Keying on the shared Branch's head Version alone would be wrong: a Bundle
+/// carries its Translations and its Passengers too, and any of those may move
+/// while the shared recipe stands still. Hashing every record catches all of
+/// them, and hashing the Photographs' hashes rather than their bytes keeps this
+/// cheap — a Photograph is known by its contents already (ADR 0017), so a
+/// picture that changed has a different hash.
+pub fn key_of(contents: &Contents, present: &[String], missing: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    let mut feed = |bytes: &[u8]| {
+        hash.update(bytes);
+        hash.update([0]);
+    };
+    // The writer, not only what it is given. A kept zip outlives an upgrade by
+    // up to a day, and the sidecar's shape is the one part of that which is
+    // declared and can be checked for.
+    feed(FORMAT.to_string().as_bytes());
+    for subject in &contents.subjects {
+        feed(subject.as_bytes());
+    }
+    for carried in &contents.branches {
+        feed(crate::fingerprint::canonical_json(&carried.record).as_bytes());
+        for component in &carried.components {
+            feed(crate::fingerprint::canonical_json(component).as_bytes());
+        }
+    }
+    for photograph in present {
+        feed(photograph.as_bytes());
+    }
+    for photograph in missing {
+        feed(b"missing");
+        feed(photograph.as_bytes());
+    }
+    format!("b_{}", hex::encode(hash.finalize()))
+}
+
+/// The kept Bundle for a key, if one was written within the day.
+pub fn kept(data_dir: &Path, key: &str) -> Option<Vec<u8>> {
+    std::fs::read(bundles_dir(data_dir).join(format!("{key}.zip"))).ok()
+}
+
+/// Keep a written Bundle under its key.
+///
+/// **Written whole or not at all.** Unlike a Sheet, which one Job lane sets,
+/// this cache's readers are concurrent strangers by design: two people opening
+/// the same link at once both build, both write, and a third arriving mid-write
+/// would read a truncated zip and be handed it as a Bundle. Writing beside it
+/// and renaming makes the swap atomic, since a rename within one directory
+/// either happened or did not.
+///
+/// Best effort otherwise, like a kept share card: the zip in hand is a complete
+/// Bundle, and refusing to hand it over because a directory is unwritable would
+/// turn a disk problem into a broken button on somebody's page.
+pub fn keep(data_dir: &Path, key: &str, bytes: &[u8]) {
+    let directory = bundles_dir(data_dir);
+    if std::fs::create_dir_all(&directory).is_err() {
+        return;
+    }
+    // Unique per writer: two strangers on one token are two threads of one
+    // process, so the process id alone would have them writing the same file.
+    static WRITER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let writer = WRITER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let beside = directory.join(format!(".{key}.{}.{writer}.part", std::process::id()));
+    if std::fs::write(&beside, bytes).is_ok()
+        && std::fs::rename(&beside, directory.join(format!("{key}.zip"))).is_err()
+    {
+        let _ = std::fs::remove_file(&beside);
+    }
 }
 
 fn put(

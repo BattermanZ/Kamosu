@@ -32,7 +32,9 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
-	import type { GetShareLinkOutput } from '$lib/api/catalogue';
+	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { Online } from '$lib/offline/device.svelte';
+	import type { ExportBundleOutput, GetShareLinkOutput } from '$lib/api/catalogue';
 
 	interface Props {
 		branchId: string;
@@ -41,6 +43,8 @@
 	let { branchId }: Props = $props();
 
 	const kamosu = useKamosu();
+	/** Whether the file can be described or handed over at all (#76). */
+	const online = new Online();
 
 	let link = $state<GetShareLinkOutput | undefined>(undefined);
 	/**
@@ -49,6 +53,20 @@
 	 * not sharing is on — it is what turning it on would mean.
 	 */
 	let passengers = $state<string[]>([]);
+	/**
+	 * What the recipe file would hold, read when the screen opens (#65, #66).
+	 *
+	 * Read up front and not on the tap, because this screen says what an act
+	 * means **before** you do it: the standing line does, the line about
+	 * components does, and a file that announced itself only once it had gone
+	 * would be the one thing here that breaks the habit (option C, Aurélien,
+	 * 20 September 2026). The photograph that has gone missing is the case that
+	 * proves it — worth knowing beforehand, worth nothing after.
+	 *
+	 * It describes the **file** rather than the recipe, so the Components it
+	 * names are the ones actually travelling in the zip.
+	 */
+	let file = $state<ExportBundleOutput | undefined>(undefined);
 	/** The link itself, held only for as long as this screen is open. */
 	let minted = $state<string | undefined>(undefined);
 	let address = $state('');
@@ -79,6 +97,35 @@
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
 				if (current) failed = m.share_failed();
+			}
+		})();
+		return () => {
+			current = false;
+		};
+	});
+
+	/**
+	 * What the recipe file would hold, read on its own.
+	 *
+	 * Apart from the link's own read on purpose, twice over. The file has
+	 * nothing to do with the link, so a failure here must not say "the link
+	 * could not be changed" — and this read is the one that is *expected* to
+	 * fail, because `export_bundle` is answered straight through and never kept
+	 * on the phone (`$lib/offline/reads`). Off the network it simply does not
+	 * arrive, and the block below says so rather than disappearing.
+	 */
+	$effect(() => {
+		let current = true;
+		const asked = branchId;
+		void (async () => {
+			try {
+				const described = await kamosu.exportBundle({ branch_id: asked });
+				if (current) file = described;
+			} catch {
+				// Nothing to say here. Offline the block already says what it
+				// is waiting for, and a server that cannot describe the file
+				// cannot hand it over either.
+				if (current) file = undefined;
 			}
 		})();
 		return () => {
@@ -132,6 +179,25 @@
 		if (!minted) return;
 		await navigator.clipboard.writeText(minted);
 		copied = true;
+	}
+
+	/** The recipes travelling inside the file besides this one (#50, ADR 0008). */
+	const carried = $derived(
+		(file?.passengers ?? [])
+			.map((passenger) => passenger.title)
+			.filter((title): title is string => Boolean(title)),
+	);
+
+	/**
+	 * Take the file.
+	 *
+	 * A plain navigation and not a fetch: the server answers the zip under a
+	 * Content-Disposition, the Session cookie travels with the request, and the
+	 * browser saves it without this screen going anywhere. Nothing is held in
+	 * memory, which matters for a recipe whose photographs run to megabytes.
+	 */
+	function save() {
+		if (file) window.location.assign(file.fetch_at);
 	}
 </script>
 
@@ -227,5 +293,66 @@
 		>
 			{m.share_turn_on()}
 		</button>
+	{/if}
+
+	<!--
+		The recipe file (#65, #66, ADR 0020), described before it is taken.
+
+		Outside the link's own branches on purpose: the file has nothing to do
+		with the link and is offered whether sharing is on or off. It is the one
+		way a recipe leaves Kamosu, wanted as readily for a backup or for moving
+		to another instance as for a friend — which is why the line says a Kamosu
+		takes it in, the half of the format nobody can guess from a zip.
+
+		It waits for the server, since the server is what builds it.
+	-->
+	{#if file || !online.current}
+		<div class="mt-8 border border-rule bg-card p-4">
+			<p class="text-label text-ink-2 uppercase">{m.share_file_label()}</p>
+			{#if file}
+				<p class="mt-2 text-body">{file.file_name}</p>
+				<p class="mt-1 text-read text-ink-2">
+					{m.share_file_holds({
+						notes:
+							file.notes.length === 1
+								? m.share_file_notes_one()
+								: m.share_file_notes({ count: file.notes.length }),
+						photographs:
+							file.photographs === 0
+								? m.share_file_photographs_none()
+								: file.photographs === 1
+									? m.share_file_photographs_one()
+									: m.share_file_photographs({ count: file.photographs }),
+					})}
+				</p>
+				<p class="mt-1 text-read text-ink-2">{m.share_file_opens()}</p>
+				{#if carried.length}
+					<p class="mt-2 text-read text-support-2">
+						{carried.length === 1
+							? m.share_file_carries_one({ recipes: carried[0] })
+							: m.share_file_carries({ recipes: carried.join(', ') })}
+					</p>
+				{/if}
+				{#if file.missing_photographs.length}
+					<p class="mt-2 text-read text-support">
+						{file.missing_photographs.length === 1
+							? m.share_file_missing_one()
+							: m.share_file_missing({ count: file.missing_photographs.length })}
+					</p>
+				{/if}
+			{:else}
+				<!-- Offline. `export_bundle` is never kept on the phone, so what
+				     the file holds cannot be said here — but the button stays
+				     where it is rather than vanishing from under the reader. -->
+				<p class="mt-2 text-read text-ink-2">{m.share_file_waiting()}</p>
+			{/if}
+			<NeedsServer
+				label={m.share_file_save()}
+				waiting={m.offline_waits_file()}
+				onclick={save}
+				shapeClass="mt-4 block w-full p-3 text-center font-display text-body"
+				lookClass="border border-rule text-accent"
+			/>
+		</div>
 	{/if}
 </Screen>

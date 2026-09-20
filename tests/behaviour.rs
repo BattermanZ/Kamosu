@@ -11917,6 +11917,116 @@ async fn the_card_is_drawn_once_and_kept() {
     assert!(kept.exists(), "the card was not kept at {kept:?}");
 }
 
+/// **A stranger holding a Share Link takes the recipe file** (#65, #66, ADR
+/// 0020). No account and no Credential: the token is the whole of the
+/// permission, so the file comes from an address of its own rather than from
+/// `GET /api/bundles/<branch_id>`, which a stranger cannot reach.
+///
+/// It is the same Bundle the app hands a member, Passengers and Translations
+/// included, it is built once and kept (ADR 0032), and an ended link hands
+/// over nothing at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stranger_with_a_share_link_takes_the_recipe_file() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, photos) = a_pizza_worth_sending(&app);
+    let (token, _url) = share(&app, &key, &pizza);
+
+    // The page offers it, as a link: this page runs no script.
+    let (status, _, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(
+        page.contains(&format!("href=\"/s/{token}/bundle\"")),
+        "the page offers the recipe file: {page}"
+    );
+
+    let asked = kamosu::http_min::get(app.addr, &format!("/s/{token}/bundle")).expect("a reply");
+    assert_eq!(asked.status, 200);
+    let header = |name: &str| {
+        asked
+            .headers
+            .iter()
+            .find(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default()
+    };
+    assert_eq!(header("content-type"), "application/zip");
+    assert!(
+        header("content-disposition").contains("attachment"),
+        "it is a download: {:?}",
+        header("content-disposition")
+    );
+    assert!(
+        header("content-disposition").contains("Pizza"),
+        "named after the recipe: {:?}",
+        header("content-disposition")
+    );
+
+    // The same Bundle a member gets: one file, two ways in. Compared by what
+    // is inside rather than by the zip's own bytes, which carry the moment
+    // each was written.
+    let mine = bundle_of(&app, &key, &pizza);
+    assert_eq!(
+        unzip(&asked.body),
+        unzip(&mine),
+        "a stranger's file holds exactly what a member's does, name for name and byte for byte"
+    );
+    let files = unzip(&asked.body);
+    assert!(
+        files.contains_key("Neapolitan Pizza Dough.md"),
+        "the Passenger travels: {:?}",
+        files.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        files
+            .keys()
+            .any(|name| name.ends_with(".md") && name.contains("Pizza Margherita")),
+        "the recipe itself travels: {:?}",
+        files.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        files.keys().any(|name| name.starts_with("photographs/")),
+        "the Photographs travel: {:?}",
+        files.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(photos.len(), 2, "the fixture has two photographs");
+
+    // Built once and kept (ADR 0032): a link is held by however many people it
+    // was passed to, and zipping every Photograph per reader is work that
+    // scales with strangers.
+    let again = kamosu::http_min::get(app.addr, &format!("/s/{token}/bundle")).expect("a reply");
+    assert_eq!(again.body, asked.body, "the same file, byte for byte");
+    let kept: Vec<_> = std::fs::read_dir(
+        app.data_dir()
+            .expect("this test owns its data directory")
+            .join("bundles"),
+    )
+    .expect("the Bundles directory")
+    .flatten()
+    .collect();
+    assert_eq!(kept.len(), 1, "built once, kept once");
+
+    // Ending the link ends the file with it. Withdrawing a link stops anyone
+    // new arriving, and taking the recipe away is arriving (ADR 0018).
+    let (status, ended) = app.post_op(
+        "end_share_link",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+    let refused = kamosu::http_min::get(app.addr, &format!("/s/{token}/bundle")).expect("a reply");
+    assert_eq!(refused.status, 404);
+    assert!(
+        !refused.headers.iter().any(|(name, value)| name
+            .eq_ignore_ascii_case("content-type")
+            && value.contains("zip")),
+        "the ended link hands over no file"
+    );
+    assert!(
+        !String::from_utf8_lossy(&refused.body).contains("Pizza Margherita"),
+        "and leaks nothing of the recipe"
+    );
+}
+
 // --- Nutrition (issue #72) ---------------------------------------------------
 //
 // v1's whole of nutrition: one figure the cook types onto the recipe, with a

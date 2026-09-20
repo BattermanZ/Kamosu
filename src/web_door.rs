@@ -427,16 +427,7 @@ async fn get_bundle(core: Arc<Core>, headers: HeaderMap, branch_id: String) -> R
             ))));
         }
     };
-    (
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
-            (header::CONTENT_LENGTH, written.bytes.len().to_string()),
-            (header::CONTENT_DISPOSITION, attachment(&written.file_name)),
-        ],
-        written.bytes,
-    )
-        .into_response()
+    zip_response(&written.file_name, written.bytes)
 }
 
 async fn get_sheet(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Response {
@@ -471,6 +462,21 @@ pub fn pdf_response(name: &str, bytes: Vec<u8>) -> Response {
 /// that may not be ASCII.
 fn attachment(name: &str) -> String {
     disposition("attachment", name)
+}
+
+/// One Bundle, as a download. Shared with the Share Link page, which hands the
+/// same zip to a stranger holding the token (#65).
+pub fn zip_response(name: &str, bytes: Vec<u8>) -> Response {
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_LENGTH, bytes.len().to_string()),
+            (header::CONTENT_DISPOSITION, attachment(name)),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 /// A `Content-Disposition` naming a file that may not be ASCII.

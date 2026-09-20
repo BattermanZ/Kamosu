@@ -3,10 +3,16 @@
 //! **This page is not an Operation.** It *consumes* them — `read_shared_recipe`
 //! to show the recipe and `make_shared_sheet` to print it (#75), both Public
 //! because holding the token is the whole of the permission — and renders what
-//! comes back as plain HTML. Whether a stranger's Sheet may be handed over is
-//! answered by the Core (`Core::shared_sheet`), never decided here. Parity is therefore untouched:
-//! both Doors still materialise exactly the Catalogue, and this is a third
-//! thing built on top of it, the way the interface and the design tokens are.
+//! comes back as plain HTML. Parity is therefore untouched: both Doors still
+//! materialise exactly the Catalogue, and this is a third thing built on top of
+//! it, the way the interface and the design tokens are.
+//!
+//! What it hands over as **bytes** is not an Operation either, because no
+//! Operation answers bytes: the card (`Core::shared_card`) and the recipe file
+//! (`Core::shared_bundle`, #66) are Core methods reached from this router
+//! alone. That is the same shape as the photographs and the Sheet's PDF, and
+//! the rule holds throughout — whether a stranger may be handed any of them is
+//! answered by the Core, never decided here.
 //!
 //! It is rendered by the server rather than by the Svelte app because the
 //! reader has no account, arrives from a messaging app, and must get a recipe
@@ -59,6 +65,7 @@ pub fn router(core: Arc<Core>) -> Router {
     let sheet_core = core.clone();
     let translated_sheet_core = core.clone();
     let waiting_core = core.clone();
+    let bundle_core = core.clone();
     Router::new()
         .route(
             "/s/{token}",
@@ -117,6 +124,17 @@ pub fn router(core: Arc<Core>) -> Router {
                 async move { sheet(&core, &token, &job_id) }
             }),
         )
+        // The recipe file (#65, #66, ADR 0020). A link and not a button, for
+        // the same reason the Sheet is one: this page runs no script. The
+        // Credential-bearing route the app uses cannot serve a stranger, so the
+        // token answers for itself here.
+        .route(
+            "/s/{token}/bundle",
+            get(move |Path(token): Path<String>| {
+                let core = bundle_core.clone();
+                bundle(core, token)
+            }),
+        )
         .route(
             "/s/{token}/card",
             get(move |Path(token): Path<String>| {
@@ -147,12 +165,19 @@ struct Words {
     history: &'static str,
     keep: &'static str,
     bundle: &'static str,
+    /// One line under the recipe file, saying what it is good for. A stranger
+    /// can see the zip is a download; what they cannot see is that another
+    /// Kamosu takes the same file in whole (ADR 0020).
+    file_note: &'static str,
     sheet: &'static str,
     /// The page shown while a Sheet is being set (#75): a heading and a line.
     sheet_making: &'static str,
     sheet_making_body: &'static str,
     /// The page shown when a Sheet could not be made; the reason follows it.
     sheet_failed: &'static str,
+    /// The page shown when the recipe file could not be handed over, which is
+    /// nearly always an ended link; the reason follows it.
+    file_failed: &'static str,
     written_down: &'static str,
     /// The standing line, in the same words every time (ADR 0018).
     standing: &'static str,
@@ -188,10 +213,13 @@ const EN: Words = Words {
     history: "Everything this recipe has been",
     keep: "Keep this recipe",
     bundle: "Recipe file",
+    file_note: "A zip of readable notes and photographs that opens anywhere. Another Kamosu \
+                takes it in whole, with every version behind it.",
     sheet: "Print a sheet",
     sheet_making: "Setting your sheet",
     sheet_making_body: "This takes a moment. The sheet opens here by itself when it is ready.",
     sheet_failed: "The sheet could not be made",
+    file_failed: "The recipe file could not be made",
     written_down: "Written down",
     standing: "Everything this recipe has ever been travels with it, back to the first version. \
                 Ending this link stops anyone new from opening it — it cannot reach a copy \
@@ -217,10 +245,13 @@ const FR: Words = Words {
     history: "Tout ce que cette recette a été",
     keep: "Garder cette recette",
     bundle: "Fichier de recette",
+    file_note: "Un zip de notes lisibles et de photographies, qui s'ouvre partout. Un autre \
+                Kamosu le reprend en entier, avec toutes les versions derrière lui.",
     sheet: "Imprimer une fiche",
     sheet_making: "Mise en page de votre fiche",
     sheet_making_body: "Cela prend un instant. La fiche s'ouvre ici d'elle-même dès qu'elle est prête.",
     sheet_failed: "La fiche n'a pas pu être faite",
+    file_failed: "Le fichier de recette n'a pas pu être fait",
     written_down: "Écrite",
     standing: "Tout ce que cette recette a été l'accompagne, jusqu'à la première version. \
                 Mettre fin à ce lien empêche quiconque de l'ouvrir désormais — cela n'atteint \
@@ -246,10 +277,13 @@ const ES: Words = Words {
     history: "Todo lo que esta receta ha sido",
     keep: "Guardar esta receta",
     bundle: "Archivo de receta",
+    file_note: "Un zip de notas legibles y fotografías que se abre en cualquier parte. Otro \
+                Kamosu lo recibe entero, con todas las versiones detrás.",
     sheet: "Imprimir una hoja",
     sheet_making: "Preparando tu hoja",
     sheet_making_body: "Tarda un momento. La hoja se abre aquí sola cuando esté lista.",
     sheet_failed: "No se pudo hacer la hoja",
+    file_failed: "No se pudo hacer el archivo de receta",
     written_down: "Escrita",
     standing: "Todo lo que esta receta ha sido viaja con ella, hasta la primera versión. \
                 Terminar este enlace impide que alguien nuevo lo abra — no alcanza ninguna \
@@ -399,6 +433,40 @@ fn language_of_share(core: &Core, token: &str) -> String {
         .ok()
         .and_then(|shared| text_at(&shared["recipe"], "language").map(str::to_string))
         .unwrap_or_else(|| "en".to_string())
+}
+
+/// **The recipe file**, for whoever followed the link (#65, ADR 0020).
+///
+/// Built on the blocking pool: a Bundle reads every Photograph off disk and
+/// deflates every note, which is file work the runtime answering every other
+/// request should not be made to wait behind. Whether this link may hand one
+/// over at all is the Core's to say, and so is keeping what it built.
+async fn bundle(core: Arc<Core>, token: String) -> Response {
+    let built = tokio::task::spawn_blocking({
+        let core = core.clone();
+        let token = token.clone();
+        move || core.shared_bundle(&token)
+    })
+    .await;
+    match built {
+        Ok(Ok(written)) => crate::web_door::zip_response(&written.file_name, written.bytes),
+        Ok(Err(err)) => bundle_failed(&core, &token, &err),
+        Err(e) => bundle_failed(
+            &core,
+            &token,
+            &OpError::internal(format!("the recipe file could not be made: {e}")),
+        ),
+    }
+}
+
+/// An ended link, or a Bundle that could not be built, as a page rather than a
+/// raw error: whoever clicked was reading a recipe a moment ago.
+fn bundle_failed(core: &Core, token: &str, err: &OpError) -> Response {
+    let language = language_of_share(core, token);
+    html(
+        status_for(err),
+        plain_page(&language, words(&language).file_failed, &err.to_sentence()),
+    )
 }
 
 fn sheet_failed(core: &Core, token: &str, err: &OpError) -> Response {
@@ -569,19 +637,26 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
       {note}
       {translations}
       <!--
-        What a reader can take away. The Sheet is real (#75): a link, because
-        this page runs no script. Keeping the recipe is a Copy (ADR 0026) and
-        the recipe file is #66's to offer here; neither is built for a
-        stranger yet, so both stay drawn and greyed — an indigo button leading
+        What a reader can take away, both real and both links, because this page
+        runs no script: the Sheet (#75) and the recipe file (#66, ADR 0020). The
+        file is offered under the token rather than through the app's
+        Credential-bearing route, since a stranger holding a link has no
+        Credential at all.
+
+        The line under it says the file can be brought into a Kamosu, which is
+        the half of ADR 0020 a stranger cannot guess: the zip opens as plain
+        notes anywhere, and is also exactly what another instance takes in.
+
+        Keeping the recipe is a Copy (ADR 0026) and is still not built for a
+        stranger, so it stays drawn and greyed — an indigo button leading
         nowhere would be the one thing on this page that lies.
       -->
       <div class="mt-8 border-t border-rule pt-4">
         <a href="{sheet_href}" class="block rounded-sm bg-accent p-3 text-center font-display text-read text-on-accent">{sheet}</a>
+        <a href="/s/{bundle_token}/bundle" class="mt-2 block rounded-sm border border-rule p-3 text-center font-display text-read text-accent">{bundle}</a>
+        <p class="mt-2 text-read text-ink-2">{file_note}</p>
         <p class="mt-4 text-label text-ink-2 uppercase">{not_yet}</p>
-        <div class="mt-2 flex flex-wrap gap-3">
-          <span class="flex-1 border border-rule p-3 text-center font-display text-read text-ink-2">{keep}</span>
-          <span class="flex-1 border border-rule p-3 text-center font-display text-read text-ink-2">{bundle}</span>
-        </div>
+        <span class="mt-2 block border border-rule p-3 text-center font-display text-read text-ink-2">{keep}</span>
       </div>
     </div>
   </div>
@@ -601,6 +676,8 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         translations = translations,
         keep = escape(words.keep),
         bundle = escape(words.bundle),
+        bundle_token = escape(token),
+        file_note = escape(words.file_note),
         sheet = escape(words.sheet),
         sheet_href = match showing.filter(|_| reading_a_translation) {
             Some(language) => format!("/s/{}/in/{}/sheet", escape(token), escape(language)),

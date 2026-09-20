@@ -5984,17 +5984,33 @@ impl Core {
     /// 0008), and exporting is a read of the library, not a change to it.
     pub fn bundle(&self, person_id: &str, branch_id: &str) -> Result<bundles::Written, OpError> {
         let (mut contents, hashes) = self.gather_bundle(person_id, branch_id)?;
-        // Read off disk outside the database lock: a Photograph is a file, and
-        // there is no reason to hold every other request up while it loads.
-        // One that has gone missing does not cost the recipe — the note still
-        // reads — but the Bundle says so rather than being quietly short.
+        self.fill_photographs(&mut contents, hashes);
+        bundles::write(&contents)
+    }
+
+    /// Put every Photograph a gathered Bundle shows into it.
+    ///
+    /// Read off disk outside the database lock: a Photograph is a file, and
+    /// there is no reason to hold every other request up while it loads. One
+    /// that has gone missing does not cost the recipe — the note still reads —
+    /// but the Bundle says so rather than being quietly short.
+    fn fill_photographs(&self, contents: &mut bundles::Contents, hashes: Vec<String>) {
         for hash in hashes {
             match self.read_photograph(&hash) {
                 Ok(bytes) => contents.photographs.push((hash, bytes)),
                 Err(_) => contents.missing_photographs.push(hash),
             }
         }
-        bundles::write(&contents)
+    }
+
+    /// Which of a Bundle's Photographs this instance still holds, without
+    /// reading one: the answer `export_bundle` describes a Bundle by, and the
+    /// answer a kept Bundle is keyed on.
+    fn split_photographs(&self, hashes: Vec<String>) -> (Vec<String>, Vec<String>) {
+        let data_dir = self.data_dir();
+        hashes
+            .into_iter()
+            .partition(|hash| photographs::photograph_path(&data_dir, hash).is_file())
     }
 
     /// What `export_bundle` answers: the Bundle described, and where to fetch
@@ -6003,10 +6019,7 @@ impl Core {
     /// every Photograph; the bytes are built once, when they are fetched.
     pub fn export_bundle(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         let (contents, hashes) = self.gather_bundle(person_id, branch_id)?;
-        let data_dir = self.data_dir();
-        let (present, missing): (Vec<String>, Vec<String>) = hashes
-            .into_iter()
-            .partition(|hash| photographs::photograph_path(&data_dir, hash).is_file());
+        let (present, missing) = self.split_photographs(hashes);
         let described = |subject: bool| -> Vec<Value> {
             let mut seen = HashSet::new();
             contents
@@ -6039,6 +6052,58 @@ impl Core {
             "photographs": present.len(),
             "missing_photographs": missing,
         }))
+    }
+
+    /// **The Bundle a Share Link hands over** (#65, #66, ADR 0020, ADR 0032).
+    ///
+    /// The same zip `export_bundle` describes, for a stranger who holds the
+    /// token and no Credential at all. Holding the link is the whole of the
+    /// permission, so the Branch is gathered against the **sharing Kitchen**,
+    /// which is the rule the page itself already reads by.
+    ///
+    /// A link that was ended hands over nothing. It is the same refusal a Sheet
+    /// gets: withdrawing a link stops anyone new arriving, and taking the
+    /// recipe away is arriving (ADR 0018).
+    ///
+    /// One zip per recipe rather than one per Translation. A Bundle carries
+    /// every Translation and every Passenger whichever page you asked from, so
+    /// reading a share in French and taking the file is the same file.
+    pub fn shared_bundle(&self, token: &str) -> Result<bundles::Written, OpError> {
+        let shared = self.read_shared_recipe(token)?;
+        if shared["ended"].as_bool().unwrap_or(false) {
+            return Err(OpError::not_found(
+                "this Share Link was ended, so it no longer hands over a recipe file",
+            ));
+        }
+        let branch_id = shared["recipe"]["branch_id"]
+            .as_str()
+            .ok_or_else(|| OpError::internal("a shared recipe carries no Branch"))?
+            .to_string();
+        let (mut contents, hashes) = self.db().with_conn(|conn| {
+            let kitchen_id = branch_kitchen(conn, &branch_id)?;
+            bundle_contents(conn, &branch_id, &kitchen_id)
+        })?;
+
+        let data_dir = self.data_dir();
+        let (present, missing) = self.split_photographs(hashes);
+        bundles::prune(&data_dir);
+        let key = bundles::key_of(&contents, &present, &missing);
+        let file_name = bundles::file_name(&contents);
+        if let Some(bytes) = bundles::kept(&data_dir, &key) {
+            return Ok(bundles::Written { file_name, bytes });
+        }
+
+        contents.missing_photographs = missing.clone();
+        self.fill_photographs(&mut contents, present);
+        let written = bundles::write(&contents)?;
+        // Keep only what the key actually describes. The key is made from a
+        // Photograph's *presence* on disk, which is cheap; the zip is made from
+        // reading it, which can still fail. Keeping a short Bundle under a key
+        // that promised a whole one would serve the shortfall for a day.
+        if contents.missing_photographs == missing {
+            bundles::keep(&data_dir, &key, &written.bytes);
+        }
+        Ok(written)
     }
 
     /// Everything one Bundle carries but the Photographs' bytes, for a Person
