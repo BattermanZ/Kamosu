@@ -269,10 +269,13 @@ async fn a_photograph_arriving_already_made_is_stored_byte_for_byte_with_no_reen
         .unwrap()
         .secret;
 
-    // Not a real picture — the point of verbatim storage is that nothing
-    // decodes or re-encodes it, so arbitrary bytes travel through unchanged,
-    // exactly as a Photograph already made by another instance would.
-    let bundle_bytes = b"a Photograph another Kamosu instance already made".to_vec();
+    // A Photograph another instance already made: a real picture, because a
+    // Bundle is a file somebody else wrote and what is in it is still checked
+    // by its header before Kamosu will keep it (ADR 0034). What verbatim
+    // storage promises is that nothing *re-encodes* it, which is what the
+    // byte-for-byte comparison below actually proves. A JPEG that came back
+    // as WebP would have been remade.
+    let bundle_bytes = make_jpeg(64, 48);
     let first = app
         .core
         .store_photograph_verbatim(&bundle_bytes)

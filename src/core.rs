@@ -2709,6 +2709,12 @@ impl Core {
     /// into disagreeing about what its bytes are. `import_bundle` calls this
     /// for every Photograph whose bytes hash to the name it arrived under.
     pub fn store_photograph_verbatim(&self, bytes: &[u8]) -> Result<Value, OpError> {
+        // Kept as it arrived, but not taken on trust: a Bundle is a file a
+        // stranger wrote, and the picture inside it is checked by its header
+        // exactly as an uploaded one is (ADR 0017, ADR 0034). What is refused
+        // here is refused before any decode, which is the whole point of
+        // checking at all.
+        photographs::check(bytes)?;
         let hash = photographs::hash_bytes(bytes);
         self.record_photograph(&hash, bytes)?;
         Ok(json!({ "photograph_id": hash }))
@@ -6205,8 +6211,26 @@ impl Core {
         // instance is already made (ADR 0017).
         for photograph in opened.photographs {
             match photograph {
-                bundles::CarriedPhotograph::Sound { bytes, .. } => {
-                    self.store_photograph_verbatim(&bytes)?;
+                bundles::CarriedPhotograph::Sound { hash, bytes } => {
+                    // Two different failures, kept apart on purpose. A picture
+                    // that is not one, or that claims a size Kamosu will not
+                    // open, is left out and named: losing a picture costs a
+                    // picture, while losing a recipe is discovered weeks later
+                    // looking for a dish you were sure you had. A disk that
+                    // will not take the bytes is not that, and must not be
+                    // reported to an Operator as a bad picture.
+                    match photographs::check(&bytes) {
+                        Err(why) => unreadable.push(json!({
+                            "foreign_id": hash,
+                            "reason": format!(
+                                "{}, so it was left out; the recipe shows no picture there",
+                                why.message
+                            ),
+                        })),
+                        Ok(()) => {
+                            self.store_photograph_verbatim(&bytes)?;
+                        }
+                    }
                 }
                 bundles::CarriedPhotograph::Unusable { name, reason } => {
                     unreadable.push(json!({ "foreign_id": name, "reason": reason }));

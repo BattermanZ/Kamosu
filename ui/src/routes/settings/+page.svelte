@@ -690,7 +690,22 @@
 		</Section>
 	{/if}
 
+	<!-- The honest list ADR 0034 ships, the same seven items README.md carries
+	     and worded shorter, because this one is read standing up. It is part of
+	     the product rather than an internal note: the people who need it are
+	     the ones deciding whether to run this and whether to mint an agent a
+	     Key. An entry that stops being true is worse than one that never
+	     existed, so a change to ADR 0031-0034 is a change to both copies, and
+	     `tests/defences.rs` fails if either loses an item the other kept. -->
 	<Section heading={m.settings_security()}>
-		<p class="text-body text-ink-2">{m.settings_operator_boundary()}</p>
+		<ul class="space-y-3 text-body text-ink-2">
+			<li>{m.settings_operator_boundary()}</li>
+			<li>{m.settings_hand_unverified()}</li>
+			<li>{m.settings_share_no_unsay()}</li>
+			<li>{m.settings_stranger_waits()}</li>
+			<li>{m.settings_stolen_phone()}</li>
+			<li>{m.settings_agent_reads()}</li>
+			<li>{m.settings_unaudited()}</li>
+		</ul>
 	</Section>
 </Screen>

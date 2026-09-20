@@ -22,6 +22,28 @@ pub const MAX_LONG_EDGE: u32 = 2560;
 /// future upload is affected.
 const WEBP_QUALITY: f32 = 80.0;
 
+/// The most bytes a picture may arrive as, whichever way it arrives. ADR 0033
+/// sets this number for a picture Kamosu fetches from a URL, and a picture
+/// handed to it directly is the same thing with a shorter journey, so
+/// `web_import` reads it from here rather than keeping a second copy.
+///
+/// Distinct from `/api/uploads`' own 2 GB cap, which is sized for a Bundle
+/// carrying a whole library. A Bundle may be enormous; one picture inside it
+/// may not.
+pub const MAX_PICTURE_BYTES: usize = 25 * 1024 * 1024;
+
+/// The most pixels a picture may *claim*, checked against the header before
+/// anything is decoded. A decompression bomb is small on disk and vast once
+/// unpacked. 60 KB declaring 50,000 × 50,000 is 2.5 billion pixels, which is
+/// several gigabytes of memory the moment it is decoded and an instance that
+/// falls over. The number a file declares is the one thing available before
+/// paying that cost, so it is what Kamosu decides on.
+///
+/// 100 megapixels is far above any camera a household owns (a 2560-pixel long
+/// edge is what a Photograph is stored at in any case) and far below the size
+/// at which decoding hurts.
+const MAX_MEGAPIXELS: u64 = 100;
+
 /// A Display Copy's own long edge — worked out from the Photograph, kept only
 /// for convenience, and rebuildable, so these numbers are free to change
 /// (ADR 0017 sets Card and Page from Aurélien's own measured library; Print
@@ -95,10 +117,7 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
 /// arbitrary-looking code, so nothing here decodes bytes it hasn't first
 /// recognised as a real picture.
 pub fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
-    let format = sniff(bytes)?;
-    let mut decoder = ImageReader::with_format(Cursor::new(bytes), format)
-        .into_decoder()
-        .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
+    let mut decoder = checked_decoder(bytes)?;
     // Cameras stamp rotation into Exif rather than the pixels (eight of
     // Aurélien's own sixty do). Reading it now and baking it in before the
     // metadata is stripped below is the only chance to keep it upright.
@@ -136,6 +155,50 @@ fn encode(image: &DynamicImage) -> Result<Vec<u8>, OpError> {
     let rgb = image.to_rgb8();
     let encoder = webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height());
     Ok(encoder.encode(WEBP_QUALITY).to_vec())
+}
+
+/// Check a picture that is being kept exactly as it arrived, without remaking
+/// it. A Photograph travelling in a Bundle is stored byte-for-byte, because
+/// the bytes are its identity and re-encoding on receipt would report you as
+/// diverged from the sender over a picture neither of you touched (ADR 0017).
+/// Byte-for-byte is not the same as unexamined: what arrives still has to be
+/// a picture, and still has to be one of a size Kamosu will later agree to
+/// decode when it draws a Display Copy from it.
+pub fn check(bytes: &[u8]) -> Result<(), OpError> {
+    checked_decoder(bytes).map(|_| ())
+}
+
+/// A decoder over bytes that have passed every check Kamosu makes from a
+/// header: small enough to hold, a raster format Kamosu reads, and claiming no
+/// more pixels than Kamosu will unpack.
+///
+/// The order is the point. Each check is cheaper than the one after it, and
+/// all of them happen before any pixel is decoded, which is the single place
+/// an untrusted upload gets to make Kamosu do arbitrary work. Returning the
+/// decoder rather than the format is what keeps that true of the caller too:
+/// there is no second header parse, and no way to reach a decode that skipped
+/// this function.
+fn checked_decoder(bytes: &[u8]) -> Result<impl ImageDecoder + '_, OpError> {
+    if bytes.len() > MAX_PICTURE_BYTES {
+        return Err(OpError::bad_request(format!(
+            "this picture is larger than {} MB",
+            MAX_PICTURE_BYTES / (1024 * 1024)
+        )));
+    }
+    let format = sniff(bytes)?;
+    let decoder = ImageReader::with_format(Cursor::new(bytes), format)
+        .into_decoder()
+        .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;
+    // Reading the header is all this has cost: `into_decoder` parsed the
+    // dimensions out of it and no pixel data has been touched.
+    let (width, height) = decoder.dimensions();
+    let claimed = u64::from(width) * u64::from(height);
+    if claimed > MAX_MEGAPIXELS * 1_000_000 {
+        return Err(OpError::bad_request(format!(
+            "this picture says it is {width} × {height}, which is more than the {MAX_MEGAPIXELS} megapixels Kamosu will open"
+        )));
+    }
+    Ok(decoder)
 }
 
 /// Recognise a picture by its own header before anything tries to decode it.
@@ -204,6 +267,86 @@ mod tests {
             image::load_from_memory_with_format(&remade, ImageFormat::WebP).expect("valid webp");
         assert_eq!(decoded.width(), MAX_LONG_EDGE);
         assert_eq!(decoded.height(), 1280);
+    }
+
+    /// CRC-32, as PNG defines it over a chunk's type and data. Written out
+    /// here rather than pulled in, because the only thing in this file that
+    /// needs one is the bomb below, and a fixture that computes its own
+    /// checksum cannot be wrong the way a hand-typed one could.
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for byte in bytes {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = if crc & 1 == 1 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    /// A real PNG whose header *claims* an enormous picture while the file
+    /// itself stays tiny, which is the shape of a decompression bomb. The pixel data
+    /// is left as the small picture's, which is exactly the point: nothing
+    /// may get far enough to notice it disagrees.
+    fn claiming_to_be(width: u32, height: u32) -> Vec<u8> {
+        let mut png = make_png(4, 4);
+        // PNG is an 8-byte signature then chunks of length, type, data, CRC.
+        // IHDR is always first, 13 bytes of data, and opens with the
+        // dimensions, so they sit at a fixed place and the CRC follows them.
+        png[16..20].copy_from_slice(&width.to_be_bytes());
+        png[20..24].copy_from_slice(&height.to_be_bytes());
+        let crc = crc32(&png[12..29]);
+        png[29..33].copy_from_slice(&crc.to_be_bytes());
+        png
+    }
+
+    #[test]
+    fn a_picture_claiming_more_pixels_than_kamosu_opens_is_refused_by_its_header() {
+        let bomb = claiming_to_be(50_000, 50_000);
+        assert!(
+            bomb.len() < 1024,
+            "the whole point is that it is small on disk: {} bytes",
+            bomb.len()
+        );
+        let err = remake(&bomb).expect_err("a declared 2.5-gigapixel picture must be refused");
+        assert!(
+            err.message.contains("50000 × 50000"),
+            "the refusal should say what the picture claimed, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn a_large_but_ordinary_picture_is_still_accepted() {
+        // Comfortably under the cap, and bigger than any Photograph is kept
+        // at. The check must not be a second, quieter size limit.
+        remake(&make_png(5000, 4000)).expect("an ordinary large picture must still be accepted");
+    }
+
+    #[test]
+    fn a_picture_larger_than_the_byte_cap_is_refused_without_being_read() {
+        let too_big = vec![0u8; MAX_PICTURE_BYTES + 1];
+        let err = remake(&too_big).expect_err("a picture over the byte cap must be refused");
+        assert!(
+            err.message.contains("25 MB"),
+            "the refusal should name the cap, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn a_picture_kept_as_it_arrived_is_checked_just_the_same() {
+        // The Bundle path stores bytes verbatim (ADR 0017); `check` is what
+        // stops "verbatim" meaning "unexamined".
+        check(&make_png(40, 30)).expect("an ordinary picture passes");
+        check(b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+            .expect_err("SVG must be refused even where nothing is re-encoded");
+        check(&claiming_to_be(50_000, 50_000))
+            .expect_err("a bomb must be refused even where nothing is re-encoded");
     }
 
     #[test]

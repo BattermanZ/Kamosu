@@ -26,7 +26,10 @@ const USER_AGENT: &str = "Kamosu/1.0";
 /// A size a server declares is a claim, not a fact — this is what is read,
 /// whatever `Content-Length` says.
 const MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
-const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
+/// The picture cap lives with the pictures: `photographs` owns it, and a
+/// picture fetched from a URL is held to the same number as one handed over
+/// directly (ADR 0033).
+use crate::photographs::MAX_PICTURE_BYTES as MAX_IMAGE_BYTES;
 const FETCH_TIMEOUT_SECS: u64 = 10;
 const MAX_REDIRECTS: usize = 5;
 

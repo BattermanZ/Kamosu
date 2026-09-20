@@ -162,6 +162,72 @@ impl TestApp {
         )
     }
 
+    /// POST an Operation with extra headers of the test's choosing, and no
+    /// Credential unless one of those headers carries it.
+    #[allow(dead_code)]
+    pub fn post_op_with_headers(
+        &self,
+        name: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> (u16, Value) {
+        self.post_with_headers(&format!("/api/op/{name}"), headers, body)
+    }
+
+    /// The same at the MCP door, which is built by walking the same Catalogue
+    /// and so has to answer the same way.
+    #[allow(dead_code)]
+    pub fn post_mcp_with_headers(&self, payload: &str, headers: &[(&str, &str)]) -> (u16, Value) {
+        self.post_with_headers("/mcp", headers, payload)
+    }
+
+    /// POST to one path with headers a well-behaved client would never send.
+    ///
+    /// This exists for one question: whether anything Kamosu reads off a
+    /// request can stand in for authorisation (ADR 0033). The request is
+    /// written out by hand rather than sent through `http_min` because that
+    /// client serves the binary's own healthcheck, and widening it so a test
+    /// can forge a header would put the forgery in the shipped program.
+    #[allow(dead_code)]
+    fn post_with_headers(&self, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, Value) {
+        use std::io::{Read, Write};
+
+        self.wait_until_serving();
+        let mut request = format!(
+            "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\n\
+             Content-Length: {}\r\nConnection: close\r\n",
+            self.addr,
+            body.len()
+        );
+        for (field, value) in headers {
+            request.push_str(&format!("{field}: {value}\r\n"));
+        }
+        request.push_str("\r\n");
+        request.push_str(body);
+
+        let mut stream = std::net::TcpStream::connect(self.addr).expect("connect to the web door");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("set a read timeout");
+        stream
+            .write_all(request.as_bytes())
+            .expect("write the request");
+        let mut raw = Vec::new();
+        stream.read_to_end(&mut raw).expect("read the reply");
+
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        let status: u16 = text
+            .split_whitespace()
+            .nth(1)
+            .and_then(|code| code.parse().ok())
+            .unwrap_or_else(|| panic!("no status line in the reply to {path}: {text}"));
+        let reply_body = text
+            .split_once("\r\n\r\n")
+            .map(|(_, rest)| rest)
+            .unwrap_or("");
+        parse(status, reply_body)
+    }
+
     /// POST raw bytes — a Photograph upload through the out-of-band route
     /// (ADR 0001), never wrapped in a JSON envelope.
     #[allow(dead_code)]
