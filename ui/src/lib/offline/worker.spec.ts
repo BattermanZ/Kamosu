@@ -20,6 +20,7 @@ import {
 } from './reads';
 
 const ORIGIN = 'https://kamosu.test';
+const SHELL = 'kamosu-shell-test';
 
 /** A CacheStorage holding what it was given, keyed by URL as a browser's is. */
 function fakeCaches() {
@@ -68,9 +69,13 @@ function fakeServer(script: (path: string, input: unknown) => Answer) {
 	return { asked, fetch: fetch as typeof globalThis.fetch };
 }
 
+/** The two path lists a worker is given: what was compiled, and what the shell cache holds. */
+type BuildLists = { built?: readonly string[]; precached?: readonly string[] };
+
 function world(
 	script: (path: string, input: unknown) => Answer,
 	shared = { ...fakeCaches(), clock: { at: 1000 } },
+	lists: BuildLists = {},
 ) {
 	const { stores, caches, clock } = shared;
 	const server = fakeServer(script);
@@ -82,8 +87,9 @@ function world(
 		fetch: server.fetch,
 		now: () => clock.at++,
 		origin: ORIGIN,
-		shell: 'kamosu-shell-test',
-		built: [],
+		shell: SHELL,
+		built: lists.built ?? [],
+		precached: lists.precached ?? [],
 		tell: (message) =>
 			message.type === 'kamosu:refreshed'
 				? announced.push(message.operation)
@@ -98,7 +104,7 @@ function world(
 		return (await response!.json()) as { ok: boolean; result?: unknown };
 	};
 	/** A browser that stopped this worker and started a fresh one over the same caches. */
-	const restarted = () => world(script, shared);
+	const restarted = () => world(script, shared, lists);
 	const settle = async () => {
 		await Promise.all(background.splice(0));
 	};
@@ -345,6 +351,55 @@ describe('a Session', () => {
 		await w.call('get_recipe', { branch_id: 'b_1' });
 		await w.call('revoke_session', { session_id: 's_1' });
 		expect(w.stores.has(READS_CACHE)).toBe(false);
+	});
+});
+
+describe('a navigation', () => {
+	/** What a browser asking for a screen is. A Request cannot be built with that mode. */
+	function navigationTo(path: string): Request {
+		const request = new Request(`${ORIGIN}${path}`);
+		Object.defineProperty(request, 'mode', { value: 'navigate' });
+		return request;
+	}
+
+	/** A worker whose shell cache holds what install put there, and nothing else. */
+	async function installed(lists: BuildLists) {
+		const shared = { ...fakeCaches(), clock: { at: 1000 } };
+		const store = await shared.caches.open(SHELL);
+		for (const path of [...(lists.precached ?? []), '/']) {
+			await store.put(path, new Response(`the copy of ${path}`));
+		}
+		return world(() => ({ body: 'from the server' }), shared, lists);
+	}
+
+	it('reaches the server in development, where the cached home page would read 404 (#95)', async () => {
+		// `ui/static/` is precached in development too, so a precache list with
+		// something in it and no compiled output is exactly the state that used
+		// to be mistaken for a build.
+		const w = await installed({ built: [], precached: ['/manifest.webmanifest', '/robots.txt'] });
+		const answer = await w.worker.handle(navigationTo('/recipes/b_1'), () => undefined);
+		expect(await answer!.json()).toBe('from the server');
+		expect(w.server.asked).toEqual(['/recipes/b_1']);
+	});
+
+	it('is answered from the cached shell once there is a build, which is what #76 is', async () => {
+		const w = await installed({
+			built: ['/_app/immutable/entry/app.js'],
+			precached: ['/_app/immutable/entry/app.js', '/manifest.webmanifest'],
+		});
+		const answer = await w.worker.handle(navigationTo('/recipes/b_1'), () => undefined);
+		expect(await answer!.text()).toBe('the copy of /');
+		expect(w.server.asked).toEqual([]);
+	});
+
+	it('leaves a precached static file to the shell cache in development too', async () => {
+		const w = await installed({ built: [], precached: ['/manifest.webmanifest'] });
+		const answer = await w.worker.handle(
+			new Request(`${ORIGIN}/manifest.webmanifest`),
+			() => undefined,
+		);
+		expect(await answer!.text()).toBe('the copy of /manifest.webmanifest');
+		expect(w.server.asked).toEqual([]);
 	});
 });
 

@@ -23,7 +23,17 @@ const self = globalThis.self as unknown as ServiceWorkerGlobalScope;
 
 /** This build's own files. Named by version, so an upgrade replaces them whole. */
 const SHELL = `kamosu-shell-${version}`;
-const BUILT = [...build, ...files];
+/**
+ * What SvelteKit compiled, and nothing else. It is empty in development, which
+ * is how the worker knows not to answer a navigation itself (#95).
+ */
+const BUILT = build;
+/**
+ * What the shell cache holds: the compiled app, plus `ui/static/`'s files,
+ * which are served as they are and are worth having on the phone in either
+ * build. That second half is why this cannot stand in for `BUILT`.
+ */
+const PRECACHED = [...build, ...files];
 
 /**
  * What the binary serves beside the app and every screen needs: the stylesheet
@@ -49,7 +59,7 @@ self.addEventListener('install', (event) => {
 			// The app, all three languages included — Paraglide compiles every
 			// phrase into these chunks, so precaching them is precaching fr, en
 			// and es alike (ADR 0013).
-			await store.addAll([...BUILT, '/']);
+			await store.addAll([...PRECACHED, '/']);
 			// The binary's assets are worth having, but never worth failing the
 			// install over.
 			await keepAssets().catch(() => undefined);
@@ -101,6 +111,7 @@ const worker = createWorker({
 	origin: self.location.origin,
 	shell: SHELL,
 	built: BUILT,
+	precached: PRECACHED,
 	tell: (message) => {
 		void self.clients
 			.matchAll({ type: 'window' })

@@ -38,8 +38,17 @@ export interface WorkerWorld {
 	origin: string;
 	/** The cache holding this build's app files. */
 	shell: string;
-	/** Paths of this build's app files, all precached. Empty in development. */
+	/**
+	 * Paths of what SvelteKit compiled. **Empty in development and only in
+	 * development**, which is the one thing here that can tell the two apart.
+	 */
 	built: readonly string[];
+	/**
+	 * Every path put in the shell cache on install: what was compiled, and the
+	 * files served as they are out of `ui/static/`. The second half is there in
+	 * development too, so this says nothing about which build it is.
+	 */
+	precached: readonly string[];
 	/** Tell every open page something: a read came back changed, or the server's reach. */
 	tell: (message: WorkerMessage) => void;
 }
@@ -264,8 +273,14 @@ export function createWorker(world: WorkerWorld) {
 
 	/**
 	 * Every screen is the same shell (ADR 0028), so any navigation inside the
-	 * app is answered with it. In development nothing is built and nothing is
-	 * precached, so the server answers and the phone is only a fallback.
+	 * app is answered with it.
+	 *
+	 * In development SvelteKit compiles nothing, so `built` is empty and the
+	 * server answers instead. Vite's shell works its base path out of the
+	 * address it was opened at, so handing the copy cached at `/` to a browser
+	 * asking for `/recipes/<id>` draws "404 Not Found". A compiled shell fixes
+	 * its base and does not care (#95). Never ask this question of `precached`,
+	 * which holds `ui/static/`'s files in development too.
 	 */
 	async function screen(request: Request): Promise<Response> {
 		const store = await world.caches.open(world.shell);
@@ -306,7 +321,7 @@ export function createWorker(world: WorkerWorld) {
 		}
 		if (request.method !== 'GET') return undefined;
 
-		if (world.built.includes(path)) {
+		if (world.precached.includes(path)) {
 			return world.caches
 				.open(world.shell)
 				.then((store) => store.match(path))
