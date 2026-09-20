@@ -38,6 +38,15 @@ use crate::units;
 pub struct OpError {
     pub kind: ErrorKind,
     pub message: String,
+    /// True for exactly one refusal: the Secret presented resolves to nobody,
+    /// because it is unknown, revoked or spent. Every other `Unauthorized` is
+    /// about what a Person Kamosu *did* recognise may do, and so says nothing
+    /// about the Credential itself.
+    ///
+    /// A Door may act on that distinction — the web door takes back a Session
+    /// cookie it set (#91) — but the distinction is drawn here, once, as every
+    /// authorisation decision is.
+    pub credential_names_nobody: bool,
 }
 
 /// **A whole Reading, as somebody sends one in.** The four fields travel
@@ -75,41 +84,47 @@ pub enum ErrorKind {
 }
 
 impl OpError {
-    pub fn unauthorized(message: impl Into<String>) -> Self {
+    /// Every refusal but one: it says what went wrong, and nothing about the
+    /// Credential that was presented.
+    fn of(kind: ErrorKind, message: impl Into<String>) -> Self {
         OpError {
-            kind: ErrorKind::Unauthorized,
+            kind,
             message: message.into(),
+            credential_names_nobody: false,
+        }
+    }
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        OpError::of(ErrorKind::Unauthorized, message)
+    }
+    /// The one refusal that is about the Secret itself rather than about what
+    /// its Person may do: it resolves to nobody. Unknown, revoked and spent all
+    /// answer alike, saying nothing about which.
+    pub fn credential_names_nobody() -> Self {
+        OpError {
+            credential_names_nobody: true,
+            ..OpError::unauthorized("this Credential does not name anyone")
         }
     }
     pub fn unknown_operation(name: &str) -> Self {
-        OpError {
-            kind: ErrorKind::UnknownOperation,
-            message: format!("no Operation named '{name}' exists in the Catalogue"),
-        }
+        OpError::of(
+            ErrorKind::UnknownOperation,
+            format!("no Operation named '{name}' exists in the Catalogue"),
+        )
     }
     pub fn bad_request(message: impl Into<String>) -> Self {
-        OpError {
-            kind: ErrorKind::BadRequest,
-            message: message.into(),
-        }
+        OpError::of(ErrorKind::BadRequest, message)
     }
     pub fn not_found(message: impl Into<String>) -> Self {
-        OpError {
-            kind: ErrorKind::NotFound,
-            message: message.into(),
-        }
+        OpError::of(ErrorKind::NotFound, message)
     }
     pub fn busy() -> Self {
-        OpError {
-            kind: ErrorKind::Busy,
-            message: "Kamosu is busy right now — try again in a moment".to_string(),
-        }
+        OpError::of(
+            ErrorKind::Busy,
+            "Kamosu is busy right now — try again in a moment",
+        )
     }
     pub fn internal(message: impl Into<String>) -> Self {
-        OpError {
-            kind: ErrorKind::Internal,
-            message: message.into(),
-        }
+        OpError::of(ErrorKind::Internal, message)
     }
 
     /// A courteous sentence for the caller; safe to show through either Door.
@@ -439,10 +454,9 @@ impl Core {
                 })
             }
             // Unknown or already-revoked: the same answer either way, saying nothing
-            // about which.
-            None => Err(OpError::unauthorized(
-                "this Credential does not name anyone",
-            )),
+            // about which. Marked, so the web door can take back a Session
+            // cookie it set that now names nobody (#91).
+            None => Err(OpError::credential_names_nobody()),
         }
     }
 

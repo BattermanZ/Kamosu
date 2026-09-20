@@ -31,6 +31,13 @@
 	const kamosu = useKamosu();
 	const auth = useAuth();
 	let setupComplete = $state<boolean | undefined>(undefined);
+	/**
+	 * Whether this screen has given up learning the instance's state. Three
+	 * states, not two: still asking, answered, and asking failed. Collapsing the
+	 * first and the last is what left a browser reading "Loading Kamosu…"
+	 * forever with no message and no button (#91).
+	 */
+	let stalled = $state(false);
 	let name = $state('');
 	let password = $state('');
 	let failed = $state<string | undefined>(undefined);
@@ -43,18 +50,47 @@
 		invite ? 'invite' : recovery ? 'recover' : setupComplete ? 'login' : 'first-person',
 	);
 
+	/** Which ask is the current one, so a slow answer to an abandoned one is dropped. */
+	let latestAsk = 0;
+
+	/**
+	 * Learn whether this instance has been set up — the one question this screen
+	 * asks before it can know which form to wear.
+	 *
+	 * Asked twice at most, and only one refusal is worth asking twice for. A
+	 * browser whose Session has ended still holds its `kamosu_session` cookie,
+	 * and holding it is exactly what makes Kamosu refuse even this Public
+	 * Operation. That refusal is also what expires the cookie (#91), so the
+	 * second ask arrives as a stranger and is answered: what a person sees is a
+	 * moment of the loading title and then the sign-in form. Any other refusal
+	 * the first ask has not fixed, so asking again would only be slower.
+	 */
+	async function learnInstanceState() {
+		const mine = ++latestAsk;
+		stalled = false;
+		setupComplete = undefined;
+		for (let attempt = 0; attempt < 2; attempt++) {
+			try {
+				const status = await kamosu.instanceStatus();
+				if (mine === latestAsk) setupComplete = status.setup_complete;
+				return;
+			} catch (error) {
+				// Anything at all, not refusals alone. Whatever went wrong, the
+				// one thing this screen must never do again is go quiet (#91).
+				if (error instanceof OperationError && error.kind === 'unauthorized' && attempt === 0)
+					continue;
+				if (mine === latestAsk) stalled = true;
+				return;
+			}
+		}
+	}
+
 	$effect(() => {
-		let current = true;
-		kamosu
-			.instanceStatus()
-			.then((status) => {
-				if (current) setupComplete = status.setup_complete;
-			})
-			.catch((error: unknown) => {
-				if (current) failed = error instanceof Error ? error.message : m.account_failed();
-			});
+		void learnInstanceState();
+		// Leaving takes the current ask with it, so an answer that arrives after
+		// this screen is gone writes nothing.
 		return () => {
-			current = false;
+			latestAsk += 1;
 		};
 	});
 
@@ -80,8 +116,18 @@
 	}
 </script>
 
-{#if setupComplete === undefined}
-	<Screen title="Loading Kamosu…" />
+{#if stalled}
+	<Screen title={m.instance_unreachable()}>
+		<button
+			type="button"
+			class="min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent"
+			onclick={() => learnInstanceState()}
+		>
+			{m.account_try_again()}
+		</button>
+	</Screen>
+{:else if setupComplete === undefined}
+	<Screen title={m.account_loading()} />
 {:else}
 	<Screen
 		title={invite

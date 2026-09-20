@@ -142,7 +142,8 @@ pub fn router(core: Arc<Core>) -> Router {
             &format!("/api/op/{}", op.name),
             post(
                 move |headers: HeaderMap, body: Option<Json<Value>>| async move {
-                    respond(call_operation(&core, op.name, headers, body))
+                    let answered = call_operation(&core, op.name, &headers, body);
+                    respond_to(&headers, answered)
                 },
             ),
         );
@@ -244,12 +245,12 @@ fn authenticate_recovery(core: &Core, body: Option<Json<Value>>) -> Result<Value
 fn call_operation(
     core: &Core,
     operation_name: &str,
-    headers: HeaderMap,
+    headers: &HeaderMap,
     body: Option<Json<Value>>,
 ) -> Result<Value, OpError> {
     // Transport concern only: carry the Secret to the Core. Deciding anything
     // about it here would be a permission check inside a Door.
-    let secret = bearer_from_headers(&headers);
+    let secret = bearer_from_headers(headers);
 
     // An absent body is an empty envelope; the Core still checks the input against
     // what the Catalogue declared.
@@ -271,8 +272,8 @@ fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response 
         .authenticate_for_write(secret.as_deref())
         .and_then(|_| core.store_photograph(body))
     {
-        Ok(result) => respond(Ok(result)),
-        Err(err) => respond(Err(err)),
+        Ok(result) => respond_to(headers, Ok(result)),
+        Err(err) => respond_to(headers, Err(err)),
     }
 }
 
@@ -291,14 +292,14 @@ async fn stage_upload(core: &Core, headers: &HeaderMap, body: Body) -> Response 
         .and_then(|caller| core.begin_upload(&caller.person_id))
     {
         Ok(staged) => staged,
-        Err(err) => return respond(Err(err)),
+        Err(err) => return respond_to(headers, Err(err)),
     };
     let (upload_id, path) = staged;
     match write_upload(body, &path).await {
-        Ok(()) => respond(Ok(json!({ "upload_id": upload_id }))),
+        Ok(()) => respond_to(headers, Ok(json!({ "upload_id": upload_id }))),
         Err(err) => {
             let _ = tokio::fs::remove_file(&path).await;
-            respond(Err(err))
+            respond_to(headers, Err(err))
         }
     }
 }
@@ -339,7 +340,7 @@ fn get_photograph(core: &Core, headers: &HeaderMap, hash: &str) -> Response {
         .and_then(|_| core.read_photograph(hash))
     {
         Ok(bytes) => image_response(bytes),
-        Err(err) => respond(Err(err)),
+        Err(err) => respond_to(headers, Err(err)),
     }
 }
 
@@ -348,16 +349,19 @@ fn get_photograph(core: &Core, headers: &HeaderMap, hash: &str) -> Response {
 fn get_display_copy(core: &Core, headers: &HeaderMap, hash: &str, size: &str) -> Response {
     let secret = bearer_from_headers(headers);
     let Some(size) = DisplaySize::parse(size) else {
-        return respond(Err(OpError::bad_request(
-            "a Display Copy is one of 'card', 'page' or 'print'",
-        )));
+        return respond_to(
+            headers,
+            Err(OpError::bad_request(
+                "a Display Copy is one of 'card', 'page' or 'print'",
+            )),
+        );
     };
     match core
         .authenticate(secret.as_deref())
         .and_then(|_| core.read_display_copy(hash, size))
     {
         Ok(bytes) => image_response(bytes),
-        Err(err) => respond(Err(err)),
+        Err(err) => respond_to(headers, Err(err)),
     }
 }
 
@@ -374,11 +378,11 @@ async fn get_backup(core: &Core, headers: &HeaderMap, name: &str) -> Response {
         .and_then(|_| core.backup_path(name))
     {
         Ok(path) => path,
-        Err(err) => return respond(Err(err)),
+        Err(err) => return respond_to(headers, Err(err)),
     };
     let file = match tokio::fs::File::open(&path).await {
         Ok(file) => file,
-        Err(_) => return respond(Err(OpError::not_found("no such Backup"))),
+        Err(_) => return respond_to(headers, Err(OpError::not_found("no such Backup"))),
     };
     // The length is declared rather than left to chunked framing, because the
     // thing on the other end is usually copying half a gigabyte and wants to
@@ -387,7 +391,7 @@ async fn get_backup(core: &Core, headers: &HeaderMap, name: &str) -> Response {
     // is the size that arrives.
     let length = match file.metadata().await {
         Ok(metadata) => metadata.len(),
-        Err(_) => return respond(Err(OpError::not_found("no such Backup"))),
+        Err(_) => return respond_to(headers, Err(OpError::not_found("no such Backup"))),
     };
     let stream = tokio_util::io::ReaderStream::new(file);
     (
@@ -420,11 +424,14 @@ async fn get_bundle(core: Arc<Core>, headers: HeaderMap, branch_id: String) -> R
     .await;
     let written = match built {
         Ok(Ok(written)) => written,
-        Ok(Err(err)) => return respond(Err(err)),
+        Ok(Err(err)) => return respond_to(&headers, Err(err)),
         Err(e) => {
-            return respond(Err(OpError::internal(format!(
-                "the Bundle could not be built: {e}"
-            ))));
+            return respond_to(
+                &headers,
+                Err(OpError::internal(format!(
+                    "the Bundle could not be built: {e}"
+                ))),
+            );
         }
     };
     zip_response(&written.file_name, written.bytes)
@@ -436,10 +443,13 @@ async fn get_sheet(core: Arc<Core>, headers: HeaderMap, job_id: String) -> Respo
         tokio::task::spawn_blocking(move || core.read_sheet(secret.as_deref(), &job_id)).await;
     match read {
         Ok(Ok((name, bytes))) => pdf_response(&name, bytes),
-        Ok(Err(err)) => respond(Err(err)),
-        Err(e) => respond(Err(OpError::internal(format!(
-            "the Sheet could not be read: {e}"
-        )))),
+        Ok(Err(err)) => respond_to(&headers, Err(err)),
+        Err(e) => respond_to(
+            &headers,
+            Err(OpError::internal(format!(
+                "the Sheet could not be read: {e}"
+            ))),
+        ),
     }
 }
 
@@ -517,7 +527,23 @@ fn image_response(bytes: Vec<u8>) -> Response {
         .into_response()
 }
 
+/// Everything about the cookie but its value, written once. Setting and
+/// expiring share it because a browser keeps the original unless the expiring
+/// one matches it on name and Path — two spellings that drifted apart would
+/// leave the fault in place while looking fixed.
+const SESSION_COOKIE_ATTRIBUTES: &str = "Path=/; HttpOnly; Secure; SameSite=Lax";
+
+/// Answer a request that carries no Credential of this Door's making: the
+/// `/auth/…` routes, which mint a Credential rather than present one, and the
+/// reply to an Operation name the Catalogue does not declare. The empty headers
+/// say what is true of both — there is no cookie here to take back.
 fn respond(result: Result<Value, OpError>) -> Response {
+    respond_to(&HeaderMap::new(), result)
+}
+
+/// Answer one request, taking back its Session cookie where the Core says that
+/// cookie names nobody (#91).
+fn respond_to(headers: &HeaderMap, result: Result<Value, OpError>) -> Response {
     match result {
         Ok(mut value) => {
             // A browser Session is delivered in an HttpOnly Secure cookie, never
@@ -530,8 +556,7 @@ fn respond(result: Result<Value, OpError>) -> Response {
             let mut response =
                 (StatusCode::OK, Json(json!({ "ok": true, "result": value }))).into_response();
             if let Some(secret) = session_secret {
-                let cookie =
-                    format!("kamosu_session={secret}; Path=/; HttpOnly; Secure; SameSite=Lax");
+                let cookie = format!("kamosu_session={secret}; {SESSION_COOKIE_ATTRIBUTES}");
                 response.headers_mut().insert(
                     header::SET_COOKIE,
                     HeaderValue::from_str(&cookie).expect("safe session cookie"),
@@ -539,7 +564,28 @@ fn respond(result: Result<Value, OpError>) -> Response {
             }
             response
         }
-        Err(err) => (status_for(err.kind), Json(error_body(&err))).into_response(),
+        Err(err) => {
+            let mut response = (status_for(err.kind), Json(error_body(&err))).into_response();
+            // A Session that has ended leaves the browser still holding its
+            // cookie, and holding it is what makes even a Public Operation come
+            // back refused — so without this the browser waits on the sign-in
+            // screen forever (#91). The Core has already decided the Secret
+            // names nobody; the Door merely takes back a cookie it set, which is
+            // housekeeping rather than a permission check.
+            //
+            // Only when that cookie is the Secret the Core was actually handed.
+            // A bearer token wins over the cookie when both arrive, and a bearer
+            // token is not this Door's to take back — so a refused one leaves
+            // even a cookie sitting beside it exactly as it was.
+            if err.credential_names_nobody && secret_came_from_cookie(headers) {
+                let expired = format!("kamosu_session=; {SESSION_COOKIE_ATTRIBUTES}; Max-Age=0");
+                response.headers_mut().insert(
+                    header::SET_COOKIE,
+                    HeaderValue::from_str(&expired).expect("safe expiring session cookie"),
+                );
+            }
+            response
+        }
     }
 }
 
@@ -580,15 +626,33 @@ fn kind_name(kind: ErrorKind) -> &'static str {
 /// Pull `Authorization: Bearer <secret>` off a request. Shared by both Doors as a
 /// transport detail; what the Secret means is decided in the Core alone.
 pub fn bearer_from_headers(headers: &HeaderMap) -> Option<String> {
-    if let Some(value) = headers
+    bearer_token(headers).or_else(|| session_cookie(headers))
+}
+
+/// Whether the Secret the Core was handed came from the cookie this Door set,
+/// which is the only Secret a refusal may ever take back. It reads the same two
+/// headers in the same order `bearer_from_headers` does, so the question "whose
+/// Secret was refused" can never be answered about a different one.
+fn secret_came_from_cookie(headers: &HeaderMap) -> bool {
+    bearer_token(headers).is_none() && session_cookie(headers).is_some()
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<String> {
+    let value = headers
         .get(axum::http::header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        && let Some(rest) = value
-            .strip_prefix("Bearer ")
-            .or_else(|| value.strip_prefix("bearer "))
-    {
-        return Some(rest.trim().to_string());
-    }
+        .and_then(|value| value.to_str().ok())?;
+    let rest = value
+        .strip_prefix("Bearer ")
+        .or_else(|| value.strip_prefix("bearer "))?;
+    Some(rest.trim().to_string())
+}
+
+/// The Secret this Door itself put in a `kamosu_session` cookie, if the request
+/// carried one back. Kept apart from a bearer token because the two are the
+/// Door's business to different degrees: this cookie is Kamosu's own to set and
+/// to take back, while a bearer token belongs to whoever sent it and the Door
+/// touches nothing of it.
+fn session_cookie(headers: &HeaderMap) -> Option<String> {
     headers
         .get(header::COOKIE)
         .and_then(|value| value.to_str().ok())?

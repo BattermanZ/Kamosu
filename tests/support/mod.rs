@@ -171,6 +171,20 @@ impl TestApp {
         headers: &[(&str, &str)],
         body: &str,
     ) -> (u16, Value) {
+        let (status, _, body) = self.post_op_with_headers_reply(name, headers, body);
+        (status, body)
+    }
+
+    /// The same, with the answer's own headers — for the one question that is
+    /// about a header rather than about a result: whether a refusal takes back
+    /// the Session cookie this Door set (#91).
+    #[allow(dead_code)]
+    pub fn post_op_with_headers_reply(
+        &self,
+        name: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> (u16, Vec<(String, String)>, Value) {
         self.post_with_headers(&format!("/api/op/{name}"), headers, body)
     }
 
@@ -178,18 +192,26 @@ impl TestApp {
     /// and so has to answer the same way.
     #[allow(dead_code)]
     pub fn post_mcp_with_headers(&self, payload: &str, headers: &[(&str, &str)]) -> (u16, Value) {
-        self.post_with_headers("/mcp", headers, payload)
+        let (status, _, body) = self.post_with_headers("/mcp", headers, payload);
+        (status, body)
     }
 
     /// POST to one path with headers a well-behaved client would never send.
     ///
-    /// This exists for one question: whether anything Kamosu reads off a
-    /// request can stand in for authorisation (ADR 0033). The request is
-    /// written out by hand rather than sent through `http_min` because that
-    /// client serves the binary's own healthcheck, and widening it so a test
-    /// can forge a header would put the forgery in the shipped program.
+    /// This exists for two questions. Whether anything Kamosu reads off a
+    /// request can stand in for authorisation (ADR 0033), and — since the
+    /// answer's own headers come back with it — whether a refusal takes back
+    /// the Session cookie this Door set (#91). Both need a request written out
+    /// by hand rather than sent through `http_min`, because that client serves
+    /// the binary's own healthcheck, and widening it so a test can forge a
+    /// header would put the forgery in the shipped program.
     #[allow(dead_code)]
-    fn post_with_headers(&self, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, Value) {
+    fn post_with_headers(
+        &self,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) -> (u16, Vec<(String, String)>, Value) {
         use std::io::{Read, Write};
 
         self.wait_until_serving();
@@ -221,11 +243,15 @@ impl TestApp {
             .nth(1)
             .and_then(|code| code.parse().ok())
             .unwrap_or_else(|| panic!("no status line in the reply to {path}: {text}"));
-        let reply_body = text
-            .split_once("\r\n\r\n")
-            .map(|(_, rest)| rest)
-            .unwrap_or("");
-        parse(status, reply_body)
+        let (reply_head, reply_body) = text.split_once("\r\n\r\n").unwrap_or((text.as_str(), ""));
+        let reply_headers = reply_head
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_once(": "))
+            .map(|(field, value)| (field.to_string(), value.to_string()))
+            .collect();
+        let (status, parsed) = parse(status, reply_body);
+        (status, reply_headers, parsed)
     }
 
     /// POST raw bytes — a Photograph upload through the out-of-band route
@@ -246,6 +272,23 @@ impl TestApp {
         );
         parse(response.status, &response.text())
     }
+}
+
+/// The Session Secret a browser would keep from one answer: the value of the
+/// `kamosu_session` cookie the Door set, with its attributes stripped off.
+///
+/// Every test that signs in through `/auth/…` and then acts as that browser
+/// needs this, so it lives here rather than being written out again in each.
+#[allow(dead_code)]
+pub fn session_cookie_secret(reply: &http_min::Response) -> String {
+    reply
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .and_then(|(_, value)| value.split(';').next())
+        .and_then(|pair| pair.strip_prefix("kamosu_session="))
+        .expect("an HttpOnly Session cookie")
+        .to_string()
 }
 
 /// One request's answer, or a panic that says what actually went wrong.

@@ -597,13 +597,8 @@ async fn logging_in_mints_a_revocable_session_credential() {
     let session_id = session_id["result"]["session_id"]
         .as_str()
         .expect("Session id");
-    let secret = logged_in
-        .headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
-        .and_then(|(_, value)| value.split(';').next())
-        .and_then(|pair| pair.strip_prefix("kamosu_session="))
-        .expect("HttpOnly session cookie");
+    let secret = support::session_cookie_secret(&logged_in);
+    let secret = secret.as_str();
     assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 200);
     let (status, revoked) = app.post_op(
         "revoke_session",
@@ -612,6 +607,185 @@ async fn logging_in_mints_a_revocable_session_credential() {
     );
     assert_eq!(status, 200, "{revoked}");
     assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 401);
+}
+
+/// Every `Set-Cookie` on one answer.
+fn set_cookies(headers: &[(String, String)]) -> Vec<&str> {
+    headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .map(|(_, value)| value.as_str())
+        .collect()
+}
+
+/// A Session that has ended takes its cookie with it (#91).
+///
+/// Ending a Session revoked it on the server and left the browser holding the
+/// cookie, and holding it was what made even a Public Operation come back
+/// refused — so the sign-in screen asked the one question it needs answered,
+/// was refused, and waited forever. The Door now takes back the cookie it set.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_ended_session_takes_its_cookie_with_it() {
+    let app = support::spawn_app();
+    let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "this browser" });
+    let signed_in = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(signed_in.status, 200, "{}", signed_in.text());
+    let envelope: Value = serde_json::from_str(&signed_in.text()).expect("auth envelope");
+    let session_id = envelope["result"]["session_id"]
+        .as_str()
+        .expect("Session id")
+        .to_string();
+    let secret = support::session_cookie_secret(&signed_in);
+    let cookie = format!("kamosu_session={secret}");
+
+    // While the Session lives, the cookie is a Credential like any other and
+    // nothing about it is taken back.
+    let (status, headers, body) =
+        app.post_op_with_headers_reply("instance_status", &[("Cookie", &cookie)], "{}");
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        set_cookies(&headers).is_empty(),
+        "a living Session's cookie is left alone: {headers:?}"
+    );
+
+    let (status, revoked) = app.post_op(
+        "revoke_session",
+        Some(&secret),
+        &json!({ "session_id": session_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{revoked}");
+
+    // The sign-in screen's first question, asked by a browser still holding the
+    // dead cookie. Refused — and the refusal expires the cookie.
+    let (status, headers, body) =
+        app.post_op_with_headers_reply("instance_status", &[("Cookie", &cookie)], "{}");
+    assert_eq!(status, 401, "{body}");
+    let expired = set_cookies(&headers);
+    assert_eq!(expired.len(), 1, "exactly one Set-Cookie: {headers:?}");
+    let expired = expired[0];
+    assert!(
+        expired.starts_with("kamosu_session=;"),
+        "the cookie is emptied: {expired}"
+    );
+    assert!(expired.contains("Max-Age=0"), "and expired: {expired}");
+    // Matching the attributes it was set with, or the browser keeps the
+    // original and the fault survives while looking fixed.
+    for attribute in ["Path=/", "HttpOnly", "Secure", "SameSite=Lax"] {
+        assert!(
+            expired.contains(attribute),
+            "the expiring cookie must carry {attribute}: {expired}"
+        );
+    }
+
+    // Which is the whole point: the next request arrives as a stranger, and the
+    // sign-in screen learns what it came to learn.
+    let (status, stranger) = app.post_op("instance_status", None, "{}");
+    assert_eq!(status, 200, "{stranger}");
+    assert_eq!(stranger["result"]["setup_complete"], json!(true));
+
+    // The Core's rule is untouched. A dead Secret still names nobody, and an
+    // Operation that needs a Person is still never performed for it.
+    let (status, refused) = app.post_op_with_headers("list_jobs", &[("Cookie", &cookie)], "{}");
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+
+    // A bearer token is not this Door's to take back, so a refused one expires
+    // no cookie.
+    let (status, headers, body) = app.post_op_with_headers_reply(
+        "instance_status",
+        &[("Authorization", &format!("Bearer {secret}"))],
+        "{}",
+    );
+    assert_eq!(status, 401, "{body}");
+    assert!(
+        set_cookies(&headers).is_empty(),
+        "a refused bearer token must expire no cookie: {headers:?}"
+    );
+}
+
+/// The Door takes back the Secret that was refused, and no other (#91).
+///
+/// A bearer token wins over the cookie when a request carries both, so a
+/// refused bearer token says nothing about the cookie sitting beside it. Were
+/// the Door to go by "a cookie was present" rather than "the cookie was what
+/// the Core was handed", one dead Access Key would sign a perfectly good
+/// browser Session out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_bearer_token_leaves_a_living_session_cookie_alone() {
+    let app = support::spawn_app();
+    let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "this browser" });
+    let signed_in = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(signed_in.status, 200, "{}", signed_in.text());
+    let cookie = format!(
+        "kamosu_session={}",
+        support::session_cookie_secret(&signed_in)
+    );
+
+    // Both presented at once: a Secret that names nobody as the bearer token,
+    // and the living Session as the cookie.
+    let (status, headers, body) = app.post_op_with_headers_reply(
+        "instance_status",
+        &[
+            ("Authorization", "Bearer a-secret-that-names-nobody"),
+            ("Cookie", &cookie),
+        ],
+        "{}",
+    );
+    assert_eq!(status, 401, "{body}");
+    assert!(
+        set_cookies(&headers).is_empty(),
+        "the bearer token was refused, so the cookie is not the Door's to take: {headers:?}"
+    );
+
+    // And the Session is still a Session.
+    let (status, body) = app.post_op_with_headers("list_jobs", &[("Cookie", &cookie)], "{}");
+    assert_eq!(status, 200, "{body}");
+}
+
+/// The same for the other two ways a browser's Person stops being one: the
+/// account is disabled, or it is deleted. Both revoke every Session, so both
+/// leave a browser holding a cookie that names nobody.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_disabled_or_deleted_persons_browser_is_let_go_of_too() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Aurélien", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(operator.status, 200, "{}", operator.text());
+    let operator_secret = support::session_cookie_secret(&operator);
+
+    for (who, ending) in [("Camille", "disable_account"), ("Robin", "delete_account")] {
+        let (status, minted) = app.post_op("mint_invite", Some(&operator_secret), "{}");
+        assert_eq!(status, 200, "{minted}");
+        let link = minted["result"]["link"].as_str().expect("an Invite link");
+
+        let joined = app.post_auth_response(
+            "/auth/invite",
+            &json!({ "link": link, "name": who, "password": "their own password",
+                     "session_name": "their phone" })
+            .to_string(),
+        );
+        assert_eq!(joined.status, 200, "{}", joined.text());
+        let cookie = format!("kamosu_session={}", support::session_cookie_secret(&joined));
+
+        let (status, ended) = app.post_op(
+            ending,
+            Some(&operator_secret),
+            &json!({ "name": who }).to_string(),
+        );
+        assert_eq!(status, 200, "{ended}");
+
+        let (status, headers, body) =
+            app.post_op_with_headers_reply("instance_status", &[("Cookie", &cookie)], "{}");
+        assert_eq!(status, 401, "{who} after {ending}: {body}");
+        let expired = set_cookies(&headers);
+        assert_eq!(expired.len(), 1, "{who} after {ending}: {headers:?}");
+        assert!(
+            expired[0].starts_with("kamosu_session=;") && expired[0].contains("Max-Age=0"),
+            "{who} after {ending}: {}",
+            expired[0]
+        );
+    }
 }
 
 // --- Lineage, Branch, Version (issue #42) ------------------------------------
@@ -3681,14 +3855,7 @@ async fn minting_an_access_key_shows_the_secret_once_afterwards_known_by_name_an
     let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "first browser" });
     let created = app.post_auth_response("/auth/first-person", &create.to_string());
     assert_eq!(created.status, 200, "{}", created.text());
-    let session_secret = created
-        .headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
-        .and_then(|(_, value)| value.split(';').next())
-        .and_then(|pair| pair.strip_prefix("kamosu_session="))
-        .expect("HttpOnly session cookie")
-        .to_string();
+    let session_secret = support::session_cookie_secret(&created);
 
     // Minting an Access Key is a Person's own act — never an Access Key's, so
     // this is asked with the Session the account creation just minted.
@@ -4472,13 +4639,8 @@ async fn an_operator_mints_a_one_use_invite_that_creates_a_person_and_home_kitch
     });
     let operator = app.post_auth_response("/auth/first-person", &first.to_string());
     assert_eq!(operator.status, 200, "{}", operator.text());
-    let operator_secret = operator
-        .headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
-        .and_then(|(_, value)| value.split(';').next())
-        .and_then(|pair| pair.strip_prefix("kamosu_session="))
-        .expect("operator Session cookie");
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
 
     let (status, minted) = app.post_op("mint_invite", Some(operator_secret), r#"{}"#);
     assert_eq!(status, 200, "{minted}");
@@ -4505,13 +4667,8 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     let app = support::spawn_app();
     let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
     let operator = app.post_auth_response("/auth/first-person", &first.to_string());
-    let operator_secret = operator
-        .headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
-        .and_then(|(_, value)| value.split(';').next())
-        .and_then(|pair| pair.strip_prefix("kamosu_session="))
-        .expect("operator Session cookie");
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
 
     let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
     let marie = json!({ "link": invite["result"]["link"], "name": "Marie", "password": "old password", "session_name": "Marie’s browser" });
