@@ -16571,7 +16571,7 @@ async fn a_bundle_carries_the_recipe_its_translation_its_passenger_and_its_photo
         );
     }
 
-    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).expect("JSON");
+    let sidecar: Value = serde_json::from_slice(&files[kamosu::bundles::SIDECAR]).expect("JSON");
     assert_eq!(sidecar["subjects"], json!([lineage]));
     let branches = sidecar["branches"].as_array().expect("the Branches");
     let branch = |id: &str| {
@@ -16649,12 +16649,42 @@ async fn a_bundle_carries_the_recipe_its_translation_its_passenger_and_its_photo
         }),
         "a Food travels as its names and no id"
     );
-    let raw = String::from_utf8(files[".kamosu/bundle.json"].clone()).unwrap();
+    let raw = String::from_utf8(files[kamosu::bundles::SIDECAR].clone()).unwrap();
     let food = food_named(&app, &key, "en", "mozzarella");
     assert!(!raw.contains(&food), "no Food id travels");
+
+    // A Cup Weight belongs to this instance and never travels in a share
+    // (ADR 0016). The mozzarella under test was given one, so there is
+    // something here to catch. This asks the parsed sidecar, not its text.
+    // The figure is three digits, and the file is full of 64-character hex
+    // ids and millisecond timestamps that spell one by chance, which failed
+    // this test about one run in twenty (#96).
+    fn no_cup_weight_anywhere(value: &Value, path: &str) {
+        match value {
+            Value::Object(fields) => {
+                for (key, child) in fields {
+                    assert!(
+                        !key.contains("cup_weight"),
+                        "{path}.{key} carries a Cup Weight"
+                    );
+                    no_cup_weight_anywhere(child, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    no_cup_weight_anywhere(child, &format!("{path}[{index}]"));
+                }
+            }
+            _ => {}
+        }
+    }
+    no_cup_weight_anywhere(&sidecar, "bundle");
+    // A broader net over the same question. The walk above reads keys; this
+    // also catches the name inside a value. Unlike the figure, a key name is
+    // long enough that no id spells it by accident.
     assert!(
-        !raw.contains("cup_weight") && !raw.contains("113"),
-        "no Cup Weight travels"
+        !raw.contains("cup_weight"),
+        "the sidecar names a Cup Weight somewhere"
     );
 
     // The Access Key that wrote each Version stays here (ADR 0015).
