@@ -1251,7 +1251,7 @@ impl Core {
         let name = required_text(name, "name")?.to_string();
         self.db().with_conn(|conn| {
             let kitchen_id = kitchen_of_tag(conn, tag_id)?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_tag)?;
             // The word may already be this Tag's own — renaming *dessert* to
             // *Dessert* is a change of spelling, not a collision with itself.
             match tag_id_for_word(conn, &kitchen_id, language, &name)? {
@@ -1297,7 +1297,12 @@ impl Core {
         self.db().with_conn(|conn| {
             let keep_kitchen = kitchen_of_tag(conn, keep_tag_id)?;
             let merge_kitchen = kitchen_of_tag(conn, merge_tag_id)?;
-            ensure_member(conn, &keep_kitchen, person_id)?;
+            ensure_member_or_absent(conn, &keep_kitchen, person_id, no_such_tag)?;
+            // Both Tags are checked before the two Kitchens are compared, so
+            // that the refusal below is only ever reached by someone who cooks
+            // in both — otherwise naming another household's Tag as the one to
+            // merge would tell the caller it exists (ADR 0040).
+            ensure_member_or_absent(conn, &merge_kitchen, person_id, no_such_tag)?;
             // Two Kitchens' filing systems are separate things, and neither is
             // the other's to fold into (ADR 0007).
             if keep_kitchen != merge_kitchen {
@@ -1360,7 +1365,7 @@ impl Core {
     pub fn delete_tag(&self, person_id: &str, tag_id: &str) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
             let kitchen_id = kitchen_of_tag(conn, tag_id)?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_tag)?;
             for statement in [
                 "DELETE FROM branch_tags WHERE tag_id = ?1",
                 "DELETE FROM tag_names WHERE tag_id = ?1",
@@ -1392,14 +1397,19 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &branch_kitchen, person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &branch_kitchen, person_id, no_such_branch)?;
 
             // A Tag belongs to one Kitchen, so a recipe can only be filed
             // under its own Kitchen's words (ADR 0007). Reaching across is a
             // request for a Tag this Kitchen does not have.
             let tag_kitchen = kitchen_of_tag(conn, tag_id)?;
             if tag_kitchen != branch_kitchen {
+                // The sentence below says this Tag exists on some other shelf,
+                // which is a fact worth having only if that shelf is one of
+                // the caller's own. To anyone else the Tag is not here at all
+                // (ADR 0040).
+                ensure_member_or_absent(conn, &tag_kitchen, person_id, no_such_tag)?;
                 return Err(OpError::not_found(
                     "no such Tag in the Kitchen holding this recipe",
                 ));
@@ -1433,14 +1443,21 @@ impl Core {
         related: bool,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let (kitchen_id, lineage_id, title) = recipe_shelf_identity(conn, branch_id)?
-                .ok_or_else(|| OpError::not_found("no such Recipe on this shelf"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            let no_such_recipe = || OpError::not_found("no such Recipe on this shelf");
+            let no_such_related = || OpError::not_found("no such related Recipe on this shelf");
+
+            let (kitchen_id, lineage_id, title) =
+                recipe_shelf_identity(conn, branch_id)?.ok_or_else(no_such_recipe)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_recipe)?;
 
             let (related_kitchen_id, related_lineage_id, related_title) =
-                recipe_shelf_identity(conn, related_branch_id)?
-                    .ok_or_else(|| OpError::not_found("no such related Recipe on this shelf"))?;
+                recipe_shelf_identity(conn, related_branch_id)?.ok_or_else(no_such_related)?;
             if related_kitchen_id != kitchen_id {
+                // The sentence below says the recipe is on some shelf but not
+                // this one, which is a fact about another Kitchen's shelf. A
+                // caller who cooks in that Kitchen too may have it — they knew
+                // already. Anyone else gets the plain not-found (ADR 0040).
+                ensure_member_or_absent(conn, &related_kitchen_id, person_id, no_such_related)?;
                 return Err(OpError::not_found(
                     "no such related Recipe on the Kitchen's shelf",
                 ));
@@ -1598,8 +1615,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Import: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Import"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+                .ok_or_else(no_such_import)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_import)?;
             let transaction = conn
                 .unchecked_transaction()
                 .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
@@ -2034,7 +2051,7 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+                .ok_or_else(no_such_branch)?;
 
             // Which of the caller's own Kitchens this save is on behalf of.
             // Named explicitly, or — when the caller already cooks in the
@@ -2345,8 +2362,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &source_kitchen_id, &caller.person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &source_kitchen_id, &caller.person_id, no_such_branch)?;
 
             // Unknown can neither be a Translation nor have one (ADR 0006). A
             // recipe that is honestly two Languages has no single source text
@@ -2479,8 +2496,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, &caller.person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, &caller.person_id, no_such_branch)?;
 
             if language == current {
                 // Already what it says: nothing changed, so no Version. Saying
@@ -2603,8 +2620,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
             let changed = conn
                 .execute(
                     "UPDATE branch_versions SET name = ?1 WHERE branch_id = ?2 AND sequence = ?3",
@@ -3760,9 +3777,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
-            let (lineage_id, kitchen_id) =
-                found.ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            let (lineage_id, kitchen_id) = found.ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
             conn.execute(
                 "INSERT INTO recipe_opens (person_id, lineage_id) VALUES (?1, ?2) \
@@ -3812,8 +3828,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
             let mut statement = conn
                 .prepare(
@@ -3952,8 +3968,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
             // Every Branch of this Lineage held by a Kitchen this Person
             // cooks in — never a Branch in a Kitchen they do not belong to,
@@ -4237,8 +4253,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
             let content: Value = serde_json::from_str(&content)
                 .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
@@ -4380,8 +4396,8 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+                .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
             let pinned_version_id = match version_id {
                 None => head_version_id,
@@ -4710,7 +4726,7 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+                .ok_or_else(no_such_branch)?;
             let attempt_lineage: String = conn
                 .query_row(
                     "SELECT lineage_id FROM attempts WHERE id = ?1",
@@ -5001,7 +5017,7 @@ impl Core {
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(|| OpError::not_found("no such Branch"))?;
+                .ok_or_else(no_such_branch)?;
             if branch_lineage != lineage_id {
                 return Err(OpError::bad_request(
                     "that Branch is not a Branch of the recipe this Attempt cooked",
@@ -5542,7 +5558,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
             if let Some(offered) = address {
                 let offered = normalise_public_address(offered)?;
@@ -5590,7 +5606,7 @@ impl Core {
     pub fn end_share_link(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
             conn.execute(
                 "UPDATE share_links SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
                   WHERE branch_id = ?1 AND ended_at IS NULL",
@@ -5605,7 +5621,7 @@ impl Core {
     pub fn get_share_link(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
             let live = live_share_link(conn, branch_id)?;
             share_link_summary(conn, live, None)
         })
@@ -5722,7 +5738,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         let gathered = self.db().with_conn(|conn| {
             let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
             let reader = Reader::of(conn, person_id)?;
             let paper = sheet::Paper::for_measures(&reading_measures_of(conn, person_id)?);
             gather_sheet(
@@ -5858,7 +5874,10 @@ impl Core {
             None => None,
         };
         let record = self.sheet_job(job_id)?;
-        jobs::ensure_reader(&record, &caller)?;
+        // This route resolved a **Sheet** id, so a Sheet that is not the
+        // caller's answers word for word as an id naming no Sheet does — the
+        // refusal `sheet_job` itself raises (ADR 0040).
+        jobs::ensure_reader(&record, &caller, no_such_sheet)?;
         if record.operation == "make_shared_sheet" {
             self.ensure_link_live(record.input["token"].as_str().unwrap_or_default())?;
         }
@@ -5880,7 +5899,7 @@ impl Core {
                 record.operation == "make_shared_sheet"
                     && record.input["token"].as_str() == Some(token)
             })
-            .ok_or_else(|| OpError::not_found("no Sheet with that id"))?;
+            .ok_or_else(no_such_sheet)?;
         Ok(match record.status {
             jobs::JobStatus::Completed => {
                 let (name, bytes) = self.sheet_bytes(&record)?;
@@ -5901,7 +5920,7 @@ impl Core {
                     "make_sheet" | "make_shared_sheet"
                 )
             })
-            .ok_or_else(|| OpError::not_found("no Sheet with that id"))
+            .ok_or_else(no_such_sheet)
     }
 
     fn sheet_bytes(&self, record: &JobRecord) -> Result<(String, Vec<u8>), OpError> {
@@ -6136,7 +6155,7 @@ impl Core {
     ) -> Result<(bundles::Contents, Vec<String>), OpError> {
         self.db().with_conn(|conn| {
             let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member(conn, &kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
             bundle_contents(conn, branch_id, &kitchen_id)
         })
     }
@@ -6387,7 +6406,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
-            ensure_member(conn, &head.kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &head.kitchen_id, person_id, no_such_branch)?;
             let title = branch_title(conn, &head.head_version_id)?;
             let Some(moment) = shopping_moment(conn, person_id, written_at)? else {
                 return shopping_list(conn, person_id);
@@ -6516,7 +6535,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
-            ensure_member(conn, &head.kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &head.kitchen_id, person_id, no_such_branch)?;
             if shopping_moment(conn, person_id, written_at)?.is_none() {
                 return shopping_list(conn, person_id);
             }
@@ -6639,7 +6658,7 @@ impl Core {
     pub fn shopping_basis(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
-            ensure_member(conn, &head.kitchen_id, person_id)?;
+            ensure_member_or_absent(conn, &head.kitchen_id, person_id, no_such_branch)?;
             let reader = Reader::of(conn, person_id)?;
             let content = version_content(conn, &head.head_version_id)?;
             let lines = basis_lines(
@@ -7151,7 +7170,7 @@ fn gather_sheet(
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-        .ok_or_else(|| OpError::not_found("no such Branch"))?;
+        .ok_or_else(no_such_branch)?;
     let content: String = conn
         .query_row(
             "SELECT content FROM versions WHERE id = ?1",
@@ -8826,8 +8845,8 @@ fn ordered_chain(
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-        .ok_or_else(|| OpError::not_found("no such Branch"))?;
-    ensure_member(conn, &kitchen_id, person_id)?;
+        .ok_or_else(no_such_branch)?;
+    ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
     let mut statement = conn
         .prepare(
@@ -8943,7 +8962,7 @@ fn branch_head(conn: &Connection, branch_id: &str) -> Result<BranchHead, OpError
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-    .ok_or_else(|| OpError::not_found("no such Branch"))
+    .ok_or_else(no_such_branch)
 }
 
 /// A Version's stored content in the shape the Catalogue declares, filling in
@@ -9825,6 +9844,11 @@ fn is_member(
 }
 
 /// Only a member may change a Kitchen — the only circle that may (ADR 0007).
+///
+/// **For a Kitchen the caller named.** Being told you do not cook in a Kitchen
+/// whose id you just supplied tells you nothing you did not already know. Where
+/// Kamosu worked the Kitchen out from something else, use
+/// [`ensure_member_or_absent`] instead (ADR 0040).
 fn ensure_member(
     conn: &rusqlite::Connection,
     kitchen_id: &str,
@@ -9839,6 +9863,56 @@ fn ensure_member(
     }
 }
 
+/// The same membership check, **for a Kitchen Kamosu worked out** from a Branch,
+/// a Tag, an Import or anything else the caller named (ADR 0040).
+///
+/// A non-member is refused with `absent` — the very refusal the caller would
+/// have got had the thing they named not existed here at all. That is what
+/// stops the refusal being an answer: holding an id, nobody can tell whether
+/// another household on this instance holds the thing it names.
+///
+/// `absent` is the same function the not-found path calls, never a sentence
+/// written out a second time. Identical text is the whole mechanism, and one
+/// source for it is what keeps the two identical as either is edited.
+fn ensure_member_or_absent(
+    conn: &rusqlite::Connection,
+    kitchen_id: &str,
+    person_id: &str,
+    absent: impl FnOnce() -> OpError,
+) -> Result<(), OpError> {
+    if is_member(conn, kitchen_id, person_id)? {
+        Ok(())
+    } else {
+        Err(absent())
+    }
+}
+
+/// A Branch id that names nothing here — and, by ADR 0040, a Branch held by a
+/// Kitchen the caller does not cook in.
+fn no_such_branch() -> OpError {
+    OpError::not_found("no such Branch")
+}
+
+/// A Tag id that names nothing here — and, by ADR 0040, a Tag of a Kitchen the
+/// caller does not cook in.
+fn no_such_tag() -> OpError {
+    OpError::not_found("no such Tag")
+}
+
+/// An Import id that names nothing here — and, by ADR 0040, an Import of a
+/// Kitchen the caller does not cook in.
+fn no_such_import() -> OpError {
+    OpError::not_found("no such Import")
+}
+
+/// A Sheet id that names nothing here — and, by ADR 0040, a Sheet belonging to
+/// somebody else. `/api/sheets/<id>` resolved a Sheet id, so this is the answer
+/// it owes in both cases; saying *no Job with that id* instead would tell the
+/// caller the id names a Job that is not theirs.
+fn no_such_sheet() -> OpError {
+    OpError::not_found("no Sheet with that id")
+}
+
 // ── Share Links: the pieces (#65) ────────────────────────────────────────────
 
 /// The Kitchen holding a Branch — the circle allowed to share it (ADR 0007).
@@ -9850,7 +9924,7 @@ fn branch_kitchen(conn: &Connection, branch_id: &str) -> Result<String, OpError>
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-    .ok_or_else(|| OpError::not_found("no such Branch"))
+    .ok_or_else(no_such_branch)
 }
 
 /// Write the instance's public address.
@@ -10000,7 +10074,7 @@ fn shared_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-        .ok_or_else(|| OpError::not_found("no such Branch"))?;
+        .ok_or_else(no_such_branch)?;
 
     let recipe = shared_version(conn, branch_id, &head_version_id, &language)?;
 
@@ -10240,7 +10314,7 @@ fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-        .ok_or_else(|| OpError::not_found("no such Branch"))?;
+        .ok_or_else(no_such_branch)?;
     // A received Branch's Hand is the sender's Kitchen's, named by what
     // arrived with it (#67): resharing it names them, not this Kitchen.
     let kitchen_name: Option<String> = conn
@@ -10958,7 +11032,7 @@ fn shared_version(
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-        .ok_or_else(|| OpError::not_found("no such Branch"))?;
+        .ok_or_else(no_such_branch)?;
     let content: String = conn
         .query_row(
             "SELECT content FROM versions WHERE id = ?1",
@@ -11149,7 +11223,7 @@ fn kitchen_of_tag(conn: &rusqlite::Connection, tag_id: &str) -> Result<String, O
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read Tag: {e}")))?
-    .ok_or_else(|| OpError::not_found("no such Tag"))
+    .ok_or_else(no_such_tag)
 }
 
 /// One word reduced to the form every spelling of it shares, so a Kitchen can

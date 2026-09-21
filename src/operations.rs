@@ -217,10 +217,8 @@ pub fn get_job(core: &Core, invocation: &Invocation, input: Value) -> Result<Val
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("get_job takes { job_id }"))?;
 
-    let record = core
-        .job(job_id)?
-        .ok_or_else(|| OpError::not_found(format!("no Job with id '{job_id}'")))?;
-    jobs::ensure_reader(&record, &invocation.caller)?;
+    let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
+    jobs::ensure_reader(&record, &invocation.caller, || jobs::no_such_job(job_id))?;
 
     Ok(jobs::to_value(&record))
 }
@@ -244,10 +242,8 @@ pub fn cancel_job(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("cancel_job takes { job_id }"))?;
 
-    let record = core
-        .job(job_id)?
-        .ok_or_else(|| OpError::not_found(format!("no Job with id '{job_id}'")))?;
-    jobs::ensure_reader(&record, &invocation.caller)?;
+    let record = core.job(job_id)?.ok_or_else(|| jobs::no_such_job(job_id))?;
+    jobs::ensure_reader(&record, &invocation.caller, || jobs::no_such_job(job_id))?;
 
     let cancelled = core.cancel_job_if_queued(job_id)?;
     Ok(json!({ "cancelled": cancelled }))

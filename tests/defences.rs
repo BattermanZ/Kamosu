@@ -1028,3 +1028,433 @@ fn only_five_operations_answer_without_a_credential() {
         "a stranger may call off their own Job, and change nothing else"
     );
 }
+
+// --- A refusal never says whether a thing exists (#97, ADR 0040) -------------
+
+/// One household: a Person, a Credential acting as them, and a Kitchen of their
+/// own. Two of these on one instance is the whole setting for the leak below.
+fn a_household(app: &support::TestApp, name: &str) -> Household {
+    let person = app.core.create_person(name).expect("a Person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser", false)
+        .expect("an Access Key")
+        .secret;
+    let (status, made) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": format!("{name}'s Kitchen") }).to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    let kitchen = made["result"]["id"]
+        .as_str()
+        .expect("a Kitchen")
+        .to_string();
+    Household { key, kitchen }
+}
+
+struct Household {
+    key: String,
+    kitchen: String,
+}
+
+/// One recipe on a household's own shelf, by its Branch id. It carries one
+/// Ingredient Line, because `set_reading` needs a line to read.
+fn a_recipe(app: &support::TestApp, who: &Household, title: &str) -> String {
+    let (status, made) = app.post_op(
+        "create_recipe",
+        Some(&who.key),
+        &json!({
+            "kitchen_id": who.kitchen,
+            "title": title,
+            "ingredients": [{ "kind": "ingredient", "text": "200 g flour" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    made["result"]["branch_id"]
+        .as_str()
+        .expect("a Branch")
+        .to_string()
+}
+
+/// One Tag on a household's own shelf, by its Tag id.
+fn a_tag(app: &support::TestApp, who: &Household, word: &str) -> String {
+    let (status, made) = app.post_op(
+        "create_tag",
+        Some(&who.key),
+        &json!({ "kitchen_id": who.kitchen, "language": "en", "name": word }).to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    made["result"]["id"].as_str().expect("a Tag").to_string()
+}
+
+/// One Import ledger on a household's own shelf, by its Import id. The `import`
+/// Operation is a Job, so this waits for it.
+fn an_import(app: &support::TestApp, who: &Household) -> String {
+    let (status, asked) = app.post_op(
+        "import",
+        Some(&who.key),
+        &json!({
+            "source_kind": "a place recipes came from",
+            "candidates": [{ "foreign_id": "one", "title": "Focaccia" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = support::wait_terminal(app, Some(&who.key), job_id);
+    assert_eq!(finished["status"], json!("completed"), "{finished}");
+    finished["result"]["import_id"]
+        .as_str()
+        .expect("an Import")
+        .to_string()
+}
+
+/// What one Operation answers, reduced to exactly what the caller can see of a
+/// refusal: the status and the error, kind and sentence both. A `200` reduces to
+/// a marker rather than its body, because two different successes are not the
+/// question here — only whether two refusals can be told apart.
+fn answer(
+    app: &support::TestApp,
+    bearer: &str,
+    operation: &str,
+    input: serde_json::Value,
+) -> String {
+    let (status, body) = app.post_op(operation, Some(bearer), &input.to_string());
+    if status == 200 {
+        return "200 — answered".to_string();
+    }
+    format!(
+        "{status} {} — {}",
+        body["error"]["kind"].as_str().unwrap_or("?"),
+        body["error"]["message"].as_str().unwrap_or("?"),
+    )
+}
+
+/// **ADR 0040: where Kamosu worked the Kitchen out, a refusal never says
+/// whether the thing exists.** Two households on one instance. Holding a Branch
+/// id — which a Bundle hands out, so this is not hypothetical — Nadia must not
+/// be able to tell whether Marc's household here holds that recipe.
+///
+/// Every Operation that takes an id and looks a Kitchen up from it is swept,
+/// and each is asked twice: once about something Marc holds, once about an id
+/// nobody ever minted. The two answers must be the same string.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
+    let app = support::spawn_app();
+    let marc = a_household(&app, "Marc");
+    let nadia = a_household(&app, "Nadia");
+
+    // What Marc holds, and the ids of things that were never here. A minted id
+    // is random, so these name nothing and can never come to.
+    let his_recipe = a_recipe(&app, &marc, "Pizza");
+    let his_tag = a_tag(&app, &marc, "sunday");
+    let his_import = an_import(&app, &marc);
+    let no_recipe = "b_ffffffffffffffff";
+    let no_tag = "t_ffffffffffffffff";
+    let no_import = "imp_ffffffffffffffff";
+
+    // Nadia's own shelf, so that the Operations taking two ids have one honest
+    // id to pair the probe with — and so the same sweep can be run again as a
+    // member, where every one of them must still answer.
+    let her_recipe = a_recipe(&app, &nadia, "Soupe");
+    let her_other_recipe = a_recipe(&app, &nadia, "Tarte");
+    let her_tag = a_tag(&app, &nadia, "weeknight");
+    // A second Branch of the *same* Lineage, which is what `divergence` reads
+    // between: saving a recipe into another Kitchen you cook in is a Copy (#54).
+    let her_second_kitchen = {
+        let (status, made) = app.post_op(
+            "create_kitchen",
+            Some(&nadia.key),
+            &json!({ "name": "Nadia's other Kitchen" }).to_string(),
+        );
+        assert_eq!(status, 200, "{made}");
+        made["result"]["id"]
+            .as_str()
+            .expect("a Kitchen")
+            .to_string()
+    };
+    let her_copy = {
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(&nadia.key),
+            &json!({
+                "branch_id": her_recipe,
+                "kitchen_id": her_second_kitchen,
+                "title": "Soupe, copied",
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        saved["result"]["branch_id"]
+            .as_str()
+            .expect("a Copy's Branch")
+            .to_string()
+    };
+
+    // Every Operation that works a Kitchen out from a Branch id, with the
+    // Branch under probe first. `save_recipe_version` and the two `promote_`
+    // Operations are deliberately absent: they refuse nobody, turning a save
+    // against another Kitchen's Branch into a Copy (#54, ADR 0025).
+    let by_branch: Vec<(&str, serde_json::Value)> = vec![
+        ("get_recipe", json!({})),
+        ("get_thread", json!({})),
+        ("note_recipe_opened", json!({})),
+        ("rename_version", json!({ "sequence": 1, "name": "a name" })),
+        ("set_recipe_language", json!({ "language": "fr" })),
+        (
+            "start_translation",
+            json!({ "language": "es", "title": "Pizza" }),
+        ),
+        (
+            "set_recipe_tag",
+            json!({ "tag_id": her_tag, "carried": true }),
+        ),
+        (
+            "set_related_recipe",
+            json!({ "related_branch_id": her_other_recipe, "related": true }),
+        ),
+        (
+            "share_recipe",
+            json!({ "public_address": "https://kamosu.example" }),
+        ),
+        ("end_share_link", json!({})),
+        ("get_share_link", json!({})),
+        ("export_bundle", json!({})),
+        ("divergence", json!({ "other_branch_id": her_copy })),
+        ("set_reading", json!({ "line_index": 0 })),
+        ("start_attempt", json!({})),
+        ("shopping_basis", json!({})),
+        ("add_to_shopping_list", json!({})),
+        ("set_shopping_yield", json!({})),
+    ];
+    for (operation, rest) in &by_branch {
+        let mut held = rest.clone();
+        held["branch_id"] = json!(his_recipe);
+        let mut absent = rest.clone();
+        absent["branch_id"] = json!(no_recipe);
+        assert_eq!(
+            answer(&app, &nadia.key, operation, held),
+            answer(&app, &nadia.key, operation, absent),
+            "{operation} tells Nadia whether Marc's household holds that recipe"
+        );
+    }
+
+    // The remaining paths, where the id under probe is not `branch_id`: the Tag
+    // and Import ids, and the *second* id of the Operations that take two. The
+    // second-id cases pair Marc's id with Nadia's own, so the refusal is reached
+    // from the Kitchen *comparison* rather than from the first check — which is
+    // the same oracle by another route, and the one easiest to leave open.
+    struct Probe {
+        operation: &'static str,
+        /// The rest of the input, with the field under probe left out.
+        rest: serde_json::Value,
+        field: &'static str,
+        /// The id Marc holds, and an id nobody ever minted.
+        his: String,
+        absent: &'static str,
+    }
+    let probes = vec![
+        Probe {
+            operation: "set_related_recipe",
+            rest: json!({ "branch_id": her_recipe, "related": true }),
+            field: "related_branch_id",
+            his: his_recipe.clone(),
+            absent: no_recipe,
+        },
+        Probe {
+            operation: "divergence",
+            rest: json!({ "branch_id": her_recipe }),
+            field: "other_branch_id",
+            his: his_recipe.clone(),
+            absent: no_recipe,
+        },
+        // `branch_point` names neither of its ids `branch_id`, so it appears
+        // here for both ends rather than in the sweep above. It is the Operation
+        // most easily missed: nothing about its input says "branch_id".
+        Probe {
+            operation: "branch_point",
+            rest: json!({ "branch_b_id": her_copy }),
+            field: "branch_a_id",
+            his: his_recipe.clone(),
+            absent: no_recipe,
+        },
+        Probe {
+            operation: "branch_point",
+            rest: json!({ "branch_a_id": her_recipe }),
+            field: "branch_b_id",
+            his: his_recipe.clone(),
+            absent: no_recipe,
+        },
+        Probe {
+            operation: "set_recipe_tag",
+            rest: json!({ "branch_id": her_recipe, "carried": true }),
+            field: "tag_id",
+            his: his_tag.clone(),
+            absent: no_tag,
+        },
+        Probe {
+            operation: "merge_tags",
+            rest: json!({ "keep_tag_id": her_tag }),
+            field: "merge_tag_id",
+            his: his_tag.clone(),
+            absent: no_tag,
+        },
+        Probe {
+            operation: "merge_tags",
+            rest: json!({ "merge_tag_id": her_tag }),
+            field: "keep_tag_id",
+            his: his_tag.clone(),
+            absent: no_tag,
+        },
+        Probe {
+            operation: "rename_tag",
+            rest: json!({ "language": "en", "name": "monday" }),
+            field: "tag_id",
+            his: his_tag.clone(),
+            absent: no_tag,
+        },
+        Probe {
+            operation: "delete_tag",
+            rest: json!({}),
+            field: "tag_id",
+            his: his_tag.clone(),
+            absent: no_tag,
+        },
+        Probe {
+            operation: "forget_import",
+            rest: json!({}),
+            field: "import_id",
+            his: his_import.clone(),
+            absent: no_import,
+        },
+    ];
+    for probe in &probes {
+        let mut held = probe.rest.clone();
+        held[probe.field] = json!(probe.his);
+        let mut absent = probe.rest.clone();
+        absent[probe.field] = json!(probe.absent);
+        assert_eq!(
+            answer(&app, &nadia.key, probe.operation, held),
+            answer(&app, &nadia.key, probe.operation, absent),
+            "{}'s {} tells Nadia whether Marc's household holds it",
+            probe.operation,
+            probe.field,
+        );
+    }
+
+    // `make_sheet` is a Job, so its refusal arrives as the Job's own failure
+    // rather than in the answer to the ask. The rule holds there too.
+    let sheet_refusal = |branch: &str| {
+        let (status, asked) = app.post_op(
+            "make_sheet",
+            Some(&nadia.key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        assert_eq!(status, 200, "{asked}");
+        let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+        let record = support::wait_terminal(&app, Some(&nadia.key), job_id);
+        format!("{} — {}", record["status"], record["error"])
+    };
+    assert_eq!(
+        sheet_refusal(&his_recipe),
+        sheet_refusal(no_recipe),
+        "make_sheet's failure tells Nadia whether Marc's household holds the recipe"
+    );
+
+    // A Job of Marc's, and a Job id nobody minted, at the **web** Door — where
+    // the collapse used to be missing because it was written inside the MCP one.
+    let (status, asked) = app.post_op(
+        "make_sheet",
+        Some(&marc.key),
+        &json!({ "branch_id": his_recipe }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let his_job = asked["result"]["job_id"]
+        .as_str()
+        .expect("a job id")
+        .to_string();
+    support::wait_terminal(&app, Some(&marc.key), &his_job);
+    let no_job = "job-nobody-ever-minted";
+    for operation in ["get_job", "cancel_job"] {
+        // The Job id is in the sentence, and that is no leak: the caller
+        // supplied it. Normalised so the two sentences can be compared at all.
+        let his = answer(&app, &nadia.key, operation, json!({ "job_id": his_job }))
+            .replace(&his_job, "<the id asked for>");
+        let none = answer(&app, &nadia.key, operation, json!({ "job_id": no_job }))
+            .replace(no_job, "<the id asked for>");
+        assert_eq!(
+            his, none,
+            "{operation} tells Nadia whether that id names another Person's work"
+        );
+    }
+
+    // The rule lives in the Core, so it is the same refusal at the MCP Door —
+    // which is the point. The collapse it used to hand-roll for Jobs is gone.
+    let at_mcp = |operation: &str, arguments: serde_json::Value| {
+        let call = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": operation, "arguments": arguments },
+        });
+        let (_, answered) = app.post_mcp(&call.to_string(), Some(&nadia.key));
+        answered["result"].clone()
+    };
+    for (operation, field, his, none) in [
+        ("get_recipe", "branch_id", his_recipe.as_str(), no_recipe),
+        ("get_job", "job_id", his_job.as_str(), no_job),
+    ] {
+        let held = at_mcp(operation, json!({ field: his }));
+        let absent = at_mcp(operation, json!({ field: none }));
+        assert_eq!(held["isError"], json!(true), "{held}");
+        assert_eq!(
+            held.to_string().replace(his, "<the id asked for>"),
+            absent.to_string().replace(none, "<the id asked for>"),
+            "{operation} at the MCP Door tells Nadia the difference"
+        );
+    }
+
+    // `/api/sheets/<id>` is not an Operation but an out-of-band route, and it
+    // resolved a **Sheet** id. Marc's finished Sheet and an id naming no Sheet
+    // must therefore answer alike — and about Sheets, not about Jobs, or the
+    // sentence would itself say the id names somebody's Job.
+    let sheet_route = |id: &str| {
+        let (status, _type, body) = app.get_bytes(&format!("/api/sheets/{id}"), Some(&nadia.key));
+        format!("{status} {}", String::from_utf8_lossy(&body))
+    };
+    assert_eq!(
+        sheet_route(&his_job),
+        sheet_route("j_ffffffffffffffffffffffff"),
+        "/api/sheets tells Nadia whether that id names another Person's Sheet"
+    );
+
+    // --- And the other half of the rule: what must NOT have changed ----------
+
+    // A Kitchen the caller **named** still gets the membership refusal. Being
+    // told you do not cook in a Kitchen whose id you just supplied says nothing
+    // you did not already know.
+    let (status, refused) = app.post_op(
+        "create_recipe",
+        Some(&nadia.key),
+        &json!({ "kitchen_id": marc.kitchen, "title": "Not hers" }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("this Person does not cook in this Kitchen"),
+        "{refused}"
+    );
+
+    // And a member still gets the real result from the Operations above.
+    for (operation, rest) in &by_branch {
+        let mut mine = rest.clone();
+        mine["branch_id"] = json!(her_recipe);
+        let (status, answered) = app.post_op(operation, Some(&nadia.key), &mine.to_string());
+        assert_eq!(
+            status, 200,
+            "{operation} refused its own Kitchen: {answered}"
+        );
+    }
+}

@@ -25,21 +25,6 @@ fn tasks_meta() -> Value {
     })
 }
 
-/// Poll `get_job` through the web door until the Job reaches an end state.
-fn wait_terminal(app: &support::TestApp, bearer: Option<&str>, job_id: &str) -> Value {
-    let body = json!({ "job_id": job_id }).to_string();
-    for _ in 0..400 {
-        let (_, body) = app.post_op("get_job", bearer, &body);
-        let result = body["result"].clone();
-        let status = result["status"].as_str().unwrap_or("");
-        if ["completed", "failed", "cancelled"].contains(&status) {
-            return result;
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    panic!("job {job_id} never reached an end state");
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn asking_for_a_job_returns_an_id_at_once_and_the_result_is_read_at_both_doors() {
     let app = support::spawn_app();
@@ -88,7 +73,7 @@ async fn asking_for_a_job_returns_an_id_at_once_and_the_result_is_read_at_both_d
     );
 
     // And the eventual result arrives through the same ordinary Operation.
-    let finished = wait_terminal(&app, Some(&key), &job_id);
+    let finished = support::wait_terminal(&app, Some(&key), &job_id);
     assert_eq!(finished["status"], json!("completed"));
     assert_eq!(finished["result"]["steps"], json!(30));
     assert_eq!(finished["error"], Value::Null);
@@ -1183,12 +1168,21 @@ async fn only_a_kitchen_member_may_create_or_read_its_recipes() {
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
-    let (status, _) = app.post_op(
+    // A recipe held by a Kitchen the caller does not cook in answers exactly as
+    // a Branch id this instance has never held does (#97, ADR 0040) — the case
+    // still matters, only the answer has moved.
+    let (status, refused) = app.post_op(
         "get_recipe",
         Some(&stranger_key),
         &json!({ "branch_id": branch_id }).to_string(),
     );
-    assert_eq!(status, 401);
+    assert_eq!(status, 404, "{refused}");
+    let (absent_status, absent) = app.post_op(
+        "get_recipe",
+        Some(&stranger_key),
+        &json!({ "branch_id": "b_ffffffffffffffff" }).to_string(),
+    );
+    assert_eq!((absent_status, absent), (status, refused));
 }
 
 // --- Copy (issue #54) ---------------------------------------------------
@@ -1866,7 +1860,7 @@ async fn only_a_kitchen_member_may_correct_a_reading() {
         Some(&stranger_key),
         &json!({ "branch_id": branch_id, "line_index": 0, "amount": "1" }).to_string(),
     );
-    assert_eq!(status, 401);
+    assert_eq!(status, 404);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2158,7 +2152,7 @@ async fn reading_the_library_reads_what_is_unread_and_leaves_a_correction_alone(
     let (status, asked) = app.post_op("read_ingredient_lines", Some(&key), "{}");
     assert_eq!(status, 200, "{asked}");
     let job_id = asked["result"]["job_id"].as_str().expect("a job id");
-    let finished = wait_terminal(&app, Some(&key), job_id);
+    let finished = support::wait_terminal(&app, Some(&key), job_id);
     assert_eq!(finished["status"], "completed", "{finished}");
     assert_eq!(
         finished["result"]["read"], 0,
@@ -3659,7 +3653,15 @@ async fn a_tag_is_merged_only_within_one_kitchen_and_never_into_itself() {
         Some(&key_a),
         &json!({ "keep_tag_id": mine, "merge_tag_id": theirs }).to_string(),
     );
-    assert_eq!(status, 400, "{refused}");
+    // Marc's Tag is not this caller's to hear about at all, so naming it
+    // answers exactly as an unminted Tag id does (ADR 0040). The
+    // different-Kitchens refusal below is for two Kitchens you cook in.
+    assert_eq!(status, 404, "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("no such Tag"),
+        "{refused}"
+    );
 
     let (status, refused) = app.post_op(
         "merge_tags",
@@ -4316,7 +4318,7 @@ async fn a_job_that_fails_reports_why_through_the_same_operations() {
         .expect("a job id")
         .to_string();
 
-    let finished = wait_terminal(&app, None, &job_id);
+    let finished = support::wait_terminal(&app, None, &job_id);
     assert_eq!(finished["status"], json!("failed"), "{finished}");
     let reason = finished["error"].as_str().expect("a failure reason");
     assert!(
@@ -4425,12 +4427,24 @@ async fn a_job_is_read_by_the_person_who_asked_for_it_and_listed_to_them_alone()
         .expect("a job id")
         .to_string();
 
-    wait_terminal(&app, Some(&his_key), &job_id);
+    support::wait_terminal(&app, Some(&his_key), &job_id);
 
-    // Marie asking about his Job learns nothing: it is not hers to read.
+    // Marie asking about his Job learns nothing: it is not hers to read, and
+    // the refusal is word for word the one a Job id naming nothing gets, so she
+    // cannot tell the two apart (ADR 0040).
     let get = json!({ "job_id": job_id }).to_string();
     let (status, body) = app.post_op("get_job", Some(&her_key), &get);
-    assert_eq!(status, 401, "{body}");
+    assert_eq!(status, 404, "{body}");
+    let (absent_status, absent) = app.post_op(
+        "get_job",
+        Some(&her_key),
+        &json!({ "job_id": "j_nothing" }).to_string(),
+    );
+    assert_eq!(absent_status, 404, "{absent}");
+    assert_eq!(
+        body["error"]["kind"], absent["error"]["kind"],
+        "his Job and no Job answer differently: {body} / {absent}"
+    );
 
     // And it appears in his list of Jobs, not hers.
     let (_, listed) = app.post_op("list_jobs", Some(&his_key), "{}");
@@ -4459,7 +4473,7 @@ async fn a_job_is_read_by_the_person_who_asked_for_it_and_listed_to_them_alone()
         .as_str()
         .unwrap()
         .to_string();
-    wait_terminal(&app, None, &stranger_id);
+    support::wait_terminal(&app, None, &stranger_id);
     let (status, _) = app.post_op(
         "get_job",
         None,
@@ -5621,7 +5635,7 @@ async fn starting_to_cook_requires_being_able_to_see_the_recipe() {
         Some(&stranger_key),
         &json!({ "branch_id": branch_id }).to_string(),
     );
-    assert_eq!(status, 401, "{refused}");
+    assert_eq!(status, 404, "{refused}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -5956,7 +5970,7 @@ async fn the_thread_shows_every_branch_the_caller_can_see_and_hides_the_rest() {
         Some(&stranger_key),
         &json!({ "branch_id": branch_a }).to_string(),
     );
-    assert_eq!(status, 401);
+    assert_eq!(status, 404);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -6256,7 +6270,7 @@ fn import_and_wait(app: &support::TestApp, key: &str, body: &Value) -> Value {
     let (status, ask) = app.post_op("import", Some(key), &body.to_string());
     assert_eq!(status, 200, "{ask}");
     let job_id = ask["result"]["job_id"].as_str().expect("a job id");
-    let finished = wait_terminal(app, Some(key), job_id);
+    let finished = support::wait_terminal(app, Some(key), job_id);
     assert_eq!(finished["status"], json!("completed"), "{finished}");
     finished["result"].clone()
 }
@@ -7212,7 +7226,7 @@ mod web_link_importer {
         );
         assert_eq!(status, 200, "{ask}");
         let job_id = ask["result"]["job_id"].as_str().expect("a job id");
-        let finished = wait_terminal(app, Some(key), job_id);
+        let finished = support::wait_terminal(app, Some(key), job_id);
         assert_eq!(finished["status"], json!("completed"), "{finished}");
         finished["result"].clone()
     }
@@ -7417,7 +7431,7 @@ mod web_link_importer {
         );
         assert_eq!(status, 200, "{ask}");
         let job_id = ask["result"]["job_id"].as_str().expect("a job id");
-        let finished = wait_terminal(&app, Some(&key), job_id);
+        let finished = support::wait_terminal(&app, Some(&key), job_id);
         assert_eq!(
             finished["status"],
             json!("failed"),
@@ -8067,8 +8081,11 @@ async fn a_divergence_cannot_reach_a_branch_you_could_not_otherwise_read() {
         Some(&mine_key),
         &json!({ "branch_id": my_branch, "other_branch_id": marc_branch }).to_string(),
     );
-    assert_eq!(status, 401, "{refused}");
-    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+    // Marc's Branch was worked out from the id, not named as a Kitchen, so the
+    // refusal is the one an id naming nothing gets (ADR 0040).
+    assert_eq!(status, 404, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("not_found"));
+    assert_eq!(refused["error"]["message"], json!("no such Branch"));
 }
 
 /// Two recipes that were never one recipe have no Branch Point and nothing
@@ -11229,7 +11246,7 @@ async fn nothing_downloads_or_indexes_before_the_terms_are_accepted() {
     let (status, asked) = app.post_op("download_meaning_model", Some(&key), "{}");
     assert_eq!(status, 200, "{asked}");
     let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
-    let failure = wait_terminal(&app, Some(&key), &job_id);
+    let failure = support::wait_terminal(&app, Some(&key), &job_id);
     assert_eq!(failure["status"], json!("failed"), "{failure}");
     assert!(
         failure["error"]
@@ -11241,7 +11258,7 @@ async fn nothing_downloads_or_indexes_before_the_terms_are_accepted() {
     // And nothing can be indexed against a model that is not there.
     let (_, asked) = app.post_op("build_meaning_index", Some(&key), "{}");
     let job_id = asked["result"]["job_id"].as_str().unwrap().to_string();
-    let failure = wait_terminal(&app, Some(&key), &job_id);
+    let failure = support::wait_terminal(&app, Some(&key), &job_id);
     assert_eq!(failure["status"], json!("failed"), "{failure}");
     assert!(
         failure["error"]
@@ -11577,8 +11594,13 @@ async fn a_recipe_in_a_kitchen_you_do_not_cook_in_can_be_neither_opened_nor_shel
         Some(&key),
         &json!({ "branch_id": cassoulet }).to_string(),
     );
-    assert_eq!(status, 401, "{refused}");
-    assert_eq!(refused["error"]["kind"], json!("unauthorized"), "{refused}");
+    assert_eq!(status, 404, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("not_found"), "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("no such Branch"),
+        "{refused}"
+    );
 
     // And nothing of Marc's reaches Aurélien's Home, which is the same
     // Kitchen boundary the library's shelf draws (ADR 0026).
@@ -12059,18 +12081,20 @@ async fn only_the_kitchen_holding_a_recipe_may_share_it() {
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
+    // Neither refusal says the recipe is here: the Kitchen was worked out from
+    // the Branch id, so a non-member gets the plain not-found (ADR 0040).
     let (status, refused) = app.post_op(
         "share_recipe",
         Some(&their_key),
         &json!({ "branch_id": branch_id, "public_address": "https://kamosu.example" }).to_string(),
     );
-    assert_eq!(status, 401, "{refused}");
+    assert_eq!(status, 404, "{refused}");
     let (status, refused) = app.post_op(
         "end_share_link",
         Some(&their_key),
         &json!({ "branch_id": branch_id }).to_string(),
     );
-    assert_eq!(status, 401, "{refused}");
+    assert_eq!(status, 404, "{refused}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -13509,8 +13533,8 @@ async fn there_is_exactly_one_list_per_person_and_it_is_nobody_elses() {
         Some(&marc_key),
         &json!({ "branch_id": chicken }).to_string(),
     );
-    assert_eq!(status, 401, "{refused}");
-    assert_eq!(refused["error"]["kind"], json!("unauthorized"));
+    assert_eq!(status, 404, "{refused}");
+    assert_eq!(refused["error"]["kind"], json!("not_found"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -16334,7 +16358,7 @@ fn take_a_backup(app: &support::TestApp, key: &str) -> Value {
     let (status, asked) = app.post_op("take_backup", Some(key), "{}");
     assert_eq!(status, 200, "{asked}");
     let job_id = asked["result"]["job_id"].as_str().expect("a job id");
-    let finished = wait_terminal(app, Some(key), job_id);
+    let finished = support::wait_terminal(app, Some(key), job_id);
     assert_eq!(finished["status"], json!("completed"), "{finished}");
     finished["result"].clone()
 }
@@ -17373,7 +17397,7 @@ fn importing(app: &support::TestApp, key: &str, input: Value) -> Value {
     let (status, ask) = app.post_op("import_bundle", Some(key), &input.to_string());
     assert_eq!(status, 200, "{ask}");
     let job_id = ask["result"]["job_id"].as_str().expect("a job id");
-    wait_terminal(app, Some(key), job_id)
+    support::wait_terminal(app, Some(key), job_id)
 }
 
 /// The Import Report of a Bundle that was received, insisting it completed.
@@ -18822,7 +18846,7 @@ mod crouton {
         );
         assert_eq!(status, 200, "{ask}");
         let job_id = ask["result"]["job_id"].as_str().expect("a job id");
-        let finished = wait_terminal(app, Some(key), job_id);
+        let finished = support::wait_terminal(app, Some(key), job_id);
         assert_eq!(finished["status"], json!("completed"), "{finished}");
         assert_eq!(finished["progress"]["done"], json!(4), "{finished}");
         finished["result"].clone()
@@ -19085,7 +19109,7 @@ mod crouton {
         let job_id = answer["result"]["taskId"]
             .as_str()
             .unwrap_or_else(|| panic!("{answer}"));
-        let finished = wait_terminal(&app, Some(&key), job_id);
+        let finished = support::wait_terminal(&app, Some(&key), job_id);
         assert_eq!(finished["status"], json!("completed"), "{finished}");
         let branch_id = finished["result"]["arrived"][0]["branch_id"]
             .as_str()
@@ -19114,7 +19138,7 @@ mod crouton {
             &json!({ "upload_id": upload_id }).to_string(),
         );
         assert_eq!(status, 200, "{asked}");
-        let finished = wait_terminal(
+        let finished = support::wait_terminal(
             &app,
             Some(&marc_key),
             asked["result"]["job_id"].as_str().unwrap(),
@@ -19134,7 +19158,8 @@ mod crouton {
             &json!({ "upload_id": "../../kamosu.db" }).to_string(),
         );
         assert_eq!(status, 200, "{bad}");
-        let finished = wait_terminal(&app, Some(&key), bad["result"]["job_id"].as_str().unwrap());
+        let finished =
+            support::wait_terminal(&app, Some(&key), bad["result"]["job_id"].as_str().unwrap());
         assert_eq!(finished["status"], json!("failed"), "{finished}");
 
         let reader = app
@@ -19159,7 +19184,7 @@ mod crouton {
             Some(&key),
             &json!({ "upload_id": upload_id }).to_string(),
         );
-        let finished = wait_terminal(
+        let finished = support::wait_terminal(
             &app,
             Some(&key),
             asked["result"]["job_id"].as_str().unwrap(),
@@ -19213,7 +19238,7 @@ fn a_sheet(
         .as_str()
         .expect("a job id")
         .to_string();
-    let job = wait_terminal(app, bearer, &job_id);
+    let job = support::wait_terminal(app, bearer, &job_id);
     assert_eq!(job["status"], json!("completed"), "{job}");
     let result = job["result"].clone();
     assert_eq!(result["fetch_at"], json!(format!("/api/sheets/{job_id}")));
@@ -19543,7 +19568,7 @@ async fn the_share_link_pages_sheet_is_a_link_that_ends_in_the_pdf() {
         &json!({ "token": token }).to_string(),
     );
     assert_eq!(status, 200, "{asked}");
-    let job = wait_terminal(&app, None, asked["result"]["job_id"].as_str().unwrap());
+    let job = support::wait_terminal(&app, None, asked["result"]["job_id"].as_str().unwrap());
     assert_eq!(job["status"], json!("failed"), "{job}");
 }
 
@@ -19576,7 +19601,7 @@ async fn a_persons_sheet_is_fetched_only_under_their_credential() {
         &json!({ "branch_id": pizza }).to_string(),
     );
     assert_eq!(status, 200, "{asked}");
-    let job = wait_terminal(
+    let job = support::wait_terminal(
         &app,
         Some(&other_key),
         asked["result"]["job_id"].as_str().unwrap(),

@@ -243,31 +243,36 @@ fn tasks_cancel(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Res
     ) {
         Ok(_) => Ok(json!({ "resultType": "complete" })),
         Err(err) => match err.kind {
-            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::Unauthorized => {
-                Err(json_rpc_error(
-                    -32602,
-                    format!("Failed to cancel task: no such Job '{task_id}'"),
-                ))
-            }
+            // A Job that is not the caller's arrives as a not-found from the
+            // Core (ADR 0040), so this Door does not collapse it. An
+            // `Unauthorized` reaching here is about the Credential itself and
+            // says so, rather than being dressed up as a missing task.
+            ErrorKind::BadRequest | ErrorKind::NotFound => Err(json_rpc_error(
+                -32602,
+                format!("Failed to cancel task: no such Job '{task_id}'"),
+            )),
             _ => Err(json_rpc_error(-32603, err.to_sentence())),
         },
     }
 }
 
-/// Resolve one taskId to a readable Job, or say it names nothing — a forbidden
-/// Job and an absent one are indistinguishable here, so asking tells you nothing
-/// about other People's work.
+/// Resolve one taskId to a readable Job, or say it names nothing.
+///
+/// A forbidden Job and an absent one arrive here as the same refusal already:
+/// the Core collapses them (ADR 0040), so this Door no longer does. It used to,
+/// and that is exactly the bug ADR 0001 warns about — the collapse lived in one
+/// Door, so `get_job` at the web Door never inherited it. An `Unauthorized`
+/// reaching this point is now about the Credential itself, and is passed on
+/// saying so rather than dressed up as a missing task.
 fn read_job_for_task(core: &Core, headers: &HeaderMap, task_id: &str) -> Result<Value, Value> {
     let secret = web_door::bearer_from_headers(headers);
     match core.execute(secret.as_deref(), "get_job", json!({ "job_id": task_id })) {
         Ok(job) => Ok(job),
         Err(err) => match err.kind {
-            ErrorKind::BadRequest | ErrorKind::NotFound | ErrorKind::Unauthorized => {
-                Err(json_rpc_error(
-                    -32602,
-                    format!("Failed to retrieve task: no such Job '{task_id}'"),
-                ))
-            }
+            ErrorKind::BadRequest | ErrorKind::NotFound => Err(json_rpc_error(
+                -32602,
+                format!("Failed to retrieve task: no such Job '{task_id}'"),
+            )),
             _ => Err(json_rpc_error(-32603, err.to_sentence())),
         },
     }

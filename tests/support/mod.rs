@@ -320,6 +320,23 @@ fn expect_reply(
     })
 }
 
+/// Poll `get_job` through the web Door until the Job reaches an end state, and
+/// answer the record. Every suite that drives a Job needs this, so it lives
+/// here rather than once per test binary.
+#[allow(dead_code)]
+pub fn wait_terminal(app: &TestApp, bearer: Option<&str>, job_id: &str) -> Value {
+    let body = serde_json::json!({ "job_id": job_id }).to_string();
+    for _ in 0..400 {
+        let (_, answered) = app.post_op("get_job", bearer, &body);
+        let record = answered["result"].clone();
+        if ["completed", "failed", "cancelled"].contains(&record["status"].as_str().unwrap_or("")) {
+            return record;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    panic!("job {job_id} never reached an end state");
+}
+
 fn parse(status: u16, body: &str) -> (u16, Value) {
     let value = if body.trim().is_empty() {
         Value::Null

@@ -487,12 +487,29 @@ pub fn cancel_if_queued(core: &crate::core::Core, job_id: &str) -> Result<bool, 
 /// Who may read a Job: the Person who asked for it — or anyone, when no Person
 /// did. Work caused anonymously (a Sheet rendered for a Share Link, say) carries
 /// nothing that was not already public, so hiding its state would hide nothing.
-pub fn ensure_reader(record: &JobRecord, caller: &Option<Caller>) -> Result<(), OpError> {
+///
+/// Anyone else is refused with `absent` — the refusal the id they named would
+/// have got had it named nothing, so asking tells the caller nothing about other
+/// People's work (ADR 0040). The caller passes it, because which id they named
+/// decides which not-found is the honest one: `/api/sheets/<id>` resolved a
+/// **Sheet** id and must answer about Sheets, while `get_job` resolved a Job id
+/// and must answer about Jobs. Whose work it is is no part of either answer.
+pub fn ensure_reader(
+    record: &JobRecord,
+    caller: &Option<Caller>,
+    absent: impl FnOnce() -> OpError,
+) -> Result<(), OpError> {
     match (&record.person_id, caller) {
         (None, _) => Ok(()),
         (Some(owner), Some(c)) if owner.as_str() == c.person_id => Ok(()),
-        _ => Err(OpError::unauthorized("no Job with that id")),
+        _ => Err(absent()),
     }
+}
+
+/// A Job id that names nothing here — and, by ADR 0040, a Job belonging to
+/// someone else.
+pub fn no_such_job(job_id: &str) -> OpError {
+    OpError::not_found(format!("no Job with id '{job_id}'"))
 }
 
 fn set_running(core: &crate::core::Core, job_id: &str) {
