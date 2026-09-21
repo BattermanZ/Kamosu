@@ -1522,7 +1522,7 @@ export type MakeSharedSheetOutput = {
 	paper: "a4" | "us-letter";
 };
 
-/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
+/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
 export type ImportBundleInput = {
 	data: string;
 };
@@ -8103,9 +8103,11 @@ export const CATALOGUE = [
 								"type": "boolean"
 							},
 							"branch_id": {
+								"description": "The Branch as this instance holds it — the id every other Operation and every URL takes. On a recipe received from elsewhere it is not the id it travelled under.",
 								"type": "string"
 							},
 							"foreign_id": {
+								"description": "What the source called this recipe: from a Bundle, the Branch id it travels under, which is the sender's.",
 								"type": "string"
 							},
 							"lineage_id": {
@@ -8374,9 +8376,11 @@ export const CATALOGUE = [
 								"type": "boolean"
 							},
 							"branch_id": {
+								"description": "The Branch as this instance holds it — the id every other Operation and every URL takes. On a recipe received from elsewhere it is not the id it travelled under.",
 								"type": "string"
 							},
 							"foreign_id": {
+								"description": "What the source called this recipe: from a Bundle, the Branch id it travels under, which is the sender's.",
 								"type": "string"
 							},
 							"lineage_id": {
@@ -8679,9 +8683,11 @@ export const CATALOGUE = [
 								"type": "boolean"
 							},
 							"branch_id": {
+								"description": "The Branch as this instance holds it — the id every other Operation and every URL takes. On a recipe received from elsewhere it is not the id it travelled under.",
 								"type": "string"
 							},
 							"foreign_id": {
+								"description": "What the source called this recipe: from a Bundle, the Branch id it travels under, which is the sender's.",
 								"type": "string"
 							},
 							"lineage_id": {
@@ -11489,7 +11495,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_bundle",
-		"summary": "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so.",
+		"summary": "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -11517,9 +11523,11 @@ export const CATALOGUE = [
 								"type": "boolean"
 							},
 							"branch_id": {
+								"description": "The Branch as this instance holds it — the id every other Operation and every URL takes. On a recipe received from elsewhere it is not the id it travelled under.",
 								"type": "string"
 							},
 							"foreign_id": {
+								"description": "What the source called this recipe: from a Bundle, the Branch id it travels under, which is the sender's.",
 								"type": "string"
 							},
 							"lineage_id": {
@@ -21699,7 +21707,7 @@ export interface KamosuClient {
 	makeSheet(input: MakeSheetInput): Promise<Answer<'make_sheet'>>;
 	/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
 	makeSharedSheet(input: MakeSharedSheetInput): Promise<Answer<'make_shared_sheet'>>;
-	/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's own ids and Hands, its Versions, Readings and Photographs exactly as they were sent; one already held here is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
+	/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
 	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
 	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;

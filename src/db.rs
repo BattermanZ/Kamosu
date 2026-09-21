@@ -1204,6 +1204,45 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE people ADD COLUMN shopping_written_at TEXT;
         "#,
     },
+    Migration {
+        version: 32,
+        description: "a Branch's travelling id is unique per Kitchen, not per instance (#90)",
+        sql: r#"
+        -- **A Branch's id was two things at once** (#90, ADR 0020), and they
+        -- only ever coincided on the instance that minted it: the id a Bundle
+        -- carries, so the sender's next Bundle continues their Branch, and
+        -- this instance's primary key for one Kitchen's copy of it. Since the
+        -- key is instance-wide, one Branch id could be held by exactly one
+        -- Kitchen here -- so Marc sending his pizza to two households on the
+        -- same Kamosu reached only the first of them.
+        --
+        -- The two are separated here, under the two names CONTEXT.md gives
+        -- them. `id` stays the **local id**: every Operation, every URL and all
+        -- five foreign keys into this table keep using it, and a received
+        -- Branch gets a freshly minted one. `travelling_id` is the
+        -- **travelling id**, and it is filled in ONLY on a Branch that arrived
+        -- from somewhere else. NULL means "it travels under its own id", which
+        -- is the truth of every Branch minted here, so this step fills nothing
+        -- in and moves nothing: no Share Link, no Shopping List entry and no
+        -- Import ledger row so much as notices.
+        --
+        -- That NULL is also what keeps the rule from rotting. A Branch minted
+        -- here is written by three different INSERTs, and none of them has to
+        -- remember this column: leaving it out is already correct. Reading goes
+        -- through COALESCE(travelling_id, id), in the two places that care --
+        -- writing a Bundle and receiving one.
+        ALTER TABLE branches ADD COLUMN travelling_id TEXT;
+
+        -- Unique per Kitchen rather than per instance, which is the whole
+        -- point. Two Kitchens here may each hold Marc's Branch; one Kitchen
+        -- holding it twice would leave his next Bundle no way to say which of
+        -- the two it continues. Indexing the COALESCE rather than the bare
+        -- column covers the Branches minted here too, where it repeats what
+        -- the primary key already guarantees.
+        CREATE UNIQUE INDEX branches_travelling_id_per_kitchen
+            ON branches (COALESCE(travelling_id, id), kitchen_id);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

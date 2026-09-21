@@ -6640,6 +6640,108 @@ async fn a_database_at_an_old_schema_migrates_forward_and_serves() {
     );
 }
 
+/// **The step that split a Branch's two identities moves neither** (#90).
+///
+/// `branches.travelling_id` holds the id a Branch travels under, and it is filled
+/// in only on a Branch that arrived from somewhere else. Every Branch already
+/// written here travels under its own id, so the step adds a column, fills
+/// nothing in, and leaves every row exactly where it was: this builds a library
+/// at the schema before it, migrates forward, and reads back that no Branch id
+/// moved, that the Share Link, Shopping List entry and Import ledger row still
+/// reach their Branch, and that every Version still hashes to its own id.
+#[test]
+fn splitting_a_branchs_travelling_id_from_its_row_id_moves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+
+    let content = r#"{"steps":[{"text":"Cuire"}],"title":"Coq au Vin"}"#;
+    {
+        // Everything up to the step before this one.
+        let earlier: &[Migration] = &db::MIGRATIONS[..31];
+        let old = db::Db::open_with_migrations(&data_dir, earlier).expect("the earlier schema");
+        old.with_conn(|conn| {
+            // The Version takes the id the fingerprint gives it, so the check
+            // below is a real one rather than a tautology about a made-up id.
+            conn.execute_batch(&format!(
+                "INSERT INTO people (id, name) VALUES ('p_1', 'Aurélien');
+                 INSERT INTO kitchens (id, name, hand_id) VALUES ('k_1', 'Home', 'h_1');
+                 INSERT INTO kitchen_members (kitchen_id, person_id) VALUES ('k_1', 'p_1');
+                 INSERT INTO lineages (id) VALUES ('l_1');
+                 INSERT INTO versions (id, content)
+                     SELECT version_fingerprint('{content}'), '{content}';
+                 INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id)
+                     SELECT 'b_1', 'l_1', 'k_1', 'h_1', 'fr', id FROM versions;
+                 INSERT INTO branch_versions (branch_id, sequence, version_id, hand_id)
+                     SELECT 'b_1', 1, id, 'h_1' FROM versions;
+                 INSERT INTO share_links (id, branch_id, secret_hash, shared_by)
+                     VALUES ('sl_1', 'b_1', 'a hash', 'p_1');
+                 INSERT INTO shopping_choices (person_id, branch_id, known_as)
+                     VALUES ('p_1', 'b_1', 'Coq au Vin');
+                 INSERT INTO imports (id, kitchen_id, source_kind)
+                     VALUES ('imp_1', 'k_1', 'bundle');
+                 INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id)
+                     VALUES ('imp_1', 'b_elsewhere', 'l_1', 'b_1');"
+            ))
+            .expect("a library at the schema before #90");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    let db = db::Db::open(&data_dir).expect("the current schema");
+    db.with_conn(|conn| {
+        let (id, carried): (String, Option<String>) = conn
+            .query_row("SELECT id, travelling_id FROM branches", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(id, "b_1", "the Branch is where it was");
+        assert_eq!(
+            carried, None,
+            "a Branch written here travels under its own id, so nothing is filled in"
+        );
+
+        // Each of the three rows the acceptance criteria name, reached through
+        // the join that has to keep working.
+        for (table, count) in [
+            ("share_links", 1),
+            ("shopping_choices", 1),
+            ("import_ledger", 1),
+        ] {
+            let resolved: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM {table} \
+                           JOIN branches ON branches.id = {table}.branch_id"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(resolved, count, "{table} still reaches its Branch");
+        }
+
+        // The live check AGENTS.md documents, asked of the migrated file.
+        let adrift: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(adrift, 0, "every Version still hashes to its own id");
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(
+        stored_schema_version(&data_dir),
+        db::LATEST_SCHEMA_VERSION,
+        "the database stands at the newest migration"
+    );
+}
+
 /// **The re-fingerprint, on the state that actually caused it** (#89, ADR 0038).
 ///
 /// #72 added `nutrition` to a recipe. Nothing rewrote what was already stored,
@@ -17044,6 +17146,17 @@ fn arrived_row<'a>(report: &'a Value, foreign_id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("{foreign_id} is in what arrived: {report}"))
 }
 
+/// The **local** Branch id a carried one landed under (#90). A Branch's
+/// travelling id is the sender's and unique per Kitchen; the row holding it
+/// here has an id of this instance's own, and that is the one every Operation
+/// and every URL takes.
+fn landed_as(report: &Value, foreign_id: &str) -> String {
+    arrived_row(report, foreign_id)["branch_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{foreign_id} landed under a local id: {report}"))
+        .to_string()
+}
+
 /// One Version's Readings as the database holds them: `(line, amount, unit,
 /// target, lineage)` in line order.
 type HeldReading = (
@@ -17155,19 +17268,22 @@ async fn a_bundle_arrives_whole_under_the_senders_ids_and_hands() {
     for (branch, subject) in [(&pizza, true), (&french, true), (&dough, false)] {
         let row = arrived_row(&report, branch);
         assert_eq!(row["status"], json!("created"), "{row}");
-        assert_eq!(
+        assert_ne!(
             row["branch_id"],
             json!(branch),
-            "under the sender's Branch id"
+            "held under a local id of this instance's own (#90)"
         );
         assert_eq!(row["subject"], json!(subject), "{row}");
     }
     assert_eq!(arrived_row(&report, &pizza)["lineage_id"], json!(lineage));
+    // The sender's ids are what the Bundle carried; the ids here are this
+    // instance's own, and the Report gives both.
+    let pizza_here = landed_as(&report, &pizza);
 
     let (status, held) = here.post_op(
         "get_recipe",
         Some(&nadia_key),
-        &json!({ "branch_id": pizza }).to_string(),
+        &json!({ "branch_id": pizza_here }).to_string(),
     );
     assert_eq!(status, 200, "{held}");
     let held = &held["result"];
@@ -17252,8 +17368,11 @@ async fn a_bundle_arrives_whole_under_the_senders_ids_and_hands() {
         .unwrap_or_else(|| panic!("the Tag arrived: {tags}"));
     assert_eq!(weekend["kitchen_id"], json!(nadia_kitchen));
 
-    // The Hands' names travel on: resharing names Aurélien, not Nadia.
-    let reshared = bundle_of(&here, &nadia_key, &pizza);
+    // The Hands' names travel on: resharing names Aurélien, not Nadia. So does
+    // the Branch id — a reshare carries the sender's, never the local row id,
+    // or the next instance would see a third recipe rather than Aurélien's
+    // (#90).
+    let reshared = bundle_of(&here, &nadia_key, &pizza_here);
     let files = unzip(&reshared);
     let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
     let record = sidecar["branches"]
@@ -17285,9 +17404,13 @@ async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
         .unwrap()
         .secret;
     let nadia_kitchen = home_kitchen_of(&here, &nadia);
-    receive(&here, &nadia_key, &bytes);
+    let report = receive(&here, &nadia_key, &bytes);
+    // Nadia's own row ids for what arrived; both still travel under
+    // Aurélien's (#90).
+    let pizza_here = landed_as(&report, &pizza);
+    let french_here = landed_as(&report, &french);
 
-    let mut expected = vec![pizza.clone(), french.clone()];
+    let mut expected = vec![pizza_here.clone(), french_here.clone()];
     expected.sort();
     assert_eq!(
         branches_of_lineage(&here, &lineage),
@@ -17298,13 +17421,13 @@ async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
     let (_, before) = here.post_op(
         "get_recipe",
         Some(&nadia_key),
-        &json!({ "branch_id": pizza }).to_string(),
+        &json!({ "branch_id": pizza_here }).to_string(),
     );
     let (status, saved) = here.post_op(
         "save_recipe_version",
         Some(&nadia_key),
         &json!({
-            "branch_id": pizza,
+            "branch_id": pizza_here,
             "title": "Pizza Margherita",
             "ingredients": [{ "kind": "ingredient", "text": "A lot more basil" }],
         })
@@ -17313,7 +17436,7 @@ async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
     assert_eq!(status, 200, "{saved}");
     assert_eq!(saved["result"]["copied"], json!(true), "{saved}");
     let mine = saved["result"]["branch_id"].as_str().unwrap().to_string();
-    assert_ne!(mine, pizza);
+    assert_ne!(mine, pizza_here);
     assert_eq!(
         saved["result"]["parent_version_id"], before["result"]["head_version_id"],
         "forking at the Version changed"
@@ -17322,7 +17445,7 @@ async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
     let (_, theirs) = here.post_op(
         "get_recipe",
         Some(&nadia_key),
-        &json!({ "branch_id": pizza }).to_string(),
+        &json!({ "branch_id": pizza_here }).to_string(),
     );
     assert_eq!(
         theirs["result"], before["result"],
@@ -17349,18 +17472,18 @@ async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
     let (status, relabelled) = here.post_op(
         "set_recipe_language",
         Some(&nadia_key),
-        &json!({ "branch_id": french, "language": "es" }).to_string(),
+        &json!({ "branch_id": french_here, "language": "es" }).to_string(),
     );
     assert_eq!(status, 200, "{relabelled}");
     let relabelled_branch = relabelled["result"]["branch_id"].as_str().unwrap();
     assert_ne!(
-        relabelled_branch, french,
+        relabelled_branch, french_here,
         "a Copy, not a line in their history"
     );
     let (_, french_after) = here.post_op(
         "get_recipe",
         Some(&nadia_key),
-        &json!({ "branch_id": french }).to_string(),
+        &json!({ "branch_id": french_here }).to_string(),
     );
     assert_eq!(french_after["result"]["language"], json!("fr"));
 }
@@ -17382,11 +17505,14 @@ async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() 
         .mint_access_key(&nadia, "browser", false)
         .unwrap()
         .secret;
-    receive(&here, &nadia_key, &first);
+    let received = receive(&here, &nadia_key, &first);
+    // Nadia's own row ids for the two Branches; they travel under Aurélien's.
+    let pizza_here = landed_as(&received, &pizza);
+    let french_here = landed_as(&received, &french);
     let (_, held) = here.post_op(
         "get_recipe",
         Some(&nadia_key),
-        &json!({ "branch_id": pizza }).to_string(),
+        &json!({ "branch_id": pizza_here }).to_string(),
     );
     let held_head = held["result"]["head_version_id"]
         .as_str()
@@ -17398,7 +17524,7 @@ async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() 
         "set_reading",
         Some(&nadia_key),
         &json!({
-            "branch_id": pizza, "line_index": 3,
+            "branch_id": pizza_here, "line_index": 3,
             "amount": "125", "unit": "g", "target": "burrata",
         })
         .to_string(),
@@ -17432,10 +17558,14 @@ async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() 
         json!("extended"),
         "{report}"
     );
-    assert_eq!(arrived_row(&report, &pizza)["branch_id"], json!(pizza));
+    assert_eq!(
+        arrived_row(&report, &pizza)["branch_id"],
+        json!(pizza_here),
+        "the Branch she already held, not a new one"
+    );
     assert_eq!(arrived_row(&report, &french)["status"], json!("unchanged"));
 
-    let mut expected = vec![pizza.clone(), french.clone()];
+    let mut expected = vec![pizza_here.clone(), french_here.clone()];
     expected.sort();
     assert_eq!(
         branches_of_lineage(&here, &lineage),
@@ -17445,7 +17575,7 @@ async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() 
     let (_, after) = here.post_op(
         "get_recipe",
         Some(&nadia_key),
-        &json!({ "branch_id": pizza }).to_string(),
+        &json!({ "branch_id": pizza_here }).to_string(),
     );
     let versions = after["result"]["versions"].as_array().unwrap();
     assert_eq!(versions.len(), 3);
@@ -17487,9 +17617,170 @@ async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() 
     let (_, still) = here.post_op(
         "get_recipe",
         Some(&nadia_key),
-        &json!({ "branch_id": pizza }).to_string(),
+        &json!({ "branch_id": pizza_here }).to_string(),
     );
     assert_eq!(still["result"]["versions"].as_array().unwrap().len(), 3);
+}
+
+/// **Two households on one instance each receive the same friend's recipe**
+/// (#90). Marc sends his pizza to Aurélien and to Nadia, who have accounts on
+/// the same Kamosu and cook in separate Kitchens. Each of them gets it, each
+/// under an id of this instance's own, and each still travelling under Marc's
+/// — so Marc's next Bundle extends the copy of whoever receives it and no
+/// other, and a reshare from either one continues Marc's Branch rather than
+/// starting a third.
+///
+/// What this replaces: the second one to import used to get nothing at all,
+/// and a sentence telling her another household here already had it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_kitchens_here_each_receive_the_same_senders_bundle_and_keep_it_apart() {
+    let there = support::spawn_app();
+    let (marc_key, _marc_kitchen, pizza, lineage, french, dough, _photos) =
+        a_pizza_worth_sending(&there);
+    let first = bundle_of(&there, &marc_key, &pizza);
+
+    let here = support::spawn_app();
+    let aurelien = here.core.create_person("Aurélien").expect("person");
+    let aurelien_key = here
+        .core
+        .mint_access_key(&aurelien, "browser", false)
+        .unwrap()
+        .secret;
+    let aurelien_kitchen = home_kitchen_of(&here, &aurelien);
+    let nadia = here.core.create_person("Nadia").expect("person");
+    let nadia_key = here
+        .core
+        .mint_access_key(&nadia, "browser", false)
+        .unwrap()
+        .secret;
+    let nadia_kitchen = home_kitchen_of(&here, &nadia);
+    assert_ne!(aurelien_kitchen, nadia_kitchen, "separate households");
+
+    // Aurélien first, then Nadia — the very same file.
+    let to_aurelien = receive(&here, &aurelien_key, &first);
+    let to_nadia = receive(&here, &nadia_key, &first);
+
+    for report in [&to_aurelien, &to_nadia] {
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        for carried in [&pizza, &french, &dough] {
+            assert_eq!(
+                arrived_row(report, carried)["status"],
+                json!("created"),
+                "{report}"
+            );
+        }
+    }
+    // Nothing either report says mentions the other household, or that a
+    // Kitchen the reader does not cook in exists at all.
+    let said = to_nadia.to_string();
+    assert!(!said.contains(&aurelien_kitchen), "{to_nadia}");
+    assert!(
+        !said.contains("Kitchen you do not cook in"),
+        "the refusal that leaked the other household is gone: {to_nadia}"
+    );
+
+    // Two rows, one per Kitchen, each with its own id here.
+    let aurelien_pizza = landed_as(&to_aurelien, &pizza);
+    let nadia_pizza = landed_as(&to_nadia, &pizza);
+    assert_ne!(aurelien_pizza, nadia_pizza, "a copy each");
+    for (key, branch, kitchen) in [
+        (&aurelien_key, &aurelien_pizza, &aurelien_kitchen),
+        (&nadia_key, &nadia_pizza, &nadia_kitchen),
+    ] {
+        let (status, held) = here.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        assert_eq!(status, 200, "{held}");
+        assert_eq!(held["result"]["kitchen_id"], json!(kitchen), "{held}");
+        assert_eq!(held["result"]["lineage_id"], json!(lineage));
+    }
+
+    // Both copies travel under Marc's Branch id, so a reshare from either one
+    // continues his Branch at the next instance.
+    for (key, branch) in [(&aurelien_key, &aurelien_pizza), (&nadia_key, &nadia_pizza)] {
+        let files = unzip(&bundle_of(&here, key, branch));
+        let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+        assert!(
+            sidecar["branches"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|record| record["branch_id"] == json!(pizza)),
+            "the reshare carries Marc's Branch id: {sidecar}"
+        );
+    }
+
+    // Marc writes again, and sends the same second Bundle to both.
+    backdate_branch_head(&there, &pizza);
+    let (_, current) = there.post_op(
+        "get_recipe",
+        Some(&marc_key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    let mut next = current["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()["content"]
+        .clone();
+    next["branch_id"] = json!(pizza);
+    next["name"] = json!("Two days");
+    next["note"] = json!("Make the dough two days before if you can.");
+    let (status, saved) = there.post_op("save_recipe_version", Some(&marc_key), &next.to_string());
+    assert_eq!(status, 200, "{saved}");
+    let second = bundle_of(&there, &marc_key, &pizza);
+
+    // Aurélien takes it; Nadia leaves it on her desk for now.
+    let again = receive(&here, &aurelien_key, &second);
+    assert_eq!(
+        arrived_row(&again, &pizza)["status"],
+        json!("extended"),
+        "{again}"
+    );
+    assert_eq!(
+        arrived_row(&again, &pizza)["branch_id"],
+        json!(aurelien_pizza),
+        "his own copy, not hers"
+    );
+    let versions_of = |key: &str, branch: &str| {
+        let (_, held) = here.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        held["result"]["versions"].as_array().unwrap().len()
+    };
+    assert_eq!(versions_of(&aurelien_key, &aurelien_pizza), 3);
+    assert_eq!(
+        versions_of(&nadia_key, &nadia_pizza),
+        2,
+        "hers is untouched by his import"
+    );
+
+    // And when Nadia does take it, it extends hers.
+    let hers = receive(&here, &nadia_key, &second);
+    assert_eq!(
+        arrived_row(&hers, &pizza)["status"],
+        json!("extended"),
+        "{hers}"
+    );
+    assert_eq!(arrived_row(&hers, &pizza)["branch_id"], json!(nadia_pizza));
+    assert_eq!(versions_of(&nadia_key, &nadia_pizza), 3);
+
+    // Six Branches of the pizza's Lineage here: the recipe and its Translation,
+    // twice over, plus Marc's own two are on the other instance.
+    let mut held = branches_of_lineage(&here, &lineage);
+    held.sort();
+    let mut expect = vec![
+        aurelien_pizza,
+        nadia_pizza,
+        landed_as(&to_aurelien, &french),
+        landed_as(&to_nadia, &french),
+    ];
+    expect.sort();
+    assert_eq!(held, expect);
 }
 
 /// **A Bundle that left here and came back can only extend, never conflict**
@@ -17498,10 +17789,30 @@ async fn a_second_bundle_from_the_same_sender_extends_the_branch_already_held() 
 /// when it left, which changes nothing here, and Marc's fork arrives beside it
 /// as the second Branch of the same recipe — sharing Aurélien's Versions, so
 /// where the two diverged is a fact rather than a guess.
+///
+/// The pizza is written in Aurélien's **Home** Kitchen, because that is the one
+/// a Bundle he receives lands in: since #90 the question a receiving import
+/// asks is about that Kitchen's own copy, so a Bundle coming back to the
+/// Kitchen it left is the case this is about.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_bundle_that_left_here_and_came_back_extends_and_never_conflicts() {
     let here = support::spawn_app();
-    let (key, _kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&here);
+    let aurelien = here.core.create_person("Aurélien").expect("person");
+    let key = here
+        .core
+        .mint_access_key(&aurelien, "browser", false)
+        .unwrap()
+        .secret;
+    let kitchen = home_kitchen_of(&here, &aurelien);
+    let (pizza, lineage) = recipe_with(
+        &here,
+        &key,
+        &kitchen,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "250 g mozzarella" }]),
+        json!([{ "kind": "step", "text": "Bake 6 to 8 minutes." }]),
+    );
     let outbound = bundle_of(&here, &key, &pizza);
 
     let there = support::spawn_app();
@@ -17511,12 +17822,15 @@ async fn a_bundle_that_left_here_and_came_back_extends_and_never_conflicts() {
         .mint_access_key(&marc, "browser", false)
         .unwrap()
         .secret;
-    receive(&there, &marc_key, &outbound);
+    let received = receive(&there, &marc_key, &outbound);
+    // Aurélien's Branch, as Marc's instance holds it: his own row id for it,
+    // still travelling under Aurélien's (#90).
+    let pizza_at_marcs = landed_as(&received, &pizza);
     let (status, forked) = there.post_op(
         "save_recipe_version",
         Some(&marc_key),
         &json!({
-            "branch_id": pizza,
+            "branch_id": pizza_at_marcs,
             "title": "Pizza Margherita",
             "ingredients": [{ "kind": "ingredient", "text": "A lot more basil" }],
             "name": "Marc's",
@@ -17542,7 +17856,7 @@ async fn a_bundle_that_left_here_and_came_back_extends_and_never_conflicts() {
     );
 
     // Aurélien's own Branch comes back as it left.
-    let returning = bundle_of(&there, &marc_key, &pizza);
+    let returning = bundle_of(&there, &marc_key, &pizza_at_marcs);
     let report = receive(&here, &key, &returning);
     assert_eq!(report["unreadable"], json!([]), "{report}");
     assert_eq!(
@@ -17567,16 +17881,101 @@ async fn a_bundle_that_left_here_and_came_back_extends_and_never_conflicts() {
         json!("created"),
         "{report}"
     );
-    assert!(branches_of_lineage(&here, &lineage).contains(&marcs));
+    let marcs_here = landed_as(&report, &marcs);
+    assert!(branches_of_lineage(&here, &lineage).contains(&marcs_here));
     let (status, point) = here.post_op(
         "branch_point",
         Some(&key),
-        &json!({ "branch_a_id": pizza, "branch_b_id": marcs }).to_string(),
+        &json!({ "branch_a_id": pizza, "branch_b_id": marcs_here }).to_string(),
     );
     assert_eq!(status, 200, "{point}");
     assert_eq!(
         point["result"]["version_id"], forked["result"]["parent_version_id"],
         "{point}"
+    );
+}
+
+/// **A Bundle is received into your Home Kitchen, and that is which Kitchen
+/// the question is about** (#90). Aurélien cooks in two: he exports a recipe
+/// from the second one and imports the file back. Since a Branch is held per
+/// Kitchen, his Home Kitchen genuinely did not have that recipe, so it arrives
+/// there as its own copy rather than finding the original — which stays exactly
+/// as it was, in the Kitchen that holds it.
+///
+/// Pinned because it is the one place the per-Kitchen rule is visible to a
+/// person with more than one Kitchen, and because before #90 the same import
+/// answered "unchanged" and placed nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_from_another_of_your_kitchens_arrives_in_your_home_one() {
+    let here = support::spawn_app();
+    let (_person, key, second_kitchen) = person_with_kitchen(&here, "Aurélien");
+    let person = here
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row("SELECT id FROM people WHERE name = 'Aurélien'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    let home_kitchen = home_kitchen_of(&here, &person);
+    assert_ne!(home_kitchen, second_kitchen, "he cooks in two");
+
+    let (pizza, lineage) = recipe_with(
+        &here,
+        &key,
+        &second_kitchen,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "250 g mozzarella" }]),
+        json!([{ "kind": "step", "text": "Bake 6 to 8 minutes." }]),
+    );
+    let (_, before) = here.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+
+    let report = receive(&here, &key, &bundle_of(&here, &key, &pizza));
+    assert_eq!(report["kitchen_id"], json!(home_kitchen), "{report}");
+    assert_eq!(
+        arrived_row(&report, &pizza)["status"],
+        json!("created"),
+        "his Home Kitchen did not hold it: {report}"
+    );
+    let at_home = landed_as(&report, &pizza);
+    assert_ne!(at_home, pizza, "its own copy, with its own Local id");
+
+    let (_, landed) = here.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": at_home }).to_string(),
+    );
+    assert_eq!(landed["result"]["kitchen_id"], json!(home_kitchen));
+    assert_eq!(landed["result"]["lineage_id"], json!(lineage));
+
+    let (_, after) = here.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(
+        after["result"], before["result"],
+        "the Kitchen that holds the original is untouched"
+    );
+
+    // And his Home Kitchen's copy travels under the same Travelling id, so
+    // sending both to a friend is still one Branch rather than two.
+    let files = unzip(&bundle_of(&here, &key, &at_home));
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    assert!(
+        sidecar["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|record| record["branch_id"] == json!(pizza)),
+        "{sidecar}"
     );
 }
 
@@ -17686,7 +18085,13 @@ async fn a_damaged_bundle_keeps_the_words_as_a_new_recipe_and_says_so() {
             json!("created"),
             "{damage}"
         );
-        assert_eq!(arrived_row(&report, &dough)["branch_id"], json!(dough));
+        let dough_here = landed_as(&report, &dough);
+        let (status, sound) = here.post_op(
+            "get_recipe",
+            Some(&nadia_key),
+            &json!({ "branch_id": dough_here }).to_string(),
+        );
+        assert_eq!(status, 200, "{damage}: and it opens: {sound}");
     }
 }
 
@@ -17712,7 +18117,12 @@ async fn a_photograph_mangled_in_transit_is_left_out_and_named() {
         .secret;
     let report = receive(&here, &nadia_key, &rezip(&files));
     assert_eq!(arrived_row(&report, &pizza)["status"], json!("created"));
-    assert_eq!(arrived_row(&report, &pizza)["branch_id"], json!(pizza));
+    let (status, kept) = here.post_op(
+        "get_recipe",
+        Some(&nadia_key),
+        &json!({ "branch_id": landed_as(&report, &pizza) }).to_string(),
+    );
+    assert_eq!(status, 200, "the recipe is here and readable: {kept}");
     let unreadable = report["unreadable"].as_array().unwrap();
     assert_eq!(unreadable.len(), 1, "{report}");
     assert_eq!(
@@ -17866,7 +18276,7 @@ async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggesti
     let (_, held) = here.post_op(
         "get_recipe",
         Some(&key),
-        &json!({ "branch_id": bread }).to_string(),
+        &json!({ "branch_id": landed_as(&report, &bread) }).to_string(),
     );
     let head = held["result"]["head_version_id"].as_str().unwrap();
     let food_of_line: Option<String> = here

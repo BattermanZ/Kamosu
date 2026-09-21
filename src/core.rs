@@ -6143,13 +6143,18 @@ impl Core {
 
     /// **Receive a Bundle** into the caller's Home Kitchen (#67, ADR 0020).
     ///
-    /// Every Branch the Bundle carries is placed under the sender's ids and
-    /// Hands — held here, written by them — and every Version, Reading and
-    /// Photograph arrives as it was sent, never recomputed. A Branch already
-    /// held here is extended by what the Bundle carries past it, which is how
-    /// the same friend's second Bundle continues their recipe rather than
-    /// lining up a third. Receiving makes nothing of your own: changing what
-    /// arrived is what starts your Branch (`kitchen_writes_branch`).
+    /// Every Branch the Bundle carries is placed under the sender's Lineage id
+    /// and Hands — held here, written by them — travelling on under the
+    /// sender's Branch id, and every Version, Reading and Photograph arrives as
+    /// it was sent, never recomputed. The row itself takes a local id of this
+    /// instance's own (#90), which is what the Report names it by and what
+    /// every Operation and URL here asks for. A Branch this Kitchen already
+    /// holds is extended by what the Bundle carries past it, which is how the
+    /// same friend's second Bundle continues their recipe rather than lining up
+    /// a third. Another Kitchen here holding the sender's Branch is no part of
+    /// the question: each household receives its own copy. Receiving makes
+    /// nothing of your own: changing what arrived is what starts your Branch
+    /// (`kitchen_writes_branch`).
     ///
     /// A Branch whose history is damaged keeps the dinner and loses where it
     /// came from: its words arrive as a new recipe of the caller's own, with
@@ -6317,7 +6322,7 @@ impl Core {
                     .unchecked_transaction()
                     .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
                 let fate = match bundles::damage(record) {
-                    None => place_carried_branch(conn, caller, &kitchen_id, record, &held_before)?,
+                    None => place_carried_branch(conn, &kitchen_id, record, &held_before)?,
                     Some(damage) => {
                         let language = record["language"].as_str();
                         let words = bundles::head(record).map(|version| &version["content"]);
@@ -10156,6 +10161,7 @@ fn bundle_contents(
             }
         }
         carried.push(bundles::Carried {
+            local_id: this,
             record,
             components: walk.found,
         });
@@ -10198,12 +10204,32 @@ fn bundle_contents(
 /// this instance's own address (ADR 0020: nothing in v1 writes one). A Branch
 /// that arrived carrying one keeps it, which is what stops a reshare laundering
 /// where a recipe came from.
+///
+/// The `branch_id` written here is the **Travelling id**, never this instance's
+/// **Local id** (#90). On a Branch minted here the two are the same; on one
+/// that arrived, the Travelling id is the sender's, so a reshare continues the
+/// sender's Branch at the next instance rather than starting a third.
 fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
-    let (lineage_id, language, hand_id, origin_address): (String, String, String, Option<String>) =
-        conn.query_row(
-            "SELECT lineage_id, language, hand_id, origin_address FROM branches WHERE id = ?1",
+    let (travelling_id, lineage_id, language, hand_id, origin_address): (
+        String,
+        String,
+        String,
+        String,
+        Option<String>,
+    ) = conn
+        .query_row(
+            "SELECT COALESCE(travelling_id, id), lineage_id, language, hand_id, origin_address \
+               FROM branches WHERE id = ?1",
             params![branch_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
@@ -10332,7 +10358,7 @@ fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
     }
 
     Ok(json!({
-        "branch_id": branch_id,
+        "branch_id": travelling_id,
         "lineage_id": lineage_id,
         "language": language,
         "hand": { "id": hand_id, "name": kitchen_name },
@@ -10418,11 +10444,13 @@ fn bundle_readings(
 
 /// What became of one recipe a Bundle carried.
 enum Fate {
-    /// Held here under the ids it carried: `created`, `extended` or
-    /// `unchanged`.
+    /// Held here under the Lineage id it carried, travelling on under the
+    /// Branch id it carried: `created`, `extended` or `unchanged`.
     Placed {
         status: &'static str,
         lineage_id: String,
+        /// The **Local id**, never the Travelling id (#90): this is what the
+        /// Import Report names the recipe by, and what opens it here.
         branch_id: String,
         title: String,
     },
@@ -10472,21 +10500,33 @@ impl Fate {
     }
 }
 
-/// Place one sound carried Branch (#67, ADR 0020): new here, it is held by
-/// `kitchen_id` under the sender's Branch id, Lineage id and Hands; already
-/// here, it is extended by whatever the Bundle carries past the Version held.
+/// Place one sound carried Branch (#67, ADR 0020): new to this Kitchen, it is
+/// held by `kitchen_id` under the sender's Lineage id and Hands, travelling
+/// under the sender's Branch id; already here, it is extended by whatever the
+/// Bundle carries past the Version held.
+///
+/// **The question is always about this Kitchen's copy** (#90). A Branch's
+/// **Travelling id** is unique per Kitchen rather than per instance, so the
+/// lookup is scoped to `kitchen_id` and what another household here holds is
+/// neither consulted nor mentioned. The row itself gets a freshly minted
+/// **Local id**, and that is what the Import Report names it by, since that is
+/// the id every Operation and every URL here takes.
+///
+/// One consequence worth knowing: a Bundle is always received into the caller's
+/// Home Kitchen, so one exported from a *second* Kitchen they cook in and
+/// imported back arrives as that Home Kitchen's own copy rather than finding
+/// the original. Each Kitchen holds its own, and those are two Kitchens.
 ///
 /// `Fate::Refused` is for a Branch that cannot be placed without undoing or
 /// overwriting something already here — which a well-formed Bundle never asks
 /// for, since only the Kitchen writing a Branch ever adds to it.
 fn place_carried_branch(
     conn: &Connection,
-    caller: &Caller,
     kitchen_id: &str,
     record: &Value,
     held_before: &HashSet<String>,
 ) -> Result<Fate, OpError> {
-    let branch_id = record["branch_id"].as_str().unwrap_or_default();
+    let travelling_id = record["branch_id"].as_str().unwrap_or_default();
     let lineage_id = record["lineage_id"].as_str().unwrap_or_default();
     let hand_id = record["hand"]["id"].as_str().unwrap_or_default();
     let title = bundles::title_of(record);
@@ -10502,23 +10542,28 @@ fn place_carried_branch(
         .filter(|language| supported_branch_language(language).is_ok())
         .unwrap_or(crate::language::UNKNOWN);
     let origin_address = record["origin_address"].as_str().filter(|a| !a.is_empty());
-    let placed = |status| Fate::Placed {
+    let placed = |status, branch_id: &str| Fate::Placed {
         status,
         lineage_id: lineage_id.to_string(),
         branch_id: branch_id.to_string(),
         title: title.to_string(),
     };
 
+    // Scoped to the Kitchen receiving it. A Kitchen next door holding the same
+    // sender's Branch is another household's business, and this import neither
+    // reads it nor says it is there.
     let held: Option<(String, String, String)> = conn
         .query_row(
-            "SELECT lineage_id, kitchen_id, hand_id FROM branches WHERE id = ?1",
-            params![branch_id],
+            "SELECT id, lineage_id, hand_id FROM branches \
+              WHERE COALESCE(travelling_id, id) = ?1 AND kitchen_id = ?2",
+            params![travelling_id, kitchen_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
 
-    let Some((held_lineage, holding_kitchen, held_hand)) = held else {
+    let Some((branch_id, held_lineage, held_hand)) = held else {
+        let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
         conn.execute(
             "INSERT OR IGNORE INTO lineages (id) VALUES (?1)",
             params![lineage_id],
@@ -10528,10 +10573,12 @@ fn place_carried_branch(
         // fetched, and carried on unchanged by every reshare (ADR 0020).
         conn.execute(
             "INSERT INTO branches \
-             (id, lineage_id, kitchen_id, hand_id, language, origin_address, head_version_id) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (id, travelling_id, lineage_id, kitchen_id, hand_id, language, origin_address, \
+              head_version_id) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 branch_id,
+                travelling_id,
                 lineage_id,
                 kitchen_id,
                 hand_id,
@@ -10541,22 +10588,16 @@ fn place_carried_branch(
             ],
         )
         .map_err(|e| OpError::internal(format!("cannot place Branch: {e}")))?;
-        write_carried_versions(conn, branch_id, &versions, held_before)?;
-        file_carried_tags(conn, kitchen_id, branch_id, record)?;
+        write_carried_versions(conn, &branch_id, &versions, held_before)?;
+        file_carried_tags(conn, kitchen_id, &branch_id, record)?;
         remember_arrived_hands(conn, record)?;
-        return Ok(placed("created"));
+        return Ok(placed("created", &branch_id));
     };
 
     if held_lineage != lineage_id {
         return Ok(Fate::Refused(format!(
-            "«{title}» names a Branch this instance already holds as a different recipe, \
+            "«{title}» names a Branch your Kitchen already holds as a different recipe, \
              so it was left out and nothing here was changed"
-        )));
-    }
-    if !is_member(conn, &holding_kitchen, &caller.person_id)? {
-        return Ok(Fate::Refused(format!(
-            "«{title}» is already on this instance, in a Kitchen you do not cook in, \
-             so it was left as it is"
         )));
     }
 
@@ -10573,7 +10614,7 @@ fn place_carried_branch(
         .prepare("SELECT version_id FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence")
         .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
     let chain: Vec<String> = statement
-        .query_map(params![branch_id], |row| row.get(0))
+        .query_map(params![&branch_id], |row| row.get(0))
         .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
@@ -10591,9 +10632,9 @@ fn place_carried_branch(
     if versions.len() <= chain.len() {
         // Everything it carries is held already: a Bundle that left here and
         // came back, or the same one received twice.
-        return Ok(placed("unchanged"));
+        return Ok(placed("unchanged", &branch_id));
     }
-    if held_hand == kitchen_hand(conn, &holding_kitchen)? {
+    if held_hand == kitchen_hand(conn, kitchen_id)? {
         // Only this Kitchen writes this Branch, so no Bundle can hold more of
         // it than this instance does. One that claims to is not believed.
         return Ok(Fate::Refused(format!(
@@ -10602,7 +10643,7 @@ fn place_carried_branch(
         )));
     }
 
-    write_carried_versions(conn, branch_id, &versions[chain.len()..], held_before)?;
+    write_carried_versions(conn, &branch_id, &versions[chain.len()..], held_before)?;
     conn.execute(
         "UPDATE branches SET head_version_id = ?1, language = ?2, \
                 origin_address = COALESCE(?3, origin_address) \
@@ -10611,7 +10652,7 @@ fn place_carried_branch(
     )
     .map_err(|e| OpError::internal(format!("cannot move Branch head: {e}")))?;
     remember_arrived_hands(conn, record)?;
-    Ok(placed("extended"))
+    Ok(placed("extended", &branch_id))
 }
 
 /// Write carried Versions onto a Branch's chain, each at the sequence it

@@ -57,6 +57,11 @@ pub struct Contents {
 
 /// One Branch that travels.
 pub struct Carried {
+    /// The Branch's **Local id**, which is **not** what the record carries and
+    /// never leaves this process (#90): the sidecar holds the Travelling id,
+    /// and a Component found while gathering names the local one. This is what
+    /// matches the two up.
+    pub local_id: String,
     /// The Branch as the sidecar records it: its ids, Language, Hand, origin
     /// address, Tags, and its complete chain of Versions under `versions`,
     /// oldest first, each with its content and its Readings.
@@ -77,11 +82,14 @@ pub struct Written {
 pub fn write(contents: &Contents) -> Result<Written, OpError> {
     let notes = note_names(&contents.branches);
     let photographs = photograph_names(contents);
+    // Keyed on the Local id, because that is what a Component names. The
+    // record's `branch_id` is the Travelling id, and the two differ on every
+    // Branch that arrived here from somewhere else (#90).
     let by_branch: HashMap<&str, usize> = contents
         .branches
         .iter()
         .enumerate()
-        .filter_map(|(index, carried)| carried.record["branch_id"].as_str().map(|id| (id, index)))
+        .map(|(index, carried)| (carried.local_id.as_str(), index))
         .collect();
 
     let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -1309,6 +1317,7 @@ mod tests {
         Contents {
             subjects: vec!["l_1".into()],
             branches: vec![Carried {
+                local_id: "b_1".into(),
                 record: json!({
                     "branch_id": "b_1",
                     "lineage_id": "l_1",

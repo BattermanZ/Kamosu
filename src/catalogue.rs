@@ -1363,13 +1363,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "import_bundle",
             summary: "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it \
-                      carries is placed under the sender's own ids and Hands, its Versions, \
-                      Readings and Photographs exactly as they were sent; one already held \
-                      here is extended by whatever the Bundle carries past it, so the same \
-                      friend's next Bundle continues their recipe. Receiving makes nothing \
-                      of your own — changing what arrived does. A recipe whose history is \
-                      damaged arrives as a new recipe of your own with no history, and the \
-                      Import Report says so.",
+                      carries is placed under the sender's Hands and travels on under the \
+                      sender's ids, its Versions, Readings and Photographs exactly as they \
+                      were sent, while your Kitchen holds it under an id of this instance's \
+                      own; one your Kitchen already holds is extended by whatever the Bundle \
+                      carries past it, so the same friend's next Bundle continues their \
+                      recipe. Another Kitchen here holding it is no part of the question: \
+                      each Kitchen receives its own copy. Receiving makes nothing of your \
+                      own — changing what arrived does. A recipe whose history is damaged \
+                      arrives as a new recipe of your own with no history, and the Import \
+                      Report says so.",
             permission: Permission::Person,
             kind: Kind::Job,
             write: true,
@@ -3382,10 +3385,21 @@ fn import_report_schema() -> Value {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "foreign_id": { "type": "string" },
+                        "foreign_id": {
+                            "type": "string",
+                            "description": "What the source called this recipe: from a \
+                                             Bundle, the Branch id it travels under, which \
+                                             is the sender's.",
+                        },
                         "status": { "enum": ["created", "extended", "unchanged"] },
                         "lineage_id": { "type": "string" },
-                        "branch_id": { "type": "string" },
+                        "branch_id": {
+                            "type": "string",
+                            "description": "The Branch as this instance holds it — the id \
+                                             every other Operation and every URL takes. On a \
+                                             recipe received from elsewhere it is not the id \
+                                             it travelled under.",
+                        },
                         "title": { "type": "string" },
                         "subject": {
                             "type": "boolean",

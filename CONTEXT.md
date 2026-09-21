@@ -241,8 +241,16 @@ One saved state of a recipe, named by a fingerprint of what a person wrote and c
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
-One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Kitchen writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. A Kitchen may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Kitchen. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. It may also carry the address of the instance it lives on — a hint written into a Bundle, never fetched and never required, since a Bundle must work with that server switched off. A Branch in a different Language from the one it grew out of is a Translation.
+One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Kitchen writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. That id is really two, told apart below: a **Travelling id** and a **Local id**, the same on the instance the Branch started on and different on one that received it. A Kitchen may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Kitchen. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. It may also carry the address of the instance it lives on — a hint written into a Bundle, never fetched and never required, since a Bundle must work with that server switched off. A Branch in a different Language from the one it grew out of is a Translation.
 _Avoid_: Copy, fork, variant, clone
+
+**Travelling id**:
+The id a **Branch** travels under: minted when the Branch starts, written into every **Bundle** it appears in, and never changed by anything that receives it. It is what makes the sender's next Bundle that Branch continuing rather than a second one lining up beside it. It is unique to a **Kitchen**, not to an instance — two households on one Kamosu may each receive the same friend's recipe, and each holds its own copy of it under his travelling id.
+_Avoid_: Global id, canonical id, origin id, foreign id (that is what an importer's source called a recipe)
+
+**Local id**:
+The id one instance files its own copy of a **Branch** under — what every Operation asks for, what every URL carries, and the only one of the two a person ever sees. It is this instance's to mint, so a Branch that arrived from elsewhere has a local id that is not its **Travelling id**. On a Branch that started here the two are the same.
+_Avoid_: Row id, primary key, internal id, database id
 
 **Branch Point**:
 The last Version two Branches share — a fact computed by walking both parent chains until they meet, not something anyone declares. What "you diverged here" means. It always exists between two valid Branches of one Lineage, because every chain reaches the same first Version; a chain that does not is a damaged bundle.
