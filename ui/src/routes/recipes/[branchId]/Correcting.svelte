@@ -32,13 +32,30 @@
 	not leave it alone: it would clear it, and a Component would quietly become
 	an ordinary ingredient the first time somebody fixed its amount. So it is
 	carried explicitly. "Kamosu read nothing here" still clears everything, the
-	pointer included, which is how a Component is un-made.
+	pointer included.
+
+	SINCE #87 THE POINTER IS ALSO MADE AND UNMADE HERE. Until then `set_reading`
+	could attach one and nothing in the interface called it, so a Component
+	could only be made by an agent at the MCP door or by `curl` — and everything
+	built on top of it, the unfolding and the annexe and the Passenger on a
+	Share Link, was reachable only for a Component somebody had made that way.
+
+	It belongs here for the reason everything else in this box does: this is
+	already where you disagree with Kamosu's reading of a line, and saying "this
+	line is a recipe" is exactly that disagreement — Kamosu read a Food and it
+	is a Recipe. The two are one slot (ADR 0008), so they are one control, and
+	picking a recipe puts the target field away rather than sitting beside it.
+
+	NOTHING HERE GUESSES. The picker opens with nothing selected and suggests
+	nothing, because ADR 0008 refuses matching `500 g plain flour` against a
+	flour recipe in as many words.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { GetRecipeOutput } from '$lib/api/catalogue';
+	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 
 	/** One slot of the `readings` array: what Kamosu understood, or nothing. */
 	type Slot = GetRecipeOutput['versions'][number]['readings'][number];
@@ -47,6 +64,8 @@
 		branchId: string;
 		/** Which Ingredient Line this is, counted over the written list. */
 		lineIndex: number;
+		/** The written line itself, which the picker says it was opened for. */
+		line: string;
 		/** The Reading as it stands, or null where Kamosu recorded none. */
 		reading: Slot;
 		/**
@@ -60,12 +79,33 @@
 		componentTitle?: string | null;
 	}
 
-	let { branchId, lineIndex, reading, componentTitle, onDone, onCancel }: Props = $props();
+	let { branchId, lineIndex, line, reading, componentTitle, onDone, onCancel }: Props = $props();
 
 	const kamosu = useKamosu();
 
+	/**
+	 * The Recipe this line names, as the box currently stands: seeded from the
+	 * Reading and then changed by the picker and by *this line is not a
+	 * recipe*. It is a draft like the three fields below it — nothing is
+	 * written until the Reading is saved — which is why *not a recipe* only
+	 * puts the target field back rather than writing anything.
+	 */
+	// svelte-ignore state_referenced_locally
+	let namedRecipe = $state<NamedRecipe | null>(
+		reading?.lineage_id ? { lineageId: reading.lineage_id, title: componentTitle ?? null } : null,
+	);
 	/** Whether this line names a Recipe rather than a Food (ADR 0008). */
-	const isComponent = $derived(Boolean(reading?.lineage_id));
+	const isComponent = $derived(namedRecipe !== null);
+	/** Whether the pointer in the box is not the one that is saved. */
+	const changed = $derived((namedRecipe?.lineageId ?? null) !== (reading?.lineage_id ?? null));
+	let picking = $state(false);
+
+	/**
+	 * The way in to the library, in matcha — the colour of a Reading that
+	 * points at a recipe everywhere else on this page (#50). Named once because
+	 * it is worn by two controls here and two more on the writing screen.
+	 */
+	const MATCHA = 'rounded-sm border border-support-2 px-2 py-1 text-read text-support-2';
 
 	/**
 	 * The three fields are a draft, seeded ONCE from the Reading as it stands
@@ -126,7 +166,7 @@
 			// The two are exclusive, and the Core refuses a Reading claiming to
 			// be both. A Component keeps its pointer and offers no word to type.
 			target: isComponent ? null : orNothing(target),
-			lineage_id: reading?.lineage_id ?? null,
+			lineage_id: namedRecipe?.lineageId ?? null,
 		});
 	const clear = () => send({ amount: null, unit: null, target: null, lineage_id: null });
 </script>
@@ -150,10 +190,38 @@
 				class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
 			/>
 		</label>
+		<!--
+			The one slot, in its two spellings (ADR 0008). A line names a Food or
+			it names a Recipe, so what sits here is either the word to type or the
+			recipe it points at — never both, and never one beside the other.
+		-->
 		{#if isComponent}
-			<p class="col-span-2 text-read text-support-2">
-				{m.reading_names_recipe({ title: componentTitle ?? '' })}
-			</p>
+			<div class="col-span-2">
+				<p class="text-read text-support-2">
+					{changed
+						? m.reading_will_name({ title: namedRecipe?.title ?? '' })
+						: m.reading_names_recipe({ title: namedRecipe?.title ?? '' })}
+				</p>
+				<div class="mt-2 flex flex-wrap gap-2">
+					<button type="button" class={MATCHA} onclick={() => (picking = true)}>
+						{m.reading_change_recipe()}
+					</button>
+					<!--
+						Un-making it is a DRAFT change like every other field in this
+						box: the target field comes back and nothing is written until
+						the Reading is saved. Clearing the Reading outright is still
+						offered below, and is a different act — it says Kamosu read
+						nothing here at all.
+					-->
+					<button
+						type="button"
+						class="rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
+						onclick={() => (namedRecipe = null)}
+					>
+						{m.reading_not_recipe()}
+					</button>
+				</div>
+			</div>
 		{:else}
 			<label class="col-span-2 block">
 				<span class="block text-label text-ink-2 uppercase">{m.reading_target()}</span>
@@ -162,6 +230,15 @@
 					class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
 				/>
 			</label>
+			<!--
+				Matcha, because that is the colour of a Reading that points at a
+				recipe everywhere else on this page (#50). It is the way IN to the
+				library, and it suggests nothing: ADR 0008 refuses guessing which
+				recipe a line means.
+			-->
+			<button type="button" class="col-span-2 {MATCHA}" onclick={() => (picking = true)}>
+				{m.reading_is_recipe()}
+			</button>
 		{/if}
 	</div>
 
@@ -198,3 +275,14 @@
 		<p class="mt-2 text-read text-ink-2">{m.reading_no_version()}</p>
 	{/if}
 </div>
+
+{#if picking}
+	<ComponentPicker
+		{line}
+		onChoose={(chosen) => {
+			namedRecipe = chosen;
+			picking = false;
+		}}
+		onCancel={() => (picking = false)}
+	/>
+{/if}

@@ -13,15 +13,23 @@
 		client: KamosuClient;
 		content: GetRecipeOutput['versions'][number]['content'];
 		kitchenId: string;
+		/** The lines that already name a Recipe, as the Core unfolds them (#87). */
+		components?: GetRecipeOutput['versions'][number]['components'];
 		photograph?: (file: Blob) => Promise<string>;
 		onCancel?: () => void;
-		onSaved?: () => void;
+		onSaved?: (landed: {
+			branch_id: string;
+			collapsed: boolean;
+			copied: boolean;
+			named: boolean;
+		}) => void;
 	}
 
 	let {
 		client,
 		content,
 		kitchenId,
+		components = [],
 		photograph,
 		onCancel = () => {},
 		onSaved = () => {},
@@ -29,5 +37,13 @@
 </script>
 
 <Kamosu {client} {photograph}>
-	<Writing branchId="mine" lineageId="l_1" {kitchenId} {content} {onCancel} {onSaved} />
+	<Writing
+		branchId="mine"
+		lineageId="l_1"
+		{kitchenId}
+		{content}
+		{components}
+		{onCancel}
+		{onSaved}
+	/>
 </Kamosu>

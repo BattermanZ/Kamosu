@@ -6858,8 +6858,15 @@ fn carry_forward_readings(
             continue;
         }
         conn.execute(
-            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id) \
-             SELECT ?1, line_index, amount, unit, target, food_id FROM readings \
+            // `lineage_id` travels with the rest of the Reading, and leaving it
+            // out is not a smaller bug than losing the amount: it is what makes
+            // a line a Component (ADR 0008), so a save would have quietly turned
+            // every dough inside every pizza back into an ordinary ingredient —
+            // on a line nobody touched. Found building #87, which is the first
+            // thing to make a Component from the interface and so the first
+            // thing that could notice.
+            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id) \
+             SELECT ?1, line_index, amount, unit, target, food_id, lineage_id FROM readings \
               WHERE version_id = ?2 AND line_index = ?3",
             params![new_version_id, old_version_id, index as i64],
         )

@@ -96,8 +96,14 @@
 	 * The Branch a Copy just landed on, so the page it opens can say so. It
 	 * lives on the module rather than on the component because the Copy
 	 * navigates: the component that knew is destroyed on the way (#83).
+	 *
+	 * It carries `named` for the same reason it carries the Branch (#87). A
+	 * Copy is the save where EVERY pointer has to be attached afresh — the new
+	 * Branch's first Version has no Readings to carry any of them forward — so
+	 * it is the save where a failure to attach one matters most, and it was the
+	 * one save that could not say so: the page that knew was already gone.
 	 */
-	let copiedInto = $state<string | undefined>(undefined);
+	let copiedInto = $state<{ branchId: string; named: boolean } | undefined>(undefined);
 </script>
 
 <script lang="ts">
@@ -192,7 +198,9 @@
 	 * saving closes that screen, so anything it drew would be destroyed before
 	 * it could be read (#83).
 	 */
-	let wrote = $state<{ collapsed: boolean; copied: boolean } | undefined>(undefined);
+	let wrote = $state<{ collapsed: boolean; copied: boolean; named: boolean } | undefined>(
+		undefined,
+	);
 
 	/**
 	 * Print a Sheet (#75, ADR 0023): the recipe as it stands on this screen,
@@ -262,6 +270,21 @@
 
 	/** Which Branch Home has been told was opened: once per visit, not per read. */
 	let notedOpening: string | undefined;
+
+	/**
+	 * **What the last save did belongs to the recipe it was done on.** This
+	 * screen is reused across `/recipes/A` → `/recipes/B` rather than remade,
+	 * so without this the banner follows you to a recipe you never wrote on —
+	 * which for the stale *saved* line is noise, and for #87's *a line could
+	 * not be marked* is an alert about a defect that is not there.
+	 */
+	let saidFor: string | undefined;
+	$effect(() => {
+		if (saidFor !== branchId) {
+			saidFor = branchId;
+			untrack(() => (wrote = undefined));
+		}
+	});
 
 	$effect(() => {
 		// Read again when a Promotion has just put a Version on this Branch, so
@@ -513,6 +536,27 @@
 		next.set(index, { reading, measured: measuredLine });
 		fixed = next;
 		correcting = null;
+
+		// **A correction on a line that is, or was, a Component re-reads the
+		// recipe** (#87). Everything else a correction changes is in `fixed`,
+		// which is laid over the Readings — but a Component is not a Reading on
+		// this page, it is the Core's unfolding of one, and every part of that
+		// is worked out on the server from the Reading that just changed: which
+		// recipe it names, how much of it is wanted, and the inner recipe's own
+		// lines already scaled by that share (ADR 0008).
+		//
+		// So the pointer is not the only thing worth refetching for. Correcting
+		// `500 g` to `250 g` on a dough leaves the pointer alone and halves the
+		// share, and without this the row would read 250 g above an unfolding
+		// still scaled at 500 — the line contradicting its own panel.
+		//
+		// An ordinary line's correction still refetches nothing: there is
+		// nothing on screen for it that `fixed` does not already hold.
+		const wasComponent = componentAt([], index) !== undefined;
+		const isNowComponent = (reading?.lineage_id ?? null) !== null;
+		if (wasComponent || isNowComponent) {
+			reread += 1;
+		}
 	}
 
 	const unshared = $derived(
@@ -636,6 +680,7 @@
 		lineageId={recipe.lineage_id}
 		kitchenId={recipe.kitchen_id}
 		{content}
+		components={recipe.versions.at(-1)?.components ?? []}
 		onCancel={() => (writing = false)}
 		onSaved={(landed) => {
 			writing = false;
@@ -652,7 +697,7 @@
 				// navigation because a Copy is the one save whose outcome is
 				// not obvious from what is on screen afterwards: the recipe
 				// looks the same, and only the Kitchen it now sits in changed.
-				copiedInto = landed.branch_id;
+				copiedInto = { branchId: landed.branch_id, named: landed.named };
 				void goto(`/recipes/${landed.branch_id}`);
 				return;
 			}
@@ -803,6 +848,7 @@
 							<Correcting
 								{branchId}
 								lineIndex={at}
+								line={text}
 								reading={readingAt(at)}
 								componentTitle={component?.title}
 								onDone={(next, converted) => corrected(at, next, converted)}
@@ -1036,7 +1082,9 @@
 									<Correcting
 										{branchId}
 										lineIndex={own.index}
+										line={own.text}
 										reading={readingAt(own.index)}
+										componentTitle={marked?.title}
 										onDone={(next, converted) => corrected(own.index, next, converted)}
 										onCancel={() => (correcting = null)}
 									/>
@@ -1196,13 +1244,24 @@
 				</div>
 			{/if}
 
-			{#if copiedInto === branchId}
+			{#if copiedInto?.branchId === branchId}
 				<p class="mx-gutter mt-4 text-read text-accent" role="status">
 					{m.write_saved_copied()}
 				</p>
 			{:else if wrote}
 				<p class="mx-gutter mt-4 text-read text-accent" role="status">
 					{m.write_saved()}{#if wrote.collapsed}&nbsp;{m.write_saved_collapsed()}{/if}
+				</p>
+			{/if}
+			<!--
+				The Version landed and a line naming another recipe did not take
+				(#87). Said apart from the save rather than instead of it: the
+				recipe IS saved, and a line that reads correctly but is not a
+				Component is exactly the failure nobody would otherwise notice.
+			-->
+			{#if (wrote && !wrote.named) || (copiedInto?.branchId === branchId && !copiedInto.named)}
+				<p class="mx-gutter mt-2 text-read text-support" role="alert">
+					{m.write_components_failed()}
 				</p>
 			{/if}
 

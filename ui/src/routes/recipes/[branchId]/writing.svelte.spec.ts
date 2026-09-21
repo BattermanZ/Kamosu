@@ -78,15 +78,106 @@ const SAVED = {
 	},
 } as Answers;
 
-function renderWriting(answers: Answers = {}, kitchenId = 'k_mine') {
+type Components = GetRecipeOutput['versions'][number]['components'];
+
+function renderWriting(answers: Answers = {}, kitchenId = 'k_mine', components: Components = []) {
 	const onSaved = vi.fn();
 	const onCancel = vi.fn();
 	const kamosu = standIn({ ...KITCHENS, ...SAVED, ...answers });
 	render(WritingTestHarness, {
-		props: { client: kamosu.client, content: content(), kitchenId, onSaved, onCancel },
+		props: { client: kamosu.client, content: content(), kitchenId, components, onSaved, onCancel },
 	});
 	return { kamosu, onSaved, onCancel };
 }
+
+// ---- naming another recipe from a line (#87) -----------------------------
+//
+// The library the picker searches, and the recipe read back after a save so
+// the pointer can be attached without clearing the amount the Core has just
+// worked out of the line.
+
+const SHELF = {
+	search_recipes: {
+		query: null,
+		closest: false,
+		recipes: [
+			{
+				lineage_id: 'l_chilli',
+				branch_id: 'b_chilli',
+				title: 'Chilli Oil',
+				language: 'en',
+				language_fallback: false,
+				main_photo: null,
+				yield: { amount: '1', noun: 'jar' },
+				matched: null,
+			},
+		],
+	},
+} as Answers;
+
+/**
+ * The recipe as it stands the instant after the save: the Core has read
+ * `2 tbsp Chinese sesame paste` into an amount, a Unit and a Food of its own.
+ * Those are exactly what a pointer must not throw away.
+ */
+const READ_BACK = {
+	get_recipe: {
+		branch_id: 'mine',
+		lineage_id: 'l_1',
+		kitchen_id: 'k_mine',
+		hand_id: 'h_mine',
+		language: 'en',
+		origin_address: null,
+		head_version_id: 'v_2',
+		translation: null,
+		versions: [
+			{
+				sequence: 2,
+				version_id: 'v_2',
+				parent_version_id: 'v_1',
+				hand_id: 'h_mine',
+				name: null,
+				change_note: null,
+				created_at: '2026-09-21T00:00:00Z',
+				translates_version_id: null,
+				language: 'en',
+				components: [],
+				content: content(),
+				readings: [
+					null,
+					{ amount: '2', unit: 'tbsp', target: 'Chinese sesame paste', lineage_id: null },
+					{ amount: null, unit: null, target: 'chilli oil', lineage_id: null },
+					null,
+					{ amount: '3', unit: 'tbsp', target: 'peanuts', lineage_id: null },
+				],
+				measured: {
+					ingredients: content().ingredients.map(() => null),
+					steps: content().steps.map(() => null),
+				},
+				cooking: { steps: content().steps.map(() => ({ uses: [], timer_seconds: null })) },
+			},
+		],
+		tags: [],
+		related_recipes: [],
+		cooked: { count: 0, last_cooked_at: null, ratings: [] },
+	},
+	set_reading: { line_index: 1, reading: null, measured: null },
+} as Answers;
+
+/** Open the picker on one line and choose the only recipe the shelf holds. */
+async function nameARecipe(line: string) {
+	const row = (await screen.findByRole('textbox', { name: line })).closest('li') as HTMLElement;
+	await fireEvent.click(within(row).getByRole('button', { name: 'Recipe' }));
+	// The library is asked on the shelf's own short delay, so the entry is
+	// waited for rather than expected to be there already.
+	await fireEvent.click(await screen.findByRole('button', { name: 'Chilli Oil' }));
+}
+
+/** What the screen sent to `set_reading`, in order. */
+const readings = (kamosu: ReturnType<typeof standIn>) =>
+	kamosu.calls
+		.filter((call) => call.operation === 'set_reading')
+		.map((call) => call.input as Record<string, unknown>);
 
 /** What the screen actually sent, once it has sent it. */
 const sent = (kamosu: ReturnType<typeof standIn>) =>
@@ -539,6 +630,7 @@ describe('writing a recipe', () => {
 			branch_id: 'mine',
 			collapsed: true,
 			copied: false,
+			named: true,
 		});
 	});
 
@@ -568,6 +660,7 @@ describe('writing a recipe', () => {
 			branch_id: 'b_my_copy',
 			collapsed: false,
 			copied: true,
+			named: true,
 		});
 	});
 
@@ -621,5 +714,162 @@ describe('writing a recipe', () => {
 		).toBeDisabled();
 		expect(screen.queryByRole('button', { name: /Save onto mine/ })).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /Start my own copy/ })).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * Saying *this line is a recipe* (#87) — the act that makes a Component, and
+ * the one part of a Reading this screen edits.
+ *
+ * ADR 0008 refuses guessing which recipe a line means, so every test here
+ * checks that the recipe was CHOSEN. Nothing on this screen may ever arrive at
+ * a pointer by matching words.
+ */
+describe('naming another recipe from a line', () => {
+	it('offers no recipe until one is searched for, and pre-selects nothing', async () => {
+		renderWriting({ ...SHELF, ...READ_BACK });
+		const row = (
+			await screen.findByRole('textbox', {
+				name: 'Ingredient line 1',
+			})
+		).closest('li') as HTMLElement;
+
+		// Closed, the row says nothing about recipes: the control is an offer,
+		// never a suggestion that this line looks like one.
+		expect(within(row).queryByText(/Names/)).not.toBeInTheDocument();
+
+		await fireEvent.click(within(row).getByRole('button', { name: 'Recipe' }));
+		// Open, the library is a list to pick from and nothing in it is chosen.
+		// `aria-pressed` would be the tell of a pre-selection; there is none.
+		const chosen = await screen.findByRole('button', { name: 'Chilli Oil' });
+		expect(chosen).not.toHaveAttribute('aria-pressed', 'true');
+		expect(screen.getByText(/For the line: 2 tbsp Chinese sesame paste/)).toBeInTheDocument();
+	});
+
+	it('attaches the pointer after the save, keeping the amount the Core just read', async () => {
+		const { kamosu, onSaved } = renderWriting({ ...SHELF, ...READ_BACK });
+		await nameARecipe('Ingredient line 1');
+		await saveThrough(/Save onto mine/);
+
+		// The written line is untouched by any of this: naming a recipe is a
+		// Reading, and a Reading never rewrites the words above it (ADR 0002).
+		const saved = sent(kamosu) as { ingredients: { text: string }[] };
+		expect(saved.ingredients[1]?.text).toBe('2 tbsp Chinese sesame paste');
+
+		// One line changed, so one Reading was set — and it carries the amount
+		// and the Unit the Core worked out of the line during the save. Sending
+		// the pointer alone would have cleared them, and a Component with no
+		// quantity is the WHOLE of the inner recipe (ADR 0008).
+		expect(readings(kamosu)).toEqual([
+			{
+				branch_id: 'mine',
+				line_index: 1,
+				amount: '2',
+				unit: 'tbsp',
+				// The two are exclusive, so naming a Recipe puts the Food down.
+				target: null,
+				lineage_id: 'l_chilli',
+			},
+		]);
+		expect(onSaved).toHaveBeenCalledWith(
+			expect.objectContaining({ branch_id: 'mine', named: true }),
+		);
+	});
+
+	it('takes a line that names a recipe back to an ordinary one', async () => {
+		// The save carried the pointer forward on its own, because the line was
+		// not edited — so what the read-back finds is a Component, and taking it
+		// back to an ordinary line is a change this screen has to send.
+		const carried = {
+			get_recipe: {
+				...(READ_BACK.get_recipe as Record<string, unknown>),
+				versions: [
+					{
+						...((READ_BACK.get_recipe as { versions: Record<string, unknown>[] })
+							.versions[0] as Record<string, unknown>),
+						readings: [
+							null,
+							// A Component's Reading names a Lineage and no Food:
+							// the two are one slot (ADR 0008).
+							{ amount: '2', unit: 'tbsp', target: null, lineage_id: 'l_chilli' },
+							{ amount: null, unit: null, target: 'chilli oil', lineage_id: null },
+							null,
+							{ amount: '3', unit: 'tbsp', target: 'peanuts', lineage_id: null },
+						],
+					},
+				],
+			},
+		} as Answers;
+		const { kamosu } = renderWriting({ ...SHELF, ...READ_BACK, ...carried }, 'k_mine', [
+			{
+				path: [1],
+				lineage_id: 'l_chilli',
+				held: true,
+				stopped: false,
+				branch_id: 'b_chilli',
+				title: 'Chilli Oil',
+				share: null,
+				said: 'Chilli Oil',
+				content: null,
+				readings: null,
+				measured: null,
+			},
+		]);
+
+		// It opens SAYING SO, rather than looking like an ordinary line whose
+		// pointer somebody is about to lose without noticing.
+		const row = (
+			await screen.findByRole('textbox', {
+				name: 'Ingredient line 1',
+			})
+		).closest('li') as HTMLElement;
+		expect(within(row).getByRole('button', { name: 'Names Chilli Oil' })).toBeInTheDocument();
+
+		await fireEvent.click(within(row).getByRole('button', { name: 'Not a recipe' }));
+		expect(within(row).getByRole('button', { name: 'Recipe' })).toBeInTheDocument();
+		await saveThrough(/Save onto mine/);
+
+		// The pointer is dropped and the amount is left standing. No Food takes
+		// its place, because a Component never had one to put back — the target
+		// and the Lineage are one slot, and it held the Lineage. The line reads
+		// exactly as it always did, and what it is can be typed in the
+		// corrector on the reading page.
+		expect(readings(kamosu)).toEqual([
+			{
+				branch_id: 'mine',
+				line_index: 1,
+				amount: '2',
+				unit: 'tbsp',
+				target: null,
+				lineage_id: null,
+			},
+		]);
+	});
+
+	it('sends nothing at all when no line names a recipe', async () => {
+		// The ordinary save, which is nearly every save. A recipe that composes
+		// nothing must not pay a read-back and a round of Readings for a
+		// feature it does not use.
+		const { kamosu } = renderWriting({ ...SHELF, ...READ_BACK });
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await saveThrough(/Save onto mine/);
+		expect(readings(kamosu)).toEqual([]);
+		expect(kamosu.calls.some((call) => call.operation === 'get_recipe')).toBe(false);
+	});
+
+	it('says the Version landed even when the pointer did not', async () => {
+		// The save SUCCEEDED. A line that reads correctly but is not a
+		// Component is exactly the failure nobody would otherwise notice, so it
+		// is reported beside the save rather than instead of it.
+		const { onSaved } = renderWriting({
+			...SHELF,
+			...READ_BACK,
+			set_reading: { refuse: 'internal' },
+		} as Answers);
+		await nameARecipe('Ingredient line 1');
+		await saveThrough(/Save onto mine/);
+		expect(onSaved).toHaveBeenCalledWith(
+			expect.objectContaining({ branch_id: 'mine', collapsed: false, named: false }),
+		);
 	});
 });

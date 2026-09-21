@@ -24,8 +24,32 @@
 	AN INGREDIENT LINE IS ONE FREE-TEXT FIELD (ADR 0002, #43). Never an amount
 	box, a unit box and a food box. `2 poignées de farine, environ` goes in and
 	comes out as typed, and nothing here rewrites a character of it. What
-	Kamosu understands OF that line is the Reading, which is corrected on the
-	reading page and is no part of this screen (ADR 0021).
+	Kamosu understands OF that line — the amount, the Unit, the Food — is the
+	Reading, and it is corrected on the reading page and is no part of this
+	screen (ADR 0021).
+
+	ONE PART OF THE READING IS HERE, AND ONLY ONE (#87): whether the line names
+	a RECIPE rather than a Food. Aurélien settled on 20 September 2026 that the
+	act of saying *this line is a recipe* is designed once against both screens
+	and wears the same small matcha control on both, so it is here as well as in
+	the reading page's corrector.
+
+	It is not the exception it looks like. The other three are Kamosu's reading
+	of words you wrote, which is why correcting them belongs where you read
+	them. This one is not readable from the words at all and never will be:
+	ADR 0008 refuses matching `500 g plain flour` against a flour recipe in as
+	many words. Only the person typing the line knows, and this is where they
+	are.
+
+	WHAT IT COSTS, AND WHY IT IS PAID AFTER THE SAVE. A Reading is keyed to the
+	Version it belongs to, and the Version this screen is writing does not exist
+	yet — so a pointer cannot be attached until the save lands. It is applied
+	immediately afterwards, with `set_reading`, against the Version that just
+	landed. The recipe is re-read first for one reason: `set_reading` replaces
+	the WHOLE Reading, and the amount and the Unit it would otherwise clear are
+	the ones the Core has just worked out of the new line. `500 g pizza dough`
+	losing its 500 does not look broken — it silently means the whole dough
+	(ADR 0008).
 
 	A SECTION IS A REAL OBJECT in both lists, not a line pretending to be one:
 	it is stored as `kind: "section"` and it survives a save as itself.
@@ -80,6 +104,7 @@
 	import type { GetRecipeOutput, ListKitchensOutput } from '$lib/api/catalogue';
 	import type { Nutrition } from './divergence';
 	import Cover from '$lib/cover/Cover.svelte';
+	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 
 	type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -90,6 +115,14 @@
 		kitchenId: string;
 		/** The recipe as it stands, which is what the draft below starts from. */
 		content: Content;
+		/**
+		 * The Components of the recipe as it stands, so a line that already
+		 * names a Recipe opens saying so rather than looking like an ordinary
+		 * line somebody is about to lose the pointer on. Only the top level:
+		 * a Component inside a Component belongs to the inner recipe, and is
+		 * edited on the inner recipe's own page.
+		 */
+		components?: GetRecipeOutput['versions'][number]['components'];
 		onCancel: () => void;
 		/**
 		 * A Version landed. The page re-reads and this screen closes, so what
@@ -98,11 +131,28 @@
 		 *
 		 * `branch_id` is the Branch the Version is on, which after a Copy is
 		 * the NEW one rather than the one that was open.
+		 *
+		 * `named` is false where the Version landed but a line naming another
+		 * recipe could not be marked (#87). It travels with the rest for the
+		 * same reason they do: the screen that knows is closing.
 		 */
-		onSaved: (landed: { branch_id: string; collapsed: boolean; copied: boolean }) => void;
+		onSaved: (landed: {
+			branch_id: string;
+			collapsed: boolean;
+			copied: boolean;
+			named: boolean;
+		}) => void;
 	}
 
-	let { branchId, lineageId, kitchenId, content, onCancel, onSaved }: Props = $props();
+	let {
+		branchId,
+		lineageId,
+		kitchenId,
+		content,
+		components = [],
+		onCancel,
+		onSaved,
+	}: Props = $props();
 
 	const kamosu = useKamosu();
 	const sendPhotograph = usePhotograph();
@@ -120,6 +170,8 @@
 		id: number;
 		kind: 'ingredient' | 'section';
 		text: string;
+		/** The Recipe this line names, where it names one (#87, ADR 0008). */
+		namedRecipe: NamedRecipe | null;
 	}
 	interface Step {
 		id: number;
@@ -171,9 +223,28 @@
 	let calories = $state(content.nutrition === null ? '' : String(content.nutrition.calories));
 	// svelte-ignore state_referenced_locally
 	let basis = $state<Nutrition['basis']>(content.nutrition?.basis ?? 'per_serving');
+	/**
+	 * Which lines already name a Recipe, by index into the written list. Read
+	 * off the Components the Core unfolded rather than off the Readings,
+	 * because the Component is the one that carries the title.
+	 */
+	// svelte-ignore state_referenced_locally
+	const namedAtOpening = new Map<number, NamedRecipe>(
+		components
+			.filter((component) => component.path.length === 1)
+			.map((component) => [
+				component.path[0] as number,
+				{ lineageId: component.lineage_id, title: component.title },
+			]),
+	);
 	// svelte-ignore state_referenced_locally
 	let lines = $state<Line[]>(
-		content.ingredients.map((item) => ({ id: id(), kind: item.kind, text: item.text })),
+		content.ingredients.map((item, index) => ({
+			id: id(),
+			kind: item.kind,
+			text: item.text,
+			namedRecipe: namedAtOpening.get(index) ?? null,
+		})),
 	);
 	// svelte-ignore state_referenced_locally
 	let steps = $state<Step[]>(
@@ -201,6 +272,14 @@
 	let stepsEl = $state<HTMLElement | undefined>(undefined);
 
 	let photoFailed = $state(false);
+	/**
+	 * Which line the picker is open for, by the row's own id rather than its
+	 * index (#87) — the same reason the list is keyed by id: an index stops
+	 * meaning the row it meant the moment anything above it moves.
+	 */
+	let picking = $state<number | null>(null);
+	/** The row it is open for, or nothing — looked up by id, never by position. */
+	const pickingFor = $derived(lines.find((row) => row.id === picking));
 	let asking = $state(false);
 	let saving = $state(false);
 	let failed = $state<string | undefined>(undefined);
@@ -284,7 +363,7 @@
 
 	function addLine(kind: 'ingredient' | 'section') {
 		const at = insertAt('lines', lines.length);
-		lines.splice(at, 0, { id: id(), kind, text: '' });
+		lines.splice(at, 0, { id: id(), kind, text: '', namedRecipe: null });
 		cursor = { list: 'lines', index: at };
 		void writeIn('lines', at);
 	}
@@ -516,6 +595,58 @@
 		return undefined;
 	});
 
+	/** The rows that are actually lines of the recipe, in the order they save in. */
+	const keptLines = () => lines.filter((row) => row.text.trim() !== '');
+
+	/**
+	 * **Attach the pointers this screen was given, to the Version that just
+	 * landed** (#87). Answers whether every one of them took.
+	 *
+	 * The recipe is read back first because `set_reading` replaces the whole
+	 * Reading: the amount and the Unit have just been worked out of the new
+	 * line by the Core, and sending the pointer without them would clear them.
+	 * A Component with no quantity is the WHOLE of the inner recipe (ADR 0008),
+	 * so `500 g pizza dough` losing its 500 would quietly double the dough
+	 * rather than look broken.
+	 *
+	 * Only the lines whose pointer actually differs from what is now saved are
+	 * sent. A line nobody touched already carries its pointer across the save
+	 * on its own, so the ordinary edit of a recipe with a Component in it makes
+	 * no requests here at all.
+	 */
+	async function attachNamedRecipes(branch: string): Promise<void> {
+		const wanted = keptLines().map((row) => row.namedRecipe?.lineageId ?? null);
+		// The common case by a distance: no line on this recipe names another
+		// one, and none did when the screen opened. Nothing to reconcile, and
+		// no reason to read the recipe back.
+		if (wanted.every((pointer) => pointer === null) && namedAtOpening.size === 0) return;
+
+		const recipe = await kamosu.getRecipe({ branch_id: branch });
+		const saved = recipe.versions.at(-1)?.readings ?? [];
+		for (const [index, pointer] of wanted.entries()) {
+			const was = saved[index] ?? null;
+			if ((was?.lineage_id ?? null) === pointer) continue;
+			await kamosu.setReading({
+				branch_id: branch,
+				line_index: index,
+				amount: was?.amount ?? null,
+				unit: was?.unit ?? null,
+				// The two are exclusive and the Core refuses a Reading claiming
+				// to be both, so naming a Recipe puts the Food down.
+				//
+				// Un-naming one does NOT pick a Food back up, and cannot: a
+				// Component's Reading never held one, and reading the line again
+				// is the Core's job and not this screen's (ADR 0021, ADR 0036).
+				// The line keeps its quantity and loses only the pointer, which
+				// leaves it reading exactly as written — and what it is can be
+				// typed into the corrector on the reading page, where every
+				// other part of a Reading is corrected.
+				target: pointer === null ? (was?.target ?? null) : null,
+				lineage_id: pointer,
+			});
+		}
+	}
+
 	function drafted() {
 		const amount = yieldAmount.trim();
 		const noun = yieldNoun.trim();
@@ -537,9 +668,11 @@
 			// field holding nothing is no part of the fingerprint (ADR 0038).
 			nutrition: figure === null ? null : { calories: figure, basis },
 			// A row with nothing written in it is not a line of the recipe.
-			ingredients: lines
-				.filter((row) => row.text.trim() !== '')
-				.map((row) => ({ kind: row.kind, text: row.text.trim() })),
+			// The Recipe a line names is no part of the content and never can
+			// be: it is a Reading, it is named by no fingerprint, and putting
+			// it here would move the id of every recipe holding one (ADR 0004,
+			// ADR 0038). It is attached after the save instead.
+			ingredients: keptLines().map((row) => ({ kind: row.kind, text: row.text.trim() })),
 			steps: steps
 				.filter((row) => row.text.trim() !== '')
 				.map((row) => ({ kind: row.kind, text: row.text.trim(), photo: row.photo })),
@@ -559,12 +692,23 @@
 				...(changeNote.trim() === '' ? {} : { change_note: changeNote.trim() }),
 				...(savingInto ? { kitchen_id: savingInto.id } : {}),
 			});
+			// The Version has landed. Whatever happens to the pointers now, it
+			// has landed — so a failure here is reported beside the save rather
+			// than as one, and never as an error that hides what did work.
+			let named = true;
+			try {
+				await attachNamedRecipes(answered.branch_id);
+			} catch (error) {
+				if (!(error instanceof OperationError)) throw error;
+				named = false;
+			}
 			asking = false;
 			saving = false;
 			onSaved({
 				branch_id: answered.branch_id,
 				collapsed: answered.collapsed,
 				copied: answered.copied,
+				named,
 			});
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -619,6 +763,12 @@
 		'block w-full resize-none rounded-sm border border-rule bg-card px-2 py-1 text-label text-ink-2 uppercase';
 	const SMALL = 'min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink';
 	const QUIET = 'rounded-sm border border-rule px-2 py-1 text-read text-ink-2';
+	/**
+	 * The way in to the library, in matcha — the colour of a Reading that points
+	 * at a recipe everywhere else (#50). `Correcting.svelte` wears the same one
+	 * on the same act, which is what "one control on both screens" means (#83).
+	 */
+	const MATCHA = 'rounded-sm border border-support-2 px-2 py-1 text-read text-support-2';
 </script>
 
 <div class="mx-auto max-w-2xl pb-tabbar">
@@ -749,7 +899,34 @@
 						class={row.kind === 'section' ? HEADING_FIELD : FIELD}
 						onfocus={() => (cursor = { list: 'lines', index })}
 						onkeydown={(event) => onKey(event, 'lines', index)}></textarea>
-					<div class="pt-1">
+					<div class="flex flex-wrap items-center gap-2 pt-1">
+						<!--
+							THE ONE PART OF THE READING THAT IS EDITED HERE (#87):
+							whether this line names a Recipe rather than a Food.
+							Matcha, which is the colour of a Reading that points at a
+							recipe everywhere else (#50), and small, because most lines
+							are not recipes and this must not shout on all of them.
+
+							A heading carries no Reading at all, so it carries no
+							control: `set_reading` refuses one on a section, and a
+							button that always fails is worse than no button.
+						-->
+						{#if row.kind === 'ingredient'}
+							{#if row.namedRecipe}
+								<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
+									{m.write_line_names({
+										title: row.namedRecipe.title ?? m.write_line_recipe(),
+									})}
+								</button>
+								<button type="button" class={QUIET} onclick={() => (row.namedRecipe = null)}>
+									{m.write_line_not_recipe()}
+								</button>
+							{:else}
+								<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
+									{m.write_line_recipe()}
+								</button>
+							{/if}
+						{/if}
 						<button
 							type="button"
 							class="{QUIET} text-support"
@@ -938,6 +1115,21 @@
 	It is a real button, so it takes focus, and the arrow keys move the row one
 	place at a time for anybody who is not dragging anything.
 -->
+<!--
+	The library, raised over the page you are standing on (#87) — never a route,
+	which on this screen would throw away everything typed since the last save.
+-->
+{#if pickingFor}
+	<ComponentPicker
+		line={pickingFor.text}
+		onChoose={(chosen) => {
+			if (pickingFor) pickingFor.namedRecipe = chosen;
+			picking = null;
+		}}
+		onCancel={() => (picking = null)}
+	/>
+{/if}
+
 {#snippet handle(list: 'lines' | 'steps', index: number)}
 	<button
 		type="button"

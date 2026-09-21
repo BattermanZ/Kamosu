@@ -11,6 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
@@ -256,10 +257,12 @@ function forked(extra: Answers = {}) {
 
 function renderRecipe(answers: Answers = forked()) {
 	const kamosu = standIn(answers);
-	render(RecipeTestHarness, {
+	const { rerender } = render(RecipeTestHarness, {
 		props: { client: kamosu.client, branchId: 'mine' },
 	});
-	return { kamosu };
+	/** Walk to another recipe, the way tapping through to one does. */
+	const goTo = (branchId: string) => rerender({ client: kamosu.client, branchId });
+	return { kamosu, goTo };
 }
 
 describe('a Divergence', () => {
@@ -682,6 +685,7 @@ describe('the recipe screen', () => {
 		content: Record<string, unknown> = {},
 		readings?: Slot[],
 		measured?: GetRecipeOutput['versions'][number]['measured'],
+		components?: GetRecipeOutput['versions'][number]['components'],
 	): Answers {
 		const base = divergence().mine.content;
 		const recipe: GetRecipeOutput = {
@@ -708,7 +712,7 @@ describe('the recipe screen', () => {
 					translates_version_id: null,
 					language: 'en',
 					// A recipe that composes nothing, which is nearly all of them (#50).
-					components: [],
+					components: components ?? [],
 					content: {
 						...base,
 						ingredients: SECTIONED,
@@ -1061,6 +1065,260 @@ describe('the recipe screen', () => {
 		});
 		expect(screen.queryByText('1400 g chicken')).not.toBeInTheDocument();
 		expect(screen.getByText('1.4 kg whole chicken')).toBeInTheDocument();
+	});
+
+	/**
+	 * Making a line a Component from the corrector (#87). Until this there was
+	 * no way to make one from the interface at all: `set_reading` took a
+	 * `lineage_id` and nothing in the app ever sent one.
+	 */
+	const SHELF = {
+		search_recipes: {
+			query: null,
+			closest: false,
+			recipes: [
+				{
+					lineage_id: 'l_brine',
+					branch_id: 'b_brine',
+					title: 'Overnight Brine',
+					language: 'en',
+					language_fallback: false,
+					main_photo: null,
+					yield: { amount: '2', noun: 'litres' },
+					matched: null,
+				},
+			],
+		},
+	} as Answers;
+
+	it('makes a line a Component by choosing a recipe, never by matching its words', async () => {
+		const { kamosu } = renderRecipe({
+			...solo(),
+			...SHELF,
+			set_reading: {
+				line_index: 1,
+				reading: { amount: '1.4', unit: 'kg', target: null, lineage_id: 'l_brine' },
+				measured: null,
+			},
+		});
+
+		await fireEvent.click(await screen.findByText('1.4 kg whole chicken'));
+		// Nothing here has guessed anything: the corrector offers a way into the
+		// library and suggests no recipe at all (ADR 0008).
+		expect(screen.queryByText(/Overnight Brine/)).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /This line is a recipe/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Overnight Brine' }));
+
+		// Chosen, the Food field is gone: a Reading names a Food or a Recipe and
+		// never both, and the Core refuses a Reading claiming to be both.
+		expect(screen.queryByLabelText(/What it is/i)).not.toBeInTheDocument();
+		expect(screen.getByText(/will name Overnight Brine/)).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+		expect(kamosu.calls.find((call) => call.operation === 'set_reading')?.input).toEqual({
+			branch_id: 'mine',
+			line_index: 1,
+			// The amount and the Unit are untouched by naming a recipe — they
+			// are what says how MUCH of it is wanted (ADR 0008).
+			amount: '1400',
+			unit: 'g',
+			target: null,
+			// The Lineage, never a Branch and never a Version, so it goes on
+			// resolving to whatever Branch of the brine its reader holds.
+			lineage_id: 'l_brine',
+		});
+		// And no Version: saying a line names a recipe is a Reading, not an
+		// edit to the words above it.
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
+
+		// The recipe IS re-read, though. A Component is not a Reading on this
+		// page but the Core's unfolding of one — the title, how much of that
+		// recipe is wanted, its scaled lines — and none of that can be worked
+		// out here (ADR 0008). Without the re-read the page would go on drawing
+		// the line exactly as it was.
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe').length).toBeGreaterThan(
+			1,
+		);
+	});
+
+	it('un-makes a Component, taking the line back to an ordinary one', async () => {
+		const asComponent: Slot[] = [
+			null,
+			{ amount: '1.4', unit: 'kg', target: null, lineage_id: 'l_brine' },
+			null,
+			null,
+			{ amount: '3', unit: 'tbsp', target: 'ketchup', lineage_id: null },
+		];
+		const { kamosu } = renderRecipe({
+			// The Reading AND the Component the Core unfolds from it — the two
+			// always arrive together, and a screen that saw one without the
+			// other would be testing a state the server cannot produce.
+			...solo({}, asComponent, undefined, [
+				{
+					path: [1],
+					lineage_id: 'l_brine',
+					held: true,
+					stopped: false,
+					branch_id: 'b_brine',
+					title: 'Overnight Brine',
+					share: 0.7,
+					said: 'Overnight Brine · 0.7 of the recipe',
+					content: null,
+					readings: null,
+					measured: null,
+				},
+			]),
+			...SHELF,
+			set_reading: {
+				line_index: 1,
+				reading: { amount: '1.4', unit: 'kg', target: 'whole chicken', lineage_id: null },
+				measured: null,
+			},
+		});
+
+		await fireEvent.click(await screen.findByText('1.4 kg whole chicken'));
+		await fireEvent.click(screen.getByRole('button', { name: /This line is not a recipe/i }));
+
+		// The Food field comes back, because the slot the Lineage was in is the
+		// slot the Food goes in. Nothing was written to get here: un-making is
+		// a draft change like every other field in the box.
+		const target = screen.getByLabelText(/What it is/i) as HTMLInputElement;
+		await fireEvent.input(target, { target: { value: 'whole chicken' } });
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+
+		expect(kamosu.calls.find((call) => call.operation === 'set_reading')?.input).toEqual({
+			branch_id: 'mine',
+			line_index: 1,
+			amount: '1.4',
+			unit: 'kg',
+			target: 'whole chicken',
+			lineage_id: null,
+		});
+		// Un-making re-reads for the same reason making does: the unfolding
+		// this line had is the Core's, and only the Core can say it is gone.
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe').length).toBeGreaterThan(
+			1,
+		);
+	});
+
+	it('re-reads when a Component keeps its recipe but changes how much is wanted', async () => {
+		// The pointer is untouched here — only the amount moves. Everything that
+		// says how much of the dough is wanted is the Core's, worked out from
+		// that amount: the share, the sentence under the line, and the inner
+		// recipe's own lines scaled by it (ADR 0008). Comparing pointers alone
+		// would leave the row reading 250 g above an unfolding still at 500.
+		const { kamosu } = renderRecipe({
+			...solo(
+				{},
+				[
+					null,
+					{ amount: '500', unit: 'g', target: null, lineage_id: 'l_brine' },
+					null,
+					null,
+					{ amount: '3', unit: 'tbsp', target: 'ketchup', lineage_id: null },
+				],
+				undefined,
+				[
+					{
+						path: [1],
+						lineage_id: 'l_brine',
+						held: true,
+						stopped: false,
+						branch_id: 'b_brine',
+						title: 'Overnight Brine',
+						share: 0.5,
+						said: 'Overnight Brine · ½ of the recipe',
+						content: null,
+						readings: null,
+						measured: null,
+					},
+				],
+			),
+			...SHELF,
+			set_reading: {
+				line_index: 1,
+				reading: { amount: '250', unit: 'g', target: null, lineage_id: 'l_brine' },
+				measured: null,
+			},
+		});
+
+		await fireEvent.click(await screen.findByText('1.4 kg whole chicken'));
+		await fireEvent.input(screen.getByLabelText(/^Amount$/i), { target: { value: '250' } });
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe').length).toBeGreaterThan(
+			1,
+		);
+	});
+
+	it('leaves what a save did behind when you walk to another recipe', async () => {
+		// This screen is reused from one recipe to the next rather than remade,
+		// so a banner that is not cleared follows you to a recipe you never
+		// wrote on. Harmless for *Saved*; for #87's *a line could not be
+		// marked* it is an alert about a defect that is not there.
+		const { goTo } = renderRecipe({
+			...solo(),
+			list_kitchens: {
+				kitchens: [
+					{
+						id: 'k_mine',
+						name: 'Maison Batterman',
+						nickname: null,
+						is_home: true,
+						hand_id: 'h_mine',
+						members: [],
+					},
+				],
+			},
+			save_recipe_version: {
+				branch_id: 'mine',
+				version_id: 'v_2',
+				parent_version_id: 'v_mine',
+				sequence: 2,
+				collapsed: false,
+				copied: false,
+				language: 'en',
+				language_offer: null,
+				translates_version_id: null,
+			},
+			// Walking to a second Branch makes the page ask whether the two have
+			// diverged. Nothing here is about a Divergence, so it answers that
+			// there is none to read.
+			divergence: { refuse: 'not_found' },
+		} as Answers);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+		const save = await screen.findAllByRole('button', { name: /Save onto mine/ });
+		await fireEvent.click(save[0] as HTMLElement);
+		const inSheet = await screen.findAllByRole('button', { name: /Save onto mine/ });
+		await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+		expect(await screen.findByText('Saved.')).toBeInTheDocument();
+
+		await goTo('another');
+		await tick();
+		expect(screen.queryByText('Saved.')).not.toBeInTheDocument();
+	});
+
+	it('does not re-read the recipe for a correction that touches no Component', async () => {
+		// The ordinary correction, which is nearly every correction. Everything
+		// it changes is laid over the Readings on this page already, so a
+		// refetch would be a round trip that changes nothing on screen.
+		const { kamosu } = renderRecipe({
+			...solo(),
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: 'frying oil', lineage_id: null },
+				measured: null,
+			},
+		});
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		await fireEvent.input(screen.getByLabelText(/What it is/i), {
+			target: { value: 'frying oil' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
+		await screen.findByText('500 ml frying oil');
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe')).toHaveLength(1);
 	});
 
 	it('reads whole with no photo, no Yield, no times, no Note and no Source', async () => {

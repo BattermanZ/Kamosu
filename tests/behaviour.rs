@@ -14003,6 +14003,211 @@ async fn a_component_is_an_ingredient_whose_reading_names_a_recipe_and_it_arrive
     );
 }
 
+/// **A Component survives a save of the recipe it sits in** (#87).
+///
+/// A Reading travels with its Version and is carried onto the next one wherever
+/// the line still reads exactly as it did (ADR 0021). The pointer that makes the
+/// line a Component is part of that Reading, and it was being left behind: the
+/// carry copied the amount, the Unit and the Food and not the Lineage. So
+/// editing anything at all — a title, a step, a line somewhere else entirely —
+/// turned every dough inside every pizza back into an ordinary ingredient, on
+/// lines nobody had touched.
+///
+/// Nothing noticed until #87, because until #87 a Component could only be made
+/// by an agent at the MCP door and never by somebody who then went on editing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_carries_a_component_forward_onto_the_version_it_writes() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_dough_branch, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g flour" }]),
+        json!([{ "kind": "step", "text": "Knead." }]),
+    );
+    let (pizza_branch, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([
+            { "kind": "ingredient", "text": "500 g pizza dough" },
+            { "kind": "ingredient", "text": "250 g mozzarella" },
+        ]),
+        json!([{ "kind": "step", "text": "Stretch and bake." }]),
+    );
+    make_component(
+        &app,
+        &key,
+        &pizza_branch,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+    assert_eq!(
+        components_of(&app, &key, &pizza_branch).len(),
+        1,
+        "the dough is a Component before anything is saved"
+    );
+
+    // A save that does not touch the Component's own line. The second
+    // ingredient is rewritten, which is the ordinary thing somebody does on a
+    // recipe — and the line that must not lose its pointer is the other one.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": pizza_branch,
+            "title": "Pizza Margherita",
+            "yield": { "amount": "2", "noun": "pizzas" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "500 g pizza dough" },
+                { "kind": "ingredient", "text": "300 g mozzarella" },
+            ],
+            "steps": [{ "kind": "step", "text": "Stretch and bake." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    let after = components_of(&app, &key, &pizza_branch);
+    assert_eq!(
+        after.len(),
+        1,
+        "the line nobody edited is still a Component after the save"
+    );
+    assert_eq!(
+        after[0]["title"],
+        json!("Pizza Dough"),
+        "and it still names the same Recipe"
+    );
+    assert_eq!(after[0]["path"], json!([0]), "on the line it was always on");
+    // The whole Reading came across, not only the pointer: a Component with no
+    // quantity is the whole of the inner recipe (ADR 0008), so an amount lost
+    // here would double the dough rather than merely look untidy.
+    assert!(
+        after[0]["said"]
+            .as_str()
+            .expect("a Component says what it is")
+            .contains("Pizza Dough"),
+        "the Component's own line still names the dough: {:?}",
+        after[0]["said"]
+    );
+}
+
+/// **Making a Component by hand, and un-making it** (#87) — the act the
+/// interface performs, driven here through the real Operations.
+///
+/// Two things this holds that the screen tests cannot. A line is made a
+/// Component on a Version that has ALREADY been saved and read, which is the
+/// order the writing screen works in: the save lands, the Core reads the line
+/// into an amount and a Food, and only then is the pointer attached over the
+/// top. And un-making returns the line to an ordinary one that still carries
+/// its quantity, so `500 g` is not lost along with the pointer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_is_made_over_a_read_line_and_un_made_without_losing_the_amount() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_dough_branch, dough_lineage) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Dough",
+        Some(("1", "kg")),
+        json!([{ "kind": "ingredient", "text": "600 g flour" }]),
+        json!([{ "kind": "step", "text": "Knead." }]),
+    );
+    let (pizza_branch, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "500 g pizza dough" }]),
+        json!([{ "kind": "step", "text": "Stretch and bake." }]),
+    );
+
+    // The save already read the line: an amount, a Unit and a Food of its own
+    // (#71). This is the state the interface finds the line in.
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza_branch }).to_string(),
+    );
+    let was = read["result"]["versions"].as_array().expect("versions")[0]["readings"][0].clone();
+    assert_eq!(was["amount"], json!("500"), "the Core read the quantity");
+    assert_eq!(
+        was["lineage_id"],
+        Value::Null,
+        "and read no Recipe, because composition is never guessed (ADR 0008)"
+    );
+
+    // Making it: the pointer goes on over what was read, carrying the amount
+    // and the Unit with it. Sending the pointer alone would clear them, and a
+    // Component with no quantity is the WHOLE of the inner recipe.
+    make_component(
+        &app,
+        &key,
+        &pizza_branch,
+        0,
+        was["amount"].as_str(),
+        was["unit"].as_str(),
+        &dough_lineage,
+    );
+    let made = components_of(&app, &key, &pizza_branch);
+    assert_eq!(made.len(), 1, "the line names the dough now");
+    assert_eq!(
+        made[0]["share"],
+        json!(0.5),
+        "500 g of a dough that yields 1 kg is half of it — ADR 0008's own example"
+    );
+
+    // Un-making it: the pointer goes, the quantity stays. The line is an
+    // ordinary Ingredient Line again, reading exactly as it always did.
+    let (status, unmade) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": pizza_branch,
+            "line_index": 0,
+            "amount": "500",
+            "unit": "g",
+            "target": "pizza dough",
+            "lineage_id": null,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{unmade}");
+    assert_eq!(unmade["result"]["reading"]["lineage_id"], Value::Null);
+    assert_eq!(
+        unmade["result"]["reading"]["amount"],
+        json!("500"),
+        "un-making a Component does not take the quantity with it"
+    );
+    assert!(
+        components_of(&app, &key, &pizza_branch).is_empty(),
+        "and the recipe composes nothing again"
+    );
+
+    // The written line was never touched by any of it: the Reading is Kamosu's
+    // reading and never the recipe (ADR 0002, ADR 0021).
+    let (_, still) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza_branch }).to_string(),
+    );
+    let content = &still["result"]["versions"].as_array().expect("versions")[0]["content"];
+    assert_eq!(
+        content["ingredients"][0]["text"],
+        json!("500 g pizza dough")
+    );
+}
+
 /// **A missing Component leaves a sentence rather than a hole** (ADR 0008).
 ///
 /// Deleted, never received, and held by nobody here are one case on purpose:
