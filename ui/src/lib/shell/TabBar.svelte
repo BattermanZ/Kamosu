@@ -2,8 +2,10 @@
 	The tab bar: Home · Recipes · Shopping · Cooked.
 
 	Four sections, fixed to the bottom of the screen, sized for a thumb at arm's
-	length with wet hands. Settings are not here — they live behind the Kitchen's
-	name in the header, because they are not somewhere you go while cooking.
+	length with wet hands. Settings are not here — they live behind the *You*
+	card in the header (#102), because they are not somewhere you go while
+	cooking. A fifth tab would cost the four that matter for a room nobody
+	reaches mid-recipe (ADR 0011).
 -->
 <script lang="ts">
 	import { page } from '$app/state';

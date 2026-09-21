@@ -1,11 +1,11 @@
 <!--
-	Settings: reached through the Kitchen's name, never from the tab bar.
+	Settings: reached through the *You* card in the header (#102), never from the
+	tab bar.
 
-	This is also where the signature transition is shown in the shell: the card
-	bearing the Kitchen's name in the header and this screen's title carry the
-	same `view-transition-name`, so the card grows into the page rather than the
-	screen swapping (ADR 0012). Every recipe card that opens into its page later
-	is this same pair, with a different name.
+	This is also where the signature transition is shown in the shell: that card
+	and this screen's title carry the same `view-transition-name`, so the card
+	grows into the page rather than the screen swapping (ADR 0012). Every recipe
+	card that opens into its page later is this same pair, with a different name.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -266,7 +266,7 @@
 	}
 </script>
 
-<Screen title={m.settings_title()} expandsFrom="kitchen">
+<Screen title={m.settings_title()} expandsFrom="settings">
 	<Section heading={m.settings_language()}>
 		<!-- Paraglide compiles every phrase to a function, so this list can only
 		     offer languages that were actually compiled. -->

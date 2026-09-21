@@ -346,6 +346,50 @@ describe('the settings screen', () => {
 		});
 	});
 
+	it('carries the expanding pair, and names no Kitchen in its title, on six Kitchens (#102)', async () => {
+		// The Kitchen half of #102's test criterion, asked where a Kitchen count
+		// is real. The header itself cannot answer it — it takes no client, which
+		// is the design (ADR 0027): a switcher is forbidden, and filtering by
+		// Kitchen already lives on the Recipes shelf (#62). So what is provable
+		// is the other end: with a Person in six Kitchens, the screen the card
+		// opens onto still says *Settings* and still carries the one name that
+		// makes the card grow into it.
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
+			list_kitchens: {
+				// The dev instance's own six, home Kitchen included.
+				kitchens: [
+					"Aurélien's Home Kitchen",
+					'Chez Marc',
+					'Chez Élodie',
+					'Le Chalet',
+					'Chez Papi',
+					'Chez Marie',
+				].map((name, index) => ({
+					id: `k_${index}`,
+					name,
+					hand_id: `k_${index}`,
+					is_home: index === 0,
+					nickname: null,
+					members: [{ person_id: 'p_1', name: 'Aurélien' }],
+				})),
+			},
+		});
+
+		// All six arrived, so the screen really is in the many-Kitchens state.
+		expect(await screen.findByDisplayValue('Le Chalet')).toBeInTheDocument();
+
+		const title = screen.getByRole('heading', { level: 1, name: 'Settings' });
+		expect(title.getAttribute('style')).toContain('view-transition-name: settings');
+		expect(title.getAttribute('style')).toContain('view-transition-class: expanding');
+
+		// Not "Settings — Chez Marc", and not a Kitchen's name in its place.
+		expect(title).toHaveTextContent(/^Settings$/);
+	});
+
 	it('keeps the "not right now" facts once their cards are put away (#76)', async () => {
 		renderScreen(Settings, {
 			instance_status: { version: '0.1.0', setup_complete: true },
