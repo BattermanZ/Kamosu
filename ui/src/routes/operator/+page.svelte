@@ -177,15 +177,48 @@
 	let recovery = $state<{ who: string; link: string } | undefined>(undefined);
 	let inviteAsOperator = $state(false);
 
+	/**
+	 * Whose actions are open. One at a time: four buttons under every Person at
+	 * once is the wall this list was, and a household of five made the People
+	 * room a page of buttons with the names lost between them.
+	 */
+	let opened = $state<string | undefined>(undefined);
+
+	/** Which link the clipboard last took, so only that one says so. */
+	let copied = $state<string | undefined>(undefined);
+
+	/**
+	 * A minted link as something you can send somebody.
+	 *
+	 * The Core mints a path — `/invite/…` — because the Core knows no address;
+	 * it is the same secret whichever door asked for it. A path pasted into a
+	 * message is not a link, and the person receiving it has nowhere to put it.
+	 * The origin this screen is being read from is the one address the instance
+	 * is known to answer on, because the Operator reached it there a moment ago,
+	 * so that is what the path is hung on. Deliberately not the public address:
+	 * that one is for a Share Link going to a stranger, and it can be set,
+	 * wrong, or absent while the instance is being read perfectly well on the
+	 * network it lives on.
+	 */
+	const reachable = (path: string) =>
+		typeof window === 'undefined' ? path : new URL(path, window.location.origin).toString();
+
+	async function copy(link: string) {
+		await navigator.clipboard.writeText(link);
+		copied = link;
+	}
+
 	const mintInvite = () =>
 		act(async () => {
 			invite = (await kamosu.mintInvite({ is_operator: inviteAsOperator })).link;
 			inviteAsOperator = false;
+			copied = undefined;
 		});
 
 	const mintRecovery = (who: string) =>
 		act(async () => {
 			recovery = { who, link: (await kamosu.mintRecoveryLink({ name: who })).link };
+			copied = undefined;
 		});
 
 	const setOperator = (who: string, is_operator: boolean) =>
@@ -361,6 +394,43 @@
 		});
 </script>
 
+<!--
+	A Secret Kamosu will never print again: an Invite, or a recovery link.
+
+	Both wear the same form because both are the same promise — this is the one
+	time you will see it. The link is shown whole, with the address it is read
+	from in front of it, so what is on the screen is what you send somebody; a
+	`/invite/…` on its own is a path, and a path pasted into a message is not a
+	link. The copy button is here for the same reason it is on the Share screen:
+	it can only do something while the Secret is still on the screen, and
+	selecting forty hex characters by dragging on a phone is the failure it
+	prevents.
+-->
+{#snippet shownOnce(said: string, link: string, dismiss: () => void)}
+	{@const whole = reachable(link)}
+	<div class="mt-3 rounded-sm border border-accent bg-card p-3" role="alert">
+		<p class="text-body font-semibold text-ink">{said}</p>
+		<code class="mt-2 block rounded-sm bg-ground p-2 text-read break-all">{whole}</code>
+		<div class="mt-3 flex gap-2">
+			<button
+				type="button"
+				onclick={() => copy(whole)}
+				class="min-h-12 flex-1 rounded-sm border border-accent bg-accent px-3 text-body font-medium
+				text-on-accent"
+			>
+				{copied === whole ? m.operator_copied() : m.operator_copy()}
+			</button>
+			<button
+				type="button"
+				onclick={dismiss}
+				class="min-h-12 flex-1 rounded-sm border border-accent px-3 text-body font-medium text-accent"
+			>
+				{m.operator_invite_done()}
+			</button>
+		</div>
+	</div>
+{/snippet}
+
 <Screen title={m.operator_title()} blurb={m.operator_blurb()}>
 	{#if mayAdminister === undefined}
 		<p class="text-body text-ink-2">{m.loading()}</p>
@@ -505,46 +575,47 @@
 				</Section>
 			{:else}
 				<Section heading={m.operator_people_heading()}>
+					<!--
+						Inviting comes first, above the list rather than under it. It is
+						the one thing in this room somebody arrives wanting to do, and it
+						sat below however many people the instance already has — which on
+						a phone is below the fold, found by scrolling past four buttons
+						for every person you were not looking for.
+					-->
+					<label class="flex min-h-12 items-center gap-3">
+						<input type="checkbox" bind:checked={inviteAsOperator} class="h-6 w-6" />
+						<span class="text-body text-ink">{m.operator_invite_as_operator()}</span>
+					</label>
+					<button
+						type="button"
+						disabled={working}
+						onclick={mintInvite}
+						class="mt-2 min-h-12 w-full rounded-sm border border-accent bg-accent px-4 text-body
+					font-medium text-on-accent disabled:opacity-60"
+					>
+						{m.operator_invite()}
+					</button>
+
 					{#if invite}
-						<div class="mb-4 rounded-sm border border-accent bg-card p-3" role="alert">
-							<p class="text-body font-semibold text-ink">{m.operator_invite_once()}</p>
-							<code class="mt-2 block overflow-x-auto rounded-sm bg-ground p-2 text-read"
-								>{invite}</code
-							>
-							<button
-								type="button"
-								onclick={() => (invite = undefined)}
-								class="mt-3 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-							text-accent"
-							>
-								{m.operator_invite_done()}
-							</button>
-						</div>
+						{@render shownOnce(m.operator_invite_once(), invite, () => (invite = undefined))}
 					{/if}
 
-					{#if recovery}
-						<div class="mb-4 rounded-sm border border-accent bg-card p-3" role="alert">
-							<p class="text-body font-semibold text-ink">
-								{m.operator_recovery_once({ who: recovery.who })}
-							</p>
-							<code class="mt-2 block overflow-x-auto rounded-sm bg-ground p-2 text-read"
-								>{recovery.link}</code
-							>
-							<button
-								type="button"
-								onclick={() => (recovery = undefined)}
-								class="mt-3 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-							text-accent"
-							>
-								{m.operator_invite_done()}
-							</button>
-						</div>
-					{/if}
-
-					<ul class="overflow-hidden rounded-sm border border-rule bg-card">
+					<ul class="mt-4 overflow-hidden rounded-sm border border-rule bg-card">
 						{#each accounts as account (account.name)}
-							<li class="border-b border-rule p-3 last:border-b-0">
-								<div class="flex items-center gap-3">
+							{@const open = opened === account.name}
+							<li class="border-b border-rule last:border-b-0">
+								<!--
+									The row is the control. Four buttons under every Person at
+									once is what made this list a wall of buttons with the
+									names lost among them, so a Person's actions are their
+									own row's business and one Person is open at a time.
+								-->
+								<button
+									type="button"
+									aria-expanded={open}
+									onclick={() => (opened = open ? undefined : account.name)}
+									class="flex w-full items-center gap-3 p-3 text-left"
+								>
 									<span class="min-w-0 flex-1">
 										<span class="block truncate text-body font-medium text-ink">{account.name}</span
 										>
@@ -559,64 +630,88 @@
 											>{m.operator_you()}</span
 										>
 									{/if}
-								</div>
-								<div class="mt-2 flex flex-wrap gap-2">
-									<button
-										type="button"
-										disabled={working}
-										onclick={() => setOperator(account.name, !account.is_operator)}
-										class="min-h-12 rounded-sm border border-accent px-3 text-read font-medium
-									text-accent disabled:opacity-60"
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4 shrink-0 text-ink-2 {open ? 'rotate-90' : ''}"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"
+										stroke-linejoin="round"
 									>
-										{account.is_operator ? m.operator_stand_down() : m.operator_make_operator()}
-									</button>
-									<button
-										type="button"
-										disabled={working}
-										onclick={() => mintRecovery(account.name)}
-										class="min-h-12 rounded-sm border border-rule px-3 text-read font-medium text-ink
-									disabled:opacity-60"
-									>
-										{m.operator_recovery()}
-									</button>
-									{#if !account.disabled}
-										<button
-											type="button"
-											disabled={working}
-											onclick={() => (asking = { kind: 'disable-account', who: account.name })}
-											class="min-h-12 rounded-sm border border-rule px-3 text-read font-medium text-ink
-										disabled:opacity-60"
-										>
-											{m.operator_disable()}
-										</button>
-									{/if}
-									<button
-										type="button"
-										disabled={working}
-										onclick={() => (asking = { kind: 'delete-account', who: account.name })}
-										class="min-h-12 rounded-sm border border-support px-3 text-read font-medium
-									text-support disabled:opacity-60"
-									>
-										{m.operator_delete()}
-									</button>
-								</div>
+										<path d="m9 5 7 7-7 7" />
+									</svg>
+								</button>
+
+								{#if open}
+									<div class="px-3 pb-3">
+										<!--
+											Two by two, so four acts of different weight are
+											read as four and not as a row that happened to
+											wrap. Delete takes the width when there is no
+											Disable beside it — a disabled Person has already
+											been disabled — rather than leaving a hole.
+										-->
+										<div class="grid grid-cols-2 gap-2">
+											<button
+												type="button"
+												disabled={working}
+												onclick={() => setOperator(account.name, !account.is_operator)}
+												class="min-h-12 rounded-sm border border-accent px-3 text-read font-medium
+											text-accent disabled:opacity-60"
+											>
+												{account.is_operator ? m.operator_stand_down() : m.operator_make_operator()}
+											</button>
+											<button
+												type="button"
+												disabled={working}
+												onclick={() => mintRecovery(account.name)}
+												class="min-h-12 rounded-sm border border-rule px-3 text-read font-medium
+											text-ink disabled:opacity-60"
+											>
+												{m.operator_recovery()}
+											</button>
+											{#if !account.disabled}
+												<button
+													type="button"
+													disabled={working}
+													onclick={() => (asking = { kind: 'disable-account', who: account.name })}
+													class="min-h-12 rounded-sm border border-rule px-3 text-read font-medium
+												text-ink disabled:opacity-60"
+												>
+													{m.operator_disable()}
+												</button>
+											{/if}
+											<button
+												type="button"
+												disabled={working}
+												onclick={() => (asking = { kind: 'delete-account', who: account.name })}
+												class="min-h-12 rounded-sm border border-support px-3 text-read font-medium
+											text-support disabled:opacity-60 {account.disabled ? 'col-span-2' : ''}"
+											>
+												{m.operator_delete()}
+											</button>
+										</div>
+
+										<!--
+											A recovery link appears under the Person it belongs
+											to, not at the top of the room. It is shown once, so
+											it has to be where the eye already is.
+										-->
+										{#if recovery && recovery.who === account.name}
+											{@render shownOnce(
+												m.operator_recovery_once({ who: recovery.who }),
+												recovery.link,
+												() => (recovery = undefined),
+											)}
+										{/if}
+									</div>
+								{/if}
 							</li>
 						{/each}
 					</ul>
 
-					<label class="mt-4 flex min-h-12 items-center gap-3">
-						<input type="checkbox" bind:checked={inviteAsOperator} class="h-6 w-6" />
-						<span class="text-body text-ink">{m.operator_invite_as_operator()}</span>
-					</label>
-					<button
-						type="button"
-						disabled={working}
-						onclick={mintInvite}
-						class="mt-2 min-h-12 w-full rounded-sm border border-accent bg-accent px-4 text-body
-					font-medium text-on-accent disabled:opacity-60"
-					>
-						{m.operator_invite()}
-					</button>
 					<p class="mt-2 text-read text-ink-2">{m.settings_operator_boundary()}</p>
 				</Section>
 

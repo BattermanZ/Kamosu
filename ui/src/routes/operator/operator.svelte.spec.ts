@@ -93,6 +93,19 @@ async function openInstance() {
 	await fireEvent.click(await screen.findByRole('tab', { name: 'Instance' }));
 }
 
+/**
+ * Open one Person's actions and hand back their row.
+ *
+ * The four acts a Person can be subject to are their own row's business and
+ * are not on the screen until it is tapped, so every test that reaches for one
+ * comes through here.
+ */
+async function openPerson(name: string) {
+	const row = (await screen.findByText(name)).closest('li') as HTMLElement;
+	await fireEvent.click(within(row).getByRole('button', { expanded: false }));
+	return row;
+}
+
 describe("the Operator's screen", () => {
 	it('shows nothing at all to a Person who is not an Operator', async () => {
 		const { kamosu } = renderScreen(Operator, {
@@ -240,7 +253,7 @@ describe("the Operator's screen", () => {
 		const { kamosu } = renderScreen(Operator, { ...quiet, delete_account: { deleted: true } });
 		await openInstance();
 
-		const camille = (await screen.findByText('Camille')).closest('li') as HTMLElement;
+		const camille = await openPerson('Camille');
 		await fireEvent.click(within(camille).getByRole('button', { name: 'Delete' }));
 
 		const sheet = await screen.findByRole('dialog');
@@ -265,7 +278,7 @@ describe("the Operator's screen", () => {
 		});
 		await openInstance();
 
-		const you = (await screen.findByText('Aurélien')).closest('li') as HTMLElement;
+		const you = await openPerson('Aurélien');
 		await fireEvent.click(within(you).getByRole('button', { name: 'Delete' }));
 		const sheet = await screen.findByRole('dialog');
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Delete the account' }));
@@ -281,8 +294,74 @@ describe("the Operator's screen", () => {
 		await openInstance();
 
 		await fireEvent.click(await screen.findByRole('button', { name: 'Invite someone' }));
-		expect(await screen.findByText('/invite/8f2c1a94e07b')).toBeInTheDocument();
+		// Whole, with the address it is read from in front of it: what is on the
+		// screen is what you send somebody, and `/invite/…` alone is a path.
+		expect(
+			await screen.findByText(`${window.location.origin}/invite/8f2c1a94e07b`),
+		).toBeInTheDocument();
 		expect(screen.getByText(/shown once and never again/i)).toBeInTheDocument();
+	});
+
+	it('keeps a Person\u2019s four acts in their own row, one row open at a time', async () => {
+		renderScreen(Operator, quiet);
+		await openInstance();
+
+		// The list is a list of people first. Four buttons under every one of
+		// them at once is what made this room a page of buttons with the names
+		// lost among them.
+		expect(await screen.findByText('Camille')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Recovery link' })).not.toBeInTheDocument();
+
+		const camille = await openPerson('Camille');
+		expect(within(camille).getByRole('button', { name: 'Recovery link' })).toBeInTheDocument();
+		expect(within(camille).getByRole('button', { name: 'Disable' })).toBeInTheDocument();
+
+		// Opening somebody else closes them, so the screen never grows two sets.
+		await openPerson('Aur\u00e9lien');
+		expect(
+			within(camille).queryByRole('button', { name: 'Recovery link' }),
+		).not.toBeInTheDocument();
+	});
+
+	it('hands over the whole Invite, not the path it was minted as', async () => {
+		const written: string[] = [];
+		Object.assign(navigator, {
+			clipboard: {
+				writeText: (text: string) => {
+					written.push(text);
+					return Promise.resolve();
+				},
+			},
+		});
+		renderScreen(Operator, { ...quiet, mint_invite: { link: '/invite/8f2c1a94e07b' } });
+		await openInstance();
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Invite someone' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Copy the link' }));
+
+		// Forty hex characters selected by dragging on a phone is the failure
+		// this button exists to prevent, so what it hands over is the thing you
+		// can send somebody and not the Core's path.
+		expect(written).toEqual([`${window.location.origin}/invite/8f2c1a94e07b`]);
+		expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+	});
+
+	it('shows a recovery link under the Person it belongs to', async () => {
+		renderScreen(Operator, {
+			...quiet,
+			mint_recovery_link: { link: '/recover/3b71d0ae5c92' },
+		});
+		await openInstance();
+
+		const camille = await openPerson('Camille');
+		await fireEvent.click(within(camille).getByRole('button', { name: 'Recovery link' }));
+
+		// Shown once means shown where the eye already is: at the top of the
+		// room it would be off-screen behind however many people came first.
+		expect(
+			await within(camille).findByText(`${window.location.origin}/recover/3b71d0ae5c92`),
+		).toBeInTheDocument();
+		expect(within(camille).getByText(/recovery link for Camille/i)).toBeInTheDocument();
 	});
 
 	it('raises a Person to Operator and stands one down, by name', async () => {
@@ -292,7 +371,7 @@ describe("the Operator's screen", () => {
 		});
 		await openInstance();
 
-		const camille = (await screen.findByText('Camille')).closest('li') as HTMLElement;
+		const camille = await openPerson('Camille');
 		await fireEvent.click(within(camille).getByRole('button', { name: 'Make an Operator' }));
 		expect(kamosu.calls.find((call) => call.operation === 'set_operator')?.input).toEqual({
 			name: 'Camille',
@@ -300,7 +379,7 @@ describe("the Operator's screen", () => {
 		});
 
 		// Somebody who already administers is offered the other direction.
-		const you = screen.getByText('Aurélien').closest('li') as HTMLElement;
+		const you = await openPerson('Aurélien');
 		expect(within(you).getByRole('button', { name: 'Stand down' })).toBeInTheDocument();
 	});
 
