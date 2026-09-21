@@ -489,7 +489,20 @@
 
 			<ul class="grid gap-4">
 				{#each kitchens as kitchen (kitchen.id)}
-					<li class="rounded-sm border border-rule bg-card p-3">
+					<li class="min-w-0 rounded-sm border border-rule bg-card p-3">
+						<!-- `min-w-0` in three places is what keeps this card inside a
+						     narrow phone (#102). Both a grid item and a flex item take
+						     `min-width: auto`, which means neither will shrink below its
+						     content — and a text box's content is about twenty characters
+						     wide whatever the screen. So the card above refused to narrow
+						     past 308px and shoved the whole page sideways, header and all:
+						     at a 320px viewport the page wanted 328, and a larger iOS text
+						     size widens the same rows further.
+
+						     It has to be on the <li> as well as on the two boxes. Freeing
+						     only the boxes leaves the grid track sized to the card's own
+						     minimum, which is the measurement that was wrong. The labels
+						     keep their words by not stretching at all; only the boxes give. -->
 						<form
 							class="flex items-center gap-2"
 							onsubmit={(event) => {
@@ -504,7 +517,7 @@
 							<input
 								id={`kitchen-name-${kitchen.id}`}
 								name="name"
-								class="min-h-10 flex-1 rounded-sm border border-rule bg-ground px-2 font-semibold text-ink"
+								class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 font-semibold text-ink"
 								value={kitchen.name}
 							/>
 							{#if kitchen.is_home}
@@ -527,13 +540,13 @@
 								setNickname(kitchen.id, input.value);
 							}}
 						>
-							<label class="flex-1 text-label text-ink-2" for={`nickname-${kitchen.id}`}>
+							<label class="shrink-0 text-label text-ink-2" for={`nickname-${kitchen.id}`}>
 								{m.kitchen_nickname_label()}
 							</label>
 							<input
 								id={`nickname-${kitchen.id}`}
 								name="nickname"
-								class="min-h-10 flex-1 rounded-sm border border-rule bg-ground px-2 text-body text-ink"
+								class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 text-body text-ink"
 								placeholder={m.kitchen_nickname_placeholder()}
 								value={kitchen.nickname ?? ''}
 							/>
