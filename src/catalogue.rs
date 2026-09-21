@@ -171,6 +171,48 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::rename_person,
         },
         Operation {
+            name: "list_accounts",
+            summary: "Who holds an account on this instance: their name, \
+                      whether they administer it, and whether the account is \
+                      disabled. Nothing about what they cook — the Operator \
+                      administers and does not read (ADR 0007), so no recipe, \
+                      Attempt or Kitchen of theirs is reachable from here.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            // The same rule the rest of this family follows: administering
+            // accounts is something a person does signed in, never something a
+            // borrowed Access Key does on their behalf (ADR 0007).
+            session_only: true,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "accounts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "is_operator": { "type": "boolean" },
+                                "disabled": { "type": "boolean" },
+                                "is_you": { "type": "boolean" },
+                                "created_at": { "type": "string" },
+                            },
+                            "required": [
+                                "name", "is_operator", "disabled", "is_you", "created_at",
+                            ],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["accounts"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_accounts,
+        },
+        Operation {
             name: "mint_invite",
             summary: "Mint a one-use Invite link for a new Person.",
             permission: Permission::Operator,
@@ -217,6 +259,37 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({ "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"], "additionalProperties": false }),
             output_schema: json!({ "type": "object", "properties": { "link": { "type": "string"} }, "required": ["link"], "additionalProperties": false }),
             handler: crate::operations::mint_recovery_link,
+        },
+        Operation {
+            name: "set_operator",
+            summary: "Make a Person an Operator, or stop them being one. The \
+                      last Operator cannot be demoted (ADR 0007): an instance \
+                      with nobody to administer it can never get one back, so \
+                      the refusal is the point rather than a nicety.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: true,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" },
+                    "is_operator": { "type": "boolean" },
+                },
+                "required": ["name", "is_operator"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string" },
+                    "is_operator": { "type": "boolean" },
+                },
+                "required": ["name", "is_operator"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::set_operator,
         },
         Operation {
             name: "sweep_photographs",
@@ -1302,11 +1375,35 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_share_link,
         },
         Operation {
+            name: "get_public_address",
+            summary: "Where this instance currently says it is reachable from \
+                      outside, or nothing if it has never been asked. The \
+                      Operator's half of `set_public_address`: changing an \
+                      address you cannot see is a guess.",
+            permission: Permission::Operator,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "public_address": { "type": ["string", "null"] } },
+                "required": ["public_address"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::get_public_address,
+        },
+        Operation {
             name: "set_public_address",
-            summary: "Set where this instance is reachable from outside. Kept \
-                      in the database and never in an environment variable, so \
-                      moving an instance is one act that every Share Link \
-                      already minted follows.",
+            summary: "Change where this instance says it is reachable from \
+                      outside. Kept in the database and never in an \
+                      environment variable, so moving an instance is one act \
+                      rather than a redeployment. It fixes the future, not the \
+                      past: Share Links minted after it carry the new address, \
+                      while a link already sent stays the text it was sent as \
+                      and cannot be reissued — only the secret's hash is kept, \
+                      so Kamosu can no longer print that link at all.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,
@@ -4537,11 +4634,17 @@ fn backups_schema() -> Value {
             "type": "object",
             "properties": {
                 "name": { "type": "string" },
-                "tier": { "enum": ["daily", "weekly", "monthly"] },
+                // `slot`, not `tier`: what `backups::Archive` serialises
+                // (src/backups.rs) and what ADR 0039 calls it throughout. The
+                // declaration said `tier` until #103, so the generated client
+                // promised a field the server has never sent — a Backup list
+                // would have rendered a blank where "daily" belongs, while a
+                // stand-in test built on the declaration passed.
+                "slot": { "enum": ["daily", "weekly", "monthly"] },
                 "taken_at": { "type": "string" },
                 "size_bytes": { "type": "integer" },
             },
-            "required": ["name", "tier", "taken_at", "size_bytes"],
+            "required": ["name", "slot", "taken_at", "size_bytes"],
             "additionalProperties": false,
         },
     })

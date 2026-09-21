@@ -87,6 +87,33 @@ pub fn rename_person(core: &Core, invocation: &Invocation, input: Value) -> Resu
     Ok(json!({ "name": name }))
 }
 
+/// Who holds an account here (#103). `is_you` is answered by the Core rather
+/// than left to the screen to work out by matching names, because a name is a
+/// reminder and not identification (ADR 0015).
+pub fn list_accounts(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.list_accounts(&caller.person_id)
+}
+
+/// Make a Person an Operator, or stand them down (#103). The refusal that
+/// protects the last one lives in the Core, under both Doors.
+pub fn set_operator(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "set_operator takes { name, is_operator }";
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let is_operator = input
+        .get("is_operator")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    core.set_operator(name, is_operator)
+}
+
 /// Mint a one-use Invite. The Operator receives the link once; its Secret is
 /// stored only hashed and is spent when a stranger uses it.
 pub fn mint_invite(core: &Core, _invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -1107,6 +1134,17 @@ pub fn get_share_link(
         .ok_or_else(|| OpError::bad_request("get_share_link takes { branch_id }"))?;
     let caller = caller_of(invocation)?;
     core.get_share_link(&caller.person_id, branch_id)
+}
+
+/// Where this instance says it is reachable from outside (#103). The read
+/// half of `set_public_address`, so the screen that changes it can show what
+/// it is changing.
+pub fn get_public_address(
+    core: &Core,
+    _invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    core.get_public_address()
 }
 
 pub fn set_public_address(

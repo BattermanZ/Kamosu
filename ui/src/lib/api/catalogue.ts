@@ -44,6 +44,19 @@ export type RenamePersonOutput = {
 	name: string;
 };
 
+/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt or Kitchen of theirs is reachable from here. */
+export type ListAccountsInput = Record<string, never>;
+/** What list_accounts answers. */
+export type ListAccountsOutput = {
+	accounts: {
+		created_at: string;
+		disabled: boolean;
+		is_operator: boolean;
+		is_you: boolean;
+		name: string;
+	}[];
+};
+
 /** Mint a one-use Invite link for a new Person. */
 export type MintInviteInput = {
 	is_operator?: boolean;
@@ -80,6 +93,17 @@ export type MintRecoveryLinkOutput = {
 	link: string;
 };
 
+/** Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety. */
+export type SetOperatorInput = {
+	is_operator: boolean;
+	name: string;
+};
+/** What set_operator answers. */
+export type SetOperatorOutput = {
+	is_operator: boolean;
+	name: string;
+};
+
 /** Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now. */
 export type SweepPhotographsInput = Record<string, never>;
 /** What sweep_photographs answers. */
@@ -98,8 +122,8 @@ export type TakeBackupOutput = {
 	backups: {
 		name: string;
 		size_bytes: number;
+		slot: "daily" | "weekly" | "monthly";
 		taken_at: string;
-		tier: "daily" | "weekly" | "monthly";
 	}[];
 	taken: string[];
 };
@@ -111,8 +135,8 @@ export type ListBackupsOutput = {
 	backups: {
 		name: string;
 		size_bytes: number;
+		slot: "daily" | "weekly" | "monthly";
 		taken_at: string;
-		tier: "daily" | "weekly" | "monthly";
 	}[];
 };
 
@@ -1478,7 +1502,14 @@ export type GetShareLinkOutput = {
 	url: string | null;
 };
 
-/** Set where this instance is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act that every Share Link already minted follows. */
+/** Where this instance currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+export type GetPublicAddressInput = Record<string, never>;
+/** What get_public_address answers. */
+export type GetPublicAddressOutput = {
+	public_address: string | null;
+};
+
+/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as and cannot be reissued — only the secret's hash is kept, so Kamosu can no longer print that link at all. */
 export type SetPublicAddressInput = {
 	public_address: string;
 };
@@ -3489,6 +3520,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	list_accounts: {
+		input: ListAccountsInput;
+		output: ListAccountsOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
 	mint_invite: {
 		input: MintInviteInput;
 		output: MintInviteOutput;
@@ -3510,6 +3547,12 @@ export interface Operations {
 	mint_recovery_link: {
 		input: MintRecoveryLinkInput;
 		output: MintRecoveryLinkOutput;
+		kind: 'immediate';
+		permission: 'operator';
+	};
+	set_operator: {
+		input: SetOperatorInput;
+		output: SetOperatorOutput;
 		kind: 'immediate';
 		permission: 'operator';
 	};
@@ -3800,6 +3843,12 @@ export interface Operations {
 		output: GetShareLinkOutput;
 		kind: 'immediate';
 		permission: 'person';
+	};
+	get_public_address: {
+		input: GetPublicAddressInput;
+		output: GetPublicAddressOutput;
+		kind: 'immediate';
+		permission: 'operator';
 	};
 	set_public_address: {
 		input: SetPublicAddressInput;
@@ -4213,6 +4262,57 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "list_accounts",
+		"summary": "Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt or Kitchen of theirs is reachable from here.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"accounts": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"disabled": {
+								"type": "boolean"
+							},
+							"is_operator": {
+								"type": "boolean"
+							},
+							"is_you": {
+								"type": "boolean"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"name",
+							"is_operator",
+							"disabled",
+							"is_you",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"accounts"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "mint_invite",
 		"summary": "Mint a one-use Invite link for a new Person.",
 		"permission": "operator",
@@ -4331,6 +4431,44 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "set_operator",
+		"summary": "Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"is_operator": {
+					"type": "boolean"
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name",
+				"is_operator"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"is_operator": {
+					"type": "boolean"
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"name",
+				"is_operator"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "sweep_photographs",
 		"summary": "Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now.",
 		"permission": "operator",
@@ -4395,20 +4533,20 @@ export const CATALOGUE = [
 							"size_bytes": {
 								"type": "integer"
 							},
-							"taken_at": {
-								"type": "string"
-							},
-							"tier": {
+							"slot": {
 								"enum": [
 									"daily",
 									"weekly",
 									"monthly"
 								]
+							},
+							"taken_at": {
+								"type": "string"
 							}
 						},
 						"required": [
 							"name",
-							"tier",
+							"slot",
 							"taken_at",
 							"size_bytes"
 						],
@@ -4453,20 +4591,20 @@ export const CATALOGUE = [
 							"size_bytes": {
 								"type": "integer"
 							},
-							"taken_at": {
-								"type": "string"
-							},
-							"tier": {
+							"slot": {
 								"enum": [
 									"daily",
 									"weekly",
 									"monthly"
 								]
+							},
+							"taken_at": {
+								"type": "string"
 							}
 						},
 						"required": [
 							"name",
-							"tier",
+							"slot",
 							"taken_at",
 							"size_bytes"
 						],
@@ -11342,8 +11480,34 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "get_public_address",
+		"summary": "Where this instance currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess.",
+		"permission": "operator",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"public_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"public_address"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "set_public_address",
-		"summary": "Set where this instance is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act that every Share Link already minted follows.",
+		"summary": "Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as and cannot be reissued — only the secret's hash is kept, so Kamosu can no longer print that link at all.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -21541,6 +21705,7 @@ export const CATALOGUE = [
 export const READS: readonly OperationName[] = [
 	'instance_status',
 	'get_reading_preferences',
+	'list_accounts',
 	'list_backups',
 	'list_sessions',
 	'list_access_keys',
@@ -21553,6 +21718,7 @@ export const READS: readonly OperationName[] = [
 	'get_recipe',
 	'get_thread',
 	'get_share_link',
+	'get_public_address',
 	'export_bundle',
 	'read_shared_recipe',
 	'branch_point',
@@ -21576,10 +21742,12 @@ export const METHOD_NAMES = {
 	set_reading_preferences: 'setReadingPreferences',
 	get_reading_preferences: 'getReadingPreferences',
 	rename_person: 'renamePerson',
+	list_accounts: 'listAccounts',
 	mint_invite: 'mintInvite',
 	disable_account: 'disableAccount',
 	delete_account: 'deleteAccount',
 	mint_recovery_link: 'mintRecoveryLink',
+	set_operator: 'setOperator',
 	sweep_photographs: 'sweepPhotographs',
 	take_backup: 'takeBackup',
 	list_backups: 'listBackups',
@@ -21628,6 +21796,7 @@ export const METHOD_NAMES = {
 	share_recipe: 'shareRecipe',
 	end_share_link: 'endShareLink',
 	get_share_link: 'getShareLink',
+	get_public_address: 'getPublicAddress',
 	set_public_address: 'setPublicAddress',
 	export_bundle: 'exportBundle',
 	make_sheet: 'makeSheet',
@@ -21682,6 +21851,8 @@ export interface KamosuClient {
 	getReadingPreferences(input?: GetReadingPreferencesInput): Promise<Answer<'get_reading_preferences'>>;
 	/** Change this Person's current reminder name. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
+	/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt or Kitchen of theirs is reachable from here. */
+	listAccounts(input?: ListAccountsInput): Promise<Answer<'list_accounts'>>;
 	/** Mint a one-use Invite link for a new Person. */
 	mintInvite(input: MintInviteInput): Promise<Answer<'mint_invite'>>;
 	/** Disable an account so it can no longer obtain a Credential. */
@@ -21690,6 +21861,8 @@ export interface KamosuClient {
 	deleteAccount(input: DeleteAccountInput): Promise<Answer<'delete_account'>>;
 	/** Mint a one-use recovery link for a Person who forgot their password. */
 	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
+	/** Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety. */
+	setOperator(input: SetOperatorInput): Promise<Answer<'set_operator'>>;
 	/** Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now. */
 	sweepPhotographs(input?: SweepPhotographsInput): Promise<Answer<'sweep_photographs'>>;
 	/** Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>. */
@@ -21786,7 +21959,9 @@ export interface KamosuClient {
 	endShareLink(input: EndShareLinkInput): Promise<Answer<'end_share_link'>>;
 	/** Whether a Recipe is shared, and by whom. The link's URL is answered only at the moment it is minted, since only the Secret's hash is stored — so this says a link exists without being able to reprint it. */
 	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
-	/** Set where this instance is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act that every Share Link already minted follows. */
+	/** Where this instance currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+	getPublicAddress(input?: GetPublicAddressInput): Promise<Answer<'get_public_address'>>;
+	/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as and cannot be reissued — only the secret's hash is kept, so Kamosu can no longer print that link at all. */
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;

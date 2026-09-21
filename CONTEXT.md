@@ -65,7 +65,7 @@ A **Secret** a Person mints for an agent to act with — named, revocable on its
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator**:
-A Person who also administers the instance: minting Invites, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, merging Foods and deleting one nothing points at, deleting a Kitchen nobody is left in, and taking and fetching a **Backup**. Nothing beyond that list — no Operator can read another Person's recipes or Attempts. More than one is allowed and the last cannot be demoted. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
+A Person who also administers the instance: seeing who holds an account, minting Invites, raising a Person to Operator and standing one down, disabling and deleting accounts, resetting a forgotten password, setting the Vault root, changing the instance's public address, merging Foods and deleting one nothing points at, sweeping Photographs nothing points at, deleting a Kitchen nobody is left in, and taking and fetching a **Backup**. Nothing beyond that list — no Operator can read another Person's recipes or Attempts, and seeing who holds an account is a list of names and nothing about what they cook. More than one is allowed and the last cannot be demoted, disabled or deleted, because an instance with nobody to administer it can never appoint anybody. That this is a courtesy rather than a wall is said plainly, because whoever holds the disk holds everything.
 _Avoid_: Admin, root, superuser, owner, host
 
 ### Doing and permission

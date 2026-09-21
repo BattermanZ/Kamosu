@@ -4745,6 +4745,186 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     );
 }
 
+/// The instance keeps somebody able to administer it (#103, ADR 0007).
+///
+/// Every Operation that could appoint an Operator is one only an Operator may
+/// call, so an instance that loses its last one cannot be given another
+/// through either Door. Until #103 none of these three acts was refused, and
+/// the first `delete_account` a curious Operator typed at `curl` would have
+/// ended the instance's administration permanently.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_last_operator_cannot_be_stood_down_disabled_or_deleted() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
+
+    // A second Person who is not an Operator changes nothing: the instance
+    // still has exactly one Person who can administer it.
+    let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
+    let marie = json!({ "link": invite["result"]["link"], "name": "Marie", "password": "her password", "session_name": "Marie’s browser" });
+    assert_eq!(app.post_auth("/auth/invite", &marie.to_string()).0, 200);
+
+    for (op, body) in [
+        ("set_operator", r#"{"name":"Aurélien","is_operator":false}"#),
+        ("disable_account", r#"{"name":"Aurélien"}"#),
+        ("delete_account", r#"{"name":"Aurélien"}"#),
+    ] {
+        let (status, refused) = app.post_op(op, Some(operator_secret), body);
+        assert_eq!(status, 400, "{op} must refuse the last Operator: {refused}");
+        let said = refused["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            said.contains("only Operator"),
+            "{op}'s refusal must say why, and said: {said}"
+        );
+    }
+
+    // The refusals left the instance exactly as it was.
+    assert_eq!(
+        app.post_auth(
+            "/auth/login",
+            &json!({ "name":"Aurélien", "password":"operator password", "session_name":"laptop" })
+                .to_string()
+        )
+        .0,
+        200,
+        "a refused deletion must not have ended the account anyway"
+    );
+    let (status, listed) = app.post_op("list_accounts", Some(operator_secret), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let operators = listed["result"]["accounts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|account| account["is_operator"] == json!(true))
+        .count();
+    assert_eq!(operators, 1, "the one Operator is still an Operator");
+}
+
+/// Once somebody else holds it, an Operator may hand it over and step down —
+/// which is the world ADR 0007's "the last cannot be demoted" describes, and
+/// which nothing in the Catalogue could do before #103.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_operator_may_step_down_once_somebody_else_administers() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
+
+    let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
+    let noor = json!({ "link": invite["result"]["link"], "name": "Noor", "password": "her password", "session_name": "Noor’s browser" });
+    let joined = app.post_auth_response("/auth/invite", &noor.to_string());
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    let noor_secret = support::session_cookie_secret(&joined);
+    let noor_secret = noor_secret.as_str();
+
+    // She arrived an ordinary Person, so the screen is not hers to open.
+    let (status, _) = app.post_op("list_accounts", Some(noor_secret), "{}");
+    assert_eq!(
+        status, 401,
+        "a Person who is not an Operator sees nothing here"
+    );
+
+    let (status, raised) = app.post_op(
+        "set_operator",
+        Some(operator_secret),
+        r#"{"name":"Noor","is_operator":true}"#,
+    );
+    assert_eq!(status, 200, "{raised}");
+    assert_eq!(raised["result"]["is_operator"], json!(true));
+    assert_eq!(
+        app.post_op("list_accounts", Some(noor_secret), "{}").0,
+        200,
+        "an Operation's permission is read live, so she may open it at once"
+    );
+
+    // Now that Noor holds it too, Aurélien may stand himself down.
+    let (status, stood_down) = app.post_op(
+        "set_operator",
+        Some(operator_secret),
+        r#"{"name":"Aurélien","is_operator":false}"#,
+    );
+    assert_eq!(status, 200, "{stood_down}");
+    assert_eq!(
+        app.post_op("list_accounts", Some(operator_secret), "{}").0,
+        401,
+        "he administers nothing now, and the Core says so rather than the screen"
+    );
+
+    // And Noor is now the last one, so the guard has simply moved to her.
+    let (status, refused) = app.post_op(
+        "set_operator",
+        Some(noor_secret),
+        r#"{"name":"Noor","is_operator":false}"#,
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+/// The accounts list names who is here and says nothing about what they cook
+/// (#103, ADR 0007 — the Operator administers and does not read).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_accounts_list_names_who_is_here_and_nothing_they_cooked() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
+
+    for who in ["Camille", "Théo"] {
+        let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
+        let joining = json!({ "link": invite["result"]["link"], "name": who, "password": "their password", "session_name": "a browser" });
+        assert_eq!(app.post_auth("/auth/invite", &joining.to_string()).0, 200);
+    }
+    assert_eq!(
+        app.post_op(
+            "disable_account",
+            Some(operator_secret),
+            r#"{"name":"Théo"}"#
+        )
+        .0,
+        200
+    );
+
+    let (status, listed) = app.post_op("list_accounts", Some(operator_secret), "{}");
+    assert_eq!(status, 200, "{listed}");
+    let accounts = listed["result"]["accounts"].as_array().unwrap();
+    assert_eq!(accounts.len(), 3, "{listed}");
+
+    let named = |who: &str| -> serde_json::Value {
+        accounts
+            .iter()
+            .find(|account| account["name"] == json!(who))
+            .unwrap_or_else(|| panic!("'{who}' is missing from {listed}"))
+            .clone()
+    };
+    assert_eq!(named("Aurélien")["is_operator"], json!(true));
+    assert_eq!(
+        named("Aurélien")["is_you"],
+        json!(true),
+        "the Core says which one is the caller — a name is a reminder, not \
+         identification (ADR 0015)"
+    );
+    assert_eq!(named("Camille")["is_operator"], json!(false));
+    assert_eq!(named("Camille")["is_you"], json!(false));
+    assert_eq!(
+        named("Théo")["disabled"],
+        json!(true),
+        "a disabled account is still shown — it is the Operator's to undo"
+    );
+
+    // ADR 0007's boundary, asserted rather than assumed: nothing here is a way
+    // into anybody's cooking.
+    let words = listed.to_string();
+    for forbidden in ["branch", "recipe", "attempt", "kitchen"] {
+        assert!(
+            !words.to_lowercase().contains(forbidden),
+            "the accounts list must carry no '{forbidden}': {listed}"
+        );
+    }
+}
+
 // --- The Attempt and In Progress (issue #57) ----------------------------------
 
 /// A Recipe with real Ingredients and Steps to advance through, in a fresh

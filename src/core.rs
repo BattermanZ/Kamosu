@@ -887,16 +887,115 @@ impl Core {
         Ok(json!({"session_id":session.id,"_session_secret":session.secret}))
     }
 
+    /// Who holds an account here (#103). Names only, with the two facts an
+    /// Operator administers by: whether they administer too, and whether the
+    /// account still opens. Nothing about what anybody cooks — ADR 0007's
+    /// boundary is kept by this query answering no question about a recipe, an
+    /// Attempt or a Kitchen, rather than by a screen choosing not to ask.
+    ///
+    /// Only password-bearing rows are people who can sign in — the unique
+    /// index of migration 4 is on exactly those — so the list matches what
+    /// `disable_account` and its siblings can act on by name.
+    pub fn list_accounts(&self, caller_person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT id, name, is_operator, disabled, created_at FROM people \
+                      WHERE deleted = 0 AND password_hash IS NOT NULL \
+                      ORDER BY is_operator DESC, name COLLATE NOCASE",
+                )
+                .map_err(|e| OpError::internal(format!("cannot list accounts: {e}")))?;
+            let rows = statement
+                .query_map([], |row| {
+                    let id: String = row.get(0)?;
+                    Ok(json!({
+                        "name": row.get::<_, String>(1)?,
+                        "is_operator": row.get::<_, i64>(2)? != 0,
+                        "disabled": row.get::<_, i64>(3)? != 0,
+                        "is_you": id == caller_person_id,
+                        "created_at": row.get::<_, String>(4)?,
+                    }))
+                })
+                .map_err(|e| OpError::internal(format!("cannot list accounts: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| OpError::internal(format!("cannot list accounts: {e}")))?;
+            Ok(json!({ "accounts": rows }))
+        })
+    }
+
+    /// Make a Person an Operator, or stand them down (#103).
+    ///
+    /// Taken under `BEGIN IMMEDIATE` so the last-Operator guard cannot be
+    /// raced: two Operators standing each other down at the same instant would
+    /// both read "somebody else remains" and both be right, and the instance
+    /// would end up with nobody.
+    pub fn set_operator(&self, name: &str, is_operator: bool) -> Result<Value, OpError> {
+        let name = required_text(name, "name")?;
+        self.db().with_conn(|conn| {
+            conn.execute_batch("BEGIN IMMEDIATE")
+                .map_err(|e| OpError::internal(e.to_string()))?;
+            let result = (|| -> Result<Value, OpError> {
+                if !is_operator {
+                    ensure_an_operator_remains(conn, name, "standing them down")?;
+                }
+                let changed = conn
+                    .execute(
+                        "UPDATE people SET is_operator = ?1 WHERE name = ?2 AND deleted = 0",
+                        params![is_operator as i64, name],
+                    )
+                    .map_err(|e| {
+                        OpError::internal(format!("cannot change who administers: {e}"))
+                    })?;
+                if changed == 0 {
+                    return Err(OpError::not_found(format!("no active Person '{name}'")));
+                }
+                Ok(json!({ "name": name, "is_operator": is_operator }))
+            })();
+            match result {
+                Ok(value) => {
+                    conn.execute_batch("COMMIT")
+                        .map_err(|e| OpError::internal(e.to_string()))?;
+                    Ok(value)
+                }
+                Err(error) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(error)
+                }
+            }
+        })
+    }
+
     pub fn end_account(&self, name: &str, deleted: bool) -> Result<(), OpError> {
         let name = required_text(name, "name")?;
         self.db().with_conn(|conn| {
-            let changed = conn.execute("UPDATE people SET disabled = 1, deleted = CASE WHEN ?1 THEN 1 ELSE deleted END WHERE name = ?2 AND deleted = 0", params![deleted as i64, name])
-                .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
-            if changed == 0 { return Err(OpError::not_found(format!("no active Person '{name}'"))); }
-            conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
-            conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
-            if deleted { conn.execute("DELETE FROM kitchen_members WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?; }
-            Ok(())
+            conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
+            let result = (|| -> Result<(), OpError> {
+                // #103: an instance whose last Operator is ended can never
+                // appoint another, because every Operation that could is one
+                // only an Operator may call. Guarded here in the Core, where
+                // both Doors inherit it, rather than in the screen that shows
+                // the refusal.
+                ensure_an_operator_remains(
+                    conn,
+                    name,
+                    if deleted {
+                        "deleting the account"
+                    } else {
+                        "disabling their account"
+                    },
+                )?;
+                let changed = conn.execute("UPDATE people SET disabled = 1, deleted = CASE WHEN ?1 THEN 1 ELSE deleted END WHERE name = ?2 AND deleted = 0", params![deleted as i64, name])
+                    .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
+                if changed == 0 { return Err(OpError::not_found(format!("no active Person '{name}'"))); }
+                conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
+                conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
+                if deleted { conn.execute("DELETE FROM kitchen_members WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?; }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string())),
+                Err(error) => { let _ = conn.execute_batch("ROLLBACK"); Err(error) }
+            }
         })
     }
 
@@ -5571,15 +5670,18 @@ impl Core {
                 return share_link_summary(conn, Some(live), None);
             }
 
-            // The address is required at the first Share Link and never after:
-            // a link is stored as a token, so an instance that learns its
-            // address later renders every link already minted correctly.
+            // The address is required at the first Share Link and never
+            // after, because a link is stored as a token: this instance goes
+            // on serving every link it ever minted whatever address reaches
+            // it. That is not the same as a link already *sent* following a
+            // change of address — it cannot, and `set_public_address` says why
+            // (#103).
             if stored_public_address(conn)?.is_none() {
                 return Err(OpError::bad_request(
                     "this instance has no public address yet, and a Share Link needs one to be \
                      an address somebody can open. Send it with this Operation as \
-                     `public_address` — it is stored once, and every link already minted \
-                     renders against it.",
+                     `public_address` — it is stored once, and every link minted \
+                     afterwards is built against it.",
                 ));
             }
 
@@ -5710,12 +5812,31 @@ impl Core {
         Ok(drawn)
     }
 
+    /// What is stored, or `null` where nothing is (#103). Null is an ordinary
+    /// answer rather than an error: an instance that has never minted a Share
+    /// Link has never been asked, and that is the state most instances are in.
+    pub fn get_public_address(&self) -> Result<Value, OpError> {
+        self.db()
+            .with_conn(|conn| Ok(json!({ "public_address": stored_public_address(conn)? })))
+    }
+
     /// The instance's public address, set by the Operator.
     ///
     /// Separate from `share_recipe`'s one-time offer because moving an instance
-    /// to a new address is a deliberate act taken long after the first link,
-    /// and every link already minted must follow it — which is exactly what
-    /// storing a token rather than a URL buys.
+    /// to a new address is a deliberate act taken long after the first link.
+    ///
+    /// **It fixes the future, not the past** (#103). This said the opposite
+    /// until then — that every link already minted "must follow it, which is
+    /// exactly what storing a token rather than a URL buys" — and that is
+    /// false. A Share Link is `<address>/s/<secret>`; only the secret's *hash*
+    /// is kept (`share_link_summary`) and a visitor is looked up by that hash
+    /// alone (`read_shared_recipe`), the address never entering the lookup. So
+    /// a link already sent is a string in somebody else's phone that nothing
+    /// here can reach; if the old address stops resolving it is dead; and
+    /// Kamosu cannot reissue it, having discarded the secret at minting. What
+    /// storing a token rather than a URL actually buys is that the *instance*
+    /// keeps serving every link it ever minted, at whatever address reaches
+    /// it — not that a link already handed out changes its own text.
     pub fn set_public_address(&self, address: &str) -> Result<Value, OpError> {
         let address = normalise_public_address(address)?;
         self.db().with_conn(|conn| {
@@ -10031,6 +10152,54 @@ fn share_link_summary(
         "created_at": created_at,
         "public_address": address,
     }))
+}
+
+/// Refuse an act that would leave this instance with no Operator (#103).
+///
+/// ADR 0007 puts it as *the last cannot be demoted*, and the same sentence has
+/// to cover disabling and deleting: an Operator who cannot sign in administers
+/// nothing. All three end at the same place, and it is a place with no way
+/// back — every Operation that could appoint an Operator is one only an
+/// Operator may call, so an instance that loses its last one cannot be given
+/// another through either Door. The disk is the only remedy, which is precisely
+/// the position ADR 0007 says a self-hosted app should be honest about rather
+/// than walk its owner into.
+///
+/// `act` names what was being attempted, so the refusal reads as a sentence
+/// about what they did rather than a rule number.
+fn ensure_an_operator_remains(conn: &Connection, name: &str, act: &str) -> Result<(), OpError> {
+    let is_operator: Option<bool> = conn
+        .query_row(
+            "SELECT is_operator FROM people WHERE name = ?1 AND deleted = 0",
+            params![name],
+            |row| row.get::<_, i64>(0).map(|held| held != 0),
+        )
+        .optional()
+        .map_err(|e| {
+            OpError::internal(format!("cannot read whether '{name}' is an Operator: {e}"))
+        })?;
+    // Somebody who is not an Operator, and somebody who is not here at all,
+    // are both no threat to the last one. The second is left to the caller's
+    // own "no active Person" answer rather than pre-empted here.
+    if is_operator != Some(true) {
+        return Ok(());
+    }
+    let others: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM people \
+              WHERE is_operator = 1 AND disabled = 0 AND deleted = 0 AND name <> ?1",
+            params![name],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot count this instance's Operators: {e}")))?;
+    if others == 0 {
+        return Err(OpError::bad_request(format!(
+            "'{name}' is the only Operator this instance has, and {act} would leave it with \
+             nobody able to administer it and no way to appoint anybody. Make somebody else \
+             an Operator first."
+        )));
+    }
+    Ok(())
 }
 
 /// A Person's name, looked up live (CONTEXT.md, "Hand").

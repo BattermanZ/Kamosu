@@ -43,6 +43,7 @@ fn arguments_for(name: &str) -> Value {
         "remove_kitchen_member" => json!({ "kitchen_id": "k_parity", "person_id": "p_parity" }),
         "delete_kitchen" => json!({ "kitchen_id": "k_parity" }),
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
+        "set_operator" => json!({ "name": "Parity", "is_operator": true }),
         "create_recipe" => json!({ "kitchen_id": "k_parity", "title": "Parity Recipe" }),
         "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
         "read_pasted_recipe" => json!({ "text": "Parity Recipe\n\n1 tsp salt\nStir it in." }),
@@ -115,6 +116,8 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "remove_kitchen_member"
             | "delete_kitchen"
             | "mint_invite"
+            | "list_accounts"
+            | "set_operator"
             | "disable_account"
             | "delete_account"
             | "mint_recovery_link"
@@ -180,6 +183,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "share_recipe"
             | "end_share_link"
             | "get_share_link"
+            | "get_public_address"
             | "set_public_address"
             | "get_shopping_list"
             | "shopping_basis"
@@ -287,6 +291,8 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "remove_kitchen_member"
                 | "delete_kitchen"
                 | "mint_invite"
+                | "list_accounts"
+                | "set_operator"
                 | "disable_account"
                 | "delete_account"
                 | "mint_recovery_link"
@@ -352,6 +358,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "share_recipe"
                 | "end_share_link"
                 | "get_share_link"
+                | "get_public_address"
                 | "set_public_address"
                 | "read_shared_recipe"
                 | "get_shopping_list"
