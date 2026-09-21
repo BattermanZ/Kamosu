@@ -398,7 +398,31 @@ describe('writing a recipe', () => {
 		expect(input?.note).toBeNull();
 	});
 
-	it('carries the Nutrition figure through untouched, since it is #84’s to edit', async () => {
+	/**
+	 * THE FIGURE IS TYPED WHERE IT IS READ (#84): at the foot of the
+	 * Ingredients, which is the treatment Aurélien chose on 21 September 2026
+	 * for both surfaces. Reading and writing share it rather than each making
+	 * their own choice.
+	 *
+	 * The basis is typed with the number and is not a setting. 308 says nothing
+	 * until it says what it counts, and the two do not convert into each other
+	 * without a weight a recipe does not carry (CONTEXT.md, "Nutrition").
+	 */
+	it('types the figure at the foot of the Ingredients, with what it counts', async () => {
+		const { kamosu } = renderWriting();
+
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Nutrition, in kcal' }), {
+			target: { value: '308' },
+		});
+		await fireEvent.change(screen.getByRole('combobox', { name: 'What the figure counts' }), {
+			target: { value: 'per_100g' },
+		});
+
+		await saveThrough(/Save onto mine/);
+		expect(sent(kamosu)?.nutrition).toEqual({ calories: 308, basis: 'per_100g' });
+	});
+
+	it('opens on the figure the recipe already carries', async () => {
 		const onSaved = vi.fn();
 		const kamosu = standIn({ ...KITCHENS, ...SAVED });
 		const held = content();
@@ -407,9 +431,50 @@ describe('writing a recipe', () => {
 			props: { client: kamosu.client, content: held, kitchenId: 'k_mine', onSaved },
 		});
 
-		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		expect(await screen.findByRole('textbox', { name: 'Nutrition, in kcal' })).toHaveValue('308');
+		expect(screen.getByRole('combobox', { name: 'What the figure counts' })).toHaveValue(
+			'per_serving',
+		);
+		// Opening the screen and saving changes nothing it did not touch.
 		await saveThrough(/Save onto mine/);
 		expect(sent(kamosu)?.nutrition).toEqual({ calories: 308, basis: 'per_serving' });
+	});
+
+	it('sends nothing rather than a zero where the figure is left blank', async () => {
+		// A field holding nothing is no part of the fingerprint (ADR 0038), and
+		// a zero would be a claim this recipe has no calories in it.
+		const { kamosu } = renderWriting();
+
+		await screen.findByRole('textbox', { name: 'Nutrition, in kcal' });
+		await saveThrough(/Save onto mine/);
+		expect(sent(kamosu)?.nutrition).toBeNull();
+	});
+
+	it('empties a figure the recipe carried when it is cleared', async () => {
+		const onSaved = vi.fn();
+		const kamosu = standIn({ ...KITCHENS, ...SAVED });
+		const held = content();
+		held.nutrition = { calories: 308, basis: 'per_serving' };
+		render(WritingTestHarness, {
+			props: { client: kamosu.client, content: held, kitchenId: 'k_mine', onSaved },
+		});
+
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Nutrition, in kcal' }), {
+			target: { value: '' },
+		});
+		await saveThrough(/Save onto mine/);
+		expect(sent(kamosu)?.nutrition).toBeNull();
+	});
+
+	it('will not let a Nutrition figure that is not a number be dropped in silence', async () => {
+		const { kamosu } = renderWriting();
+
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Nutrition, in kcal' }), {
+			target: { value: 'quite a lot' },
+		});
+
+		expect(await screen.findByText(/Nutrition figure has to be a number/i)).toBeInTheDocument();
+		expect(sent(kamosu)).toBeUndefined();
 	});
 
 	it('says it is writing a Version onto yours, and asks the two optional things', async () => {

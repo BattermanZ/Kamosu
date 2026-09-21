@@ -130,6 +130,7 @@
 		draftVersion,
 		reading,
 		fieldText,
+		nutritionText,
 		rowKey,
 		type Side,
 		type Taken,
@@ -749,6 +750,13 @@
 					<p class="mt-1 px-gutter text-read text-accent">{markOf(name)}</p>
 				{/if}
 			{/each}
+			<!--
+			`nutrition` is deliberately absent from that loop. Its mark goes with
+			the figure, at the foot of the Ingredients, because that is where
+			Aurélien put the figure (#84) and a mark separated from the thing it
+			marks is a sentence about nothing.
+		-->
+
 			{#if onlyKept && keptOn}
 				<p class="mt-3 px-gutter text-read text-ink-2">
 					{m.offline_kept_from({ date: keptOn.toLocaleDateString() })}
@@ -1048,6 +1056,29 @@
 					{/each}
 				{/if}
 			</ul>
+
+			<!--
+			THE NUTRITION FIGURE CLOSES THE LIST (#84). Aurélien chose this on
+			21 September 2026 against four treatments drawn on both surfaces —
+			a fourth cell in the meta strip, a line directly under the strip,
+			this, and a place beside the Source. The list is where what goes
+			into the dish is already the subject, and the strip keeps the three
+			cells #81 gave it rather than being squeezed to four on a phone.
+
+			It always says what it counts: 308 on its own says nothing, and a
+			serving and 100 g do not convert into each other without a weight
+			the recipe does not carry (CONTEXT.md, "Nutrition"). Most recipes
+			carry no figure, and then there is nothing here at all — no dash, no
+			placeholder and no zero, because zero would be a claim.
+		-->
+			{#if nutritionText(content.nutrition ?? null)}
+				<p class="mt-3 px-gutter text-read text-ink-2">
+					{nutritionText(content.nutrition ?? null)}
+				</p>
+			{/if}
+			{#if markOf('nutrition')}
+				<p class="mt-1 px-gutter text-read text-accent">{markOf('nutrition')}</p>
+			{/if}
 
 			<!-- Method ----------------------------------------------------------- -->
 			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">

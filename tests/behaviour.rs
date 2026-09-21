@@ -11934,6 +11934,71 @@ async fn a_share_carries_the_whole_chain_back_to_the_first_version() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_share_link_page_closes_the_ingredients_with_the_nutrition_figure() {
+    // #84: the figure is one of the recipe's own words, so it travels with the
+    // recipe and a stranger holding a link reads it. Aurélien chose the foot of
+    // the Ingredients on 21 September 2026, against four treatments drawn on
+    // this page and on the app's. It always says what it counts — 308 says
+    // nothing on its own — and most recipes carry none at all.
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Katsu Curry" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // A recipe with no figure, which is the ordinary case: nothing is said.
+    let (token, _url) = share(&app, &key, &branch_id);
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200, "{page}");
+    assert!(
+        !page.contains("kcal"),
+        "a recipe with no figure shows no placeholder: {page}"
+    );
+
+    // Per serving.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Katsu Curry",
+            "ingredients": [{ "kind": "ingredient", "text": "2 chicken thighs" }],
+            "nutrition": { "calories": 308, "basis": "per_serving" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("308 kcal a serving"), "{page}");
+    // At the foot of the list: after the last Ingredient Line, before Method.
+    let figure = page.find("308 kcal a serving").expect("the figure");
+    assert!(page.find("2 chicken thighs").expect("the line") < figure);
+    assert!(figure < page.find(">Method<").expect("the heading"));
+
+    // Per 100 g says so instead, in the same place.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Katsu Curry",
+            "ingredients": [{ "kind": "ingredient", "text": "2 chicken thighs" }],
+            "nutrition": { "calories": 154, "basis": "per_100g" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(page.contains("154 kcal per 100 g"), "{page}");
+    assert!(!page.contains("kcal a serving"), "the basis is not guessed");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_share_link_is_not_a_key_to_the_instance() {
     let app = support::spawn_app();
     let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");

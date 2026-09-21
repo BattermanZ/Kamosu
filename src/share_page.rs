@@ -189,6 +189,13 @@ struct Words {
     ended_body: &'static str,
     min_prep: &'static str,
     min_cook: &'static str,
+    /// The Nutrition figure at the foot of the Ingredients (#84), in its two
+    /// bases. `{n}` is the number. A phrase rather than a label, because the
+    /// figure has to say what it counts wherever it appears: 308 on its own
+    /// says nothing, and a serving and 100 g do not convert into each other
+    /// without a weight the recipe does not carry.
+    kcal_serving: &'static str,
+    kcal_100g: &'static str,
     not_yet: &'static str,
     /// The heading over a Component's own Steps (#50), beside `ingredients` and
     /// `method` because it is the same kind of thing: a label this page writes.
@@ -231,6 +238,8 @@ const EN: Words = Words {
                  address no longer opens it.",
     min_prep: "min prep",
     min_cook: "min cook",
+    kcal_serving: "{n} kcal a serving",
+    kcal_100g: "{n} kcal per 100 g",
     not_yet: "Not built yet",
     component_method: "its own method",
     component_method_below: "Its method is at the foot of the page ↓",
@@ -263,6 +272,8 @@ const FR: Words = Words {
                  recette, mais cette adresse ne l'ouvre plus.",
     min_prep: "min prép.",
     min_cook: "min cuisson",
+    kcal_serving: "{n} kcal par portion",
+    kcal_100g: "{n} kcal pour 100 g",
     not_yet: "Pas encore disponible",
     component_method: "sa propre préparation",
     component_method_below: "Sa préparation est en bas de page ↓",
@@ -295,6 +306,8 @@ const ES: Words = Words {
                  pero esta dirección ya no la abre.",
     min_prep: "min prep.",
     min_cook: "min cocción",
+    kcal_serving: "{n} kcal por ración",
+    kcal_100g: "{n} kcal por 100 g",
     not_yet: "Aún no disponible",
     component_method: "su propia preparación",
     component_method_below: "Su preparación está al pie de la página ↓",
@@ -631,6 +644,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
       {meta}
       <h2 class="mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">{ingredients_heading}</h2>
       <ul>{ingredients}</ul>
+      {nutrition}
       <h2 class="mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">{method_heading}</h2>
       <ol>{steps}</ol>
       {annexes}
@@ -669,6 +683,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         meta = meta(content, words),
         ingredients_heading = escape(words.ingredients),
         ingredients = ingredients(content, carried, words),
+        nutrition = nutrition(content, words),
         method_heading = escape(words.method),
         steps = steps(content),
         annexes = annexes(carried, words),
@@ -838,6 +853,44 @@ fn meta(content: &Value, words: &Words) -> String {
     format!(
         r#"<div class="flex border-y border-rule">{}</div>"#,
         cells.join("")
+    )
+}
+
+/// **The Nutrition figure, closing the Ingredients** (#84) — the treatment
+/// Aurélien chose on 21 September 2026 against four drawn on both surfaces: a
+/// fourth cell in the meta strip, a line directly under the strip, this, and a
+/// place beside the Source. The list is where what goes into the dish is
+/// already the subject, and the strip keeps the three cells #65 gave it.
+///
+/// It always says what it counts. 308 on its own says nothing, and a serving
+/// and 100 g do not convert into each other without a weight the recipe does
+/// not carry (CONTEXT.md, "Nutrition").
+///
+/// Empty for the great majority of recipes, which carry no figure — and then
+/// there is nothing here at all, not a dash and not a zero. Zero would be a
+/// claim about the dish rather than a silence about it.
+fn nutrition(content: &Value, words: &Words) -> String {
+    let Some(figure) = content["nutrition"].as_object() else {
+        return String::new();
+    };
+    let Some(calories) = figure.get("calories").and_then(Value::as_f64) else {
+        return String::new();
+    };
+    // Two bases, two phrases, and no arm that falls through to a default: the
+    // Catalogue declares exactly these two and the Core checks input against it
+    // (#85), so anything else is not a figure this build knows how to word.
+    // Saying nothing beats saying the wrong basis.
+    let phrase = match figure.get("basis").and_then(Value::as_str) {
+        Some("per_serving") => words.kcal_serving,
+        Some("per_100g") => words.kcal_100g,
+        _ => return String::new(),
+    }
+    // `{}` on an f64 prints 308 for 308.0 and 154.5 for 154.5, which is what a
+    // source page stated either way. Nothing here rounds a figure.
+    .replace("{n}", &calories.to_string());
+    format!(
+        r#"<p class="mt-3 text-read text-ink-2">{}</p>"#,
+        escape(&phrase)
     )
 }
 

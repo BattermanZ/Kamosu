@@ -14,7 +14,15 @@
  */
 
 import { m } from '$lib/paraglide/messages';
-import type { DivergenceOutput, SaveRecipeVersionInput } from '$lib/api/catalogue';
+import type { DivergenceOutput, GetRecipeOutput, SaveRecipeVersionInput } from '$lib/api/catalogue';
+
+/**
+ * A recipe's Nutrition figure, taken from the Catalogue rather than written
+ * out here: `basis` is a union of exactly two values, and spelling one of them
+ * wrong has to be a build error rather than a figure that quietly says the
+ * wrong thing (ADR 0012).
+ */
+export type Nutrition = NonNullable<GetRecipeOutput['versions'][number]['content']['nutrition']>;
 
 export type Row = DivergenceOutput['ingredients'][number];
 export type Side = 'mine' | 'theirs';
@@ -143,13 +151,49 @@ export function fieldMark(field: Field | undefined, side: Side): string | null {
 	return String(theirs ?? '') || null;
 }
 
-/** A Yield, a Source or a time written out as the one phrase it reads as. */
+/**
+ * **The Nutrition figure as the one phrase it reads as** — the number and what
+ * it counts, together and never apart. 308 says nothing until it says whether
+ * it counts a serving or 100 g, and the two do not convert into each other
+ * without a weight the recipe does not carry (CONTEXT.md, "Nutrition").
+ *
+ * Written once here because both places that show it — the foot of the
+ * Ingredients on the recipe page, and the divergence mark beside it (#84) —
+ * must say it in the same words.
+ */
+export function nutritionText(figure: Nutrition | null | undefined): string | null {
+	if (!figure) return null;
+	const calories = String(figure.calories);
+	// Two bases, two phrases, and no third arm to fall through: the basis is
+	// never guessed, because a figure that says the wrong one is worse than a
+	// figure nobody shows.
+	return figure.basis === 'per_100g'
+		? m.recipe_kcal_100g({ calories })
+		: m.recipe_kcal_serving({ calories });
+}
+
+/**
+ * A `divergence` field read back as a Nutrition figure, or nothing. The rows
+ * come off the wire as `unknown`, so this is the one place the shape is
+ * checked — and a basis the Catalogue does not declare is not a figure this
+ * build knows how to word, so it says nothing rather than picking one.
+ */
+function asNutrition(value: object): Nutrition | null {
+	const figure = value as Partial<Nutrition>;
+	if (typeof figure.calories !== 'number') return null;
+	if (figure.basis !== 'per_serving' && figure.basis !== 'per_100g') return null;
+	return { calories: figure.calories, basis: figure.basis };
+}
+
+/** A Yield, a Source, a time or a Nutrition figure, as the phrase it reads as. */
 export function fieldText(value: unknown): string {
 	if (value === null || value === undefined) return m.divergence_field_none();
 	if (typeof value === 'object') {
 		const shape = value as { amount?: string; noun?: string; text?: string };
 		if (shape.text !== undefined) return shape.text;
 		if (shape.amount !== undefined) return `${shape.amount} ${shape.noun ?? ''}`.trim();
+		const figure = asNutrition(value);
+		if (figure) return nutritionText(figure) ?? '';
 	}
 	return String(value);
 }

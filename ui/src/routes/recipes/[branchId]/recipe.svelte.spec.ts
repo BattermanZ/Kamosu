@@ -181,7 +181,9 @@ function divergence() {
 			cook_time_minutes: { same: true, mine: 30, theirs: 30 },
 			source: { same: true, mine: null, theirs: null },
 			note: { same: true, mine: null, theirs: null },
-			nutrition: { same: true, mine: null, theirs: null },
+			// Typed, unlike its neighbours: #84 marks this one, so a test has to
+			// be able to put a figure on either side of it.
+			nutrition: { same: true, mine: null as Nutrition, theirs: null as Nutrition },
 			main_photo: { same: true, mine: null, theirs: null },
 		},
 	};
@@ -433,6 +435,47 @@ describe('a Divergence', () => {
 
 		expect(await screen.findByText(/Chez Marc has KFC, air fryer/i)).toBeInTheDocument();
 		expect(screen.getByText(/Chez Marc has 22/i)).toBeInTheDocument();
+	});
+
+	/**
+	 * #72 gave `divergence` a `fields.nutrition` and nothing read it, so two
+	 * Branches disagreeing about the figure said nothing at all. The mark goes
+	 * with the figure, at the foot of the Ingredients, rather than with the
+	 * marks at the top: the figure is there, so what the other Kitchen says
+	 * about it belongs there too (#84).
+	 */
+	it('marks the figure the two Branches do not agree on', async () => {
+		const answers = forked();
+		const d = (answers as Record<string, unknown>).divergence as ReturnType<typeof divergence>;
+		d.mine.content.nutrition = { calories: 308, basis: 'per_serving' };
+		d.fields.nutrition = {
+			same: false,
+			mine: { calories: 308, basis: 'per_serving' },
+			theirs: { calories: 420, basis: 'per_serving' },
+		};
+		renderRecipe(answers);
+
+		const mark = await screen.findByText(/Chez Marc has 420 kcal a serving/i);
+		expect(mark).toBeInTheDocument();
+		// Beside the figure it is about, not up with the Title and the Yield.
+		expect(
+			mark.compareDocumentPosition(screen.getByText('308 kcal a serving')) &
+				Node.DOCUMENT_POSITION_PRECEDING,
+		).toBeTruthy();
+	});
+
+	it('says so when the other Branch carries no figure where yours does', async () => {
+		const answers = forked();
+		const d = (answers as Record<string, unknown>).divergence as ReturnType<typeof divergence>;
+		d.mine.content.nutrition = { calories: 308, basis: 'per_serving' };
+		d.fields.nutrition = {
+			same: false,
+			mine: { calories: 308, basis: 'per_serving' },
+			theirs: null,
+		};
+		renderRecipe(answers);
+
+		expect(await screen.findByText(/Chez Marc has nothing/i)).toBeInTheDocument();
 	});
 
 	it('writes a carried line into your recipe in place, showing what it replaced', async () => {
@@ -721,6 +764,45 @@ describe('the recipe screen', () => {
 			},
 		};
 	}
+
+	/**
+	 * THE NUTRITION FIGURE CLOSES THE INGREDIENTS (#84). Aurélien chose that
+	 * placement on 21 September 2026 against four treatments drawn on both
+	 * surfaces: a fourth cell in the meta strip, a line directly under the
+	 * strip, this, and a place beside the Source. The list is where what goes
+	 * into the dish is already the subject, and the strip keeps the three cells
+	 * #81 gave it.
+	 *
+	 * The figure always says what it counts. 308 on its own says nothing, and
+	 * the two bases do not convert into each other without a weight the recipe
+	 * does not carry (CONTEXT.md, "Nutrition").
+	 */
+	it('closes the Ingredients with the figure, saying what it counts', async () => {
+		renderRecipe(solo({ nutrition: { calories: 308, basis: 'per_serving' } }));
+
+		const figure = await screen.findByText('308 kcal a serving');
+		const last = screen.getByText('3 tbsp Ketchup');
+		const method = screen.getByText('Method');
+		// Under the last Ingredient Line and above the Method: the foot of the
+		// list, rather than a fifth thing floating between two sections.
+		expect(figure.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+		expect(figure.compareDocumentPosition(method) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('says per 100 g where that is what the figure counts', async () => {
+		renderRecipe(solo({ nutrition: { calories: 154, basis: 'per_100g' } }));
+
+		expect(await screen.findByText('154 kcal per 100 g')).toBeInTheDocument();
+	});
+
+	it('shows no gap, no placeholder and no zero where a recipe carries none', async () => {
+		// Most recipes carry no figure, and that is an ordinary state rather
+		// than a missing one — so there is nothing there at all, not a dash.
+		renderRecipe(solo());
+		await screen.findByText('1.4 kg whole chicken');
+
+		expect(screen.queryByText(/kcal/i)).not.toBeInTheDocument();
+	});
 
 	it('sets the written Line at full size with its Reading subordinate beneath it', async () => {
 		renderRecipe(solo());

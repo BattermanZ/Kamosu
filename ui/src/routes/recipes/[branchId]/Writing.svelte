@@ -78,6 +78,7 @@
 	import { OperationError } from '$lib/api/client';
 	import { usePhotograph } from '$lib/api/upload';
 	import type { GetRecipeOutput, ListKitchensOutput } from '$lib/api/catalogue';
+	import type { Nutrition } from './divergence';
 	import Cover from '$lib/cover/Cover.svelte';
 
 	type Content = GetRecipeOutput['versions'][number]['content'];
@@ -152,6 +153,24 @@
 	let sourceText = $state(content.source?.text ?? '');
 	// svelte-ignore state_referenced_locally
 	let sourceLink = $state(content.source?.link ?? '');
+	/**
+	 * The Nutrition figure, typed at the foot of the Ingredients — where #84
+	 * put it for reading, so writing it is in the same place. The basis is
+	 * typed WITH the number rather than being a setting somewhere: 308 says
+	 * nothing until it says what it counts, and a serving and 100 g do not
+	 * convert into each other without a weight the recipe does not carry.
+	 *
+	 * An empty number means the recipe has no figure, whatever the basis says.
+	 * Most recipes have none, so that is the ordinary path rather than the edge.
+	 *
+	 * The `per_serving` below is the control's opening position on a recipe
+	 * that carries no figure at all, not a guess about one that does: where
+	 * there IS a figure its own basis is read off it.
+	 */
+	// svelte-ignore state_referenced_locally
+	let calories = $state(content.nutrition === null ? '' : String(content.nutrition.calories));
+	// svelte-ignore state_referenced_locally
+	let basis = $state<Nutrition['basis']>(content.nutrition?.basis ?? 'per_serving');
 	// svelte-ignore state_referenced_locally
 	let lines = $state<Line[]>(
 		content.ingredients.map((item) => ({ id: id(), kind: item.kind, text: item.text })),
@@ -459,6 +478,20 @@
 		const n = Number.parseInt(value.trim(), 10);
 		return value.trim() === '' || Number.isNaN(n) || n < 0 ? null : n;
 	};
+	/**
+	 * The Nutrition figure in kcal, or nothing. Not whole, unlike minutes: the
+	 * Catalogue declares a number rather than an integer, and a source page
+	 * stating 154.5 per 100 g is stating a figure Kamosu has no business
+	 * rounding.
+	 *
+	 * `Number.isFinite` rather than `!Number.isNaN`, because `Number` reads
+	 * `Infinity` as a number and `JSON.stringify` then writes it as `null` —
+	 * which reaches the Core as a shape error instead of the sentence below.
+	 */
+	const kcal = (value: string) => {
+		const n = Number(value.trim());
+		return value.trim() === '' || !Number.isFinite(n) || n < 0 ? null : n;
+	};
 
 	/**
 	 * What cannot be saved as typed, in words. A Yield is one amount AND one
@@ -479,12 +512,14 @@
 				return m.write_needs_minutes({ field: label });
 			}
 		}
+		if (calories.trim() !== '' && kcal(calories) === null) return m.write_needs_nutrition();
 		return undefined;
 	});
 
 	function drafted() {
 		const amount = yieldAmount.trim();
 		const noun = yieldNoun.trim();
+		const figure = kcal(calories);
 		return {
 			branch_id: branchId,
 			title: title.trim(),
@@ -497,9 +532,10 @@
 			main_photo: mainPhoto,
 			source:
 				sourceText.trim() === '' ? null : { text: sourceText.trim(), link: orNothing(sourceLink) },
-			// Not this screen's to edit: #84 owns showing and typing the figure.
-			// Carried through untouched so saving never drops one.
-			nutrition: content.nutrition,
+			// The figure and what it counts, or nothing at all (#84). An empty
+			// number is no figure, whatever the basis beside it says — and a
+			// field holding nothing is no part of the fingerprint (ADR 0038).
+			nutrition: figure === null ? null : { calories: figure, basis },
 			// A row with nothing written in it is not a line of the recipe.
 			ingredients: lines
 				.filter((row) => row.text.trim() !== '')
@@ -738,6 +774,40 @@
 		</button>
 	</div>
 	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_add_where()}</p>
+
+	<!--
+		The Nutrition figure, typed where it is read (#84): at the foot of the
+		Ingredients, which is the treatment Aurélien chose on 21 September 2026
+		for both surfaces. Reading and writing share it rather than each making
+		their own choice.
+
+		The basis sits beside the number rather than being a setting elsewhere,
+		because it is part of the figure. Kamosu never works the number out from
+		the lines above — a plausible-but-wrong calorie count is worse than an
+		empty field — and the hint says so, since a box under a list of
+		ingredients otherwise looks like one it would fill in.
+	-->
+	<div class="mt-4 flex items-end gap-2 border-t border-rule px-gutter pt-3">
+		<label class="flex-1">
+			<span class="block text-label text-ink-2 uppercase">{m.write_nutrition_label()}</span>
+			<!--
+				`decimal` rather than `numeric`: a source page stating 154.5 per
+				100 g is stating a figure Kamosu does not round, and a
+				digits-only keypad has no separator to type it with.
+			-->
+			<input bind:value={calories} inputmode="decimal" class={SMALL} />
+		</label>
+		<!--
+			No visible label on the basis: its own two options say what it is,
+			beside a box that says Calories. The name is there for anyone not
+			reading it off the screen.
+		-->
+		<select bind:value={basis} aria-label={m.write_nutrition_basis()} class="{SMALL} flex-1">
+			<option value="per_serving">{m.write_nutrition_per_serving()}</option>
+			<option value="per_100g">{m.write_nutrition_per_100g()}</option>
+		</select>
+	</div>
+	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_nutrition_hint()}</p>
 
 	<!-- The Method, underneath the ingredients on the same page. -->
 	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
