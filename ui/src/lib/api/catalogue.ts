@@ -1522,9 +1522,10 @@ export type MakeSharedSheetOutput = {
 	paper: "a4" | "us-letter";
 };
 
-/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
+/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportBundleInput = {
-	data: string;
+	data?: string;
+	upload_id?: string;
 };
 /** What import_bundle eventually produces, read back through `get_job`. */
 export type ImportBundleOutput = {
@@ -11495,20 +11496,21 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_bundle",
-		"summary": "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so.",
+		"summary": "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
 				"data": {
-					"description": "The Bundle's zip, base64-encoded.",
+					"description": "The Bundle's zip, base64-encoded — for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for the Bundle. Used once, then deleted.",
 					"type": "string"
 				}
 			},
-			"required": [
-				"data"
-			],
 			"type": "object"
 		},
 		"output_schema": {
@@ -21707,7 +21709,7 @@ export interface KamosuClient {
 	makeSheet(input: MakeSheetInput): Promise<Answer<'make_sheet'>>;
 	/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
 	makeSharedSheet(input: MakeSharedSheetInput): Promise<Answer<'make_shared_sheet'>>;
-	/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. */
+	/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
 	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;

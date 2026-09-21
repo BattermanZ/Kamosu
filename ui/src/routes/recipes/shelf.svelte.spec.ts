@@ -91,6 +91,42 @@ describe('the recipes screen', () => {
 		expect(screen.getByText('2 recipes')).toBeInTheDocument();
 	});
 
+	it('keeps both ways in above the shelf, not only at the dead end below it', async () => {
+		renderScreen(Recipes, {
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: {
+				query: null,
+				closest: false,
+				recipes: [entry({ title: 'Katsu curry' })],
+			},
+		});
+
+		// A person holding a recipe file a friend has just sent has no failed
+		// search to arrive through, so the row is there with the shelf (#93).
+		expect(
+			await screen.findByRole('button', { name: 'Add a recipe from a recipe file' }),
+		).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Add a recipe from a link' })).toBeInTheDocument();
+	});
+
+	it('does not say the same thing twice when nothing was found', async () => {
+		renderScreen(Recipes, {
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
+		});
+
+		await screen.findByText(/Nothing matched .osso buco./);
+		// Nothing-found offers both acts itself, so the quiet row above the shelf
+		// stands down: two ways to do one thing on one screen is worse than one
+		// in the wrong place.
+		expect(
+			screen.queryByRole('button', { name: 'Add a recipe from a link' }),
+		).not.toBeInTheDocument();
+		expect(screen.getAllByRole('button', { name: /Import from a link/ })).toHaveLength(1);
+	});
+
 	it('explains why nothing matched, and offers the two things you were about to do', async () => {
 		renderScreen(Recipes, {
 			list_kitchens: { kitchens: [kitchen] },

@@ -1372,21 +1372,30 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       each Kitchen receives its own copy. Receiving makes nothing of your \
                       own — changing what arrived does. A recipe whose history is damaged \
                       arrives as a new recipe of your own with no history, and the Import \
-                      Report says so.",
+                      Report says so. Send the file to POST /api/uploads and pass the \
+                      `upload_id` it answers, or pass it base64-encoded as `data`.",
             permission: Permission::Person,
             kind: Kind::Job,
             write: true,
             session_only: false,
             job_lane: JobLane::ByCaller,
+            // Two ways in, the pair `import_crouton` already takes (#69, #93):
+            // one recipe carrying photographs is megabytes, and base64 inside a
+            // JSON body is not how that travels from a browser.
             input_schema: json!({
                 "type": "object",
                 "properties": {
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for the \
+                                         Bundle. Used once, then deleted.",
+                    },
                     "data": {
                         "type": "string",
-                        "description": "The Bundle's zip, base64-encoded.",
+                        "description": "The Bundle's zip, base64-encoded — for a \
+                                         Door that can send only JSON.",
                     },
                 },
-                "required": ["data"],
                 "additionalProperties": false,
             }),
             output_schema: import_report_schema(),

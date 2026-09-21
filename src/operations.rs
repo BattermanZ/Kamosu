@@ -825,18 +825,42 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
     core.get_recipe(&caller.person_id, branch_id)
 }
 
-/// Receive a Bundle (#67): the zip, base64-encoded as every Door can carry it,
-/// landed in the caller's Home Kitchen as a Job answering the Import Report.
+/// Receive a Bundle (#67), landed in the caller's Home Kitchen as a Job
+/// answering the Import Report.
+///
+/// The file arrives one of two ways, both carrying the same bytes to the same
+/// reader (ADR 0001), and the pair is `import_crouton`'s (#69, #93):
+/// `upload_id` names a file already sent out of band to `POST /api/uploads`,
+/// which is how a browser sends one recipe's worth of photographs; `data`
+/// carries it base64-encoded, the fallback for a Door that can send nothing but
+/// JSON. A staged upload is used once — deleted whatever the import's outcome,
+/// so a retry sends the file again.
 pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    let data = input.get("data").and_then(Value::as_str).ok_or_else(|| {
-        OpError::bad_request("import_bundle takes { data } — the Bundle's zip, base64-encoded")
-    })?;
-    use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(data)
-        .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+    const USAGE: &str = "import_bundle takes { upload_id } or { data }: the Bundle's zip \
+                       sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
-    core.import_bundle(caller, &bytes, invocation.job.as_ref())
+    let progress = invocation.job.as_ref();
+    match (
+        input.get("upload_id").and_then(Value::as_str),
+        input.get("data").and_then(Value::as_str),
+    ) {
+        (Some(upload_id), None) => {
+            let path = core.staged_upload(&caller.person_id, upload_id)?;
+            let outcome = std::fs::read(&path)
+                .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
+                .and_then(|bytes| core.import_bundle(caller, &bytes, progress));
+            let _ = std::fs::remove_file(&path);
+            outcome
+        }
+        (None, Some(data)) => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+            core.import_bundle(caller, &bytes, progress)
+        }
+        _ => Err(OpError::bad_request(USAGE)),
+    }
 }
 
 /// Bring in a Crouton export (#69) — the whole library as a zip of `.crumb`

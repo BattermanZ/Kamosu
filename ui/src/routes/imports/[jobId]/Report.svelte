@@ -184,10 +184,29 @@
 
 	const thumb = (photo: string | null | undefined) =>
 		photo ? `/api/photographs/${photo}/card` : undefined;
+
+	/**
+	 * Whose import this is, and so what to call it and where *back* goes.
+	 *
+	 * Read off the Job's Operation rather than the Report's `source_kind`,
+	 * because the Job says it the moment it is first read and the Report only
+	 * once the work has finished — and this page is already on screen while the
+	 * bar fills. A recipe file reaches this page too, since #93 (one recipe file
+	 * ends on the recipe, and this is where *How it went* leads); before that it
+	 * was only ever a Crouton library, and calling a friend's recipe *your
+	 * Crouton library* was a plain lie about what you were looking at.
+	 *
+	 * Everything else here reads correctly for either source. The one phrase
+	 * that names Crouton, `report_changed`, belongs to an `offered` row, and a
+	 * Bundle never produces one.
+	 */
+	const ofABundle = $derived(job?.operation === 'import_bundle');
 </script>
 
-<Screen title={m.report_title()}>
-	<a href="/settings" class="text-read text-ink-2">‹ {m.report_back()}</a>
+<Screen title={ofABundle ? m.report_title_file() : m.report_title()}>
+	<a href={ofABundle ? '/recipes' : '/settings'} class="text-read text-ink-2"
+		>‹ {ofABundle ? m.report_back_recipes() : m.report_back()}</a
+	>
 
 	{#if unreachable}
 		<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">

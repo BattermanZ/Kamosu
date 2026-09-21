@@ -11,6 +11,7 @@
 	import { realPhotographUpload, realUpload } from '$lib/api/upload';
 	import { readToken } from '$lib/tokens';
 	import Notices from '$lib/offline/Notices.svelte';
+	import Arrived from '$lib/Arrived.svelte';
 	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
 	import { realOutbox } from '$lib/offline/outbox';
 
@@ -127,6 +128,11 @@
 		     the cooking screen, which carries nothing but the Step. -->
 		{#if !cooking}
 			<Notices />
+			<!-- And what bringing a recipe file in just said, above the recipe it
+			     brought (#93). Said here rather than inside the recipe screen
+			     because this is where Kamosu says a thing once and it is put
+			     away — the same place, and the same card, as the rest. -->
+			<Arrived pathname={page.url.pathname} />
 		{/if}
 		{@render children()}
 	</main>

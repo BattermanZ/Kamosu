@@ -17365,20 +17365,56 @@ fn bundle_of(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<u8> {
     bytes
 }
 
-/// Receive a Bundle and wait for the Import Report.
+/// Ask `import_bundle` however the input says, and answer how the Job ended.
+///
+/// Every way of receiving a Bundle goes through here, because the asking and
+/// the waiting are the same either way (ADR 0032) — only the input differs.
+fn importing(app: &support::TestApp, key: &str, input: Value) -> Value {
+    let (status, ask) = app.post_op("import_bundle", Some(key), &input.to_string());
+    assert_eq!(status, 200, "{ask}");
+    let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+    wait_terminal(app, Some(key), job_id)
+}
+
+/// The Import Report of a Bundle that was received, insisting it completed.
+fn imported(app: &support::TestApp, key: &str, input: Value) -> Value {
+    let finished = importing(app, key, input);
+    assert_eq!(finished["status"], json!("completed"), "{finished}");
+    finished["result"].clone()
+}
+
+/// Receive a Bundle base64-encoded inside the body: the way a Door that can
+/// send nothing but JSON does it.
 fn receive(app: &support::TestApp, key: &str, bytes: &[u8]) -> Value {
     use base64::Engine;
     let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-    let (status, ask) = app.post_op(
-        "import_bundle",
-        Some(key),
-        &json!({ "data": data }).to_string(),
-    );
-    assert_eq!(status, 200, "{ask}");
-    let job_id = ask["result"]["job_id"].as_str().expect("a job id");
-    let finished = wait_terminal(app, Some(key), job_id);
-    assert_eq!(finished["status"], json!("completed"), "{finished}");
-    finished["result"].clone()
+    imported(app, key, json!({ "data": data }))
+}
+
+/// Stage a Bundle's bytes at `POST /api/uploads` and answer the id (#93).
+fn stage(app: &support::TestApp, key: &str, bytes: &[u8]) -> String {
+    let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/zip", bytes);
+    assert_eq!(status, 200, "{staged}");
+    staged["result"]["upload_id"]
+        .as_str()
+        .expect("an upload id")
+        .to_string()
+}
+
+/// Receive a Bundle the way a browser sends one: its own bytes first, then the
+/// id naming them. `receive` is the other way in, base64 inside the body.
+fn receive_staged(app: &support::TestApp, key: &str, bytes: &[u8]) -> Value {
+    let upload_id = stage(app, key, bytes);
+    imported(app, key, json!({ "upload_id": upload_id }))
+}
+
+/// A Credential on a fresh instance, to receive a Bundle with.
+fn a_receiver(app: &support::TestApp) -> String {
+    let person = app.core.create_person("Nadia").expect("person");
+    app.core
+        .mint_access_key(&person, "browser", false)
+        .unwrap()
+        .secret
 }
 
 /// The files of a Bundle zipped back up, after a test has had its way with
@@ -18566,6 +18602,116 @@ async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggesti
         Some(third_id),
         "the Reading points at the third"
     );
+}
+
+/// A Bundle sent as its own bytes rather than base64 inside the body (#93).
+///
+/// This is the way a browser sends one: `import_crouton` already took the pair
+/// because a Crouton library is 114 MB, and a single recipe carrying
+/// photographs is megabytes for the same reason. Both ways have to reach the
+/// same reader and land the same recipe, or the Catalogue would be declaring
+/// one Operation that behaves as two.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_arrives_the_same_whether_it_was_staged_or_base64ed() {
+    let there = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&there);
+    let bytes = bundle_of(&there, &key, &pizza);
+
+    // The same file, into two fresh instances, one way each.
+    let staged_at = support::spawn_app();
+    let staged_key = a_receiver(&staged_at);
+    let inline_at = support::spawn_app();
+    let inline_key = a_receiver(&inline_at);
+
+    let staged = receive_staged(&staged_at, &staged_key, &bytes);
+    let inline = receive(&inline_at, &inline_key, &bytes);
+
+    // The travelling ids are the sender's, so they are what the two Reports can
+    // be compared on: the local ids are each instance's own and must differ.
+    let carried = |report: &Value| -> Vec<(String, String, String)> {
+        let mut rows: Vec<(String, String, String)> = report["arrived"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["foreign_id"].as_str().unwrap().to_string(),
+                    row["title"].as_str().unwrap().to_string(),
+                    row["status"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        rows.sort();
+        rows
+    };
+    assert_eq!(
+        carried(&staged),
+        carried(&inline),
+        "the same Bundle lands the same recipes either way: {staged} vs {inline}"
+    );
+    assert!(
+        !carried(&staged).is_empty(),
+        "the pizza actually arrived: {staged}"
+    );
+
+    // And the staged file is used once: an upload named a second time is gone,
+    // so a retry sends the file again rather than importing a stale copy.
+    let upload_id = stage(&staged_at, &staged_key, &bytes);
+    let named = json!({ "upload_id": upload_id });
+    importing(&staged_at, &staged_key, named.clone());
+    let again = importing(&staged_at, &staged_key, named);
+    assert_eq!(
+        again["status"],
+        json!("failed"),
+        "the upload was spent by the first import: {again}"
+    );
+}
+
+/// Neither way in, or both at once, is a refusal — not a guess about which was
+/// meant. The same rule `import_crouton` holds.
+///
+/// Where the refusal *lands* is worth being explicit about, because the two
+/// halves of the input check sit either side of the Job boundary. Shape — the
+/// declared fields and their types, and nothing else being present — is the
+/// Core's, checked at dispatch before the Job is ever asked for (#85), so it is
+/// a 400 at the door. *Exactly one of these two* is not shape, so it is the
+/// handler's, and the handler runs inside the Job: the ask is accepted and the
+/// Job fails saying what it takes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn import_bundle_wants_exactly_one_of_upload_id_and_data() {
+    let app = support::spawn_app();
+    let key = a_receiver(&app);
+
+    for input in [json!({}), json!({ "upload_id": "u_1", "data": "" })] {
+        let finished = importing(&app, &key, input.clone());
+        assert_eq!(finished["status"], json!("failed"), "{input}: {finished}");
+        let why = finished["error"].as_str().unwrap_or_default();
+        assert!(
+            why.contains("upload_id") && why.contains("data"),
+            "{input}: it says what it takes: {finished}"
+        );
+    }
+
+    // A field the declaration does not name never gets that far: the shape
+    // check refuses it at dispatch, so both Doors inherit the refusal (#85).
+    let (status, refused) = app.post_op(
+        "import_bundle",
+        Some(&key),
+        &json!({ "upload_id": "u_1", "kitchen_id": "k_1" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("kitchen_id"),
+        "it names the field nobody declared: {refused}"
+    );
+
+    // And a `data` that is not base64 is the handler's to refuse too, for the
+    // same reason: what the string *is* was never shape.
+    let finished = importing(&app, &key, json!({ "data": "not base64 at all !!" }));
+    assert_eq!(finished["status"], json!("failed"), "{finished}");
 }
 
 // ---------------------------------------------------------------------------

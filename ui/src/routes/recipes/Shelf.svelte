@@ -27,6 +27,7 @@
 	import Empty from '$lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
 	import AddOrImport from '$lib/AddOrImport.svelte';
+	import BringIn from '$lib/BringIn.svelte';
 	import MeaningOffer from './MeaningOffer.svelte';
 	import { refreshed } from '$lib/offline/device.svelte';
 
@@ -129,6 +130,15 @@
 	 * act as letting them pass as matches (ADR 0027).
 	 */
 	const closest = $derived(answer?.closest ?? false);
+	/**
+	 * What was searched for and not found, or `null` where this screen is
+	 * showing a shelf rather than *nothing found*. Carries the query rather
+	 * than a flag because the block below needs both facts at once — that
+	 * nothing matched, and what did not match — and because two things read it:
+	 * that block, and the row above the shelf that stands down while it is up
+	 * (#93).
+	 */
+	const unmatched = $derived(query !== null && (entries.length === 0 || closest) ? query : null);
 
 	// The two things nothing-found offers live in `AddOrImport`, because Home
 	// reaches the same dead end from the other direction (#64) and both must
@@ -183,11 +193,26 @@
 		</div>
 	</search>
 
+	<!--
+		The two ways a recipe comes from outside, above the shelf and there every
+		day (#93). They used to appear only at the dead ends below — a search that
+		matched nothing, an empty Home — which is the right place to *offer* them
+		and the wrong place to *keep* them: a person holding a recipe file a friend
+		has just sent has no failed search to arrive through.
+
+		Not drawn in the nothing-found state, because `AddOrImport` already offers
+		both acts there, and saying the same thing twice on one screen is worse
+		than saying it once in the wrong place.
+	-->
+	{#if answer && unmatched === null}
+		<BringIn look="quiet" />
+	{/if}
+
 	{#if failed}
 		<p class="mt-6 text-body text-support" role="alert">{m.recipes_failed()}</p>
 	{:else if !answer}
 		<p class="mt-6 text-body text-ink-2">{m.loading()}</p>
-	{:else if query !== null && (entries.length === 0 || closest)}
+	{:else if unmatched !== null}
 		<!--
 			Nothing found is not an empty screen. It says what was looked
 			through, and offers the two things you were about to do anyway —
@@ -196,13 +221,13 @@
 		-->
 		<div class="mt-6">
 			<h2 class="font-display text-shelf-heading font-semibold">
-				{m.recipes_nothing_title({ query })}
+				{m.recipes_nothing_title({ query: unmatched })}
 			</h2>
 			<p class="mt-2 text-read text-ink-2">
 				{meaning.status?.on ? m.recipes_nothing_why_meaning() : m.recipes_nothing_why()}
 			</p>
 			<div class="mt-4">
-				<AddOrImport title={query} {kitchens} />
+				<AddOrImport title={unmatched} {kitchens} />
 			</div>
 			<!--
 				Offered here rather than buried in settings: this is the moment a

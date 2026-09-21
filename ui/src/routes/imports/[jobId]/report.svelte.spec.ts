@@ -115,6 +115,39 @@ function open(answers: Answers) {
 }
 
 describe('the Import Report', () => {
+	it('names the source it is reporting, and goes back where you came from', async () => {
+		// A Crouton library: Settings is where you started it.
+		open({ get_job: job() });
+		expect(
+			await screen.findByRole('heading', { name: 'Your Crouton library' }),
+		).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: /Settings/ })).toHaveAttribute('href', '/settings');
+	});
+
+	it('does not call one recipe file a Crouton library', async () => {
+		// A recipe file reaches this page too, since #93 — it is where *How it
+		// went* leads. Before that this heading was a fixed string, so a friend's
+		// recipe was reported as *your Crouton library* under a back link to
+		// Settings, which is not where it was brought in from.
+		open({
+			get_job: job({
+				operation: 'import_bundle',
+				result: report({
+					source_kind: 'bundle',
+					arrived: [arrived('soba', 'Soba with walnut miso', { subject: true })],
+					left_out: [],
+					related_candidates: [],
+				}),
+			}),
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: 'The recipe file you brought in' }),
+		).toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Your Crouton library' })).not.toBeInTheDocument();
+		expect(screen.getByRole('link', { name: /Recipes/ })).toHaveAttribute('href', '/recipes');
+	});
+
 	it('is already a page while the import runs, and becomes the Report when it ends', async () => {
 		const kamosu = open({
 			get_job: job({
