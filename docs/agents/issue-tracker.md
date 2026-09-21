@@ -5,7 +5,10 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
+- **Read an issue**: two calls, both `--json` (see [Reading an issue needs `--json`](#reading-an-issue-needs---json)):
+  `gh issue view <number> --json number,title,state,assignees,labels,body,url`
+  then `gh issue view <number> --json comments`. **Read both.** A ticket's brief
+  is as often a comment as the body, so the body alone can miss the contract.
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
@@ -13,17 +16,44 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
+### Reading an issue needs `--json`
+
+**`gh issue view <number>` fails on this repo in every form but `--json`.** Bare,
+and with `--comments`, it prints one line and no issue:
+
+```
+GraphQL: Projects (classic) is being deprecated in favor of the new Projects
+experience ... (repository.issue.projectCards)
+```
+
+The `gh` packaged for this host (2.45.0) asks for `projectCards` when it renders
+an issue for a terminal, and GitHub has since removed Projects classic, so the
+server rejects the whole query. `--json` takes a different path and works.
+
+Read this as a tooling fault, never as an answer about the issue. It is a
+one-line error on stdout, so it passes for "this issue has no comments" if you
+are skimming, and Kamosu keeps briefs in comments.
+
+`gh issue list`, `create`, `comment`, `edit` and `close` are all unaffected.
+`--json stateReason` is rejected by this version too; ask for `closed` and
+`closedAt`. **Upgrading `gh` past 2.45.0 is the actual fix** and would let this
+section go.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
 
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 
-- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the diff.
+- **Read a PR**: `gh pr view <number> --comments` and `gh pr diff <number>` for the
+  diff. Untested here, since this repo has no pull requests; if it returns the
+  same Projects-classic error the issue view does, reach for `--json` the same way.
 - **List external PRs for triage**: `gh pr list --state open --json number,title,body,labels,author,authorAssociation,comments` then keep only `authorAssociation` of `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, or `NONE` (drop `OWNER`/`MEMBER`/`COLLABORATOR`).
 - **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
 
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either — resolve with `gh pr view 42` and fall back to `gh issue view 42`.
+GitHub shares one number space across issues and PRs, so a bare `#42` may be
+either — resolve with `gh pr view 42` and fall back to
+`gh issue view 42 --json number,title,url`.
 
 ## When a skill says "publish to the issue tracker"
 
@@ -31,7 +61,8 @@ Create a GitHub issue.
 
 ## When a skill says "fetch the relevant ticket"
 
-Run `gh issue view <number> --comments`.
+Run `gh issue view <number> --json number,title,state,assignees,labels,body,url`
+and `gh issue view <number> --json comments`, and read both.
 
 ## Wayfinding operations
 
