@@ -8292,11 +8292,12 @@ fn attempt_state_owned_by(
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
-        .ok_or_else(|| OpError::not_found("no such Attempt"))?;
+        .ok_or_else(no_such_attempt)?;
+    // An Attempt Kamosu found from an id the caller named, so somebody else's
+    // answers exactly as an id naming nothing does (ADR 0040). An Attempt is a
+    // private record, and whose it is is no part of the answer.
     if owner_id != person_id {
-        return Err(OpError::unauthorized(
-            "this Attempt belongs to someone else",
-        ));
+        return Err(no_such_attempt());
     }
     Ok(AttemptState {
         version_id,
@@ -8578,7 +8579,7 @@ fn attempt_photographs(conn: &Connection, attempt_id: &str) -> Result<Vec<String
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
-        .ok_or_else(|| OpError::not_found("no such Attempt"))?;
+        .ok_or_else(no_such_attempt)?;
     Ok(serde_json::from_str(&stored).unwrap_or_default())
 }
 
@@ -8590,7 +8591,7 @@ fn attempt_by_id(conn: &Connection, id: &str) -> Result<Value, OpError> {
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
-    .ok_or_else(|| OpError::not_found("no such Attempt"))
+    .ok_or_else(no_such_attempt)
 }
 
 /// The recipe one diary entry was cooked from: which Branch it opens, and
@@ -9911,6 +9912,12 @@ fn no_such_import() -> OpError {
 /// caller the id names a Job that is not theirs.
 fn no_such_sheet() -> OpError {
     OpError::not_found("no Sheet with that id")
+}
+
+/// An Attempt id that names nothing here — and, by ADR 0040, an Attempt that
+/// belongs to somebody else.
+fn no_such_attempt() -> OpError {
+    OpError::not_found("no such Attempt")
 }
 
 // ── Share Links: the pieces (#65) ────────────────────────────────────────────

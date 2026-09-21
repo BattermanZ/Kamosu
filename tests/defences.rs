@@ -12,7 +12,7 @@
 
 mod support;
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// The first Person on a fresh instance, who is its Operator, and an Access
 /// Key that acts as them.
@@ -1193,10 +1193,28 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             .to_string()
     };
 
+    // An Attempt of Marc's: his own private record of a cooking. Every
+    // Operation that reaches one does so through a single gate, and it must
+    // answer about Marc's exactly as it answers about an id nobody minted.
+    let his_attempt = {
+        let (status, started) = app.post_op(
+            "start_attempt",
+            Some(&marc.key),
+            &json!({ "branch_id": his_recipe }).to_string(),
+        );
+        assert_eq!(status, 200, "{started}");
+        started["result"]["id"]
+            .as_str()
+            .expect("an Attempt")
+            .to_string()
+    };
+    let no_attempt = "at_ffffffffffffffff";
+
     // Every Operation that works a Kitchen out from a Branch id, with the
     // Branch under probe first. `save_recipe_version` and the two `promote_`
     // Operations are deliberately absent: they refuse nobody, turning a save
-    // against another Kitchen's Branch into a Copy (#54, ADR 0025).
+    // against another Kitchen's Branch into a Copy (#54, ADR 0025) — the hole
+    // ADR 0040 names in its consequences and #100 carries.
     let by_branch: Vec<(&str, serde_json::Value)> = vec![
         ("get_recipe", json!({})),
         ("get_thread", json!({})),
@@ -1238,6 +1256,36 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             answer(&app, &nadia.key, operation, held),
             answer(&app, &nadia.key, operation, absent),
             "{operation} tells Nadia whether Marc's household holds that recipe"
+        );
+    }
+
+    // Every Operation that reaches an Attempt by its id. An Attempt is one
+    // Person's private record, so whose it is must be no part of the answer.
+    let by_attempt: Vec<(&str, serde_json::Value)> = vec![
+        ("advance_attempt", json!({ "current_step_index": 1 })),
+        ("finish_attempt", json!({ "rating": "again" })),
+        ("edit_attempt", json!({ "rating": "again" })),
+        ("delete_attempt", json!({})),
+        ("set_as_cooked", json!({ "as_cooked": Value::Null })),
+        ("decline_promotion", json!({ "declined": true })),
+        (
+            "promote_as_cooked",
+            json!({ "branch_id": her_recipe, "name": "a name" }),
+        ),
+        (
+            "promote_attempt_photograph",
+            json!({ "branch_id": her_recipe, "photograph_id": "ph_ffffffffffffffff" }),
+        ),
+    ];
+    for (operation, rest) in &by_attempt {
+        let mut held = rest.clone();
+        held["attempt_id"] = json!(his_attempt);
+        let mut absent = rest.clone();
+        absent["attempt_id"] = json!(no_attempt);
+        assert_eq!(
+            answer(&app, &nadia.key, operation, held),
+            answer(&app, &nadia.key, operation, absent),
+            "{operation} tells Nadia whether that id names another Person's cooking"
         );
     }
 

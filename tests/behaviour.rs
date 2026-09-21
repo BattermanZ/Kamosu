@@ -5593,30 +5593,43 @@ async fn only_the_cook_who_owns_an_attempt_may_advance_finish_edit_or_delete_it(
     );
     let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
 
-    let (status, _) = app.post_op(
+    // Each of these is asked twice: once about the Attempt Aurélien is really
+    // cooking, once about an id nobody ever minted. Marc cooks in the Kitchen,
+    // so he may see the recipe — and the two answers must still be the same
+    // one, because whose cooking it is was never his to learn (ADR 0040).
+    let absent = "at_ffffffffffffffff";
+    for (operation, rest) in [
+        ("advance_attempt", json!({ "current_step_index": 1 })),
+        ("finish_attempt", json!({})),
+        ("edit_attempt", json!({ "note": "not mine to say" })),
+        ("delete_attempt", json!({})),
+    ] {
+        let ask = |id: &str| {
+            let mut input = rest.clone();
+            input["attempt_id"] = json!(id);
+            app.post_op(operation, Some(&intruder_key), &input.to_string())
+        };
+        let (status, refused) = ask(&attempt_id);
+        assert_eq!(status, 404, "{operation}: {refused}");
+        assert_eq!(
+            refused["error"]["message"],
+            json!("no such Attempt"),
+            "{operation}: {refused}"
+        );
+        assert_eq!(
+            ask(absent),
+            (status, refused),
+            "{operation} tells Marc that id names somebody's cooking"
+        );
+    }
+
+    // And the cook whose Attempt it is still reaches it.
+    let (status, advanced) = app.post_op(
         "advance_attempt",
-        Some(&intruder_key),
+        Some(&key),
         &json!({ "attempt_id": attempt_id, "current_step_index": 1 }).to_string(),
     );
-    assert_eq!(status, 401);
-    let (status, _) = app.post_op(
-        "finish_attempt",
-        Some(&intruder_key),
-        &json!({ "attempt_id": attempt_id }).to_string(),
-    );
-    assert_eq!(status, 401);
-    let (status, _) = app.post_op(
-        "edit_attempt",
-        Some(&intruder_key),
-        &json!({ "attempt_id": attempt_id, "note": "not mine to say" }).to_string(),
-    );
-    assert_eq!(status, 401);
-    let (status, _) = app.post_op(
-        "delete_attempt",
-        Some(&intruder_key),
-        &json!({ "attempt_id": attempt_id }).to_string(),
-    );
-    assert_eq!(status, 401);
+    assert_eq!(status, 200, "{advanced}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
