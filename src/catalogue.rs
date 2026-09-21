@@ -615,6 +615,67 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::save_recipe_version,
         },
         Operation {
+            name: "read_pasted_recipe",
+            summary: "Read a whole recipe pasted as text into a title, an \
+                      ingredient list and a method. Decides only what each \
+                      line IS — an Ingredient Line, a Step, a Section — and \
+                      never \
+                      what it says: every line comes back exactly as pasted, \
+                      with no amount extracted, no rewording and no \
+                      reordering (ADR 0002). Nothing is guessed beyond the \
+                      split and the title: no Yield, no times, no Source, and \
+                      no Component (ADR 0008). It writes nothing anywhere — \
+                      what comes back is shown to whoever pasted it, who \
+                      moves the boundary if it landed wrong, and only then is \
+                      a recipe saved by an ordinary create_recipe or \
+                      save_recipe_version. The boundary is the index in \
+                      `lines` where the method starts, so moving it re-splits \
+                      the same answer without asking again.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "text": { "type": "string" } },
+                "required": ["text"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    // The first line where it stands alone above a blank line,
+                    // or nothing. A guess, corrected by typing in the title.
+                    "title": { "type": ["string", "null"] },
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "text": { "type": "string" },
+                                // A Section is a Section in either block, and
+                                // is spelt the way a recipe's own content
+                                // spells it, so a row goes onto the page as
+                                // itself. Every other line is an Ingredient
+                                // Line above the boundary and a Step below
+                                // it, which is the whole of why the boundary
+                                // can move without anything being read a
+                                // second time.
+                                "kind": { "enum": ["line", "section"] },
+                            },
+                            "required": ["text", "kind"],
+                            "additionalProperties": false,
+                        },
+                    },
+                    "boundary": { "type": "integer", "minimum": 0 },
+                },
+                "required": ["title", "lines", "boundary"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::read_pasted_recipe,
+        },
+        Operation {
             name: "start_translation",
             summary: "Translate a recipe: start an ordinary Branch of the same \
                       Lineage in another Language, whose first Version records \

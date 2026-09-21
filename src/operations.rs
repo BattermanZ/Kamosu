@@ -540,6 +540,63 @@ pub fn save_recipe_version(
     )
 }
 
+/// **Read a whole recipe pasted as text** (#94).
+///
+/// Pure, and the only handler in this file that touches neither the database
+/// nor the Person who called it: the parse is a function over a string, and
+/// what comes back is shown to whoever pasted it before anything is saved by
+/// an ordinary `create_recipe` or `save_recipe_version`.
+///
+/// It is an Operation rather than TypeScript in `ui/` for three reasons, the
+/// open call #94 left to whoever implemented it. The split rests on
+/// [`crate::reading`], whose Unit vocabulary is [`crate::units`]'s in three
+/// Languages, and a second copy of that in a second language is exactly the
+/// objection ADR 0036 raised against the two ingredient-parsing libraries. An
+/// agent at the MCP door pastes recipes as readily as a browser does, and a
+/// parser only the web could reach is the web-only route ADR 0001 exists to
+/// make unrepresentable. And the measurement that says the split works at all
+/// lives in `tests/pasting_corpus.rs`, against the real export.
+///
+/// What it costs is one round trip, paid once when the paste arrives. Moving
+/// the boundary afterwards costs none: every line comes back already read, so
+/// the split is an index into an answer the screen already holds.
+pub fn read_pasted_recipe(
+    _core: &Core,
+    _invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let text = input
+        .get("text")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_pasted_recipe takes { text }"))?;
+
+    // A semantic check rather than a shape one, so it belongs here (#85): the
+    // Catalogue's declaration says a string and cannot say how long a recipe
+    // somebody typed plausibly is.
+    // `str::len` is bytes, and so is the bound — a limit on how much text
+    // Kamosu will hold, not on how many letters a recipe may have. Said in
+    // bytes rather than reported as characters, which it is not: an accented
+    // paste would otherwise be refused well before the number it was given.
+    if text.len() > crate::pasting::LONGEST_PASTE {
+        return Err(OpError::bad_request(format!(
+            "a pasted recipe is at most {} bytes of text, and that is {}",
+            crate::pasting::LONGEST_PASTE,
+            text.len()
+        )));
+    }
+
+    let paste = crate::pasting::read_paste(text);
+    Ok(serde_json::json!({
+        "title": paste.title,
+        "lines": paste
+            .lines
+            .iter()
+            .map(|line| serde_json::json!({ "text": line.text, "kind": line.kind.as_str() }))
+            .collect::<Vec<_>>(),
+        "boundary": paste.boundary,
+    }))
+}
+
 /// Start a Translation: an ordinary Branch of the same Lineage in another
 /// Language, whose first Version records what it renders (#56, ADR 0006).
 pub fn start_translation(

@@ -80,15 +80,24 @@ const SAVED = {
 
 type Components = GetRecipeOutput['versions'][number]['components'];
 
-function renderWriting(answers: Answers = {}, kitchenId = 'k_mine', components: Components = []) {
+function renderWriting(
+	answers: Answers = {},
+	kitchenId = 'k_mine',
+	components: Components = [],
+	/** The recipe underneath, where a test needs one that is not Dan Dan Noodles. */
+	start: Content = content(),
+) {
 	const onSaved = vi.fn();
 	const onCancel = vi.fn();
 	const kamosu = standIn({ ...KITCHENS, ...SAVED, ...answers });
 	render(WritingTestHarness, {
-		props: { client: kamosu.client, content: content(), kitchenId, components, onSaved, onCancel },
+		props: { client: kamosu.client, content: start, kitchenId, components, onSaved, onCancel },
 	});
 	return { kamosu, onSaved, onCancel };
 }
+
+/** A recipe that holds nothing yet — a new one, which is where a paste lands. */
+const empty = (): Content => ({ ...content(), title: '', ingredients: [], steps: [] });
 
 // ---- naming another recipe from a line (#87) -----------------------------
 //
@@ -871,5 +880,233 @@ describe('naming another recipe from a line', () => {
 		expect(onSaved).toHaveBeenCalledWith(
 			expect.objectContaining({ branch_id: 'mine', collapsed: false, named: false }),
 		);
+	});
+});
+
+// ---- pasting a whole recipe (#94) ----------------------------------------
+//
+// The screen seam, not the parser: what the Operation answers is the
+// stand-in's to say, and what is tested here is that the screen SHOWS it
+// before anything lands, splits by the boundary it was given, re-splits when
+// that boundary is moved WITHOUT asking again, and says what it is about to
+// replace.
+//
+// The parser itself is measured in Rust, against the real 86-recipe export
+// (`tests/pasting_corpus.rs`).
+
+/** A paste with Sections in BOTH blocks — the awkward case, on purpose. */
+const WITH_HEADINGS = {
+	read_pasted_recipe: {
+		title: 'Dan Dan Noodles',
+		lines: [
+			{ kind: 'section', text: 'Dan Dan Sauce:' },
+			{ kind: 'line', text: '2 tbsp Chinese sesame paste' },
+			{ kind: 'line', text: 'chilli oil, to taste' },
+			{ kind: 'section', text: 'Assemble:' },
+			{ kind: 'line', text: 'Mix the sauce and pour it over the noodles.' },
+		],
+		boundary: 3,
+	},
+} as Answers;
+
+/** And one with no Section at all, which is most of them. */
+const NO_HEADINGS = {
+	read_pasted_recipe: {
+		title: null,
+		lines: [
+			{ kind: 'line', text: '200 g plain flour' },
+			{ kind: 'line', text: '2 poignées de farine, environ' },
+			{ kind: 'line', text: 'Heat the oven and butter a tin thoroughly.' },
+		],
+		boundary: 2,
+	},
+} as Answers;
+
+/** Open the paste sheet, put text in it, and have it read. */
+async function pasteIn(text = 'anything, since the stand-in answers') {
+	await fireEvent.click(screen.getByRole('button', { name: 'Paste a whole recipe' }));
+	const field = await screen.findByRole('textbox', { name: 'The recipe, pasted as text' });
+	await fireEvent.input(field, { target: { value: text } });
+	await fireEvent.click(screen.getByRole('button', { name: 'Read it' }));
+	return screen.findByRole('button', { name: 'Use it' });
+}
+
+/**
+ * How many rows the sheet draws on each side of the split, read off the page
+ * rather than off the answer — Sections included, since they are what moving
+ * the boundary most often carries across.
+ */
+function pasteSides(): [number, number] {
+	const headings = screen.getAllByRole('heading', { level: 3 });
+	const rows = screen.getAllByRole('button', { name: 'Start the method at this line' });
+	const method = headings[1] as HTMLElement;
+	const below = rows.filter(
+		(row) => method.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
+	);
+	return [rows.length - below.length, below.length];
+}
+
+/** How many times the paste was actually sent to be read. */
+const reads = (kamosu: ReturnType<typeof standIn>) =>
+	kamosu.calls.filter((call) => call.operation === 'read_pasted_recipe');
+
+describe('pasting a whole recipe', () => {
+	it('becomes a title, an ingredient list and a method, headings kept as Sections', async () => {
+		renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		await pasteIn();
+		await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
+
+		// The title it found is on the page, in the title field.
+		const title = (await screen.findByRole('textbox', { name: 'Title' })) as HTMLTextAreaElement;
+		expect(title.value).toBe('Dan Dan Noodles');
+
+		// Split at the boundary it was given: two ingredients above, one step
+		// below, and a heading in each — as real Sections, not lines wearing a
+		// colon.
+		expect(rowFields().map((field) => field.value)).toEqual([
+			'Dan Dan Sauce:',
+			'2 tbsp Chinese sesame paste',
+			'chilli oil, to taste',
+			'Assemble:',
+			'Mix the sauce and pour it over the noodles.',
+		]);
+		const headings = screen.getAllByRole('textbox', { name: 'Heading' });
+		expect(headings.map((h) => (h as HTMLTextAreaElement).value)).toEqual([
+			'Dan Dan Sauce:',
+			'Assemble:',
+		]);
+		expect(screen.getAllByRole('textbox', { name: /^Ingredient line/ })).toHaveLength(2);
+		expect(screen.getAllByRole('textbox', { name: /^Step/ })).toHaveLength(1);
+	});
+
+	it('takes a paste with no headings at all, exactly as it was pasted', async () => {
+		renderWriting(NO_HEADINGS, 'k_mine', [], empty());
+		await pasteIn();
+		await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
+
+		// No heading anywhere, and every line unchanged — no amount lifted out
+		// of `2 poignées de farine, environ`, no rewording (ADR 0002).
+		expect(screen.queryAllByRole('textbox', { name: 'Heading' })).toHaveLength(0);
+		expect(rowFields().map((field) => field.value)).toEqual([
+			'200 g plain flour',
+			'2 poignées de farine, environ',
+			'Heat the oven and butter a tin thoroughly.',
+		]);
+	});
+
+	it('says what it made of the paste before anything lands', async () => {
+		renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		await pasteIn();
+
+		// The counts and the title are on screen, and the page underneath is
+		// still empty: nothing lands until *Use it*.
+		expect(screen.getByText(/2 ingredients and 1 steps/)).toBeInTheDocument();
+		expect(screen.getByText(/Dan Dan Noodles/)).toBeInTheDocument();
+		expect(rowFields()).toHaveLength(0);
+	});
+
+	it('re-splits when the boundary is moved, without reading a line again', async () => {
+		const { kamosu } = renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		await pasteIn();
+		expect(reads(kamosu)).toHaveLength(1);
+
+		// One line later: `Assemble:` was the first row of the method and is
+		// now the last row of the list. Asserted on WHICH SIDE it is drawn on,
+		// because the counts alone would not have moved — a Section is neither
+		// an ingredient nor a step, so a count-only assertion here witnesses
+		// nothing at all.
+		expect(pasteSides()).toEqual([3, 2]);
+		await fireEvent.click(screen.getByRole('button', { name: 'A line later' }));
+		expect(pasteSides()).toEqual([4, 1]);
+
+		// All the way to the end: the method empties, and says so in its own
+		// words rather than in the ingredients'.
+		await fireEvent.click(screen.getByRole('button', { name: 'A line later' }));
+		expect(pasteSides()).toEqual([5, 0]);
+		// Scoped to the sheet: the page underneath is an empty recipe, so it is
+		// saying the same thing for its own reasons.
+		expect(within(screen.getByRole('dialog')).getByText('No method yet.')).toBeInTheDocument();
+
+		// And a long way, in one tap, by naming the line the method starts at:
+		// back from four to two, which a screen offering only the two buttons
+		// would have taken two taps to do.
+		const rows = screen.getAllByRole('button', { name: 'Start the method at this line' });
+		await fireEvent.click(rows[2] as HTMLElement);
+		expect(pasteSides()).toEqual([2, 3]);
+		await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
+
+		// Every line is still there, in the order it was pasted. Only where the
+		// two lists part has moved.
+		expect(rowFields().map((field) => field.value)).toEqual([
+			'Dan Dan Sauce:',
+			'2 tbsp Chinese sesame paste',
+			'chilli oil, to taste',
+			'Assemble:',
+			'Mix the sauce and pour it over the noodles.',
+		]);
+		expect(screen.getAllByRole('textbox', { name: /^Ingredient line/ })).toHaveLength(1);
+		expect(screen.getAllByRole('textbox', { name: /^Step/ })).toHaveLength(2);
+
+		// THE WHOLE POINT: moving it never asked again.
+		expect(reads(kamosu)).toHaveLength(1);
+	});
+
+	it('says what it replaces on a recipe that already holds something', async () => {
+		// Reached through `⋯` rather than in the open, because pasting over a
+		// recipe replaces it.
+		const { kamosu } = renderWriting(WITH_HEADINGS);
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.click(screen.getByRole('button', { name: 'More' }));
+		await pasteIn();
+
+		// The three ingredients and two steps of Dan Dan Noodles, named before
+		// they go.
+		expect(
+			screen.getByText(/replaces the 3 ingredients and 2 steps already here/),
+		).toBeInTheDocument();
+		expect(reads(kamosu)).toHaveLength(1);
+	});
+
+	it('says the title goes too, on a recipe that is only a title', async () => {
+		// `create_recipe` takes a title and nothing else, so this is the state
+		// every brand-new recipe is in. The two lists are empty, so the offer
+		// is still in the open — but a paste carrying its own title would
+		// replace one somebody typed a moment ago, and that is a loss of its
+		// own rather than part of the lists'.
+		renderWriting(WITH_HEADINGS, 'k_mine', [], { ...empty(), title: 'Tuesday supper' });
+		await pasteIn();
+		expect(screen.getByText(/also replaces the title Tuesday supper/)).toBeInTheDocument();
+		expect(screen.queryByText(/ingredients and .* steps already here/)).not.toBeInTheDocument();
+	});
+
+	it('says nothing about replacing anything when the recipe is empty', async () => {
+		renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		await pasteIn();
+		expect(screen.queryByText(/replaces/)).not.toBeInTheDocument();
+		expect(screen.getByText('Nothing is saved until you save.')).toBeInTheDocument();
+	});
+
+	it('saves nothing by itself — the paste fills the page and stops', async () => {
+		const { kamosu } = renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		await pasteIn();
+		await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
+		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
+		expect(kamosu.calls.some((call) => call.operation === 'create_recipe')).toBe(false);
+	});
+
+	it('says so when the paste could not be read', async () => {
+		renderWriting(
+			{ read_pasted_recipe: { refuse: 'bad_request', message: 'too long' } } as Answers,
+			'k_mine',
+			[],
+			empty(),
+		);
+		await fireEvent.click(screen.getByRole('button', { name: 'Paste a whole recipe' }));
+		const field = await screen.findByRole('textbox', { name: 'The recipe, pasted as text' });
+		await fireEvent.input(field, { target: { value: 'something' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Read it' }));
+		// By its text rather than by `role="alert"`: an empty recipe is already
+		// showing one, since it has no title yet.
+		expect(await screen.findByText('too long')).toBeInTheDocument();
 	});
 });

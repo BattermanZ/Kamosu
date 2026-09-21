@@ -27,6 +27,7 @@ pub mod mcp_door;
 pub mod meaning;
 pub mod operations;
 pub mod pairing;
+pub mod pasting;
 pub mod photographs;
 pub mod reading;
 pub mod schema;

@@ -611,6 +611,20 @@ export type SaveRecipeVersionOutput = {
 	version_id: string;
 };
 
+/** Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
+export type ReadPastedRecipeInput = {
+	text: string;
+};
+/** What read_pasted_recipe answers. */
+export type ReadPastedRecipeOutput = {
+	boundary: number;
+	lines: {
+		kind: "line" | "section";
+		text: string;
+	}[];
+	title: string | null;
+};
+
 /** Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 export type StartTranslationInput = {
 	branch_id: string;
@@ -3646,6 +3660,12 @@ export interface Operations {
 	save_recipe_version: {
 		input: SaveRecipeVersionInput;
 		output: SaveRecipeVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	read_pasted_recipe: {
+		input: ReadPastedRecipeInput;
+		output: ReadPastedRecipeOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -6808,6 +6828,67 @@ export const CATALOGUE = [
 				"language",
 				"language_offer",
 				"translates_version_id"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_pasted_recipe",
+		"summary": "Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"text": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"text"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"boundary": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"lines": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"line",
+									"section"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"text",
+							"kind"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"title": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"title",
+				"lines",
+				"boundary"
 			],
 			"type": "object"
 		}
@@ -21465,6 +21546,7 @@ export const READS: readonly OperationName[] = [
 	'list_access_keys',
 	'list_kitchens',
 	'list_tags',
+	'read_pasted_recipe',
 	'search_recipes',
 	'home_shelves',
 	'meaning_search_status',
@@ -21523,6 +21605,7 @@ export const METHOD_NAMES = {
 	set_related_recipe: 'setRelatedRecipe',
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
+	read_pasted_recipe: 'readPastedRecipe',
 	start_translation: 'startTranslation',
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
@@ -21657,6 +21740,8 @@ export interface KamosuClient {
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
 	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
+	/** Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
+	readPastedRecipe(input: ReadPastedRecipeInput): Promise<Answer<'read_pasted_recipe'>>;
 	/** Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
 	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */

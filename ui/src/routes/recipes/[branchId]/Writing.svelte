@@ -101,7 +101,11 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { usePhotograph } from '$lib/api/upload';
-	import type { GetRecipeOutput, ListKitchensOutput } from '$lib/api/catalogue';
+	import type {
+		GetRecipeOutput,
+		ListKitchensOutput,
+		ReadPastedRecipeOutput,
+	} from '$lib/api/catalogue';
 	import type { Nutrition } from './divergence';
 	import Cover from '$lib/cover/Cover.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
@@ -285,6 +289,119 @@
 	let failed = $state<string | undefined>(undefined);
 	let versionName = $state('');
 	let changeNote = $state('');
+
+	// ---- pasting a whole recipe (#94) -----------------------------------
+	//
+	// C's one advantage, kept as a WAY IN rather than as a way of working
+	// (#83): paste a whole recipe, and Kamosu says what it made of it BEFORE
+	// anything lands. The engine is `read_pasted_recipe`, an Operation rather
+	// than a second parser in a second language — it rests on `reading.rs`,
+	// whose Unit vocabulary is `units.rs`'s in three Languages.
+	//
+	// THE GUESS IS NEVER APPLIED SILENTLY. Measured on the real 86-recipe
+	// export, the boundary lands exactly on 77.5% of recipes and within one
+	// line on 95%. The 5% is why this sheet exists at all: it names the
+	// counts, draws the split, and lets it be moved. A parser right four
+	// times in five and silent the fifth is worse than one that says so.
+	//
+	// NOTHING IS SAVED HERE. Using a paste fills the fields on this page and
+	// stops. The save is the ordinary save underneath, which still states
+	// which of the two acts it is about to be.
+
+	let pasteOpen = $state(false);
+	/** The `⋯` menu, which is how the offer is reached once the page holds something. */
+	let moreOpen = $state(false);
+	let pasteText = $state('');
+	let reading = $state(false);
+	let pasteFailed = $state<string | undefined>(undefined);
+	/** What came back, or nothing while the paste has not been read yet. */
+	let pasted = $state<ReadPastedRecipeOutput | null>(null);
+	/**
+	 * Where the method starts. Seeded from the answer and then moved by hand,
+	 * which RE-SPLITS THE SAME ANSWER: every line came back already read, so
+	 * moving this re-reads not one character of any line.
+	 */
+	let boundary = $state(0);
+
+	/** Whether this recipe already holds something a paste would replace. */
+	const holdsSomething = $derived(lines.length > 0 || steps.length > 0);
+
+	/** How many lines the paste holds, readable from a callback that runs later. */
+	const pastedLines = $derived(pasted?.lines.length ?? 0);
+	const above = $derived(pasted ? pasted.lines.slice(0, boundary) : []);
+	const below = $derived(pasted ? pasted.lines.slice(boundary) : []);
+	/** The counts the sheet names — a Section is neither an ingredient nor a step. */
+	const countOf = (rows: { kind: string }[]) => rows.filter((row) => row.kind === 'line').length;
+	const sectionsIn = (rows: { kind: string }[]) =>
+		rows.filter((row) => row.kind === 'section').length;
+
+	/**
+	 * **What using this paste would overwrite.** A recipe made by
+	 * `create_recipe` holds a title and two empty lists, so the lists alone do
+	 * not answer this: a paste carrying its own title would silently replace
+	 * one somebody typed a moment ago. Said separately because it is a
+	 * separate loss.
+	 */
+	const replacesTitle = $derived(
+		title.trim() !== '' && pasted !== null && (pasted.title ?? '').trim() !== '',
+	);
+
+	function openPaste() {
+		moreOpen = false;
+		pasteOpen = true;
+		pasteText = '';
+		pasted = null;
+		pasteFailed = undefined;
+	}
+
+	async function readPaste() {
+		if (pasteText.trim() === '') {
+			pasteFailed = m.write_paste_nothing();
+			return;
+		}
+		reading = true;
+		pasteFailed = undefined;
+		try {
+			const answer = await kamosu.readPastedRecipe({ text: pasteText });
+			if (answer.lines.length === 0) {
+				pasteFailed = m.write_paste_nothing();
+			} else {
+				pasted = answer;
+				boundary = answer.boundary;
+			}
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			pasteFailed = error.message;
+		}
+		reading = false;
+	}
+
+	/**
+	 * Put the paste onto the page. The two kinds map straight across — a
+	 * heading is a Section in whichever list it landed in — and every line
+	 * goes in exactly as it came back (ADR 0002).
+	 */
+	function usePaste() {
+		if (!pasted) return;
+		if (pasted.title !== null && pasted.title.trim() !== '') title = pasted.title;
+		lines = above.map((row) => ({
+			id: id(),
+			kind: row.kind === 'section' ? ('section' as const) : ('ingredient' as const),
+			text: row.text,
+			// A pasted line naming a recipe on the shelf is an ordinary
+			// Ingredient Line until somebody says otherwise (ADR 0008).
+			namedRecipe: null,
+		}));
+		steps = below.map((row) => ({
+			id: id(),
+			kind: row.kind === 'section' ? ('section' as const) : ('step' as const),
+			text: row.text,
+			photo: null,
+		}));
+		cursor = null;
+		pasteOpen = false;
+		pasted = null;
+	}
 
 	// ---- which of the two saves this is ---------------------------------
 
@@ -782,6 +899,36 @@
 			{m.write_cancel()}
 		</button>
 		<span class="flex-1 text-center text-label text-ink-2 uppercase">{m.write_editing()}</span>
+		<!--
+			The way in to a paste, once the page holds something (#83). Pasting
+			over a recipe REPLACES it, so it does not sit in the open beside
+			*Add a line*; it sits under `⋯`, and the sheet says what it replaces
+			before it does it.
+		-->
+		{#if holdsSomething}
+			<div class="relative">
+				<button
+					type="button"
+					aria-label={m.write_paste_more()}
+					aria-expanded={moreOpen}
+					class="px-1 text-body text-ink-2"
+					onclick={() => (moreOpen = !moreOpen)}
+				>
+					⋯
+				</button>
+				{#if moreOpen}
+					<div class="w-56 absolute end-0 z-30 mt-1 border border-rule bg-card p-1 text-start">
+						<button
+							type="button"
+							class="block w-full px-2 py-2 text-start text-body text-accent"
+							onclick={openPaste}
+						>
+							{m.write_paste_offer()}
+						</button>
+					</div>
+				{/if}
+			</div>
+		{/if}
 		<button
 			type="button"
 			class="text-body font-medium {kitchensKnown && !wrong ? 'text-accent' : 'text-ink-2'}"
@@ -791,6 +938,19 @@
 			{saving ? m.write_saving() : m.write_save()}
 		</button>
 	</div>
+
+	<!--
+		And in the open on a recipe that holds nothing yet, which is when you
+		actually have one as text and there is nothing to lose by pasting it.
+	-->
+	{#if !holdsSomething}
+		<div class="border-b border-rule px-gutter py-2">
+			<button type="button" class="{QUIET} w-full text-accent" onclick={openPaste}>
+				{m.write_paste_offer()}
+			</button>
+			<p class="pt-2 text-read text-ink-2">{m.write_paste_hint()}</p>
+		</div>
+	{/if}
 
 	<!-- The hero, and the title typed onto it — #81's layout, made writable. -->
 	<div class="relative overflow-hidden">
@@ -1141,6 +1301,155 @@
 	>
 		⠿
 	</button>
+{/snippet}
+
+<!--
+	THE SHEET THAT SAYS WHAT KAMOSU MADE OF A PASTE, BEFORE IT LANDS (#94).
+
+	It is the whole reason the parser is allowed to guess at all. The boundary
+	is found exactly on 77.5% of the real 86-recipe export and within one line
+	on 95%, so the ordinary correction is one line — hence the two buttons —
+	and the occasional one is a long way, hence every line being able to take
+	the split itself.
+
+	Moving it re-splits an answer this screen already holds. No line is read a
+	second time and no request is made.
+-->
+{#if pasteOpen}
+	<div class="fixed inset-0 z-40 bg-accent/40"></div>
+	<div
+		class="py-5 fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[85vh] max-w-2xl overflow-y-auto bg-ground px-gutter pb-safe"
+		role="dialog"
+		aria-modal="true"
+		aria-label={m.write_paste_offer()}
+	>
+		<p class="text-label text-ink-2 uppercase">{m.write_paste_offer()}</p>
+
+		{#if !pasted}
+			<p class="mt-2 text-read text-ink-2">{m.write_paste_hint()}</p>
+			<textarea
+				bind:value={pasteText}
+				rows="10"
+				aria-label={m.write_paste_label()}
+				class="mt-3 block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"
+			></textarea>
+			{#if pasteFailed}
+				<p class="mt-2 text-read text-support" role="alert">{pasteFailed}</p>
+			{/if}
+			<button
+				type="button"
+				class="mt-3 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
+				disabled={reading}
+				onclick={readPaste}
+			>
+				{reading ? m.write_paste_reading() : m.write_paste_read()}
+			</button>
+		{:else}
+			<!-- What it made of it: the title, the counts, and the split drawn. -->
+			<p class="mt-2 text-body">
+				{pasted.title === null || pasted.title.trim() === ''
+					? m.write_paste_no_title()
+					: m.write_paste_found_title({ title: pasted.title })}
+			</p>
+			<p class="mt-1 text-read text-ink-2">
+				{m.write_paste_made({ ingredients: countOf(above), steps: countOf(below) })}
+				{#if sectionsIn(pasted.lines) > 0}
+					{m.write_paste_headings({ headings: sectionsIn(pasted.lines) })}
+				{/if}
+			</p>
+
+			<div class="mt-3 flex items-center gap-2">
+				<span class="flex-1 text-label text-ink-2 uppercase">{m.write_paste_boundary()}</span>
+				<button
+					type="button"
+					class={QUIET}
+					disabled={boundary === 0}
+					onclick={() => (boundary = Math.max(0, boundary - 1))}
+				>
+					{m.write_paste_earlier()}
+				</button>
+				<button
+					type="button"
+					class={QUIET}
+					disabled={boundary >= pastedLines}
+					onclick={() => (boundary = Math.min(pastedLines, boundary + 1))}
+				>
+					{m.write_paste_later()}
+				</button>
+			</div>
+
+			<!--
+				Every line, in the order it was pasted, on the side it landed.
+				Each one takes the split itself, so a boundary eight lines out is
+				one tap rather than eight — and the row is a real button, so it
+				is reachable from a keyboard.
+			-->
+			<h3 class="mt-4 font-display text-label font-semibold text-accent uppercase">
+				{m.recipe_ingredients()}
+			</h3>
+			{@render pasteRows(above, 0, m.write_empty_ingredients())}
+			<h3
+				class="mt-3 border-t border-rule pt-3 font-display text-label font-semibold text-accent uppercase"
+			>
+				{m.recipe_method()}
+			</h3>
+			{@render pasteRows(below, boundary, m.write_empty_steps())}
+
+			<p class="mt-4 text-read {holdsSomething || replacesTitle ? 'text-support' : 'text-ink-2'}">
+				{#if holdsSomething}
+					{m.write_paste_replaces({
+						ingredients: lines.filter((row) => row.kind === 'ingredient').length,
+						steps: steps.filter((row) => row.kind === 'step').length,
+					})}
+				{/if}
+				{#if replacesTitle}
+					{m.write_paste_replaces_title({ title: title.trim() })}
+				{/if}
+				{#if !holdsSomething && !replacesTitle}
+					{m.write_paste_fresh()}
+				{/if}
+			</p>
+			<button
+				type="button"
+				class="mt-3 block w-full p-4 text-center font-display text-body text-on-accent {holdsSomething ||
+				replacesTitle
+					? 'bg-support'
+					: 'bg-accent'}"
+				onclick={usePaste}
+			>
+				{m.write_paste_use()}
+			</button>
+		{/if}
+		<button
+			type="button"
+			class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
+			onclick={() => (pasteOpen = false)}
+		>
+			{m.write_back()}
+		</button>
+	</div>
+{/if}
+
+{#snippet pasteRows(rows: ReadPastedRecipeOutput['lines'], from: number, empty: string)}
+	{#if rows.length === 0}
+		<p class="py-1 text-read text-ink-2">{empty}</p>
+	{/if}
+	<ul>
+		{#each rows as row, index (from + index)}
+			<li>
+				<button
+					type="button"
+					aria-label={m.write_paste_start_here()}
+					class="block w-full border-b border-rule py-1 text-start {row.kind === 'section'
+						? 'text-label text-ink-2 uppercase'
+						: 'text-line text-ink'}"
+					onclick={() => (boundary = from + index)}
+				>
+					{row.text}
+				</button>
+			</li>
+		{/each}
+	</ul>
 {/snippet}
 
 <!--
