@@ -343,6 +343,9 @@
   .mt-auto {
     margin-top: auto;
   }
+  .-mb-px {
+    margin-bottom: -1px;
+  }
   .mb-1 {
     margin-bottom: var(--spacing-1);
   }
@@ -674,6 +677,10 @@
     border-bottom-style: var(--tw-border-style);
     border-bottom-width: 1px;
   }
+  .border-b-2 {
+    border-bottom-style: var(--tw-border-style);
+    border-bottom-width: 2px;
+  }
   .border-l {
     border-left-style: var(--tw-border-style);
     border-left-width: 1px;
@@ -730,6 +737,9 @@
   }
   .border-support-2 {
     border-color: var(--color-support-2);
+  }
+  .border-transparent {
+    border-color: transparent;
   }
   .border-t-accent {
     border-top-color: var(--color-accent);
@@ -947,6 +957,10 @@
     font-size: var(--text-line);
     line-height: var(--tw-leading, var(--text-line--line-height));
   }
+  .text-list-title {
+    font-size: var(--text-list-title);
+    line-height: var(--tw-leading, var(--text-list-title--line-height));
+  }
   .text-shelf-heading {
     font-size: var(--text-shelf-heading);
     line-height: var(--tw-leading, var(--text-shelf-heading--line-height));
@@ -988,6 +1002,9 @@
   }
   .text-accent {
     color: var(--color-accent);
+  }
+  .text-card {
+    color: var(--color-card);
   }
   .text-cook-accent {
     color: var(--color-cook-accent);

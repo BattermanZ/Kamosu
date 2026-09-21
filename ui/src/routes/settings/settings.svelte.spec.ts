@@ -20,6 +20,10 @@ import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
  * visitor would be refused — the same shape a stranger meets at either Door. */
 const anonymous: Answers = {
 	list_sessions: { refuse: 'unauthorized' },
+	// Whether this Person administers the instance is learnt by asking
+	// something only an Operator may ask (#103). A stranger is refused, and the
+	// way into the Operator's screen is simply not there.
+	list_accounts: { refuse: 'unauthorized' },
 	list_access_keys: { refuse: 'unauthorized' },
 	get_reading_preferences: { refuse: 'unauthorized' },
 	meaning_search_status: { refuse: 'unauthorized' },
@@ -54,6 +58,8 @@ const meaningStatus = (
  */
 const readsInAmerican: Answers = {
 	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
+	// A signed-in Person who does not administer the instance (#103).
+	list_accounts: { refuse: 'unauthorized' },
 	// Meaning Search as most instances have it: nobody has been asked, so this
 	// screen shows nothing about it at all. It is not where the feature is
 	// discovered — that is inside *nothing found* (ADR 0029) — so its absence
@@ -73,6 +79,39 @@ describe('the settings screen', () => {
 		expect(await screen.findByText(/Version 0\.1\.0/)).toBeInTheDocument();
 		expect(screen.getByText(/Setup is complete/)).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).toContain('instance_status');
+	});
+
+	it("offers the Operator's screen only to somebody who administers the instance", async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			...anonymous,
+		});
+		expect(await screen.findByText(/Version 0\.1\.0/)).toBeInTheDocument();
+		expect(
+			screen.queryByRole('link', { name: 'Administer this instance' }),
+		).not.toBeInTheDocument();
+	});
+
+	it("shows the way into the Operator's screen to an Operator", async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			...anonymous,
+			list_accounts: {
+				accounts: [
+					{
+						name: 'Aurélien',
+						is_operator: true,
+						disabled: false,
+						is_you: true,
+						created_at: '2026-01-04T10:00:00Z',
+					},
+				],
+			},
+		});
+		expect(await screen.findByRole('link', { name: 'Administer this instance' })).toHaveAttribute(
+			'href',
+			'/operator',
+		);
 	});
 
 	it('says setup has not happened when it has not', async () => {
@@ -118,6 +157,7 @@ describe('the settings screen', () => {
 	it("lists a signed-in Person's Sessions and Access Keys together, each ending on its own", async () => {
 		const { kamosu } = renderScreen(Settings, {
 			instance_status: { version: '0.1.0', setup_complete: true },
+			list_accounts: { refuse: 'unauthorized' },
 			list_sessions: {
 				sessions: [
 					{

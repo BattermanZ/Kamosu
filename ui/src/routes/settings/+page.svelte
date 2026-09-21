@@ -15,6 +15,7 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import { MeaningSearch } from '$lib/meaning.svelte';
+	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import ImportCrouton from './ImportCrouton.svelte';
 	import InstallSteps from '$lib/offline/InstallSteps.svelte';
 	import { thisDevice } from '$lib/offline/device.svelte';
@@ -62,6 +63,27 @@
 
 	const meaning = new MeaningSearch(kamosu);
 	$effect(() => meaning.ask());
+
+	// --- The way into the Operator's screen (#103) -------------------------
+	//
+	// Kamosu has no Operation answering *who is signed in*, so whether this
+	// Person administers the instance is learnt by asking something only an
+	// Operator may ask. `list_accounts` is the cheapest of those and the one
+	// the screen itself opens with.
+	let mayAdminister = $state(false);
+
+	$effect(() => {
+		let current = true;
+		asksWhetherAdministering(kamosu).then((answer) => {
+			// Only a plain yes opens the door. A Kamosu that could not answer
+			// is not a Kamosu this Person may administer *yet*, and offering a
+			// way in that then refuses would be the worse of the two.
+			if (current) mayAdminister = answer.may === true;
+		});
+		return () => {
+			current = false;
+		};
+	});
 
 	// --- This phone (#76) --------------------------------------------------
 	//
@@ -374,6 +396,24 @@
 				{m.loading()}
 			{/if}
 		</p>
+
+		<!--
+			The way into the Operator's screen (#103), shown only to somebody the
+			instance has agreed may administer it. `list_accounts` is the asking:
+			refused, this row is simply not here, which is the same answer the
+			screen itself gives (ADR 0040). A row that appeared and then refused
+			would be a worse way of saying the same thing.
+		-->
+		{#if mayAdminister}
+			<a
+				href="/operator"
+				class="mt-3 flex min-h-12 items-center justify-between gap-3 rounded-sm border
+				border-rule bg-card px-3 text-body font-medium text-ink"
+			>
+				{m.operator_open()}
+				<span aria-hidden="true" class="text-ink-2">›</span>
+			</a>
+		{/if}
 	</Section>
 
 	{#if signedIn}
