@@ -20328,3 +20328,565 @@ async fn a_finished_cooking_is_final_whatever_arrives_late() {
     );
     assert_eq!(status, 400, "{refused}");
 }
+
+// ── Deleting a recipe (#120) ─────────────────────────────────────────────────
+//
+// A recipe could arrive by three routes and leave by none, which is how a dev
+// instance came to hold 295 recipes for a library of 86. `delete_recipe` takes
+// one Branch off the shelf for good. What it must NOT take with it is most of
+// what these tests are about.
+
+/// Ask the database a question these tests cannot ask through a Door, because
+/// no Operation counts rows nobody is meant to think about.
+fn count_of(app: &support::TestApp, sql: &str) -> i64 {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(sql, [], |row| row.get(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("a count")
+}
+
+fn delete_recipe(app: &support::TestApp, key: &str, branch_id: &str) -> (u16, Value) {
+    app.post_op(
+        "delete_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_recipe_leaves_the_shelf_the_search_and_home_for_everyone_in_its_kitchen() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_housemate, housemate_key, _) = person_with_kitchen(&app, "Marc");
+
+    // Marc cooks here too, so the delete has to reach his shelf as well as
+    // hers: a Branch belongs to the Kitchen, never to whoever typed it.
+    let (_, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let secret = invite["result"]["secret"].as_str().unwrap().to_string();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&housemate_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+
+    let doomed = shelve(&app, &key, &kitchen_id, "Soba with walnut miso");
+    let kept = shelve(&app, &key, &kitchen_id, "Tarte aux pommes");
+
+    // Opened, so it stands on Home's *lately* shelf before it goes.
+    app.post_op(
+        "note_recipe_opened",
+        Some(&key),
+        &json!({ "branch_id": doomed }).to_string(),
+    );
+
+    // A Meaning Search row of the kind `build_meaning_index` writes, put here
+    // directly because no model runs in these tests (ADR 0029) and a vacuous
+    // assertion would prove nothing. The index is derived and never truth, so
+    // a deleted recipe leaves it at once rather than waiting for a rebuild.
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO meaning_vectors \
+                   (id, role, lineage_id, branch_id, embedding_space, embedded_text, vector) \
+                 VALUES ('mv_120', 'block', \
+                   (SELECT lineage_id FROM branches WHERE id = ?1), ?1, \
+                   'test-space', 'soba with walnut miso', x'00')",
+                rusqlite::params![doomed],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("a Meaning Search row");
+
+    let (status, answered) = delete_recipe(&app, &key, &doomed);
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(answered["result"], json!({ "deleted": true }));
+
+    assert_eq!(
+        count_of(&app, "SELECT COUNT(*) FROM meaning_vectors"),
+        0,
+        "the deleted recipe is still in Meaning Search"
+    );
+
+    // Off the shelf, for both of them.
+    for (whose, their_key) in [("hers", &key), ("his", &housemate_key)] {
+        let standing = shelf(&app, their_key, json!({}));
+        assert_eq!(
+            titles(&standing),
+            vec!["Tarte aux pommes"],
+            "the deleted recipe is still on {whose} shelf"
+        );
+        let searched = shelf(&app, their_key, json!({ "query": "soba" }));
+        assert_eq!(
+            titles(&searched),
+            Vec::<&str>::new(),
+            "the deleted recipe still answers {whose} search"
+        );
+        let (status, refused) = app.post_op(
+            "get_recipe",
+            Some(their_key),
+            &json!({ "branch_id": doomed }).to_string(),
+        );
+        assert_eq!(status, 404, "{refused}");
+        assert_eq!(refused["error"]["message"], json!("no such Branch"));
+    }
+
+    // And off Home. The `recipe_opens` row naming its Lineage is left where it
+    // is — it is keyed on the Lineage, which a sibling Branch may still stand
+    // on — and it is inert: Home reads those only as an ordering over recipes
+    // already on the shelf, so one that is not there cannot be ranked onto it.
+    let (_, home) = app.post_op("home_shelves", Some(&key), "{}");
+    let shown = serde_json::to_string(&home["result"]).unwrap();
+    assert!(
+        !shown.contains("Soba with walnut miso"),
+        "Home still carries the deleted recipe: {shown}"
+    );
+
+    // The recipe left; the recipe beside it did not.
+    let (status, still_there) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": kept }).to_string(),
+    );
+    assert_eq!(status, 200, "{still_there}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_one_branch_of_a_lineage_leaves_its_translation_whole() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let english = shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({
+            "title": "Chocolate mousse",
+            "ingredients": [{ "kind": "ingredient", "text": "200 g dark chocolate" }],
+            "steps": [{ "kind": "step", "text": "Melt the chocolate." }],
+        }),
+    );
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "fr",
+            "title": "Mousse au chocolat",
+            "ingredients": [{ "kind": "ingredient", "text": "200 g de chocolat noir" }],
+            "steps": [{ "kind": "step", "text": "Faire fondre le chocolat." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A translation is an ordinary Branch (ADR 0006). Deleting the English one
+    // is deleting one Branch, not the recipe in every language it was written.
+    let (status, answered) = delete_recipe(&app, &key, &english);
+    assert_eq!(status, 200, "{answered}");
+
+    let (status, gone) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": english }).to_string(),
+    );
+    assert_eq!(status, 404, "{gone}");
+
+    // The French one opens, reads and cooks exactly as before.
+    let (status, whole) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": french }).to_string(),
+    );
+    assert_eq!(status, 200, "{whole}");
+    let content = &whole["result"]["versions"][0]["content"];
+    assert_eq!(content["title"], json!("Mousse au chocolat"), "{whole}");
+    assert_eq!(
+        content["ingredients"][0]["text"],
+        json!("200 g de chocolat noir")
+    );
+    let (status, cooking) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": french }).to_string(),
+    );
+    assert_eq!(status, 200, "{cooking}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_recipe_keeps_every_cooking_it_was_ever_made_for() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = shelve(&app, &key, &kitchen_id, "Soba with walnut miso");
+
+    let picture = upload_a_picture(&app, &key, 7);
+    let attempt_id = cook_it(
+        &app,
+        &key,
+        &branch_id,
+        json!({ "rating": "again", "note": "Chez mes parents", "photographs": [picture] }),
+    );
+
+    let (status, answered) = delete_recipe(&app, &key, &branch_id);
+    assert_eq!(status, 200, "{answered}");
+
+    // **The whole of the second choice on #120.** Cooked eleven times over two
+    // years is the record a person would least expect a delete to take, and an
+    // Attempt is a private diary entry deleted on its own terms (ADR 0010).
+    let (status, diary) = app.post_op("list_attempts", Some(&key), "{}");
+    assert_eq!(status, 200, "{diary}");
+    let entries = diary["result"]["attempts"].as_array().expect("attempts");
+    assert_eq!(entries.len(), 1, "{diary}");
+    let kept = &entries[0];
+    assert_eq!(kept["id"], json!(attempt_id));
+    assert_eq!(kept["rating"], json!("again"));
+    assert_eq!(kept["note"], json!("Chez mes parents"));
+    assert_eq!(
+        kept["recipe"],
+        json!({ "branch_id": Value::Null, "title": "Soba with walnut miso" }),
+        "the diary must keep the name the recipe was known by and offer no way \
+         into a recipe that is not there: {kept}"
+    );
+    assert_eq!(
+        kept["photographs"].as_array().map(Vec::len),
+        Some(1),
+        "the cooking lost its Photograph: {kept}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_recipe_stays_on_the_shopping_list_and_says_it_cannot_be_read() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let branch_id = shelve_recipe(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({
+            "title": "Ratatouille aux anchois",
+            "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
+        }),
+    );
+    app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let (_, before) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(before["result"]["chosen"][0]["gone"], json!(false));
+    assert_eq!(before["result"]["rows"].as_array().unwrap().len(), 1);
+
+    let (status, answered) = delete_recipe(&app, &key, &branch_id);
+    assert_eq!(status, 200, "{answered}");
+
+    // **The path written against a deletion that could not happen, reached at
+    // last.** A thing that quietly disappears from a shopping list is a thing
+    // that does not get bought (ADR 0024), so the entry stays, keeps the name
+    // it was known by, contributes nothing, and says so. Migration 33 is what
+    // lets it: the foreign key here would have refused the delete outright.
+    let (_, list) = app.post_op("get_shopping_list", Some(&key), "{}");
+    assert_eq!(
+        list["result"]["chosen"][0],
+        json!({
+            "branch_id": branch_id,
+            "title": "Ratatouille aux anchois",
+            "gone": true,
+            "shopping_yield": Value::Null,
+            "written_yield": Value::Null,
+        })
+    );
+    assert_eq!(
+        list["result"]["rows"],
+        json!([]),
+        "a recipe that cannot be read contributes no rows"
+    );
+
+    // And it can still be taken off, which is exactly the entry somebody most
+    // wants gone.
+    let (status, emptied) = app.post_op(
+        "remove_from_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{emptied}");
+    assert_eq!(emptied["result"]["chosen"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_recipe_deletes_no_version_and_no_other_branchs_reading() {
+    let app = support::spawn_app();
+    let (person, key, kitchen_a) = person_with_kitchen(&app, "Aurélien");
+    let kitchen_b = home_kitchen_of(&app, &person);
+
+    let mine = shelve_recipe(
+        &app,
+        &key,
+        &kitchen_a,
+        json!({
+            "title": "Korean fried chicken",
+            "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
+        }),
+    );
+
+    // A Copy: saving into a *different* Kitchen the same Person cooks in
+    // starts a second Branch holding the very same Version. That shared row is
+    // the trap this test exists for.
+    backdate_branch_head(&app, &mine);
+    let (status, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": mine,
+            "kitchen_id": kitchen_b,
+            "title": "Korean fried chicken, baked",
+            "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    let theirs = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_eq!(
+        copied["result"]["copied"],
+        json!(true),
+        "that was not a Copy: {copied}"
+    );
+    assert_ne!(theirs, mine, "that was not a Copy: {copied}");
+
+    let shared_version = count_of(
+        &app,
+        "SELECT COUNT(DISTINCT version_id) FROM branch_versions \
+          GROUP BY version_id HAVING COUNT(DISTINCT branch_id) > 1 LIMIT 1",
+    );
+    assert_eq!(shared_version, 1, "the two Branches share no Version");
+
+    // A Reading correction, which travels beside the Version and belongs to
+    // every Branch holding it (ADR 0021).
+    let (status, read) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": mine, "line_index": 0, "unit": "tbsp", "amount": "2" }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+
+    let versions_before = count_of(&app, "SELECT COUNT(*) FROM versions");
+    let readings_before = count_of(&app, "SELECT COUNT(*) FROM readings");
+    assert!(readings_before > 0, "the Reading was never written");
+
+    let (status, answered) = delete_recipe(&app, &key, &mine);
+    assert_eq!(status, 200, "{answered}");
+
+    // **No Version is ever deleted, by this or by anything else** (ADR 0004,
+    // spec item 59). A Version is global: the row this Branch held is the row
+    // the other one holds.
+    assert_eq!(
+        count_of(&app, "SELECT COUNT(*) FROM versions"),
+        versions_before,
+        "a Version was deleted"
+    );
+    assert_eq!(
+        count_of(
+            &app,
+            "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)"
+        ),
+        0,
+        "a Version no longer fingerprints to its own id"
+    );
+
+    // And no Reading. They are keyed on `version_id`, not on a Branch, so
+    // sweeping this Branch's would take the correction off the other copy.
+    assert_eq!(
+        count_of(&app, "SELECT COUNT(*) FROM readings"),
+        readings_before,
+        "deleting a Branch took a Reading off a Version another Branch holds"
+    );
+    let (status, other) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": theirs }).to_string(),
+    );
+    assert_eq!(status, 200, "{other}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_recipes_share_link_stops_resolving() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = shelve(&app, &key, &kitchen_id, "Soba with walnut miso");
+
+    let (status, shared) = app.post_op(
+        "share_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "public_address": "https://kamosu.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "{shared}");
+    let url = shared["result"]["url"]
+        .as_str()
+        .expect("a link")
+        .to_string();
+    let token = url.rsplit('/').next().expect("a token").to_string();
+
+    let (status, _type, body) = app.get_bytes(&format!("/s/{token}"), None);
+    assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
+
+    let (status, answered) = delete_recipe(&app, &key, &branch_id);
+    assert_eq!(status, 200, "{answered}");
+
+    // The row went with the Branch, so the page answers as it does for a token
+    // that was never minted. This is a consequence of deleting, not a
+    // withdrawal, so ADR 0018's "sharing ended" is not what it says.
+    let (status, _type, gone) = app.get_bytes(&format!("/s/{token}"), None);
+    let never = "tk_ffffffffffffffffffffffffffffffff";
+    let (never_status, _type, never_body) = app.get_bytes(&format!("/s/{never}"), None);
+    assert_eq!(
+        (status, String::from_utf8_lossy(&gone).to_string()),
+        (
+            never_status,
+            String::from_utf8_lossy(&never_body).to_string()
+        ),
+        "a deleted recipe's link does not answer as a token nobody minted"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_recipe_lets_the_importer_bring_it_back_as_new() {
+    let app = support::spawn_app();
+    // The importer lands a recipe in the Home Kitchen of whoever asked, so the
+    // Kitchen made above is not named here.
+    let (_person, key, _kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let bring_in = || {
+        import_and_wait(
+            &app,
+            &key,
+            &json!({
+                "source_kind": "crouton",
+                "candidates": [{
+                    "foreign_id": "crouton-uuid-120",
+                    "title": "Soba with walnut miso",
+                    "ingredients": [{ "kind": "ingredient", "text": "200 g soba" }],
+                    "steps": [{ "kind": "step", "text": "Boil the noodles.", "photo": null }],
+                }],
+            }),
+        )
+    };
+
+    let first = bring_in();
+    assert_eq!(first["arrived"][0]["status"], json!("created"), "{first}");
+    let branch_id = first["arrived"][0]["branch_id"]
+        .as_str()
+        .expect("a Branch")
+        .to_string();
+
+    // Run again and the ledger recognises it: nothing arrives twice.
+    let again = bring_in();
+    assert_eq!(again["arrived"][0]["status"], json!("unchanged"), "{again}");
+
+    let (status, answered) = delete_recipe(&app, &key, &branch_id);
+    assert_eq!(status, 200, "{answered}");
+
+    // **The ledger belongs to the Import, not to the recipe** (ADR 0025). Its
+    // row went with the Branch, so the foreign id matches nothing and the
+    // recipe arrives afresh rather than being recognised as the deleted one.
+    let afresh = bring_in();
+    assert_eq!(afresh["arrived"][0]["status"], json!("created"), "{afresh}");
+    assert_ne!(
+        afresh["arrived"][0]["branch_id"].as_str(),
+        Some(branch_id.as_str()),
+        "the importer matched the deleted recipe instead of creating one"
+    );
+    assert_eq!(
+        titles(&shelf(&app, &key, json!({}))),
+        vec!["Soba with walnut miso"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_component_line_naming_a_deleted_recipe_still_reads_and_says_what_happened() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+
+    let dough = shelve(&app, &key, &kitchen_id, "Pizza dough");
+    let (_, read_dough) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": dough }).to_string(),
+    );
+    let dough_lineage = read_dough["result"]["lineage_id"]
+        .as_str()
+        .expect("a Lineage")
+        .to_string();
+
+    let (pizza, _) = recipe_with(
+        &app,
+        &key,
+        &kitchen_id,
+        "Pizza Margherita",
+        Some(("2", "pizzas")),
+        json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
+        json!([{ "kind": "step", "text": "Stretch, top and bake." }]),
+    );
+    make_component(
+        &app,
+        &key,
+        &pizza,
+        0,
+        Some("500"),
+        Some("g"),
+        &dough_lineage,
+    );
+    assert_eq!(components_of(&app, &key, &pizza)[0]["held"], json!(true));
+
+    // Spec item 50, in as many words: delete the dough, hold no copy, and the
+    // line still reads and the recipe is still correct.
+    let (status, deleted) = delete_recipe(&app, &key, &dough);
+    assert_eq!(status, 200, "{deleted}");
+
+    let components = components_of(&app, &key, &pizza);
+    assert_eq!(components.len(), 1, "the Component pointer was swept away");
+    let carried = &components[0];
+    assert_eq!(carried["held"], json!(false));
+    assert_eq!(carried["content"], Value::Null);
+    assert_eq!(
+        carried["said"],
+        json!("Kamosu does not have this recipe."),
+        "a Component whose recipe left must say what happened: {carried}"
+    );
+
+    // And the line it hangs off is untouched. The written words were never the
+    // Component (ADR 0008) — the pointer travels beside them — so a recipe
+    // whose dough left still tells you it wants dough for two pizzas.
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": pizza }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    let version = read["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap();
+    assert_eq!(
+        version["content"]["ingredients"][0]["text"],
+        json!("Dough for 2 pizzas"),
+        "the written line must still read as a sentence"
+    );
+    assert_eq!(
+        version["readings"][0]["lineage_id"],
+        json!(dough_lineage),
+        "the pointer is kept, so the dough arriving again later needs nothing done"
+    );
+}

@@ -1,6 +1,12 @@
 <!--
-	The one way an Operator is asked to confirm something that cannot be undone
+	The one way anybody is asked to confirm something that cannot be undone
 	(#103).
+
+	It was written for the Operator's three acts and lived under `lib/operator/`
+	until #120 gave a cook one of their own: deleting a recipe. It moved up here
+	rather than being copied down, for the reason the next paragraph already
+	gives — a second sheet is a second chance to word the frightening one
+	carelessly, and the cook's is the most frightening of the four.
 
 	Item 99 asks a Merge to say how many Ingredient Lines it is about to move
 	before it moves them. The choice of 21 September 2026 took that pattern and

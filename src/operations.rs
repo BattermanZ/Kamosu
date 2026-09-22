@@ -1391,6 +1391,18 @@ pub fn promote_as_cooked(
     )
 }
 
+/// Take one Branch off the shelf for good (#120). The Lineage's other
+/// Branches, and every Attempt ever cooked from it, are untouched.
+pub fn delete_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("delete_recipe takes { branch_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.delete_recipe(&caller.person_id, branch_id)?;
+    Ok(json!({ "deleted": true }))
+}
+
 pub fn delete_attempt(
     core: &Core,
     invocation: &Invocation,

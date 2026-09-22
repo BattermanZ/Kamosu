@@ -16,6 +16,11 @@ import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 
+// Deleting ends by going back to the shelf, because there is nothing left to
+// stand on. Where that goes is the router's business, not this screen's.
+const went = vi.hoisted(() => vi.fn());
+vi.mock('$app/navigation', () => ({ goto: went }));
+
 /** One slot of a Version's `readings`: what Kamosu understood, or nothing. */
 type Slot = GetRecipeOutput['versions'][number]['readings'][number];
 
@@ -1707,5 +1712,169 @@ describe('on the phone (#76)', () => {
 		renderRecipe();
 		await screen.findByText('Maison Batterman');
 		expect(screen.queryByText(/Kept from/)).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * Deleting this recipe (#120).
+ *
+ * The three facts the confirmation owes a person are what these assert: which
+ * recipe, that the cooking history stays, and the Share Link only when one is
+ * live. The fourth thing tested is that nothing happens until it is confirmed.
+ */
+describe('deleting a recipe', () => {
+	/**
+	 * What `get_share_link` answers, whole. The stand-in checks every answer
+	 * against the Catalogue's output schema before the screen sees it, so a
+	 * partial one is refused — which is the guarantee working: an answer
+	 * missing `public_address` would have made the screen's catch swallow the
+	 * ask and the Share Link line silently never appear.
+	 */
+	const shareLink = (shared: boolean) => ({
+		shared,
+		share_id: shared ? 'sh_1' : null,
+		url: shared ? 'https://kamosu.example/s/tk_1' : null,
+		shared_by: shared ? 'Aurélien' : null,
+		created_at: shared ? '2026-09-20T00:00:00Z' : null,
+		public_address: 'https://kamosu.example',
+	});
+
+	/** Open the confirmation the way a thumb does, and let its ask settle. */
+	async function openTheSheet(answers: Answers) {
+		const rendered = renderRecipe(answers);
+		const affordance = await screen.findByRole('button', { name: 'Delete this recipe' });
+		await fireEvent.click(affordance);
+		await tick();
+		await tick();
+		return rendered;
+	}
+
+	it('is set apart from the actions rather than standing among them', async () => {
+		renderRecipe(forked({ get_share_link: shareLink(false) }));
+		const affordance = await screen.findByRole('button', { name: 'Delete this recipe' });
+
+		// Every action above it is a full-width row in one column. This one is
+		// not shaped like them, which is the whole of why a thumb reaching for
+		// `Add to shopping list` cannot land on it.
+		const shopping = screen.getByRole('button', { name: /shopping list/i });
+		expect(shopping.className).toContain('w-[calc(100%-2*var(--spacing-gutter))]');
+		expect(affordance.className).not.toContain('w-[calc(100%-2*var(--spacing-gutter))]');
+		expect(affordance.className).toContain('underline');
+	});
+
+	it('asks before it does anything, and asking alone deletes nothing', async () => {
+		const { kamosu } = await openTheSheet(forked({ get_share_link: shareLink(false) }));
+
+		expect(await screen.findByRole('dialog')).toBeInTheDocument();
+		expect(kamosu.calls.some((call) => call.operation === 'delete_recipe')).toBe(false);
+	});
+
+	it('names the recipe and promises the cooking history, counted and impersonal', async () => {
+		const answers = forked({
+			get_share_link: shareLink(false),
+		}) as Record<string, unknown>;
+		const recipe = answers.get_recipe as { cooked: GetRecipeOutput['cooked'] };
+		recipe.cooked = { count: 11, last_cooked_at: '2026-09-14T00:00:00Z', ratings: [] };
+
+		await openTheSheet(answers as Answers);
+		const sheet = await screen.findByRole('dialog');
+
+		expect(sheet).toHaveTextContent('Delete Korean Fried Chicken?');
+		expect(sheet).toHaveTextContent(/all 11 times this was cooked keep their ratings/i);
+		expect(sheet).toHaveTextContent(/nothing brings it back/i);
+
+		// **Never "you".** `cooked.count` is the HOUSEHOLD's tally across the
+		// whole Lineage — housemates' cookings and the translation's included —
+		// so a sheet saying "you cooked this 11 times" tells somebody who cooked
+		// it twice a flat untruth. The Cooked section above is impersonal for
+		// the same reason; this must not drift from it.
+		expect(sheet).not.toHaveTextContent(/you cooked this/i);
+	});
+
+	it('does not invent a cooking history for a recipe nobody has cooked', async () => {
+		await openTheSheet(forked({ get_share_link: shareLink(false) }));
+		const sheet = await screen.findByRole('dialog');
+
+		expect(sheet).toHaveTextContent(/never been cooked/i);
+		expect(sheet).not.toHaveTextContent(/0 times/);
+		expect(sheet).not.toHaveTextContent(/you have never/i);
+	});
+
+	it('warns about the Share Link only when one is live', async () => {
+		await openTheSheet(forked({ get_share_link: shareLink(false) }));
+		expect(await screen.findByRole('dialog')).not.toHaveTextContent(/link you shared/i);
+	});
+
+	it('warns about the Share Link when one is', async () => {
+		await openTheSheet(forked({ get_share_link: shareLink(true) }));
+		// Found rather than asserted in one go: the line appears when the ask
+		// about the Share Link answers, which is after the sheet is drawn.
+		expect(
+			await screen.findByText(/link you shared for this recipe will stop working/i),
+		).toBeInTheDocument();
+	});
+
+	it('says it could not tell, rather than staying quiet, when the ask fails', async () => {
+		// Silence here would hide a link that really is about to stop working,
+		// and an invented warning would frighten somebody about one they never
+		// minted. Saying which of the two it is is the only honest third option.
+		await openTheSheet(
+			forked({ get_share_link: { refuse: 'internal', message: 'the server fell over' } }),
+		);
+
+		const sheet = await screen.findByRole('dialog');
+		expect(
+			await screen.findByText(/could not check whether this recipe is shared/i),
+		).toBeInTheDocument();
+		expect(sheet).not.toHaveTextContent(
+			/^The link you shared for this recipe will stop working\.$/,
+		);
+	});
+
+	it('deletes nothing when the ask is turned down', async () => {
+		const { kamosu } = await openTheSheet(forked({ get_share_link: shareLink(false) }));
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		await tick();
+
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		expect(kamosu.calls.some((call) => call.operation === 'delete_recipe')).toBe(false);
+	});
+
+	it('deletes the Branch in the URL, and goes back to the shelf', async () => {
+		went.mockClear();
+		const { kamosu } = await openTheSheet(
+			forked({
+				get_share_link: shareLink(false),
+				delete_recipe: { deleted: true },
+			}),
+		);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		await tick();
+		await tick();
+
+		const asked = kamosu.calls.find((call) => call.operation === 'delete_recipe');
+		expect(asked?.input).toEqual({ branch_id: 'mine' });
+		expect(went).toHaveBeenCalledWith('/recipes', { replaceState: true });
+	});
+
+	it('says what came back when Kamosu refuses, and stays where it is', async () => {
+		went.mockClear();
+		const { kamosu } = await openTheSheet(
+			forked({
+				get_share_link: shareLink(false),
+				delete_recipe: { refuse: 'not_found', message: 'no such Branch' },
+			}),
+		);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+		await tick();
+		await tick();
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('no such Branch');
+		expect(screen.getByRole('dialog')).toBeInTheDocument();
+		expect(went).not.toHaveBeenCalledWith('/recipes', { replaceState: true });
+		expect(kamosu.calls.some((call) => call.operation === 'delete_recipe')).toBe(true);
 	});
 });

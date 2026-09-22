@@ -1243,6 +1243,65 @@ pub const MIGRATIONS: &[Migration] = &[
             ON branches (COALESCE(travelling_id, id), kitchen_id);
         "#,
     },
+    Migration {
+        version: 33,
+        description: "a Shopping List entry outlives the recipe it names (#120)",
+        sql: r#"
+        -- **A recipe can now be deleted** (#120), and migration 25 wrote down
+        -- what a Shopping List does when one is: the entry stays, keeps the
+        -- name it was known by, contributes no rows, and says it can no longer
+        -- be read (ADR 0024). `known_as` exists for exactly that sentence, and
+        -- its comment names both ways a recipe becomes unreachable -- the
+        -- Kitchen is no longer one this Person cooks in, "or the Branch is
+        -- gone".
+        --
+        -- Only the first of those could happen, so nothing ever tested the
+        -- second, and nothing noticed that the foreign key forbids it: with
+        -- `foreign_keys` ON, deleting a Branch somebody has on their list
+        -- fails the whole delete. The constraint and the intended behaviour
+        -- cannot both stand, and the constraint is the one that was never
+        -- decided -- it came in with the table because every other id column
+        -- got one.
+        --
+        -- So the reference goes and the column stays. A `branch_id` here is
+        -- now a Branch that may or may not still exist, which is precisely
+        -- what the reading code has always assumed: the list resolves it
+        -- through `branch_head`, treats "no Branch found" as unreadable, and
+        -- falls back to `known_as`. Removing the entry instead would be the
+        -- one outcome ADR 0024 rules out, because a thing that quietly
+        -- disappears from a shopping list is a thing that does not get bought.
+        --
+        -- SQLite cannot drop one constraint, so the table is rebuilt. Nothing
+        -- references `shopping_choices`, so the rename disturbs no other
+        -- table's foreign keys, and the rows carry across unchanged.
+        ALTER TABLE shopping_choices RENAME TO shopping_choices_before_33;
+
+        CREATE TABLE shopping_choices (
+            person_id  TEXT NOT NULL REFERENCES people(id),
+            -- A Branch, never a Lineage and never a pinned Version (ADR 0024),
+            -- and since #120 not necessarily one that still stands.
+            branch_id  TEXT NOT NULL,
+            shopping_yield TEXT,
+            -- The name the recipe was known by when it was chosen, read once
+            -- it can no longer be reached. See migration 25.
+            known_as   TEXT NOT NULL,
+            chosen_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (person_id, branch_id)
+        );
+
+        INSERT INTO shopping_choices
+            (person_id, branch_id, shopping_yield, known_as, chosen_at)
+            SELECT person_id, branch_id, shopping_yield, known_as, chosen_at
+              FROM shopping_choices_before_33;
+
+        DROP TABLE shopping_choices_before_33;
+
+        -- The list's own query, as migration 25 wrote it: this Person's
+        -- choosing, in the order they made it. Rebuilding the table drops its
+        -- indexes with it.
+        CREATE INDEX shopping_choices_by_person ON shopping_choices(person_id, chosen_at);
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

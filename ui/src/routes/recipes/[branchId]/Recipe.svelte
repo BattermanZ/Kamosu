@@ -126,6 +126,7 @@
 	import Correcting from './Correcting.svelte';
 	import Writing from './Writing.svelte';
 	import Promotion from './Promotion.svelte';
+	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online, refreshed } from '$lib/offline/device.svelte';
 	import { useLibrary } from '$lib/offline/library.svelte';
@@ -173,6 +174,29 @@
 	let saving = $state(false);
 	let changeNote = $state('');
 	let saved = $state<'no' | 'yes' | 'failed'>('no');
+
+	/** Deleting this recipe (#120): the confirmation is open. */
+	let confirmingDelete = $state(false);
+	/** …and the act itself is running, so the sheet cannot be fired twice. */
+	let deleting = $state(false);
+	/** A refusal that came back, shown in the words it came in. */
+	let deleteFailed = $state<string | undefined>(undefined);
+	/**
+	 * Whether a Share Link is live, asked only when the confirmation opens.
+	 *
+	 * The confirmation mentions the link **only when there is one** — a warning
+	 * about a link nobody minted is noise, and noise in a sheet like this is
+	 * how the sentence that matters stops being read. The recipe page does not
+	 * otherwise need to know, so this is one call at the moment it becomes a
+	 * fact worth having rather than a field on every read.
+	 *
+	 * Three states and not two, because the ask can fail. Neither silence nor
+	 * an invented warning is honest then: one hides a link that really is
+	 * about to stop working, the other frightens somebody about a link they
+	 * never minted. `unknown` says which of the two it is and lets the reader
+	 * decide, which is the only thing a screen that does not know can do.
+	 */
+	let shareIsLive = $state<'no' | 'yes' | 'unknown'>('no');
 	/**
 	 * Whether this recipe is on the reader's own Shopping List (#73).
 	 *
@@ -224,6 +248,47 @@
 		} catch {
 			tab?.close();
 			printing = 'failed';
+		}
+	}
+
+	/**
+	 * Open the confirmation, and ask whether a Share Link is live while it
+	 * opens rather than before — the sheet is drawn immediately either way,
+	 * and the line appears if the answer arrives saying there is one.
+	 */
+	async function askToDelete() {
+		deleteFailed = undefined;
+		shareIsLive = 'no';
+		confirmingDelete = true;
+		try {
+			const link = await kamosu.getShareLink({ branch_id: branchId });
+			shareIsLive = link.shared ? 'yes' : 'no';
+		} catch {
+			shareIsLive = 'unknown';
+		}
+	}
+
+	/**
+	 * Take this recipe off the shelf (#120). One Branch: the translation beside
+	 * it, and any other Kitchen's copy, are untouched, and so is every cooking
+	 * ever made from it.
+	 *
+	 * Back to the shelf afterwards, because there is nothing left to stand on.
+	 * `replaceState` so the back button does not walk into a recipe that is
+	 * gone — the page it would land on answers *no such Branch*, which is a
+	 * true sentence and a baffling one to be shown for pressing back.
+	 */
+	async function deleteRecipe() {
+		deleting = true;
+		deleteFailed = undefined;
+		try {
+			await kamosu.deleteRecipe({ branch_id: branchId });
+			await goto('/recipes', { replaceState: true });
+		} catch (error: unknown) {
+			if (!(error instanceof OperationError)) throw error;
+			deleteFailed = error.message;
+		} finally {
+			deleting = false;
 		}
 	}
 
@@ -1380,6 +1445,40 @@
 			>
 				{onTheList ? m.shopping_on_your_list() : m.shopping_add_this()}
 			</button>
+
+			<!--
+			Deleting this recipe (#120). Set apart from the stack above, below a
+			rule and a gap, as small underlined text rather than a seventh
+			full-width button — the choice of 22 September 2026, over putting it
+			in the stack.
+
+			The reasoning is about the thumb, not the look. Everything above is
+			the same shape in the same column, and *Add to shopping list* is the
+			one people tap most often without reading; a destructive row
+			directly beneath it is a mis-tap waiting to happen. Something that
+			is not button-shaped, past the end of the actions, cannot be reached
+			by the habit that reaches for those.
+
+			NOT in Writing, where the mockup drew it: that screen holds an
+			unsaved draft the whole time it is open, and a screen that can both
+			lose your typing and destroy the recipe is asking two very different
+			questions with one set of buttons.
+
+			`NeedsServer` because deleting is a write against the recipes, which
+			are the server's side of the line and never queued (ADR 0013). The
+			outbox carries your own history, never the recipes — and it queues
+			from an allowlist, so this is already true rather than arranged.
+		-->
+			<div class="mx-gutter mt-8 border-t border-rule pt-4 text-center">
+				<NeedsServer
+					label={m.recipe_delete()}
+					waiting={m.offline_waits_delete()}
+					onclick={askToDelete}
+					shapeClass="inline-block px-3 py-2 text-read"
+					lookClass="text-support underline underline-offset-4"
+					idleClass="text-ink-2 opacity-55"
+				/>
+			</div>
 		{/if}
 
 		<!-- Carried across and not yet saved. It becomes real only when an ordinary
@@ -1455,6 +1554,54 @@
 			{m.divergence_cancel()}
 		</button>
 	</div>
+{/if}
+
+<!--
+	The confirmation for deleting this recipe (#120), in the one sheet Kamosu
+	asks every irreversible thing through (#103).
+
+	It names three facts and no more. The recipe's name, so there is no doubt
+	which copy you meant — the route is per-Branch, so a delete offered here is
+	never ambiguous. That the cooking history stays, because that is the thing
+	a person would most expect a delete to take and the reassurance is the
+	whole point of saying it. And the Share Link, **only when one is live**.
+
+	No big figure leads it. The sheet's own note says the number should be the
+	thing you are deciding about, and here there is not one: a large `11` over
+	a delete button reads as eleven things going, which is the exact opposite
+	of what this sheet is promising.
+
+	THE COUNT IS THE HOUSEHOLD'S, NEVER THE READER'S, so every phrase here is
+	impersonal — "all 11 times this was cooked", not "you cooked". A recipe is
+	held by a Kitchen rather than a person (ADR 0007) and `cooked.count` tallies
+	every member's Attempts across the whole Lineage, the translation's
+	included. "You cooked this 11 times", said to somebody who cooked it twice,
+	is a plain untruth in the one sheet that most needs to be believed. The
+	Cooked section above is worded impersonally for exactly this reason; these
+	must not drift apart.
+-->
+{#if confirmingDelete && recipe}
+	{@const title = recipe.versions.at(-1)?.content.title ?? ''}
+	{@const cookings = recipe.cooked.count}
+	<Confirm
+		title={m.recipe_delete_title({ title })}
+		consequence="{cookings === 0
+			? m.recipe_delete_keeps_none()
+			: cookings === 1
+				? m.recipe_delete_keeps_one()
+				: m.recipe_delete_keeps({ count: cookings })} {m.recipe_delete_gone()}"
+		act={m.recipe_delete_act()}
+		busy={deleting}
+		failed={deleteFailed}
+		run={deleteRecipe}
+		cancel={() => (confirmingDelete = false)}
+	>
+		{#if shareIsLive === 'yes'}
+			<p class="text-body text-support">{m.recipe_delete_shared()}</p>
+		{:else if shareIsLive === 'unknown'}
+			<p class="text-body text-support">{m.recipe_delete_share_unknown()}</p>
+		{/if}
+	</Confirm>
 {/if}
 
 <style>

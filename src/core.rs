@@ -2736,6 +2736,95 @@ impl Core {
         })
     }
 
+    /// Take one Branch off the shelf for good (#120).
+    ///
+    /// **A Branch, never a Lineage and never a Version.** A translation is an
+    /// ordinary Branch (ADR 0006), so deleting the English one leaves the
+    /// French one whole; another Kitchen's copy of the same Lineage is not
+    /// this Person's to touch and is not touched.
+    ///
+    /// What goes is everything keyed on this Branch and nothing else. What
+    /// stays, and why each one has to:
+    ///
+    /// - **`versions`.** Never deleted, by anyone, ever (ADR 0004, spec item
+    ///   59). A Version is content-addressed and global: another Kitchen that
+    ///   reached identical content holds the very same row.
+    /// - **`readings`.** Keyed on `version_id`, not on a Branch. Deleting
+    ///   this Branch's Readings would take the Reading corrections off
+    ///   somebody else's copy of the same recipe.
+    /// - **`attempts`.** The cooking history survives the recipe, chosen
+    ///   deliberately on #120: losing eleven cooks because you tidied a
+    ///   duplicate is a loss nobody asked for. An Attempt is a private diary
+    ///   entry deleted on its own terms (ADR 0010).
+    /// - **`lineages`.** `attempts.lineage_id` still references the row and
+    ///   foreign keys are enforced. A Lineage with no Branch left is an id and
+    ///   a date, and costs nothing.
+    /// - **`related_recipes`.** It stores both Lineages' names precisely so a
+    ///   line stays readable when either leaves the shelf.
+    /// - **`recipe_opens`.** Keyed on the Lineage, which a sibling Branch may
+    ///   still stand on. A row left naming a Lineage with no Branch is inert:
+    ///   Home reads these only as an ordering over recipes already on the
+    ///   shelf, so one that is not there cannot be ranked onto it.
+    /// - **`shopping_choices`.** The entry stays and comes alive: it keeps the
+    ///   name it was known by, contributes no rows, and says it can no longer
+    ///   be read (ADR 0024). A thing that quietly disappears from a shopping
+    ///   list is a thing that does not get bought. Migration 33 dropped the
+    ///   foreign key that would otherwise have refused this whole delete.
+    /// - **`foods`.** Untouched, for the reason `delete_food` records: a
+    ///   deleted recipe must never quietly discard the fact that a cup of this
+    ///   flour is 125 g.
+    ///
+    /// **Photographs need nothing here.** The orphan sweep recomputes what is
+    /// referenced by joining `versions` to `branch_versions` and to `attempts`,
+    /// so dropping this Branch's `branch_versions` rows takes its pictures out
+    /// of that join on their own, a week later. A picture an Attempt still
+    /// names survives, which is the right answer — and that reaches further
+    /// than the picture the cook took at the stove. An Attempt names the
+    /// Version it was cooked from, and a Version is never rewritten, so a
+    /// Main Photo somebody actually cooked from stays too. Neither rule had to
+    /// be taught to the sweep; both fall out of asking what is referenced now.
+    ///
+    /// **One transaction, referencing rows first.** `foreign_keys` is ON, so a
+    /// table added later that references a Branch and is not swept here fails
+    /// the whole delete loudly rather than silently orphaning a row. That
+    /// refusal is a safety net worth keeping.
+    pub fn delete_recipe(&self, person_id: &str, branch_id: &str) -> Result<(), OpError> {
+        self.db().with_conn(|conn| {
+            // ADR 0040: this Operation works the Kitchen out from a Branch id
+            // rather than being handed one, so a Person who does not cook in
+            // that Kitchen is answered exactly as an id naming nothing is.
+            // Reaching for the plain membership check here would tell a
+            // stranger that somebody's household holds this recipe.
+            let kitchen_id = branch_kitchen(conn, branch_id)?;
+            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            for statement in [
+                "DELETE FROM branch_versions WHERE branch_id = ?1",
+                "DELETE FROM branch_tags WHERE branch_id = ?1",
+                "DELETE FROM share_links WHERE branch_id = ?1",
+                // The ledger belongs to the Import, not to the recipe (ADR
+                // 0025), so re-running the importer that first brought this in
+                // creates it afresh rather than matching what was deleted.
+                "DELETE FROM import_ledger WHERE branch_id = ?1",
+                // Derived, never truth (ADR 0029). Gone from Meaning Search
+                // the moment the Branch is, without waiting for a rebuild.
+                "DELETE FROM meaning_vectors WHERE branch_id = ?1",
+                "DELETE FROM branches WHERE id = ?1",
+            ] {
+                transaction
+                    .execute(statement, params![branch_id])
+                    .map_err(|e| OpError::internal(format!("cannot delete Recipe: {e}")))?;
+            }
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot delete Recipe: {e}")))?;
+            Ok(())
+        })
+    }
+
     /// The one data directory everything durable lives under (ADR 0028) — the
     /// database beside it, Photographs and Display Copies below it.
     pub fn data_dir(&self) -> std::path::PathBuf {

@@ -32,7 +32,7 @@
 	import { waitForJob } from '$lib/api/job';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
-	import Confirm from '$lib/operator/Confirm.svelte';
+	import Confirm from '$lib/Confirm.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import type {
 		ListAccountsOutput,

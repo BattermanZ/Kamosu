@@ -90,9 +90,16 @@
 	server and the button that opens this says so, drawn with `NeedsServer`.
 	There is no queue, because an offline edit queue is a merge.
 
-	THERE IS NO DELETE HERE. The mockup drew one; Kamosu has no
-	`delete_recipe` Operation, and a button for an Operation that does not
-	exist is worse than its absence.
+	THERE IS STILL NO DELETE HERE, and now for a better reason. The mockup drew
+	one; until #120 Kamosu had no `delete_recipe` Operation at all, and a
+	button for an Operation that does not exist is worse than its absence.
+
+	The Operation exists now, and the act lives on the recipe page instead —
+	set apart below the actions, where `Recipe.svelte` records why. Keeping it
+	off this screen was decided rather than inherited: this screen holds an
+	unsaved draft the whole time it is open, so a delete sitting beside Save
+	would let one set of buttons ask both "keep what I typed?" and "destroy the
+	recipe?". Those are not questions to answer in the same glance.
 -->
 <script lang="ts">
 	import { tick } from 'svelte';

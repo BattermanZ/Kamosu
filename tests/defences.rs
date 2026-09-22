@@ -1246,6 +1246,7 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
         ("shopping_basis", json!({})),
         ("add_to_shopping_list", json!({})),
         ("set_shopping_yield", json!({})),
+        ("delete_recipe", json!({})),
     ];
     for (operation, rest) in &by_branch {
         let mut held = rest.clone();
@@ -1496,9 +1497,19 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     );
 
     // And a member still gets the real result from the Operations above.
+    //
+    // `delete_recipe` gets a recipe of its own rather than the one every other
+    // Operation here is run against: it really performs, and a sweep whose
+    // correctness depended on it being last in the list would break the first
+    // time somebody appended a line below it.
+    let her_spare = a_recipe(&app, &nadia, "Soupe de trop");
     for (operation, rest) in &by_branch {
         let mut mine = rest.clone();
-        mine["branch_id"] = json!(her_recipe);
+        mine["branch_id"] = if *operation == "delete_recipe" {
+            json!(her_spare)
+        } else {
+            json!(her_recipe)
+        };
         let (status, answered) = app.post_op(operation, Some(&nadia.key), &mine.to_string());
         assert_eq!(
             status, 200,

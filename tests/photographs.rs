@@ -743,3 +743,122 @@ fn backdate_unreferenced_if_marked(app: &support::TestApp, hash: &str) {
         })
         .expect("backdate any mark");
 }
+
+/// **Deleting a recipe needs nothing added to the sweep, and this proves it**
+/// (#120). The sweep recomputes what is referenced by joining `versions` to
+/// `branch_versions` and to `attempts`, so dropping a Branch's
+/// `branch_versions` rows takes its pictures out of that join on their own.
+///
+/// The other half is the one that would be easy to get wrong: a picture the
+/// cook took at the stove belongs to the Attempt, the cooking history outlives
+/// the recipe by the choice made on #120, and so does the picture.
+///
+/// The cooking here happens BEFORE the recipe gets its Main Photo, and that
+/// ordering is the whole test. An Attempt names the Version it was cooked
+/// from, and a Version is never rewritten — so a Main Photo added afterwards
+/// is named by the Branch alone and goes when the Branch does, while one the
+/// cook actually cooked from would rightly stay. Neither is a rule the sweep
+/// had to be taught; both fall out of asking what is referenced now.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_recipe_frees_its_pictures_and_leaves_a_cookings_own_alone() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+
+    let (_, kitchen) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "Soba Kitchen" }).to_string(),
+    );
+    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soba with walnut miso" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // Cooked first, from the recipe as it stands with no picture on it.
+    let plated = make_jpeg(41, 23);
+    let (_, uploaded) = app.post_bytes("/api/photographs", Some(&key), "image/jpeg", &plated);
+    let cooking_photo = uploaded["result"]["photograph_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "rating": "again",
+            "photographs": [cooking_photo.clone()],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    // Only now does the recipe get a Main Photo, on a Version no cooking names.
+    let recipe_picture = make_jpeg(29, 20);
+    let (_, shot) = app.post_bytes(
+        "/api/photographs",
+        Some(&key),
+        "image/jpeg",
+        &recipe_picture,
+    );
+    let recipe_photo = shot["result"]["photograph_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    backdate_branch_head(&app, &branch_id);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Soba with walnut miso",
+            "main_photo": recipe_photo,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    // Both are in use while the recipe stands.
+    let (_, before) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(before["result"]["newly_unreferenced"], json!(0), "{before}");
+    assert_eq!(before["result"]["referenced"], json!(2), "{before}");
+
+    let (status, deleted) = app.post_op(
+        "delete_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    // The recipe's own picture is now referenced by nothing, which starts its
+    // week. Nothing is taken on the spot: a sweep a week late is deliberate.
+    let (_, marked) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(marked["result"]["newly_unreferenced"], json!(1), "{marked}");
+    assert_eq!(marked["result"]["swept"], json!(0), "{marked}");
+
+    backdate_unreferenced(&app, &recipe_photo, 8);
+    let (_, swept) = app.post_op("sweep_photographs", Some(&key), "{}");
+    assert_eq!(swept["result"]["swept"], json!(1), "{swept}");
+    assert_eq!(
+        swept["result"]["swept_photograph_ids"],
+        json!([recipe_photo]),
+        "the sweep took a picture the cooking still holds"
+    );
+
+    // The cooking's own picture is untouched and still readable, because the
+    // Attempt that holds it survived the recipe.
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{cooking_photo}"), Some(&key));
+    assert_eq!(
+        status, 200,
+        "a picture an Attempt still names must not go with the recipe"
+    );
+}

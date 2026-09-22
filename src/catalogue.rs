@@ -688,6 +688,41 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::save_recipe_version,
         },
         Operation {
+            name: "delete_recipe",
+            summary: "Take one recipe off the shelf for good. It is gone from \
+                      the shelf, from search and from every member of its \
+                      Kitchen, and nothing brings it back. **One Branch**: a \
+                      translation is an ordinary Branch, so deleting the \
+                      English one leaves the French one whole, and another \
+                      Kitchen's copy of the same recipe is untouched. **The \
+                      cooking history stays.** Every Attempt ever made from \
+                      this recipe keeps its rating, its note and its \
+                      Photographs, and the Cooked diary keeps each entry \
+                      under the name the recipe was known by. So does a \
+                      Shopping List holding it, which says it can no longer \
+                      be read rather than quietly dropping it. No Version is \
+                      ever deleted, by this or by anything else. A live Share \
+                      Link stops working.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": { "branch_id": { "type": "string" } },
+                "required": ["branch_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": { "deleted": { "type": "boolean" } },
+                "required": ["deleted"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::delete_recipe,
+        },
+        Operation {
             name: "read_pasted_recipe",
             summary: "Read a whole recipe pasted as text into a title, an \
                       ingredient list and a method. Decides only what each \
