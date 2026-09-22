@@ -126,11 +126,68 @@ pdf-extract = "0.12.1"
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
 
+# The corpus checks are kept out of the default `cargo test` set. Every one of
+# their tests is `#[ignore]`d — they read `samples/crouton/`, which is personal
+# and gitignored — so building them during `just test` linked ten binaries that
+# then ran nothing. Each links the whole crate, and on this host that was most
+# of the suite's wall clock.
+#
+# `test = false` removes them from the default set only. Naming one still builds
+# and runs it, exactly as before:
+#
+#     cargo test --test reading_corpus -- --ignored
+[[test]]
+name = "cooking_corpus"
+test = false
+
+[[test]]
+name = "crouton_corpus"
+test = false
+
+[[test]]
+name = "home_corpus"
+test = false
+
+[[test]]
+name = "meaning_corpus"
+test = false
+
+[[test]]
+name = "pasting_corpus"
+test = false
+
+[[test]]
+name = "photographs_corpus"
+test = false
+
+[[test]]
+name = "reading_corpus"
+test = false
+
+[[test]]
+name = "shelf_corpus"
+test = false
+
+[[test]]
+name = "shopping_corpus"
+test = false
+
+[[test]]
+name = "translations_corpus"
+test = false
+
 # Dependencies are compiled optimised even in a debug build; Kamosu's own crate
 # is not. Re-encoding a camera-original photograph runs through `image` and
 # `webp`, and unoptimised those take twenty-two seconds for one 7 MB picture —
 # past the test client's read timeout, which is why the Photograph corpus check
 # could not pass on any machine. Optimising only the dependencies keeps our own
 # code fully debuggable and costs one slower build of libraries that then cache.
+#
+# They also carry no debug info. Kamosu's own crate keeps all of its, so a panic
+# in our code still names the file and line; what goes is the ability to step
+# through a dependency's internals in a debugger, which nothing here does. The
+# saving is in linking: every test binary statically links all 635 crates, and
+# their debug info was the bulk of what the linker had to copy.
 [profile.dev.package."*"]
 opt-level = 2
+debug = 0

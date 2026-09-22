@@ -203,8 +203,19 @@ ui-test:
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
 # the build fails if what is committed has drifted from ui/.
+#
+# The corpus checks need naming one by one. They carry `test = false` so
+# `just test` does not link ten binaries to run nothing (see Cargo.toml), and
+# `--all-targets` skips a `test = false` target — so without this second pass
+# they would quietly stop compiling and nobody would find out until someone ran
+# one by hand. Type-checking them costs about two seconds, because clippy reads
+# them without linking; it was the linking that was expensive.
 check: _check-tokens-fresh _check-client-fresh _check-cover-fresh ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
+    cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
+
+# Every tests/*_corpus.rs, as clippy target flags. One list, used by `check`.
+CORPUS_TARGETS := "--test cooking_corpus --test crouton_corpus --test home_corpus --test meaning_corpus --test pasting_corpus --test photographs_corpus --test reading_corpus --test shelf_corpus --test shopping_corpus --test translations_corpus"
 
 # svelte-check in strict mode, with Svelte's accessibility warnings treated as
 # failures (ADR 0012): the compiler is the reviewer this frontend does not have.

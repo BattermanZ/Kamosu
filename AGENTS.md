@@ -217,6 +217,9 @@ tests/behaviour.rs  behaviour through real Doors against a real database file
 tests/*_corpus.rs   the same, against the real 86-recipe Crouton export —
                     #[ignore]d, since samples/crouton/ is personal and gitignored:
                     run with `cargo test --test <name> -- --ignored`.
+                    They carry `test = false`, so `just test` does not build
+                    them; `just check` type-checks them instead. Naming one
+                    still builds and runs it, exactly as that command does.
                     meaning_corpus.rs also wants a network and ~220 MB of model,
                     which it keeps in .dev/meaning-model between runs
 ui/                 the Svelte app; ui/src/app.css is the design tokens' source
