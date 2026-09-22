@@ -27,6 +27,7 @@
 	import { useKeeping } from '$lib/offline/outbox';
 	import { photographCooking, pickedFile } from '$lib/offline/photograph';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
+	import { said } from '$lib/how-much';
 
 	const kamosu = useKamosu();
 	const keeping = useKeeping();
@@ -193,6 +194,25 @@
 			deleting = false;
 		}
 	}
+
+	/**
+	 * How much was cooked, where it was not the recipe as written (#109):
+	 * `24 servings · the recipe makes 12`, or `×2` for a recipe that never said
+	 * what it makes. Nothing at all for a cooking as written — the ordinary
+	 * case wears nothing here, as a finished cooking wears no mark.
+	 *
+	 * `?? null` because a diary the phone kept before #109 has no
+	 * `written_yield` on it.
+	 */
+	function howMuchCooked(entry: ListAttemptsOutput['attempts'][number]): string | null {
+		const cooked = said(entry.cooking_yield);
+		const written = entry.recipe.written_yield ?? null;
+		// A multiplier on a recipe that says what it makes still says both —
+		// `×½ · the recipe makes 3 servings` (#109: `×2` alone only where the
+		// recipe says nothing).
+		if (!cooked || !written) return cooked;
+		return m.cooked_how_much({ amount: cooked, made: said(written) ?? '' });
+	}
 </script>
 
 <Screen title={m.cooked_title()} blurb={m.cooked_blurb()}>
@@ -225,6 +245,9 @@
 									<span class="min-w-0 font-display text-line">{entry.recipe.title}</span>
 									<span class="shrink-0 text-read text-ink-2">{day(entry.created_at)}</span>
 								</span>
+								{#if howMuchCooked(entry)}
+									<span class="mt-1 block text-read text-ink-2">{howMuchCooked(entry)}</span>
+								{/if}
 
 								<!--
 									The mark, and only where there is something to mark: a

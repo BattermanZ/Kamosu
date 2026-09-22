@@ -355,18 +355,9 @@ fn is_minted_item_id(id: &str) -> bool {
 fn stored_yield(shopping_yield: Option<&Value>) -> Result<Option<String>, OpError> {
     match shopping_yield {
         None | Some(Value::Null) => Ok(None),
-        Some(value) => {
-            let amount = value.get("amount").and_then(Value::as_str);
-            let noun = value.get("noun").and_then(Value::as_str);
-            match (amount, noun) {
-                (Some(amount), Some(noun)) => {
-                    Ok(Some(json!({ "amount": amount, "noun": noun }).to_string()))
-                }
-                _ => Err(OpError::bad_request(
-                    "a Yield is { amount, noun }, or null for the recipe as written",
-                )),
-            }
-        }
+        // The same rule a cooking's Yield is held to, multiplier included
+        // (#109): one fact, one check.
+        Some(value) => Ok(Some(parse_wanted_yield(value)?.to_string())),
     }
 }
 

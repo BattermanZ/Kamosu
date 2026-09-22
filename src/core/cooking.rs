@@ -210,7 +210,8 @@ impl Core {
                 let stored = match value {
                     Value::Null => None,
                     other => Some(
-                        serde_json::to_string(&parse_yield(other)?).expect("serialisable Yield"),
+                        serde_json::to_string(&parse_wanted_yield(other)?)
+                            .expect("serialisable Yield"),
                     ),
                 };
                 conn.execute(
@@ -1175,6 +1176,22 @@ fn diary_recipe(
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read the cooked Recipe: {e}")))?;
 
+    // What the Version COOKED says it makes, off that Version rather than the
+    // shelf's head, so a recipe edited since still says what it said then
+    // beside how much was cooked (#109).
+    let written_yield: Option<String> = conn
+        .query_row(
+            "SELECT json_extract(content, '$.yield') FROM versions WHERE id = ?1",
+            params![version_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Version cooked: {e}")))?
+        .flatten();
+    let written_yield = written_yield
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .unwrap_or(Value::Null);
+
     // `title` is an `Option` only because `json_extract` is: every Version
     // carries a non-empty title by construction (`parse_recipe_content`
     // refuses one without), so the empty string below is the shape of a
@@ -1194,7 +1211,11 @@ fn diary_recipe(
             (None, remembered)
         }
     };
-    Ok(json!({ "branch_id": branch_id, "title": title.unwrap_or_default() }))
+    Ok(json!({
+        "branch_id": branch_id,
+        "title": title.unwrap_or_default(),
+        "written_yield": written_yield,
+    }))
 }
 
 /// The one Attempt a Person may have In Progress on a Lineage at a time

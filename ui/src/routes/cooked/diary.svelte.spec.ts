@@ -48,7 +48,7 @@ const attempt = (over: Record<string, unknown> = {}) => ({
 /** One line of the diary: that same Attempt, and the recipe it was cooked from. */
 const entry = (over: Record<string, unknown> = {}) => ({
 	...attempt(),
-	recipe: { branch_id: 'b_1', title: 'Miso Soup' },
+	recipe: { branch_id: 'b_1', title: 'Miso Soup', written_yield: null },
 	...over,
 });
 
@@ -61,7 +61,7 @@ describe('the cooking diary', () => {
 					entry({
 						id: 'at_1',
 						created_at: '2026-07-03T18:00:00.000Z',
-						recipe: { branch_id: 'b_2', title: 'Katsu Curry' },
+						recipe: { branch_id: 'b_2', title: 'Katsu Curry', written_yield: null },
 					}),
 				],
 			},
@@ -77,23 +77,69 @@ describe('the cooking diary', () => {
 		expect(headings).toEqual(['August 2026', 'July 2026']);
 	});
 
+	it('says how much was cooked, where it was not the recipe as written (#109)', async () => {
+		renderScreen(Cooked, {
+			list_attempts: {
+				attempts: [
+					entry({
+						id: 'at_3',
+						cooking_yield: { amount: '24', noun: 'servings' },
+						recipe: {
+							branch_id: 'b_3',
+							title: 'Cookies',
+							written_yield: { amount: '12', noun: 'servings' },
+						},
+					}),
+					entry({
+						id: 'at_2',
+						cooking_yield: { amount: '2', noun: '' },
+						recipe: { branch_id: 'b_2', title: 'Pain', written_yield: null },
+					}),
+					entry({
+						id: 'at_0',
+						cooking_yield: { amount: '½', noun: '' },
+						recipe: {
+							branch_id: 'b_4',
+							title: 'Soupe',
+							written_yield: { amount: '3', noun: 'servings' },
+						},
+					}),
+					entry({ id: 'at_1' }),
+				],
+			},
+		});
+		expect(
+			await screen.findByText('24 servings · the recipe makes 12 servings'),
+		).toBeInTheDocument();
+		// Halved where counting would land between two servings: still both.
+		expect(screen.getByText('×½ · the recipe makes 3 servings')).toBeInTheDocument();
+		// A recipe that never said what it makes was multiplied, and says so.
+		expect(screen.getByText('×2')).toBeInTheDocument();
+		// As written wears nothing: the Miso Soup's line is only its title and date.
+		const miso = screen.getByText('Miso Soup').closest('button');
+		expect(miso?.textContent).not.toMatch(/servings|×/);
+	});
+
 	it('marks a cooking nobody finished, however long ago it was started', async () => {
 		renderScreen(Cooked, {
 			list_attempts: {
 				attempts: [
 					entry({
 						id: 'at_now',
-						recipe: { branch_id: 'b_1', title: 'Pain' },
+						recipe: { branch_id: 'b_1', title: 'Pain', written_yield: null },
 						finished_at: null,
 						resumable: true,
 					}),
 					entry({
 						id: 'at_gone_cold',
-						recipe: { branch_id: 'b_2', title: 'Katsu Curry' },
+						recipe: { branch_id: 'b_2', title: 'Katsu Curry', written_yield: null },
 						finished_at: null,
 						resumable: false,
 					}),
-					entry({ id: 'at_done', recipe: { branch_id: 'b_3', title: 'Miso Soup' } }),
+					entry({
+						id: 'at_done',
+						recipe: { branch_id: 'b_3', title: 'Miso Soup', written_yield: null },
+					}),
 				],
 			},
 		});
@@ -123,7 +169,7 @@ describe('the cooking diary', () => {
 						id: 'at_2',
 						rating: null,
 						created_at: '2026-08-14T18:00:00.000Z',
-						recipe: { branch_id: 'b_2', title: 'Pain' },
+						recipe: { branch_id: 'b_2', title: 'Pain', written_yield: null },
 					}),
 				],
 			},
@@ -144,7 +190,7 @@ describe('the cooking diary', () => {
 	it('still names a recipe that has left the shelf, and offers nothing to tap', async () => {
 		renderScreen(Cooked, {
 			list_attempts: {
-				attempts: [entry({ recipe: { branch_id: null, title: 'Miso Soup' } })],
+				attempts: [entry({ recipe: { branch_id: null, title: 'Miso Soup', written_yield: null } })],
 			},
 		});
 
@@ -156,7 +202,11 @@ describe('the cooking diary', () => {
 
 	it('opens onto the recipe it was cooked from, while that recipe is still held', async () => {
 		renderScreen(Cooked, {
-			list_attempts: { attempts: [entry({ recipe: { branch_id: 'b_1', title: 'Miso Soup' } })] },
+			list_attempts: {
+				attempts: [
+					entry({ recipe: { branch_id: 'b_1', title: 'Miso Soup', written_yield: null } }),
+				],
+			},
 		});
 
 		await fireEvent.click(await screen.findByRole('button', { name: /Miso Soup/ }));
@@ -232,8 +282,14 @@ describe('the cooking diary', () => {
 		const { kamosu } = renderScreen(Cooked, {
 			list_attempts: {
 				attempts: [
-					entry({ id: 'at_1', recipe: { branch_id: 'b_1', title: 'Miso Soup' } }),
-					entry({ id: 'at_2', recipe: { branch_id: 'b_2', title: 'Katsu Curry' } }),
+					entry({
+						id: 'at_1',
+						recipe: { branch_id: 'b_1', title: 'Miso Soup', written_yield: null },
+					}),
+					entry({
+						id: 'at_2',
+						recipe: { branch_id: 'b_2', title: 'Katsu Curry', written_yield: null },
+					}),
 				],
 			},
 			delete_attempt: { deleted: true },

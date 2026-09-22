@@ -361,6 +361,7 @@ describe('the Thread screen', () => {
 				versions: [
 					{
 						sequence: 1,
+						scaled_to: null,
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',

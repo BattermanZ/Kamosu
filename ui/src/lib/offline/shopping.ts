@@ -142,9 +142,14 @@ export function parseAmount(written: string): number | null {
 
 /**
  * How far a Yield somebody means is from the Yield as written, or 1 where the
- * two cannot honestly be compared — `core::yield_scale`.
+ * two cannot honestly be compared — `core::yield_scale`. An empty noun makes
+ * the wanted amount a multiplier (#109).
  */
 export function yieldScale(wanted: Yield, written: Yield): number {
+	if (wanted?.noun === '') {
+		const times = parseAmount(wanted.amount);
+		return times !== null && times > 0 ? times : 1;
+	}
 	const sameNoun = (wanted?.noun ?? null) === (written?.noun ?? null);
 	const wantedAmount = wanted ? parseAmount(wanted.amount) : null;
 	const writtenAmount = written ? parseAmount(written.amount) : null;

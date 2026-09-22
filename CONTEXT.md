@@ -183,7 +183,7 @@ A named part of a recipe — "For the sauce", "Assemble" — holding some of its
 _Avoid_: Group, block, heading, part, component
 
 **Yield**:
-What a recipe makes — an amount and what it is an amount of: "4 servings", "24 cookies", "1.5 litres". Optional. Scaling a recipe means changing this amount, which multiplies every Reading in step.
+What a recipe makes — an amount and what it is an amount of: "4 servings", "24 cookies", "1.5 litres". Optional. Scaling a recipe means changing this amount, which multiplies every Reading in step. A recipe that states no Yield is scaled by a multiplier instead — "×2", held as a Yield whose noun is empty — since there is nothing to count from; a Yield a recipe itself states always has a noun.
 _Avoid_: Servings, serves, portions, makes
 
 **Note**:

@@ -232,6 +232,8 @@ struct Words {
     prep: &'static str,
     cook: &'static str,
     scaled: &'static str,
+    /// A recipe scaled by a multiplier rather than to a Yield (#109).
+    scaled_times: &'static str,
     for_recipe: &'static str,
     whole: &'static str,
     part: &'static str,
@@ -257,6 +259,7 @@ const EN: Words = Words {
     prep: "Prep {time}",
     cook: "Cook {time}",
     scaled: "Scaled to {wanted} — as written, makes {written}",
+    scaled_times: "Scaled ×{times}",
     for_recipe: "for {title}",
     whole: "the whole recipe",
     part: "{share} of the recipe",
@@ -293,6 +296,7 @@ const FR: Words = Words {
     prep: "Prép. {time}",
     cook: "Cuisson {time}",
     scaled: "Ajustée à {wanted} — telle qu'écrite, pour {written}",
+    scaled_times: "Ajustée ×{times}",
     for_recipe: "pour {title}",
     whole: "la recette entière",
     part: "{share} de la recette",
@@ -329,6 +333,7 @@ const ES: Words = Words {
     prep: "Prep. {time}",
     cook: "Cocción {time}",
     scaled: "Ajustada a {wanted} — tal como está escrita, rinde {written}",
+    scaled_times: "Ajustada ×{times}",
     for_recipe: "para {title}",
     whole: "la receta entera",
     part: "{share} de la receta",
@@ -543,6 +548,13 @@ pub fn compose(gathered: &Gathered) -> Value {
         "photo": gathered.content["main_photo"].is_string(),
         "meta": meta_line(&gathered.content, words),
         "scaled": gathered.scaled.as_ref().and_then(|(wanted, written)| {
+            if crate::core::is_multiplier(wanted) {
+                return Some(
+                    words
+                        .scaled_times
+                        .replace("{times}", wanted["amount"].as_str()?.trim()),
+                );
+            }
             Some(
                 words
                     .scaled

@@ -143,6 +143,8 @@
 	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online, refreshed } from '$lib/offline/device.svelte';
+	import HowMuch from '$lib/HowMuch.svelte';
+	import { said, same, toSearch, type Wanted } from '$lib/how-much';
 	import { useLibrary } from '$lib/offline/library.svelte';
 	import { keptAt } from '$lib/offline/reads';
 	import { standing } from '$lib/offline/standing.svelte';
@@ -231,6 +233,27 @@
 	 * adding twice makes no second entry.
 	 */
 	let onTheList = $state(false);
+
+	// ---- how much, for the errands (#109) ---------------------------------
+	//
+	// A VIEW THAT CARRIES FORWARD, Aurélien's choice of 23 September 2026. The
+	// amounts are asked of the Core at the Yield named here, and nothing is
+	// stored for having named it: Add to shopping list puts the recipe on the
+	// list at it, Cook this opens the cooking's own question already set to it,
+	// and a Sheet prints it. A recipe already on the list opens at the list's
+	// amount, and changing it here changes the list. Leave with nothing added
+	// and it is forgotten.
+
+	/**
+	 * How much this page is read at, where somebody named it — the reader, or
+	 * the Shopping List the recipe is on. Undefined is the page as the Core
+	 * sends it unasked: as written, or at the Yield an open cooking is at.
+	 */
+	let named = $state<Wanted | undefined>(undefined);
+	/** The picker is open under the ingredients' heading. */
+	let choosingHowMuch = $state(false);
+	/** The last change of how much could not be read — no network, usually. */
+	let howMuchFailed = $state(false);
 	let shopping = $state(false);
 	/** Where asking for a Sheet has got to (#75). */
 	let printing = $state<'idle' | 'setting' | 'failed'>('idle');
@@ -360,7 +383,14 @@
 		printing = 'setting';
 		const tab = window.open('', '_blank');
 		try {
-			const asked = await kamosu.makeSheet({ branch_id: branchId });
+			// At the amount on screen: the page is what a Sheet prints (ADR 0023).
+			// Not while a Divergence is shown, where the amounts on screen are
+			// `divergence`'s and the scaler is not offered (`pageScaledTo`).
+			const asked = await kamosu.makeSheet(
+				named === undefined || divergence
+					? { branch_id: branchId }
+					: { branch_id: branchId, wanted_yield: named },
+			);
 			const job = await waitForJob(kamosu, asked.job_id);
 			const at = (job.result as MakeSheetOutput).fetch_at;
 			if (tab) tab.location.href = at;
@@ -370,6 +400,39 @@
 			tab?.close();
 			printing = 'failed';
 		}
+	}
+
+	/**
+	 * Read the recipe at another amount (#109). The Core scales every line it
+	 * can and says what it scaled to; nothing here works an amount out, and
+	 * nothing is stored. With no network the read fails and the page stays as
+	 * it was, saying so — a scale is the Core's to work out.
+	 *
+	 * Where the recipe is on the Shopping List, the list follows: it is the
+	 * errand this scaler is for.
+	 */
+	async function chooseHowMuch(wanted: Wanted, alsoTheList = true) {
+		const asked = branchId;
+		try {
+			const read = await kamosu.getRecipe({ branch_id: asked, wanted_yield: wanted });
+			if (asked !== branchId) return;
+			recipe = read;
+			named = wanted;
+			// The read carries every correction made here since the last one,
+			// scaled — the overlay's lines were worked out at the old amount.
+			fixed = new Map();
+			howMuchFailed = false;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			howMuchFailed = true;
+			return;
+		}
+		if (alsoTheList && onTheList)
+			void kamosu
+				.setShoppingYield({ branch_id: asked, shopping_yield: wanted })
+				.catch((error: unknown) => {
+					if (!(error instanceof OperationError)) throw error;
+				});
 	}
 
 	/**
@@ -468,7 +531,12 @@
 	$effect(() => {
 		if (saidFor !== branchId) {
 			saidFor = branchId;
-			untrack(() => (wrote = undefined));
+			untrack(() => {
+				wrote = undefined;
+				named = undefined;
+				choosingHowMuch = false;
+				howMuchFailed = false;
+			});
 		}
 	});
 
@@ -479,7 +547,13 @@
 		let current = true;
 		void (async () => {
 			try {
-				const read = await kamosu.getRecipe({ branch_id: branchId });
+				// At the amount already named here, so a Promotion or a Component
+				// re-read does not quietly put the page back to the recipe as
+				// written underneath somebody doing the errands (#109).
+				const at = untrack(() => named);
+				const read = await kamosu.getRecipe(
+					at === undefined ? { branch_id: branchId } : { branch_id: branchId, wanted_yield: at },
+				);
 				if (!current) return;
 				recipe = read;
 
@@ -506,9 +580,19 @@
 				void kamosu
 					.getShoppingList({})
 					.then((list) => {
-						if (current) {
-							onTheList = list.chosen.some((entry) => entry.branch_id === branchId);
-						}
+						if (!current) return;
+						const entry = list.chosen.find((each) => each.branch_id === branchId);
+						onTheList = entry !== undefined;
+						// On the list, so the page opens at the list's amount (#109) —
+						// as written included, where an open cooking would otherwise
+						// have scaled the page to its own.
+						const onScreen = read.versions.at(-1)?.scaled_to ?? null;
+						if (
+							entry &&
+							untrack(() => named) === undefined &&
+							!same(entry.shopping_yield, onScreen)
+						)
+							void chooseHowMuch(entry.shopping_yield, false);
 					})
 					.catch(() => {});
 
@@ -606,6 +690,14 @@
 	 * dough unfolds whichever recipe you are standing in.
 	 */
 	const components = $derived(here?.components ?? recipe?.versions.at(-1)?.components ?? []);
+	/**
+	 * What this page's amounts are scaled to, in the Core's own word for it, or
+	 * null where they are as written (#109). Not while a Divergence is shown:
+	 * both sides come from `divergence`, which scales to an open cooking and
+	 * takes no named amount, so the scaler is not offered there at all.
+	 * `?? null`: a recipe the phone kept before #109 has no `scaled_to`.
+	 */
+	const pageScaledTo = $derived(divergence ? null : (recipe?.versions.at(-1)?.scaled_to ?? null));
 
 	/** One Component, or nothing: the entry sitting at `index` of the list at `at`. */
 	function componentAt(at: number[], index: number) {
@@ -756,7 +848,10 @@
 
 	function corrected(index: number, reading: Slot, measuredLine: string | null) {
 		const next = new Map(fixed);
-		next.set(index, { reading, measured: measuredLine });
+		// On a page read at a named amount the answer's line was worded at the
+		// cooking's amount instead, so none is laid over until the page is read
+		// again at its own — rather than a figure for the wrong amount (#109).
+		next.set(index, { reading, measured: named === undefined ? measuredLine : null });
 		fixed = next;
 		correcting = null;
 
@@ -779,6 +874,10 @@
 		const isNowComponent = (reading?.lineage_id ?? null) !== null;
 		if (wasComponent || isNowComponent) {
 			reread += 1;
+		} else if (named !== undefined) {
+			// `set_reading` words the corrected line at the amount a cooking is
+			// at, and knows nothing of this page's: read it again at this one.
+			void chooseHowMuch(named, false);
 		}
 	}
 
@@ -1151,7 +1250,10 @@
 		-->
 			{#snippet written(text: string, at: number, isComponent: boolean)}
 				<span class="block text-line">{text}</span>
-				{#if !isComponent && beneathLine(at)}
+				{#if !isComponent && pageScaledTo && at >= 0 && !measured.ingredients[at]}
+					<!-- Asked for another amount, and this line did not move (#109). -->
+					<span class="block text-read text-ink-2">{m.how_much_not_scaled()}</span>
+				{:else if !isComponent && beneathLine(at)}
 					<span class="block text-read text-ink-2">{beneathLine(at)}</span>
 				{/if}
 			{/snippet}
@@ -1319,6 +1421,49 @@
 			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
 				{m.recipe_ingredients()}
 			</h2>
+			<!--
+				HOW MUCH, for the errands (#109). Under the heading because it is a
+				fact about every line beneath it, and a row rather than a control in
+				the meta strip because a third of the library has no Yield to put a
+				control on. In your own recipe only, and not while a Divergence is
+				shown: see `pageScaledTo`.
+			-->
+			{#if side === 'mine' && !divergence}
+				<div class="mx-gutter mb-2">
+					<div class="flex items-center justify-between gap-3">
+						<p
+							class="min-w-0 text-read {pageScaledTo ? 'font-semibold text-accent' : 'text-ink-2'}"
+						>
+							{pageScaledTo
+								? m.recipe_how_much({ amount: said(pageScaledTo) ?? '' })
+								: content.yield
+									? m.recipe_how_much({ amount: said(content.yield) ?? '' })
+									: m.recipe_how_much_as_written()}
+						</p>
+						<button
+							type="button"
+							class="tap-out h-8 shrink-0 text-read text-accent underline"
+							aria-expanded={choosingHowMuch}
+							onclick={() => (choosingHowMuch = !choosingHowMuch)}
+						>
+							{choosingHowMuch ? m.recipe_how_much_done() : m.recipe_how_much_change()}
+						</button>
+					</div>
+					{#if choosingHowMuch}
+						<div class="mt-2 border-y border-rule py-3">
+							<HowMuch
+								written={content.yield}
+								wanted={pageScaledTo}
+								room="page"
+								onchoose={(chosen) => void chooseHowMuch(chosen)}
+							/>
+						</div>
+					{/if}
+					{#if howMuchFailed}
+						<p class="mt-2 text-read text-support" role="alert">{m.recipe_how_much_offline()}</p>
+					{/if}
+				</div>
+			{/if}
 			<ul class="px-gutter">
 				{#if marking && divergence}
 					{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
@@ -1629,7 +1774,7 @@
 			/>
 
 			<a
-				href="/cook/{branchId}"
+				href="/cook/{branchId}{toSearch(pageScaledTo)}"
 				class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"
 			>
 				{m.recipe_cook_this()}
@@ -1710,7 +1855,12 @@
 							await kamosu.removeFromShoppingList({ branch_id: branchId });
 							onTheList = false;
 						} else {
-							await kamosu.addToShoppingList({ branch_id: branchId });
+							// At the amount on screen (#109): what the errands scaler is for.
+							await kamosu.addToShoppingList(
+								pageScaledTo
+									? { branch_id: branchId, shopping_yield: pageScaledTo }
+									: { branch_id: branchId },
+							);
 							onTheList = true;
 						}
 					} catch (error: unknown) {

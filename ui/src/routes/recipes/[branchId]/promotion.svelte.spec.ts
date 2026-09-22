@@ -104,6 +104,7 @@ const attempt = (over: Partial<Attempt> = {}): Attempt => ({
 const version = (id: string): GetRecipeOutput['versions'][number] => ({
 	sequence: 1,
 	version_id: id,
+	scaled_to: null,
 	parent_version_id: null,
 	hand_id: 'h_1',
 	name: null,

@@ -601,6 +601,10 @@ export type CreateRecipeOutput = {
 			target: string | null;
 			unit: string | null;
 		} | null)[];
+		scaled_to: {
+			amount: string;
+			noun: string;
+		} | null;
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
@@ -855,6 +859,10 @@ export type StartTranslationOutput = {
 			target: string | null;
 			unit: string | null;
 		} | null)[];
+		scaled_to: {
+			amount: string;
+			noun: string;
+		} | null;
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
@@ -1250,9 +1258,13 @@ export type TurnOffMeaningSearchOutput = {
 	state: "unasked" | "declined" | "accepted" | "on";
 };
 
-/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
+/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
 export type GetRecipeInput = {
 	branch_id: string;
+	wanted_yield?: {
+		amount: string;
+		noun: string;
+	} | null;
 };
 /** What get_recipe answers. */
 export type GetRecipeOutput = {
@@ -1397,6 +1409,10 @@ export type GetRecipeOutput = {
 			target: string | null;
 			unit: string | null;
 		} | null)[];
+		scaled_to: {
+			amount: string;
+			noun: string;
+		} | null;
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
@@ -1599,9 +1615,13 @@ export type ExportBundleOutput = {
 	}[];
 };
 
-/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
+/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
 export type MakeSheetInput = {
 	branch_id: string;
+	wanted_yield?: {
+		amount: string;
+		noun: string;
+	} | null;
 };
 /** What make_sheet eventually produces, read back through `get_job`. */
 export type MakeSheetOutput = {
@@ -2993,6 +3013,10 @@ export type ListAttemptsOutput = {
 		recipe: {
 			branch_id: string | null;
 			title: string;
+			written_yield: {
+				amount: string;
+				noun: string;
+			} | null;
 		};
 		resumable: boolean;
 		ticked_ingredients: number[];
@@ -3069,7 +3093,7 @@ export type ShoppingBasisOutput = {
 	} | null;
 };
 
-/** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
+/** Choose a recipe to shop for, at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 export type AddToShoppingListInput = {
 	branch_id: string;
 	shopping_yield?: {
@@ -3151,7 +3175,7 @@ export type RemoveFromShoppingListOutput = {
 	}[];
 };
 
-/** Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
+/** Say how much of a chosen recipe you are shopping for — an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 export type SetShoppingYieldInput = {
 	branch_id: string;
 	shopping_yield?: {
@@ -6845,6 +6869,26 @@ export const CATALOGUE = [
 								},
 								"type": "array"
 							},
+							"scaled_to": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
 							"sequence": {
 								"type": "integer"
 							},
@@ -6872,7 +6916,8 @@ export const CATALOGUE = [
 							"cooking",
 							"components",
 							"translates_version_id",
-							"language"
+							"language",
+							"scaled_to"
 						],
 						"type": "object"
 					},
@@ -8235,6 +8280,26 @@ export const CATALOGUE = [
 								},
 								"type": "array"
 							},
+							"scaled_to": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
 							"sequence": {
 								"type": "integer"
 							},
@@ -8262,7 +8327,8 @@ export const CATALOGUE = [
 							"cooking",
 							"components",
 							"translates_version_id",
-							"language"
+							"language",
+							"scaled_to"
 						],
 						"type": "object"
 					},
@@ -10111,7 +10177,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_recipe",
-		"summary": "Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first.",
+		"summary": "Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -10119,6 +10185,26 @@ export const CATALOGUE = [
 			"properties": {
 				"branch_id": {
 					"type": "string"
+				},
+				"wanted_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
 				}
 			},
 			"required": [
@@ -10953,6 +11039,26 @@ export const CATALOGUE = [
 								},
 								"type": "array"
 							},
+							"scaled_to": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
 							"sequence": {
 								"type": "integer"
 							},
@@ -10980,7 +11086,8 @@ export const CATALOGUE = [
 							"cooking",
 							"components",
 							"translates_version_id",
-							"language"
+							"language",
+							"scaled_to"
 						],
 						"type": "object"
 					},
@@ -11382,6 +11489,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -11985,7 +12093,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "make_sheet",
-		"summary": "Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed.",
+		"summary": "Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -11993,6 +12101,26 @@ export const CATALOGUE = [
 			"properties": {
 				"branch_id": {
 					"type": "string"
+				},
+				"wanted_yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
 				}
 			},
 			"required": [
@@ -15511,6 +15639,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -15624,6 +15753,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -16014,6 +16144,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -16524,6 +16655,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -17034,6 +17166,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -17794,6 +17927,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -18267,6 +18401,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -18831,6 +18966,7 @@ export const CATALOGUE = [
 									"type": "string"
 								},
 								"noun": {
+									"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 									"type": "string"
 								}
 							},
@@ -19306,6 +19442,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -19378,11 +19515,31 @@ export const CATALOGUE = [
 									},
 									"title": {
 										"type": "string"
+									},
+									"written_yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
 									}
 								},
 								"required": [
 									"branch_id",
-									"title"
+									"title",
+									"written_yield"
 								],
 								"type": "object"
 							},
@@ -19459,6 +19616,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -19782,7 +19940,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "add_to_shopping_list",
-		"summary": "Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list.",
+		"summary": "Choose a recipe to shop for, at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -19798,6 +19956,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -19840,6 +19999,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -20032,6 +20192,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -20185,7 +20346,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_shopping_yield",
-		"summary": "Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list.",
+		"summary": "Say how much of a chosen recipe you are shopping for — an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -20201,6 +20362,7 @@ export const CATALOGUE = [
 							"type": "string"
 						},
 						"noun": {
+							"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 							"type": "string"
 						}
 					},
@@ -20243,6 +20405,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -20452,6 +20615,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -20648,6 +20812,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -20840,6 +21005,7 @@ export const CATALOGUE = [
 										"type": "string"
 									},
 									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
 										"type": "string"
 									}
 								},
@@ -22306,7 +22472,7 @@ export interface KamosuClient {
 	buildMeaningIndex(input?: BuildMeaningIndexInput): Promise<Answer<'build_meaning_index'>>;
 	/** Stop matching on meaning and throw the index away. Discards nothing that cannot be rebuilt — the index is derived from the recipes — and keeps both the acceptance, which is history, and the downloaded weights, so turning it back on is a rebuild rather than another download. */
 	turnOffMeaningSearch(input?: TurnOffMeaningSearchInput): Promise<Answer<'turn_off_meaning_search'>>;
-	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. */
+	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;
@@ -22322,7 +22488,7 @@ export interface KamosuClient {
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;
-	/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
+	/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
 	makeSheet(input: MakeSheetInput): Promise<Answer<'make_sheet'>>;
 	/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
 	makeSharedSheet(input: MakeSharedSheetInput): Promise<Answer<'make_shared_sheet'>>;
@@ -22364,11 +22530,11 @@ export interface KamosuClient {
 	getShoppingList(input?: GetShoppingListInput): Promise<Answer<'get_shopping_list'>>;
 	/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
 	shoppingBasis(input: ShoppingBasisInput): Promise<Answer<'shopping_basis'>>;
-	/** Choose a recipe to shop for, at a Yield or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
+	/** Choose a recipe to shop for, at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 	addToShoppingList(input: AddToShoppingListInput): Promise<Answer<'add_to_shopping_list'>>;
 	/** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
 	removeFromShoppingList(input: RemoveFromShoppingListInput): Promise<Answer<'remove_from_shopping_list'>>;
-	/** Say how much of a chosen recipe you are shopping for — an amount and its noun, or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
+	/** Say how much of a chosen recipe you are shopping for — an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 	setShoppingYield(input: SetShoppingYieldInput): Promise<Answer<'set_shopping_yield'>>;
 	/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
 	shoppingListAsText(input?: ShoppingListAsTextInput): Promise<Answer<'shopping_list_as_text'>>;

@@ -118,6 +118,15 @@ describe('Shopping', () => {
 		expect(await screen.findByText(/Choose the recipes you mean to cook/)).toBeInTheDocument();
 	});
 
+	it('says a multiplier from the recipe page as one (#109)', async () => {
+		renderScreen(Page, {
+			get_shopping_list: list({
+				chosen: [chosen({ shopping_yield: { amount: '2', noun: '' }, written_yield: null })],
+			}),
+		});
+		expect(await screen.findByText('shopping for ×2')).toBeInTheDocument();
+	});
+
 	it('draws a row that added on one line, with its amount', async () => {
 		renderScreen(Page, { get_shopping_list: list() });
 		await screen.findByText('soy sauce');

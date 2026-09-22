@@ -46,7 +46,7 @@ impl Core {
             )
         })?;
 
-        self.get_recipe(&caller.person_id, &branch_id)
+        self.get_recipe(&caller.person_id, &branch_id, None)
     }
 
     /// Save a new state of a Recipe onto a Branch: an ordinary edit becomes an
@@ -530,7 +530,12 @@ impl Core {
 
     /// Read a Recipe: the Branch as it stands and its whole chain of Versions,
     /// oldest first — the Thread's raw material.
-    pub fn get_recipe(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
+    pub fn get_recipe(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        wanted: Option<&Value>,
+    ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let (lineage_id, kitchen_id, hand_id, language, origin_address, head_version_id): (
                 String,
@@ -604,8 +609,20 @@ impl Core {
             // it is a fact about the reader, and a long-edited recipe has many
             // Versions.
             let reader = Reader::of(conn, person_id)?;
+            let named = wanted.map(parse_named_yield).transpose()?;
+            let wanted = wanted_yield(conn, &lineage_id, person_id, named.as_ref())?;
             for version in &mut versions {
-                let scale = cooking_scale(conn, &lineage_id, person_id, &version["content"])?;
+                let scale = yield_scale(&wanted, &version["content"]["yield"]);
+                // Which Yield this Version's amounts were scaled to, or null
+                // where they are as written — so a screen can say which lines
+                // did not scale without working out a ratio itself (#109), and
+                // can tell an answer scaled to what it now asks for from one
+                // it was kept from before (#77).
+                version["scaled_to"] = if scale == 1.0 {
+                    Value::Null
+                } else {
+                    wanted.clone()
+                };
                 let version_id = version["version_id"]
                     .as_str()
                     .expect("version_id is always a string")
@@ -1560,6 +1577,36 @@ pub(super) fn parse_yield(value: &Value) -> Result<Value, OpError> {
         .ok_or_else(|| OpError::bad_request("yield.noun is required"))?;
     let noun = required_text(noun, "yield.noun")?.to_string();
     Ok(json!({ "amount": amount, "noun": noun }))
+}
+
+/// **How much of a recipe somebody means** (#109): a Yield, or a multiplier —
+/// a Yield whose noun is empty, `{"amount": "2", "noun": ""}` for twice the
+/// recipe, which is how a recipe that never said what it makes is scaled
+/// (`yield_scale`). A multiplier has to be a number above nothing, because a
+/// multiplier Kamosu cannot read would scale nothing while claiming to.
+pub(super) fn parse_wanted_yield(value: &Value) -> Result<Value, OpError> {
+    if !is_multiplier(value) {
+        return parse_yield(value);
+    }
+    let times = value
+        .get("amount")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("yield.amount is required"))?;
+    match units::parse_amount(times) {
+        Some(number) if number > 0.0 => Ok(json!({ "amount": times.trim(), "noun": "" })),
+        _ => Err(OpError::bad_request(
+            "a Yield with no noun is a multiplier, and its amount must be a number above zero",
+        )),
+    }
+}
+
+/// A Yield a reader names for one read (#109): null for the recipe as
+/// written, and otherwise held to the same rule as a cooking's.
+pub(super) fn parse_named_yield(value: &Value) -> Result<Value, OpError> {
+    if value.is_null() {
+        return Ok(Value::Null);
+    }
+    parse_wanted_yield(value)
 }
 
 /// Prep Time and Cook Time are whole minutes; Cook Time includes resting,

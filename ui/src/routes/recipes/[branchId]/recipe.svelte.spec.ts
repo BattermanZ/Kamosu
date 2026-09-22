@@ -235,6 +235,7 @@ function forked(extra: Answers = {}) {
 					change_note: null,
 					created_at: '2026-08-09T00:00:00Z',
 					translates_version_id: null,
+					scaled_to: null,
 					language: 'en',
 					// A recipe that composes nothing, which is nearly all of them (#50).
 					components: [],
@@ -779,6 +780,7 @@ describe('the recipe screen', () => {
 			versions: [
 				{
 					sequence: 1,
+					scaled_to: null,
 					version_id: 'v_mine',
 					parent_version_id: null,
 					hand_id: 'h_mine',
@@ -844,6 +846,130 @@ describe('the recipe screen', () => {
 			},
 		};
 	}
+
+	// ---- how much, for the errands (#109) -----------------------------------
+
+	/**
+	 * `solo()` whose recipe comes back scaled to eight servings whenever it is
+	 * asked for at an amount — the chicken doubled, the oil with nothing Kamosu
+	 * could scale, as the Core answers it.
+	 */
+	function scalable(extra: Answers = {}) {
+		const plain = solo().get_recipe as GetRecipeOutput;
+		const held: { kamosu?: ReturnType<typeof standIn> } = {};
+		const asked = () =>
+			(held.kamosu?.calls ?? [])
+				.filter((call) => call.operation === 'get_recipe')
+				.map((call) => (call.input as { wanted_yield?: { amount: string } }).wanted_yield)
+				.at(-1);
+		const answers: Answers = {
+			...solo(),
+			get_recipe: () => {
+				const wanted = asked();
+				if (!wanted) return plain;
+				return {
+					...plain,
+					versions: [
+						{
+							...plain.versions[0],
+							scaled_to: { amount: wanted.amount, noun: 'servings' },
+							measured: {
+								ingredients: [null, 'about 2.8 kg', null, null, 'about 6 tbsp'],
+								steps: SECTIONED_STEPS.map(() => null),
+							},
+						},
+					],
+				};
+			},
+			get_shopping_list: { chosen: [], rows: [] },
+			add_to_shopping_list: { chosen: [], rows: [] },
+			set_shopping_yield: { chosen: [], rows: [] },
+			...extra,
+		};
+		const rendered = renderRecipe(answers);
+		held.kamosu = rendered.kamosu;
+		return rendered;
+	}
+
+	it('reads the recipe at another amount for the errands, from the Core', async () => {
+		const { kamosu } = scalable();
+		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+
+		await vi.waitFor(() =>
+			expect(kamosu.calls.at(-1)).toEqual({
+				operation: 'get_recipe',
+				input: { branch_id: 'mine', wanted_yield: { amount: '8', noun: 'servings' } },
+			}),
+		);
+		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
+		// Every figure is the Core's, beneath the recipe's own unchanged line.
+		expect(screen.getByText('1.4 kg whole chicken')).toBeInTheDocument();
+		expect(screen.getByText('about 2.8 kg')).toBeInTheDocument();
+		// The line with nothing to scale says so, rather than standing silent
+		// under a heading that says every amount is for eight.
+		expect(screen.getByText(/^not scaled/)).toBeInTheDocument();
+		// And nothing was written for having looked.
+		const wrote = kamosu.calls.map((call) => call.operation);
+		expect(wrote).not.toContain('save_recipe_version');
+		expect(wrote).not.toContain('set_shopping_yield');
+	});
+
+	it('carries the amount onto the list and into the cooking', async () => {
+		const { kamosu } = scalable();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Change' }));
+		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
+
+		expect(screen.getByRole('link', { name: /Cook this/i })).toHaveAttribute(
+			'href',
+			'/cook/mine?amount=8&noun=servings',
+		);
+		await fireEvent.click(screen.getByRole('button', { name: /Add to shopping list/i }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'add_to_shopping_list')?.input).toEqual(
+				{ branch_id: 'mine', shopping_yield: { amount: '8', noun: 'servings' } },
+			),
+		);
+	});
+
+	it('opens at the Shopping List’s amount, and changing it changes the list', async () => {
+		const { kamosu } = scalable({
+			get_shopping_list: {
+				chosen: [
+					{
+						branch_id: 'mine',
+						title: 'Korean Fried Chicken',
+						gone: false,
+						shopping_yield: { amount: '8', noun: 'servings' },
+						written_yield: { amount: '4', noun: 'servings' },
+					},
+				],
+				rows: [],
+			},
+		});
+		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(await screen.findByRole('button', { name: '×3 · 12' }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'set_shopping_yield')?.input).toEqual({
+				branch_id: 'mine',
+				shopping_yield: { amount: '12', noun: 'servings' },
+			}),
+		);
+	});
+
+	it('says scaling needs Kamosu, and keeps the amounts it had, with no network', async () => {
+		const { kamosu } = scalable();
+		expect(await screen.findByText('Amounts for 4 servings')).toBeInTheDocument();
+		kamosu.answer('get_recipe', { refuse: 'internal', message: 'Kamosu could not be reached.' });
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		await fireEvent.click(await screen.findByRole('button', { name: '×2 · 8' }));
+		expect(await screen.findByText('Scaling needs Kamosu to be reachable.')).toBeInTheDocument();
+		expect(screen.getByText('Amounts for 4 servings')).toBeInTheDocument();
+		expect(screen.queryByText('about 2.8 kg')).not.toBeInTheDocument();
+	});
 
 	/**
 	 * THE NUTRITION FIGURE CLOSES THE INGREDIENTS (#84). Aurélien chose that

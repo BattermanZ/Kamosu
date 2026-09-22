@@ -1140,10 +1140,31 @@ pub(super) fn cooking_scale(
     person_id: &str,
     content: &Value,
 ) -> Result<f64, OpError> {
-    let Some(attempt) = in_progress_attempt(conn, lineage_id, person_id)? else {
-        return Ok(1.0);
-    };
-    Ok(yield_scale(&attempt["cooking_yield"], &content["yield"]))
+    Ok(yield_scale(
+        &wanted_yield(conn, lineage_id, person_id, None)?,
+        &content["yield"],
+    ))
+}
+
+/// **How much of this recipe the reader means**, or null for the recipe as
+/// written: the Yield they named, where they named one, and otherwise the one
+/// their own In Progress Attempt is cooking to.
+///
+/// Named is the recipe page's scaler (#109) — a view, asked for on a read and
+/// stored nowhere, which is why it wins over the cooking: somebody working out
+/// what to buy for six is not cooking for six yet. Named as null is the recipe
+/// as written, on purpose, and is still a naming.
+pub(super) fn wanted_yield(
+    conn: &Connection,
+    lineage_id: &str,
+    person_id: &str,
+    named: Option<&Value>,
+) -> Result<Value, OpError> {
+    if let Some(named) = named {
+        return Ok(named.clone());
+    }
+    Ok(in_progress_attempt(conn, lineage_id, person_id)?
+        .map_or(Value::Null, |attempt| attempt["cooking_yield"].clone()))
 }
 
 /// **How far a Yield somebody means is from the Yield as written**, or 1.0.
@@ -1158,14 +1179,30 @@ pub(super) fn cooking_scale(
 /// nobody wrote, an amount that is not a number (`a dozen`), or two different
 /// nouns — four *servings* against two *loaves* is not a ratio, and inventing
 /// one would put a wrong number on a worktop.
+///
+/// **A wanted Yield with an empty noun is a multiplier** (#109): `{"amount":
+/// "2", "noun": ""}` is twice the recipe, whatever it makes — the one way to
+/// scale the third of the library that never says what it makes. No written
+/// Yield can have an empty noun (`parse_yield` refuses one), so the two never
+/// meet.
 pub(crate) fn yield_scale(wanted: &Value, written: &Value) -> f64 {
-    let same_noun = wanted["noun"].as_str() == written["noun"].as_str();
     let wanted_amount = wanted["amount"].as_str().and_then(units::parse_amount);
+    if is_multiplier(wanted) {
+        return wanted_amount.filter(|times| *times > 0.0).unwrap_or(1.0);
+    }
+    let same_noun = wanted["noun"].as_str() == written["noun"].as_str();
     let written_amount = written["amount"].as_str().and_then(units::parse_amount);
     match (same_noun, wanted_amount, written_amount) {
         (true, Some(wanted), Some(written)) if written > 0.0 && wanted > 0.0 => wanted / written,
         _ => 1.0,
     }
+}
+
+/// Whether a Yield somebody means is a multiplier — `{"amount": "2", "noun":
+/// ""}`, twice the recipe — rather than an amount of what the recipe makes
+/// (#109). The one place the empty noun is read as that.
+pub(crate) fn is_multiplier(wanted: &Value) -> bool {
+    wanted["noun"].as_str() == Some("")
 }
 
 /// The subordinate line for ONE Ingredient Line — what `set_reading` answers

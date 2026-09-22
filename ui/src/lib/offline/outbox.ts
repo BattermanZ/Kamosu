@@ -477,6 +477,10 @@ export class Outbox implements Keeping {
 			.inner('get_current_attempt', { lineage_id: recipe.lineage_id })
 			.catch(() => ({ attempt: null }))) as GetCurrentAttemptOutput;
 		const title = recipe.versions.at(-1)?.content.title ?? '';
+		/** What the Version cooked says it makes, for the diary (#109). */
+		const writtenYield = (versionId: string) =>
+			(recipe.versions.find((each) => each.version_id === versionId) ?? recipe.versions.at(-1))
+				?.content.yield ?? null;
 		// A cooking the read names that the phone already knows is one of
 		// those over, or it would have been resumed above: however the server
 		// described it before the network went, it is not one to resume.
@@ -484,7 +488,11 @@ export class Outbox implements Keeping {
 		if (current.attempt && !onPhone) {
 			kept.attempts[current.attempt.id] = {
 				attempt: current.attempt,
-				recipe: { branch_id: recipe.branch_id, title },
+				recipe: {
+					branch_id: recipe.branch_id,
+					title,
+					written_yield: writtenYield(current.attempt.version_id),
+				},
 			};
 			return { value: current.attempt };
 		}
@@ -509,7 +517,10 @@ export class Outbox implements Keeping {
 			photographs: [],
 			as_cooked: null,
 		};
-		kept.attempts[id] = { attempt, recipe: { branch_id: recipe.branch_id, title } };
+		kept.attempts[id] = {
+			attempt,
+			recipe: { branch_id: recipe.branch_id, title, written_yield: writtenYield(version_id) },
+		};
 		// Pinned to what the phone had, which a recipe edited meanwhile at home
 		// does not change: the Version cooked still exists, so this lands
 		// exactly as it was cooked (ADR 0013).
@@ -689,7 +700,7 @@ export class Outbox implements Keeping {
 			}
 			byId.set(id, {
 				...held.attempt,
-				recipe: byId.get(id)?.recipe ?? (await this.#named(held.recipe)),
+				recipe: byId.get(id)?.recipe ?? (await this.#named(held.recipe, held.attempt.version_id)),
 			});
 		}
 		const attempts = [...byId.values()].sort((a, b) =>
@@ -704,14 +715,23 @@ export class Outbox implements Keeping {
 	 * is called, and the recipe itself is on the phone to say. One learned
 	 * some other way knows neither and stays nameless; no screen reaches that
 	 * today, because a cooking corrected from the diary is named by the diary.
+	 *
+	 * What the Version cooked says it makes comes from the same copy (#109), so
+	 * the diary can say how much was cooked beside it.
 	 */
-	async #named(recipe: Held['recipe']): Promise<Held['recipe']> {
+	async #named(recipe: Held['recipe'], versionId: string): Promise<Held['recipe']> {
 		if (recipe.title !== '' || recipe.branch_id === null) return recipe;
 		try {
 			const read = (await this.#world.inner('get_recipe', {
 				branch_id: recipe.branch_id,
 			})) as GetRecipeOutput;
-			return { ...recipe, title: read.versions.at(-1)?.content.title ?? '' };
+			const cooked =
+				read.versions.find((each) => each.version_id === versionId) ?? read.versions.at(-1);
+			return {
+				...recipe,
+				title: read.versions.at(-1)?.content.title ?? '',
+				written_yield: cooked?.content.yield ?? null,
+			};
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			return recipe;
@@ -790,6 +810,7 @@ export class Outbox implements Keeping {
 			recipe: {
 				branch_id: before?.branch_id ?? (input.branch_id as string | undefined) ?? null,
 				title: before?.title ?? '',
+				written_yield: before?.written_yield ?? null,
 			},
 		};
 		this.#settle(kept);

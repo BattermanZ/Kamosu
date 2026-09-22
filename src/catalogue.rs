@@ -1401,7 +1401,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "get_recipe",
             summary: "Read a Recipe: the Branch as it stands and its whole \
-                      chain of Versions, oldest first.",
+                      chain of Versions, oldest first. Each Version's \
+                      `measured` lines are scaled to `wanted_yield` where one \
+                      is given (null for the recipe as written), and otherwise \
+                      to the Yield the caller's own In Progress Attempt is \
+                      cooking to; `scaled_to` says which, or is null where the \
+                      amounts are as written. Nothing is stored.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1409,7 +1414,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "branch_id": { "type": "string" } },
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "wanted_yield": wanted_yield_schema(),
+                },
                 "required": ["branch_id"],
                 "additionalProperties": false,
             }),
@@ -1620,9 +1628,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       Ingredient Lines are printed and Readings are not, except the amount \
                       beneath a line when a cooking has scaled the recipe; Components \
                       unfold after it, parent first, each already scaled. Letter for US \
-                      Reading Measures, A4 otherwise. When the Job completes, fetch the PDF \
-                      at GET /api/sheets/<job_id> under the same Credential. Nothing is \
-                      changed.",
+                      Reading Measures, A4 otherwise. `wanted_yield` is the Yield the \
+                      screen is scaled to, as `get_recipe` takes it. When the Job \
+                      completes, fetch the PDF at GET /api/sheets/<job_id> under the \
+                      same Credential. Nothing is changed.",
             permission: Permission::Person,
             kind: Kind::Job,
             write: false,
@@ -1630,7 +1639,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             job_lane: JobLane::ByCaller,
             input_schema: json!({
                 "type": "object",
-                "properties": { "branch_id": { "type": "string" } },
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "wanted_yield": wanted_yield_schema(),
+                },
                 "required": ["branch_id"],
                 "additionalProperties": false,
             }),
@@ -1924,7 +1936,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "type": "array",
                         "items": { "type": "integer", "minimum": 0 },
                     },
-                    "cooking_yield": attempt_yield_schema(),
+                    "cooking_yield": wanted_yield_schema(),
                     "written_at": written_at_schema(),
                 },
                 "required": ["attempt_id"],
@@ -2252,8 +2264,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "add_to_shopping_list",
-            summary: "Choose a recipe to shop for, at a Yield or as it is \
-                      written. It holds the Branch at its latest Version, \
+            summary: "Choose a recipe to shop for, at a Yield, a multiplier \
+                      (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, \
                       never a Lineage and never pinned, so a recipe edited \
                       between the planning and the shopping is right in the \
                       shop. Choosing one already on the list is not an error \
@@ -2275,7 +2287,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // because it is optional and its absence legitimately
                     // means "back to the recipe as written", a misspelling and
                     // a deliberate reset were the same request.
-                    "shopping_yield": yield_schema(),
+                    "shopping_yield": wanted_yield_schema(),
                     "written_at": written_at_schema(),
                 },
                 "required": ["branch_id"],
@@ -2309,9 +2321,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "set_shopping_yield",
             summary: "Say how much of a chosen recipe you are shopping for — \
-                      an amount and its noun, or null for the recipe as \
-                      written. Every amount it contributes moves with it. \
-                      Answers the whole list.",
+                      an amount and its noun, a multiplier (an amount with an \
+                      empty noun: twice the recipe is `2`), or null for the \
+                      recipe as written. Every amount it contributes moves with \
+                      it. Answers the whole list.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2323,7 +2336,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "branch_id": { "type": "string" },
                     // Named as on `add_to_shopping_list` above, and for the
                     // same reason (#85).
-                    "shopping_yield": yield_schema(),
+                    "shopping_yield": wanted_yield_schema(),
                     "written_at": written_at_schema(),
                 },
                 "required": ["branch_id"],
@@ -3067,11 +3080,15 @@ fn recipe_schema() -> Value {
                         "components": { "type": "array", "items": component_schema() },
                         "translates_version_id": { "type": ["string", "null"] },
                         "language": { "type": ["string", "null"] },
+                        // The Yield `measured` and `components` were scaled
+                        // to, or null where they are as written (#109).
+                        "scaled_to": wanted_yield_schema(),
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
                         "name", "change_note", "created_at", "content", "readings",
-                        "measured", "cooking", "components", "translates_version_id", "language"
+                        "measured", "cooking", "components", "translates_version_id", "language",
+                        "scaled_to"
                     ],
                     "additionalProperties": false,
                 },
@@ -4361,15 +4378,23 @@ fn merge_result_schema() -> Value {
     })
 }
 
-/// The Yield an Attempt is cooking to — the same `{amount, noun}` shape a
-/// recipe's own Yield takes, held on the Attempt as a fact about that
-/// afternoon rather than a deviation (ADR 0010).
-fn attempt_yield_schema() -> Value {
+/// **How much of a recipe somebody means**: the Yield an Attempt is cooking
+/// to, held on it as a fact about that afternoon rather than a deviation (ADR
+/// 0010), and the Yield a recipe page is read at (#109). The same `{amount,
+/// noun}` shape a recipe's own Yield takes — except that an empty noun makes it
+/// a multiplier (`{"amount": "2", "noun": ""}` is twice the recipe), which is
+/// how a recipe that never said what it makes is scaled.
+fn wanted_yield_schema() -> Value {
     json!({
         "type": ["object", "null"],
         "properties": {
             "amount": { "type": "string" },
-            "noun": { "type": "string" },
+            "noun": {
+                "type": "string",
+                "description": "What the amount counts, as the recipe's own Yield \
+                                names it. Empty makes the amount a multiplier of \
+                                the recipe as written.",
+            },
         },
         "required": ["amount", "noun"],
         "additionalProperties": false,
@@ -4394,7 +4419,7 @@ fn attempt_schema() -> Value {
                 "type": "array",
                 "items": { "type": "integer", "minimum": 0 },
             },
-            "cooking_yield": attempt_yield_schema(),
+            "cooking_yield": wanted_yield_schema(),
             "note": { "type": ["string", "null"] },
             "rating": rating_schema(),
             "finished_at": { "type": ["string", "null"] },
@@ -4539,8 +4564,11 @@ fn diary_entry_schema() -> Value {
             // and the name it was known by — off the Version actually cooked —
             // where it is not. Text is better than a broken pointer.
             "title": { "type": "string" },
+            // What the Version cooked says it makes, so a cooking at another
+            // amount can say both (#109).
+            "written_yield": yield_schema(),
         },
-        "required": ["branch_id", "title"],
+        "required": ["branch_id", "title", "written_yield"],
         "additionalProperties": false,
     });
     schema["required"]
@@ -4583,7 +4611,7 @@ fn shopping_list_schema() -> Value {
                         // quietly disappears from a shopping list is a thing
                         // that does not get bought.
                         "gone": { "type": "boolean" },
-                        "shopping_yield": yield_schema(),
+                        "shopping_yield": wanted_yield_schema(),
                         "written_yield": yield_schema(),
                     },
                     "required": [

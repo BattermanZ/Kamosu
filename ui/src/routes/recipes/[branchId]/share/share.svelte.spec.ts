@@ -38,6 +38,7 @@ const RECIPE = {
 			change_note: null,
 			created_at: '2026-09-01T09:00:00Z',
 			translates_version_id: null,
+			scaled_to: null,
 			language: 'en',
 			components: [],
 			content: {

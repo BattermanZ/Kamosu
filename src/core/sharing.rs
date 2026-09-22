@@ -237,8 +237,10 @@ impl Core {
         &self,
         person_id: &str,
         branch_id: &str,
+        wanted: Option<&Value>,
         job: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
+        let named = wanted.map(parse_named_yield).transpose()?;
         let gathered = self.db().with_conn(|conn| {
             let kitchen_id = branch_kitchen(conn, branch_id)?;
             ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
@@ -250,6 +252,7 @@ impl Core {
                 &SheetReader::Person {
                     person_id,
                     reader: &reader,
+                    wanted: named.as_ref(),
                 },
                 paper,
                 None,
@@ -899,6 +902,8 @@ enum SheetReader<'a> {
     Person {
         person_id: &'a str,
         reader: &'a Reader,
+        /// The Yield the recipe page is scaled to, where it named one (#109).
+        wanted: Option<&'a Value>,
     },
     /// A stranger holding a Share Link: cooking nothing, and reading the
     /// Components the sharing Kitchen holds.
@@ -957,8 +962,15 @@ fn gather_sheet(
         measures: units::Measures::AsWritten,
     };
     let (scale, unfolds) = match who {
-        SheetReader::Person { person_id, reader } => (
-            cooking_scale(conn, &lineage_id, person_id, &content)?,
+        SheetReader::Person {
+            person_id,
+            reader,
+            wanted,
+        } => (
+            yield_scale(
+                &wanted_yield(conn, &lineage_id, person_id, *wanted)?,
+                &content["yield"],
+            ),
             Unfolds::ForReader { person_id, reader },
         ),
         SheetReader::Stranger { kitchen_id } => (
@@ -977,7 +989,11 @@ fn gather_sheet(
     // what a cook wrote.
     let scaled = sheet::scales(scale);
     let (about, scaled_yields) = match who {
-        SheetReader::Person { person_id, reader } if scaled => {
+        SheetReader::Person {
+            person_id,
+            reader,
+            wanted,
+        } if scaled => {
             let measured = measured_for_version(conn, &content, &head_version_id, reader, scale)?;
             let about = measured["ingredients"]
                 .as_array()
@@ -987,8 +1003,7 @@ fn gather_sheet(
                         .map(|slot| slot.as_str().map(str::to_string))
                         .collect()
                 });
-            let wanted = in_progress_attempt(conn, &lineage_id, person_id)?
-                .map_or(Value::Null, |attempt| attempt["cooking_yield"].clone());
+            let wanted = wanted_yield(conn, &lineage_id, person_id, *wanted)?;
             (about, Some((wanted, content["yield"].clone())))
         }
         _ => (Vec::new(), None),

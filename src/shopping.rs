@@ -1272,6 +1272,13 @@ mod tests {
                 json!({"amount": "0", "noun": "servings"}),
                 json!({"amount": "4", "noun": "servings"}),
             ),
+            // A multiplier (#109): an empty noun, with or without a written Yield.
+            (json!({"amount": "2", "noun": ""}), Value::Null),
+            (
+                json!({"amount": "½", "noun": ""}),
+                json!({"amount": "4", "noun": "servings"}),
+            ),
+            (json!({"amount": "lots", "noun": ""}), Value::Null),
         ]
         .into_iter()
         .map(|(wanted, written)| {

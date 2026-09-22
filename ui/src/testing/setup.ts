@@ -19,9 +19,14 @@ import { standing } from '$lib/offline/standing.svelte';
 
 /**
  * One `goto` for the whole run, cleared after every test. Why it is not mocked
- * per file is in `./navigation`.
+ * per file is in `./navigation`. `replaceState` only tidies the address (the
+ * cooking screen lets go of an amount it was sent, #109), which a test has no
+ * address to show, so it does nothing here.
  */
-vi.mock('$app/navigation', async () => ({ goto: (await import('./navigation')).went }));
+vi.mock('$app/navigation', async () => ({
+	goto: (await import('./navigation')).went,
+	replaceState: () => {},
+}));
 
 /**
  * Every file starts where isolation would have started it (#122).

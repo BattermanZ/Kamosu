@@ -236,6 +236,40 @@ describe('writing with no network', () => {
 		expect(at.told).toHaveBeenCalledWith(expect.arrayContaining(['list_attempts']));
 	});
 
+	it('keeps how much a cooking started offline is making, and sends it once there is a network (#109)', async () => {
+		const at = world({
+			get_recipe: () => recipe,
+			get_current_attempt: () => ({ attempt: null }),
+			start_attempt: (input) =>
+				attempt({ id: input.attempt_id as string, version_id: input.version_id as string }),
+			advance_attempt: (input) =>
+				attempt({
+					id: input.attempt_id as string,
+					cooking_yield: input.cooking_yield as { amount: string; noun: string },
+				}),
+		});
+		await at.call('get_recipe', { branch_id: 'b_1' });
+		at.offline();
+
+		const started = await at.call('start_attempt', { branch_id: 'b_1' });
+		const twice = { amount: '2', noun: '' };
+		const held = await at.call('advance_attempt', {
+			attempt_id: started.id,
+			cooking_yield: twice,
+		});
+		// The phone says it at once, and the screen shows it chosen.
+		expect(held.cooking_yield).toEqual(twice);
+
+		at.online();
+		await at.outbox.flush();
+		const sent = at.sent.filter((each) => each.operation === 'advance_attempt');
+		expect(sent).toHaveLength(1);
+		expect(sent[0].input).toMatchObject({ attempt_id: started.id, cooking_yield: twice });
+		expect(sent[0].input.written_at).toBeTruthy();
+		// And the recipe is read again, which is how the amounts arrive scaled.
+		expect(at.told).toHaveBeenCalledWith(expect.arrayContaining(['get_recipe']));
+	});
+
 	it('follows the cooking another device began, whatever the phone called its own', async () => {
 		const at = world({
 			get_recipe: () => recipe,
@@ -606,6 +640,11 @@ describe('the diary with no network', () => {
 		at.offline();
 		await at.call('advance_attempt', { attempt_id: started.id, current_step_index: 1 });
 		const diary = await at.call('list_attempts');
-		expect(diary.attempts[0].recipe).toEqual({ branch_id: 'b_1', title: 'Katsu Curry' });
+		// And what the recipe makes, so the diary can say how much was cooked (#109).
+		expect(diary.attempts[0].recipe).toEqual({
+			branch_id: 'b_1',
+			title: 'Katsu Curry',
+			written_yield: { amount: '4', noun: 'servings' },
+		});
 	});
 });

@@ -150,7 +150,7 @@ impl Core {
             Ok(())
         })?;
 
-        self.get_recipe(&caller.person_id, &branch_id)
+        self.get_recipe(&caller.person_id, &branch_id, None)
     }
 
     /// Say what Language a recipe is written in — the *never changed without

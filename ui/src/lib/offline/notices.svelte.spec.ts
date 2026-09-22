@@ -47,6 +47,7 @@ const recipe = (branch_id: string): GetRecipeOutput => ({
 			change_note: null,
 			created_at: '2026-09-01T00:00:00Z',
 			translates_version_id: null,
+			scaled_to: null,
 			language: 'en',
 			components: [],
 			content: {

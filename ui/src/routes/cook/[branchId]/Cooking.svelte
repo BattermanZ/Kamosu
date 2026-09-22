@@ -39,15 +39,27 @@
 	Step's own text, server-side, at display time, and neither is stored.
 
 	THE AMOUNTS ARE THE WRITTEN LINES, at full size, with the one subordinate
-	line beneath them (#49, ADR 0016) — already scaled to the Yield this Attempt
-	is cooking to and already converted to this cook's measures, because
-	`get_recipe` reads the Attempt's own Yield when it works `measured` out. A
-	line Kamosu could not read carries no subordinate line and is shown whole
-	rather than guessed at (ADR 0002); nothing marks it as unread, because a
-	badge that fires sometimes teaches people it fires always.
+	line beneath them (#49, ADR 0016) — already converted to this cook's
+	measures, because `get_recipe` works `measured` out for this reader. A line
+	Kamosu could not read carries no subordinate line and is shown whole rather
+	than guessed at (ADR 0002); at the Yield as written nothing marks it as
+	unread, because a badge that fires sometimes teaches people it fires always.
+
+	HOW MUCH IS BEING COOKED IS ASKED BEFORE A FRESH COOKING STARTS (#109, option
+	B, Aurélien's choice of 23 September 2026). The question stands where the
+	amounts and the Step will, and the foot's own right-hand button starts the
+	cooking — there is no second button for it. Afterwards the Yield on the row
+	above the hairline brings the question back, and the foot then reads *Back
+	to step N*. Once the amounts are scaled THE SCALED AMOUNT LEADS: the Core's
+	subordinate line at full size, the recipe's own line small beneath it. At
+	the stove the number to measure is the one that matters, and the written
+	line is still there to say what it is a number of. A line that could not be
+	scaled keeps its own words and says it was not scaled — once a cook has
+	asked for twice the recipe, a line left alone is exactly what they need
+	telling. Kamosu scaled nothing here: every figure came from the Core.
 -->
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -66,6 +78,12 @@
 	} from './as-cooked.svelte';
 	import { useKeeping } from '$lib/offline/outbox';
 	import { photographCooking, pickedFile } from '$lib/offline/photograph';
+	import { rereads } from '$lib/offline/device.svelte';
+	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
+	import HowMuch from '$lib/HowMuch.svelte';
+	import { fresh } from './fresh';
+	import { caughtUp, fromSearch, said, same, type Wanted } from '$lib/how-much';
 
 	interface Props {
 		branchId: string;
@@ -104,6 +122,16 @@
 	/** A photograph that could not be kept, even on the phone. */
 	let photoFailed = $state(false);
 
+	/** How much is being cooked is being asked (#109). */
+	let asking = $state(false);
+	/**
+	 * It was asked as the cooking opened, so the foot starts the cooking rather
+	 * than going back to a step.
+	 */
+	let atStart = $state(false);
+	/** The last change of how much did not reach even the phone's own keeping. */
+	let howMuchFailed = $state(false);
+
 	/**
 	 * The Step's own element, and whether its text is taller than the box it was
 	 * given. Read from the DOM rather than predicted, because how many lines a
@@ -139,6 +167,28 @@
 				const read = await kamosu.getRecipe({ branch_id: branchId });
 				if (!current) return;
 				recipe = read;
+				// A cooking nothing has happened to yet opens on the question
+				// (#109) — already set to what the recipe page was scaled to,
+				// where the cook came from one that was (the errands).
+				const carried = untrack(() => fromSearch(page.url.searchParams));
+				if (fresh(started)) {
+					asking = true;
+					atStart = true;
+					if (carried !== undefined && !same(carried, started.cooking_yield)) await choose(carried);
+				} else if (carried !== undefined && !same(carried, started.cooking_yield)) {
+					// Sent from a recipe page scaled to another amount, into a
+					// cooking already under way at its own. The cooking's amount
+					// is a fact about this afternoon and is not overwritten from
+					// another screen — but the cook is shown the question rather
+					// than left to find the difference in the amounts.
+					asking = true;
+				}
+				// Read once and let go of: left in the address, a reload later in
+				// the cooking would offer the recipe page's amount again over the
+				// one the cook has since chosen (found in live acceptance, #109).
+				// Shallow: a navigation here would run this start a second time,
+				// racing the amount just sent.
+				if (carried !== undefined) replaceState(`/cook/${branchId}`, page.state);
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
 				if (current) failed = true;
@@ -191,6 +241,30 @@
 	});
 
 	onDestroy(() => countdown.dispose());
+
+	/**
+	 * The recipe again, whenever what the phone showed has been overtaken: the
+	 * service worker's refresh behind a kept answer, or the outbox having sent
+	 * a change of how much it held while the network was gone (#77). The
+	 * scaled amounts are the Core's, so they arrive by reading, never by being
+	 * worked out here.
+	 */
+	const reread = rereads('get_recipe');
+	$effect(() => {
+		if (reread.count === 0) return;
+		let current = true;
+		void kamosu
+			.getRecipe({ branch_id: branchId })
+			.then((read) => {
+				if (current) recipe = read;
+			})
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+			});
+		return () => {
+			current = false;
+		};
+	});
 
 	// ---- where the cook is standing --------------------------------------
 
@@ -539,8 +613,9 @@
 	}
 
 	/**
-	 * HOW MUCH is being cooked — the Attempt's own Yield where one was set, and
-	 * otherwise the recipe as written.
+	 * HOW MUCH is being cooked — the Attempt's own Yield or multiplier where one
+	 * was set, and otherwise the recipe as written: its Yield, or *As written*
+	 * for the third of the library that never said what it makes (#109).
 	 *
 	 * This used to carry the recipe's title in front of it. #88 took the title
 	 * off this screen: at 430px it truncated to `Katsu Curry (Japanese Curry
@@ -552,10 +627,49 @@
 	 * dish. Built as one string so the spacing cannot depend on how a formatter
 	 * happened to break the lines.
 	 */
-	const cookingYield = $derived.by(() => {
-		const cooking = attempt?.cooking_yield ?? content?.yield ?? null;
-		return cooking ? `${cooking.amount} ${cooking.noun}` : null;
-	});
+	const written = $derived(content?.yield ?? null);
+	const wanted = $derived(attempt?.cooking_yield ?? null);
+	const howMuch = $derived(said(wanted) ?? said(written) ?? m.how_much_as_written());
+
+	/**
+	 * Whether the amounts on screen were scaled to what is being cooked. They
+	 * are not while a change made with no network waits to be sent (#77): the
+	 * phone holds the choice, and only the Core can scale.
+	 */
+	// `?? null`: a recipe the phone kept before #109 has no `scaled_to` at all,
+	// and was as written.
+	const current = $derived(version ? caughtUp(version.scaled_to ?? null, wanted, written) : true);
+	/** The amounts on screen are not the recipe's as written. */
+	const scaled = $derived(current && (version?.scaled_to ?? null) !== null);
+
+	/**
+	 * Say how much is being cooked. It is shown at once and sent like every
+	 * other move on this screen; the amounts follow when the recipe is read
+	 * again, scaled by the Core. It stores nothing on the recipe and mints no
+	 * Version (ADR 0002): it is a fact about this afternoon.
+	 */
+	async function choose(chosen: Wanted) {
+		if (!attempt) return;
+		const before = attempt;
+		attempt = { ...attempt, cooking_yield: chosen };
+		try {
+			const answer = await kamosu.advanceAttempt({ attempt_id: before.id, cooking_yield: chosen });
+			// Only the Yield: the rest of the answer left before any step the
+			// cook may have taken since (`save` has the same rule).
+			if (attempt) attempt = { ...attempt, cooking_yield: answer.cooking_yield };
+			howMuchFailed = false;
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			if (attempt) attempt = { ...attempt, cooking_yield: before.cooking_yield };
+			howMuchFailed = true;
+			return;
+		}
+		try {
+			recipe = await kamosu.getRecipe({ branch_id: branchId });
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+		}
+	}
 
 	// ---- the timer --------------------------------------------------------
 
@@ -738,68 +852,104 @@
 			short to type in, which is the bug at the other end of this one.
 			Twenty-one fields do not need more room, they need to scroll.
 		-->
-		<div class="max-h-[45%] min-h-0 shrink overflow-y-auto">
+		{#if asking}
 			<!--
+				HOW MUCH ARE YOU MAKING (#109), in the place the amounts and the
+				Step will stand. The foot's right-hand button is what leaves it —
+				Start cooking as the cooking opens, Back to step N afterwards —
+				so there is no button in here to confuse with it.
+			-->
+			<div
+				class="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto border-t border-cook-rule pt-3"
+			>
+				<p class="font-display text-title font-semibold">
+					{atStart ? m.cook_before_you_start() : m.cook_change_how_much()}
+				</p>
+				{#if written}
+					<p class="pt-1 pb-4 text-read text-cook-ink-2">
+						{m.how_much_makes({ made: said(written) ?? '' })}
+					</p>
+				{/if}
+				<HowMuch {written} {wanted} room="cook" onchoose={(chosen) => void choose(chosen)} />
+				<p class="pt-3 text-read text-cook-ink-2">{m.how_much_amounts_follow()}</p>
+				{#if howMuchFailed}
+					<p class="pt-2 text-read text-cook-ink" role="alert">{m.how_much_failed()}</p>
+				{/if}
+			</div>
+		{:else}
+			<div class="max-h-[45%] min-h-0 shrink overflow-y-auto">
+				<!--
 				A save that did not land. What the cook wrote is still on screen and
 				still held here, and the next `Done` sends it again — losing
 				somebody's own words because a network blinked is the one failure
 				this screen must not have.
 			-->
-			{#if writeFailed}
-				<p class="pb-2 text-read text-cook-ink-2" role="alert">{m.cook_write_failed()}</p>
-			{/if}
-			{#if photoFailed}
-				<p class="pb-2 text-read text-cook-ink-2" role="alert">{m.cook_photo_failed()}</p>
-			{/if}
-			{#if writing}
+				{#if writeFailed}
+					<p class="pb-2 text-read text-cook-ink-2" role="alert">{m.cook_write_failed()}</p>
+				{/if}
+				{#if photoFailed}
+					<p class="pb-2 text-read text-cook-ink-2" role="alert">{m.cook_photo_failed()}</p>
+				{/if}
 				<!--
+				A change of how much made with no network (#77): the phone holds
+				it and the Core has not scaled it yet, so the amounts below are the
+				ones the phone had, and say nothing beneath them rather than a
+				figure for the wrong amount.
+			-->
+				{#if !current}
+					<p class="pb-2 text-read text-cook-ink-2" role="status">
+						{m.cook_scaling_waits({ amount: howMuch })}
+					</p>
+				{/if}
+				{#if writing}
+					<!--
 					The amounts, as fields, in the place they already occupied and at
 					the size they already had. The tick boxes go while writing: a wet
 					thumb aiming at a field must not be able to tick a line by
 					missing it.
 				-->
-				{#if amounts.length === 0}
-					<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
-				{:else}
-					<ul class="flex flex-col gap-2">
-						{#each amounts as amount (amount.at)}
-							<li class="flex items-start gap-2">
-								<input
-									value={amount.row.text}
-									disabled={amount.row.dropped}
-									oninput={(event) => write('ingredients', amount.at, event.currentTarget.value)}
-									class="min-h-12 min-w-0 flex-1 rounded-sm border-b border-cook-accent bg-transparent py-2 font-display text-panel-figure font-semibold text-cook-ink disabled:line-through disabled:opacity-45"
-								/>
-								<button
-									type="button"
-									class="min-h-12 shrink-0 text-label text-cook-ink-2 uppercase"
-									onclick={() => drop(amount.at)}
-								>
-									{amount.row.dropped ? m.cook_keep_line() : m.cook_drop_line()}
-								</button>
-							</li>
-							<!--
+					{#if amounts.length === 0}
+						<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
+					{:else}
+						<ul class="flex flex-col gap-2">
+							{#each amounts as amount (amount.at)}
+								<li class="flex items-start gap-2">
+									<input
+										value={amount.row.text}
+										disabled={amount.row.dropped}
+										oninput={(event) => write('ingredients', amount.at, event.currentTarget.value)}
+										class="min-h-12 min-w-0 flex-1 rounded-sm border-b border-cook-accent bg-transparent py-2 font-display text-panel-figure font-semibold text-cook-ink disabled:line-through disabled:opacity-45"
+									/>
+									<button
+										type="button"
+										class="min-h-12 shrink-0 text-label text-cook-ink-2 uppercase"
+										onclick={() => drop(amount.at)}
+									>
+										{amount.row.dropped ? m.cook_keep_line() : m.cook_drop_line()}
+									</button>
+								</li>
+								<!--
 								The recipe's own line, offered back on a tap. It lives here,
 								inside writing mode, where *what did it say?* is the question
 								being asked — and not on the screen a cook reads at the stove.
 							-->
-							{#if amount.changed && !amount.row.dropped}
-								<li>
-									<button
-										type="button"
-										class="min-h-12 text-left text-read text-cook-ink-2 line-through"
-										onclick={() => write('ingredients', amount.at, amount.written)}
-									>
-										{amount.written}
-										<span class="sr-only">— {m.cook_as_written()}</span>
-									</button>
-								</li>
-							{/if}
-						{/each}
-					</ul>
-				{/if}
+								{#if amount.changed && !amount.row.dropped}
+									<li>
+										<button
+											type="button"
+											class="min-h-12 text-left text-read text-cook-ink-2 line-through"
+											onclick={() => write('ingredients', amount.at, amount.written)}
+										>
+											{amount.written}
+											<span class="sr-only">— {m.cook_as_written()}</span>
+										</button>
+									</li>
+								{/if}
+							{/each}
+						</ul>
+					{/if}
 
-				<!--
+					<!--
 					THE REST OF THE LIST. Across the real corpus a step names an
 					Ingredient Line only 42% of the time — 2 steps of 11 on Dan Dan
 					Noodles — so on most steps the panel above is empty and the salt
@@ -808,96 +958,113 @@
 					the whole list opens INSIDE the panel, which scrolls, so the screen
 					still never hands the cook a second surface to be in.
 				-->
-				<button
-					type="button"
-					class="mt-3 flex min-h-12 w-full items-center justify-between border-t border-cook-rule pt-2 text-label uppercase
-						{wholeList ? 'font-semibold text-cook-accent' : 'text-cook-ink-2'}"
-					onclick={() => (wholeList = !wholeList)}
-				>
-					<span>{wholeList ? m.cook_every_line() : m.cook_other_lines()}</span>
-					<span>{wholeList ? '−' : `+${otherLines.length}`}</span>
-				</button>
-
-				{#if wholeList}
-					<ul>
-						{#each otherLines as line (line.at)}
-							<li class="flex items-start gap-2">
-								<input
-									value={line.row.text}
-									disabled={line.row.dropped}
-									placeholder={line.row.from === null ? m.cook_added_line() : undefined}
-									oninput={(event) => write('ingredients', line.at, event.currentTarget.value)}
-									class="min-h-12 min-w-0 flex-1 rounded-sm border-b border-cook-rule bg-transparent py-2 font-display text-body text-cook-ink disabled:line-through disabled:opacity-45"
-								/>
-								<button
-									type="button"
-									class="min-h-12 shrink-0 text-label text-cook-ink-2 uppercase"
-									onclick={() => drop(line.at)}
-								>
-									{line.row.dropped ? m.cook_keep_line() : m.cook_drop_line()}
-								</button>
-							</li>
-						{/each}
-					</ul>
 					<button
 						type="button"
-						class="min-h-12 w-full text-left text-label text-cook-accent uppercase"
-						onclick={addLine}
+						class="mt-3 flex min-h-12 w-full items-center justify-between border-t border-cook-rule pt-2 text-label uppercase
+						{wholeList ? 'font-semibold text-cook-accent' : 'text-cook-ink-2'}"
+						onclick={() => (wholeList = !wholeList)}
 					>
-						{m.cook_add_a_line()}
+						<span>{wholeList ? m.cook_every_line() : m.cook_other_lines()}</span>
+						<span>{wholeList ? '−' : `+${otherLines.length}`}</span>
 					</button>
-				{/if}
-			{:else if amounts.length === 0}
-				<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
-			{:else}
-				<ul class="flex flex-col gap-2">
-					{#each amounts as amount (amount.at)}
-						<li>
-							<button
-								type="button"
-								class="flex min-h-12 w-full items-baseline gap-3 text-left"
-								aria-pressed={isTicked(amount.row)}
-								onclick={() => tick(amount.row.from)}
-							>
-								<span
-									class="mt-1 h-4 w-4 shrink-0 self-start rounded-sm border
-										{isTicked(amount.row) ? 'border-cook-accent bg-cook-accent' : 'border-cook-rule'}"
-									aria-hidden="true"
-								></span>
-								<span
-									class="min-w-0 flex-1 {isTicked(amount.row) ? 'opacity-45' : ''}
-										{amount.changed || amount.row.dropped ? 'border-l-2 border-cook-accent pl-2' : ''}"
+
+					{#if wholeList}
+						<ul>
+							{#each otherLines as line (line.at)}
+								<li class="flex items-start gap-2">
+									<input
+										value={line.row.text}
+										disabled={line.row.dropped}
+										placeholder={line.row.from === null ? m.cook_added_line() : undefined}
+										oninput={(event) => write('ingredients', line.at, event.currentTarget.value)}
+										class="min-h-12 min-w-0 flex-1 rounded-sm border-b border-cook-rule bg-transparent py-2 font-display text-body text-cook-ink disabled:line-through disabled:opacity-45"
+									/>
+									<button
+										type="button"
+										class="min-h-12 shrink-0 text-label text-cook-ink-2 uppercase"
+										onclick={() => drop(line.at)}
+									>
+										{line.row.dropped ? m.cook_keep_line() : m.cook_drop_line()}
+									</button>
+								</li>
+							{/each}
+						</ul>
+						<button
+							type="button"
+							class="min-h-12 w-full text-left text-label text-cook-accent uppercase"
+							onclick={addLine}
+						>
+							{m.cook_add_a_line()}
+						</button>
+					{/if}
+				{:else if amounts.length === 0}
+					<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
+				{:else}
+					<ul class="flex flex-col gap-2">
+						{#each amounts as amount (amount.at)}
+							<li>
+								<button
+									type="button"
+									class="flex min-h-12 w-full items-baseline gap-3 text-left"
+									aria-pressed={isTicked(amount.row)}
+									onclick={() => tick(amount.row.from)}
 								>
 									<span
-										class="block font-display text-panel-figure font-semibold
-											{amount.row.dropped ? 'line-through opacity-45' : ''}"
+										class="mt-1 h-4 w-4 shrink-0 self-start rounded-sm border
+										{isTicked(amount.row) ? 'border-cook-accent bg-cook-accent' : 'border-cook-rule'}"
+										aria-hidden="true"
+									></span>
+									<span
+										class="min-w-0 flex-1 {isTicked(amount.row) ? 'opacity-45' : ''}
+										{amount.changed || amount.row.dropped ? 'border-l-2 border-cook-accent pl-2' : ''}"
 									>
-										{amount.row.text}
-									</span>
-									{#if amount.beneath}
-										<span class="block text-read text-cook-ink-2">{amount.beneath}</span>
-									{/if}
-									<!--
+										{#if scaled && amount.beneath && !amount.changed && !amount.row.dropped}
+											<!--
+											Scaled, so the scaled amount leads and the recipe's own
+											line sits beneath to say what it is an amount of (#109).
+										-->
+											<span class="block font-display text-panel-figure font-semibold">
+												{amount.beneath}
+											</span>
+											<span class="block text-read text-cook-ink-2">
+												{m.cook_recipe_line({ line: amount.row.text })}
+											</span>
+										{:else}
+											<span
+												class="block font-display text-panel-figure font-semibold
+												{amount.row.dropped ? 'line-through opacity-45' : ''}"
+											>
+												{amount.row.text}
+											</span>
+											{#if scaled && !amount.changed && !amount.row.dropped}
+												<span class="block text-read text-cook-ink-2"
+													>{m.how_much_not_scaled()}</span
+												>
+											{:else if amount.beneath && current}
+												<span class="block text-read text-cook-ink-2">{amount.beneath}</span>
+											{/if}
+										{/if}
+										<!--
 										What the recipe asked for, kept under what went in. One
 										short line, and *what did it say?* is a real question with
 										a hot pan in hand — unlike a whole struck paragraph under
 										the Step, which would be a difference view (ADR 0014).
 									-->
-									{#if amount.changed && !amount.row.dropped}
-										<span class="block text-read text-cook-ink-2 line-through">
-											{amount.written}
-										</span>
-									{/if}
-								</span>
-								<span class="sr-only">{m.cook_tick({ line: amount.row.text })}</span>
-							</button>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
+										{#if amount.changed && !amount.row.dropped}
+											<span class="block text-read text-cook-ink-2 line-through">
+												{amount.written}
+											</span>
+										{/if}
+									</span>
+									<span class="sr-only">{m.cook_tick({ line: amount.row.text })}</span>
+								</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
 
-		<!--
+			<!--
 			THE ROW ABOVE THE HAIRLINE, which exists whatever is on it, and is why
 			everything on it is free (#88).
 
@@ -916,58 +1083,74 @@
 			hairline's `mt-3` below leave 4px each. Narrow any of them and this
 			row starts stealing taps from its neighbours in silence.
 		-->
-		<div class="flex shrink-0 items-center gap-6 pt-3">
-			<!--
+			<div class="flex shrink-0 items-center gap-6 pt-3">
+				<!--
 				HOW MUCH is being cooked, beside the amounts rather than up in the
 				header. It belongs here: every figure above it was scaled to this
 				number, so `800 ml` with nothing saying 800 ml towards what is half
 				a fact. It was in the header until it made that row wrap (#88).
 			-->
-			<!--
+				<!--
 				It gives way first when the row is full — a timer's offer and the
 				Photo word beside it are things to press, and this is a thing to
 				read — so it shrinks and ellipsises rather than pushing them off
 				the edge of a narrow phone (#77).
 			-->
-			{#if cookingYield && !writing}
-				<span class="min-w-0 truncate text-read text-cook-ink-2">{cookingYield}</span>
-			{/if}
-			{#if writing}
-				<p class="min-w-0 truncate text-label font-semibold text-cook-accent uppercase">
-					{m.cook_writing()}
-				</p>
-			{/if}
-			<!--
+				<!--
+				It is also what asks again (#109): a cook three steps in who decides
+				to stretch it to six taps the number they are cooking to. Outlined,
+				like the timer beside it, because it does something; ellipsised
+				before either of its neighbours, because it is also a thing to read.
+			-->
+				{#if !writing}
+					<button
+						type="button"
+						class="tap-out h-8 min-w-0 truncate rounded-sm border border-cook-rule px-3 text-read text-cook-ink"
+						aria-label={m.cook_how_much_is({ amount: howMuch })}
+						onclick={() => {
+							atStart = false;
+							asking = true;
+						}}
+					>
+						{howMuch}
+					</button>
+				{/if}
+				{#if writing}
+					<p class="min-w-0 truncate text-label font-semibold text-cook-accent uppercase">
+						{m.cook_writing()}
+					</p>
+				{/if}
+				<!--
 				The timer. One tap, nothing typed, nothing stored — and it is the
 				cook's rather than the step's, so it follows them forward. While
 				one runs it stands where the offer was: two timers at once is a
 				thing to keep track of, and this screen exists to stop the cook
 				keeping track of things.
 			-->
-			{#if countdown.remaining !== null}
-				<button
-					type="button"
-					class="tap-out h-8 shrink-0 rounded-sm border px-3 text-read font-semibold
+				{#if countdown.remaining !== null}
+					<button
+						type="button"
+						class="tap-out h-8 shrink-0 rounded-sm border px-3 text-read font-semibold
 						{countdown.rung
-						? 'border-cook-accent bg-cook-accent text-cook-on-accent'
-						: 'border-cook-accent text-cook-accent'}"
-					onclick={() => countdown.clear()}
-				>
-					{countdown.rung
-						? m.cook_timer_done()
-						: m.cook_timer_running({ clock: clock(countdown.remaining) })}
-					<span class="sr-only">— {m.cook_timer_stop()}</span>
-				</button>
-			{:else if duration !== null && offer}
-				<button
-					type="button"
-					class="tap-out h-8 shrink-0 rounded-sm border border-cook-accent px-3 text-read font-semibold text-cook-accent"
-					onclick={() => countdown.start(duration)}
-				>
-					{m.cook_timer_start({ duration: offer })}
-				</button>
-			{/if}
-			<!--
+							? 'border-cook-accent bg-cook-accent text-cook-on-accent'
+							: 'border-cook-accent text-cook-accent'}"
+						onclick={() => countdown.clear()}
+					>
+						{countdown.rung
+							? m.cook_timer_done()
+							: m.cook_timer_running({ clock: clock(countdown.remaining) })}
+						<span class="sr-only">— {m.cook_timer_stop()}</span>
+					</button>
+				{:else if duration !== null && offer}
+					<button
+						type="button"
+						class="tap-out h-8 shrink-0 rounded-sm border border-cook-accent px-3 text-read font-semibold text-cook-accent"
+						onclick={() => countdown.start(duration)}
+					>
+						{m.cook_timer_start({ duration: offer })}
+					</button>
+				{/if}
+				<!--
 				ONE WORD, and the whole of how a cook says *I did it differently*
 				(#58). It opens no sheet and covers nothing: the amounts and the
 				Step become fields where they already stand, so the cook never
@@ -978,7 +1161,7 @@
 				A cooking that deviated from nothing pays this word and nothing
 				else — no row, no panel, no badge, and no stored state.
 			-->
-			<!--
+				<!--
 				A PICTURE OF THE COOKING, one quiet word beside "Changed it" and the
 				same size, at the stove where the dish is (#77). Aurélien chose this
 				over offering it once the cooking is finished, on 19 September 2026:
@@ -991,37 +1174,37 @@
 				the picker inside stays reachable for a keyboard. It goes while the
 				step is being written on, where the row belongs to Done.
 			-->
-			{#if !writing}
-				<label
-					class="tap-out ms-auto flex h-8 shrink-0 cursor-pointer items-center text-read text-cook-ink-2"
+				{#if !writing}
+					<label
+						class="tap-out ms-auto flex h-8 shrink-0 cursor-pointer items-center text-read text-cook-ink-2"
+					>
+						{attempt.photographs.length > 0
+							? m.cook_photo_count({ count: attempt.photographs.length })
+							: m.cook_photo()}
+						<input
+							type="file"
+							accept="image/*"
+							capture="environment"
+							class="sr-only"
+							aria-label={m.cook_photo_take()}
+							onchange={takePhoto}
+						/>
+					</label>
+				{/if}
+				<button
+					type="button"
+					class="tap-out h-8 shrink-0 text-read {writing
+						? 'ms-auto font-semibold text-cook-accent'
+						: 'text-cook-ink-2'}"
+					onclick={() => {
+						if (writing) void save();
+						writing = !writing;
+					}}
 				>
-					{attempt.photographs.length > 0
-						? m.cook_photo_count({ count: attempt.photographs.length })
-						: m.cook_photo()}
-					<input
-						type="file"
-						accept="image/*"
-						capture="environment"
-						class="sr-only"
-						aria-label={m.cook_photo_take()}
-						onchange={takePhoto}
-					/>
-				</label>
-			{/if}
-			<button
-				type="button"
-				class="tap-out h-8 shrink-0 text-read {writing
-					? 'ms-auto font-semibold text-cook-accent'
-					: 'text-cook-ink-2'}"
-				onclick={() => {
-					if (writing) void save();
-					writing = !writing;
-				}}
-			>
-				{writing ? m.cook_writing_done() : m.cook_changed_it()}
-			</button>
-		</div>
-		<!--
+					{writing ? m.cook_writing_done() : m.cook_changed_it()}
+				</button>
+			</div>
+			<!--
 			The Step. The largest type in the app, and the only thing here that
 			scrolls — everything else is fixed, so the cook's eye lands in the
 			same place on every step.
@@ -1033,51 +1216,51 @@
 			half a screen away is not beside. The timer used to be under here too
 			and is not any more — see the row above the hairline (#88).
 		-->
-		<div class="mt-3 flex min-h-0 flex-1 flex-col items-start border-t border-cook-rule pt-3">
-			{#if writing}
-				<!--
+			<div class="mt-3 flex min-h-0 flex-1 flex-col items-start border-t border-cook-rule pt-3">
+				{#if writing}
+					<!--
 					The Step, still the largest type in the app, still in the same
 					place — now a field. The cook never left the step, because there
 					was never anywhere else to be.
 				-->
-				<textarea
-					value={here.row.text}
-					placeholder={here.row.from === null ? m.cook_added_step() : undefined}
-					oninput={(event) => write('steps', here.index, event.currentTarget.value)}
-					class="min-h-0 w-full flex-1 resize-none rounded-sm border border-cook-accent bg-transparent p-2 font-display text-step font-semibold text-cook-ink"
-				></textarea>
-				{#if wroteStep(here.row) && here.row.from !== null}
-					{@const written = content.steps[here.row.from]?.text ?? ''}
-					<button
-						type="button"
-						class="min-h-12 shrink-0 text-left text-read text-cook-ink-2 line-through"
-						onclick={() => write('steps', here.index, written)}
-					>
-						{written}
-						<span class="sr-only">— {m.cook_as_written()}</span>
-					</button>
-				{/if}
-				<!--
+					<textarea
+						value={here.row.text}
+						placeholder={here.row.from === null ? m.cook_added_step() : undefined}
+						oninput={(event) => write('steps', here.index, event.currentTarget.value)}
+						class="min-h-0 w-full flex-1 resize-none rounded-sm border border-cook-accent bg-transparent p-2 font-display text-step font-semibold text-cook-ink"
+					></textarea>
+					{#if wroteStep(here.row) && here.row.from !== null}
+						{@const written = content.steps[here.row.from]?.text ?? ''}
+						<button
+							type="button"
+							class="min-h-12 shrink-0 text-left text-read text-cook-ink-2 line-through"
+							onclick={() => write('steps', here.index, written)}
+						>
+							{written}
+							<span class="sr-only">— {m.cook_as_written()}</span>
+						</button>
+					{/if}
+					<!--
 					A method that grew a stage. Inserting BEFORE and staying put is
 					Aurélien's wording and the right shape: a cook writes the step
 					down having just done it, so the new one is where they now are.
 				-->
-				<button
-					type="button"
-					class="min-h-12 shrink-0 text-label text-cook-accent uppercase"
-					onclick={insertStep}
-				>
-					{m.cook_insert_step()}
-				</button>
-			{:else}
-				<!--
+					<button
+						type="button"
+						class="min-h-12 shrink-0 text-label text-cook-accent uppercase"
+						onclick={insertStep}
+					>
+						{m.cook_insert_step()}
+					</button>
+				{:else}
+					<!--
 					A rewritten Step wears the bar and nothing else. An amount keeps
 					its old line under it, but a whole struck paragraph under the
 					largest type in the app is a difference view, and Kamosu does not
 					draw one (ADR 0014). The recipe's words are one tap away inside
 					writing mode.
 				-->
-				<!--
+					<!--
 					A Step longer than its box is about one in twelve of the corpus
 					once #88's sizes landed, and a line sliced in half by the box's
 					edge reads as a rendering fault rather than as an invitation to
@@ -1087,31 +1270,32 @@
 					26 August asked for exactly this: scrolling a Step has to feel
 					intended rather than be pretended away.
 				-->
-				<div class="relative min-h-0 w-full">
-					<p
-						bind:this={stepEl}
-						class="max-h-full overflow-y-auto font-display text-step font-semibold
+					<div class="relative min-h-0 w-full">
+						<p
+							bind:this={stepEl}
+							class="max-h-full overflow-y-auto font-display text-step font-semibold
 							{wroteStep(here.row) ? 'border-l-[3px] border-cook-accent pl-3' : ''}"
-					>
-						{here.row.text}
-					</p>
-					{#if stepScrolls}
-						<div
-							class="pointer-events-none absolute inset-x-0 bottom-0 step-fade"
-							aria-hidden="true"
-						></div>
-					{/if}
-				</div>
-				<!--
+						>
+							{here.row.text}
+						</p>
+						{#if stepScrolls}
+							<div
+								class="pointer-events-none absolute inset-x-0 bottom-0 step-fade"
+								aria-hidden="true"
+							></div>
+						{/if}
+					</div>
+					<!--
 				A Step's own subordinate line: the oven temperature in this
 				cook's measures, on the conventional ladder. Beside the
 				sentence, never written into it.
 			-->
-				{#if beneathStep}
-					<p class="shrink-0 pt-3 text-read text-cook-ink-2">{beneathStep}</p>
+					{#if beneathStep}
+						<p class="shrink-0 pt-3 text-read text-cook-ink-2">{beneathStep}</p>
+					{/if}
 				{/if}
-			{/if}
-		</div>
+			</div>
+		{/if}
 
 		<!--
 			THE TWO WAYS THROUGH THE RECIPE, and now the only things at the foot of
@@ -1130,12 +1314,23 @@
 			<button
 				type="button"
 				class="min-h-12 flex-1 rounded-sm border border-cook-accent font-semibold text-cook-accent disabled:opacity-40"
-				disabled={position === 0}
+				disabled={position === 0 || asking}
 				onclick={() => step(position - 1)}
 			>
 				{m.cook_back()}
 			</button>
-			{#if last}
+			{#if asking}
+				<button
+					type="button"
+					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					onclick={() => {
+						asking = false;
+						atStart = false;
+					}}
+				>
+					{atStart ? m.cook_start_cooking() : m.cook_back_to_step({ n: position + 1 })}
+				</button>
+			{:else if last}
 				<button
 					type="button"
 					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent"

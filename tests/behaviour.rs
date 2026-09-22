@@ -6977,7 +6977,7 @@ async fn a_previously_seen_recipe_found_changed_is_offered_never_written_over() 
         .as_str()
         .unwrap()
         .to_string();
-    let original_head = app.core.get_recipe(&person, &branch_id).unwrap()["head_version_id"]
+    let original_head = app.core.get_recipe(&person, &branch_id, None).unwrap()["head_version_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -6998,7 +6998,7 @@ async fn a_previously_seen_recipe_found_changed_is_offered_never_written_over() 
     assert_eq!(offered["title"], json!("Tarte Tatin (revisited)"));
     assert!(offered["candidate_version_id"].as_str().is_some());
 
-    let after = app.core.get_recipe(&person, &branch_id).unwrap();
+    let after = app.core.get_recipe(&person, &branch_id, None).unwrap();
     assert_eq!(
         after["head_version_id"],
         json!(original_head),
@@ -10847,6 +10847,263 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
         measured_ingredients(&app, &key, &branch_id),
         json!(["about 250 g", null, null, null]),
     );
+}
+
+/// A Shortbread for four with the three kinds of line scaling meets (#109):
+/// one that converts, one already in grams, and one Kamosu cannot read.
+fn shortbread(app: &support::TestApp, key: &str, kitchen_id: &str, made: Value) -> String {
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({
+            "kitchen_id": kitchen_id,
+            "title": "Shortbread",
+            "yield": made,
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 cups flour" },
+                { "kind": "ingredient", "text": "250 g butter" },
+                { "kind": "ingredient", "text": "half a lemon" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    for (index, amount, unit, target) in [(0, "2", "cups", "flour"), (1, "250", "g", "butter")] {
+        app.post_op(
+            "set_reading",
+            Some(key),
+            &json!({
+                "branch_id": branch_id, "line_index": index,
+                "amount": amount, "unit": unit, "target": target,
+            })
+            .to_string(),
+        );
+    }
+    app.post_op(
+        "set_reading",
+        Some(key),
+        &json!({ "branch_id": branch_id, "line_index": 2 }).to_string(),
+    );
+    branch_id
+}
+
+/// `get_recipe` at a named Yield, answering the head Version's measured lines
+/// and what they were scaled to.
+fn read_at(app: &support::TestApp, key: &str, branch_id: &str, wanted: Option<Value>) -> Value {
+    let mut input = json!({ "branch_id": branch_id });
+    if let Some(wanted) = wanted {
+        input["wanted_yield"] = wanted;
+    }
+    let (status, read) = app.post_op("get_recipe", Some(key), &input.to_string());
+    assert_eq!(status, 200, "{read}");
+    let head = read["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()
+        .clone();
+    json!({ "measured": head["measured"]["ingredients"], "scaled_to": head["scaled_to"] })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_page_reads_at_the_yield_it_names_and_stores_none_of_it() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+    let branch_id = shortbread(
+        &app,
+        &key,
+        &kitchen_id,
+        json!({ "amount": "4", "noun": "servings" }),
+    );
+
+    // Named for one read, for the errands (#109): every line that can scale
+    // does, the one Kamosu cannot read stays as written, and the answer says
+    // what it was scaled to so a screen need not work out a ratio.
+    assert_eq!(
+        read_at(
+            &app,
+            &key,
+            &branch_id,
+            Some(json!({ "amount": "8", "noun": "servings" }))
+        ),
+        json!({
+            "measured": ["about 500 g", "about 500 g", null],
+            "scaled_to": { "amount": "8", "noun": "servings" },
+        }),
+    );
+    // And it is a view: the next read, naming nothing, is the recipe as written.
+    assert_eq!(
+        read_at(&app, &key, &branch_id, None),
+        json!({ "measured": ["about 250 g", null, null], "scaled_to": null }),
+    );
+
+    // A Yield that cannot honestly be compared scales nothing, and says so by
+    // saying nothing: two loaves against four servings is not a ratio.
+    assert_eq!(
+        read_at(
+            &app,
+            &key,
+            &branch_id,
+            Some(json!({ "amount": "2", "noun": "loaves" }))
+        )["scaled_to"],
+        json!(null),
+    );
+
+    // A cooking at another amount scales the page too — until the page names
+    // one of its own, including the recipe as written. Somebody working out
+    // what to buy for four is not cooking for eight.
+    let (_, attempt) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt["result"]["id"],
+            "cooking_yield": { "amount": "8", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        read_at(&app, &key, &branch_id, None)["scaled_to"],
+        json!({ "amount": "8", "noun": "servings" }),
+    );
+    assert_eq!(
+        read_at(&app, &key, &branch_id, Some(json!(null))),
+        json!({ "measured": ["about 250 g", null, null], "scaled_to": null }),
+    );
+
+    // Reading at a Yield wrote nothing: one Version, its line untouched.
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(read["result"]["versions"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        read["result"]["versions"][0]["content"]["ingredients"][0]["text"],
+        json!("2 cups flour"),
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_that_never_said_what_it_makes_is_cooked_at_a_multiplier() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+    let branch_id = shortbread(&app, &key, &kitchen_id, Value::Null);
+
+    let (_, attempt) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = attempt["result"]["id"].clone();
+
+    // A third of the library says nothing about what it makes (#109), so
+    // there is nothing to count up from — but twice the recipe is still twice
+    // the recipe. An empty noun makes the amount a multiplier.
+    let twice = json!({ "amount": "2", "noun": "" });
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "cooking_yield": twice }).to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+    assert_eq!(advanced["result"]["cooking_yield"], twice);
+    assert_eq!(
+        read_at(&app, &key, &branch_id, None),
+        json!({ "measured": ["about 500 g", "about 500 g", null], "scaled_to": twice }),
+    );
+
+    // A multiplier Kamosu cannot read would scale nothing while claiming to.
+    for times in ["lots", "0", "-2", ""] {
+        let (status, refused) = app.post_op(
+            "advance_attempt",
+            Some(&key),
+            &json!({
+                "attempt_id": attempt_id,
+                "cooking_yield": { "amount": times, "noun": "" },
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 400, "{times:?} should be refused: {refused}");
+    }
+
+    // Afterwards the diary can say so: what was cooked to, and what the
+    // recipe itself said it makes — here, nothing.
+    app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id }).to_string(),
+    );
+    let (_, diary) = app.post_op("list_attempts", Some(&key), "{}");
+    let entry = &diary["result"]["attempts"][0];
+    assert_eq!(entry["cooking_yield"], twice);
+    assert_eq!(entry["recipe"]["written_yield"], json!(null));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_shopping_list_holds_a_multiplier_to_the_same_rule_as_a_cooking() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = shortbread(&app, &key, &kitchen_id, Value::Null);
+
+    // Twice a recipe that never said what it makes, carried from its page (#109).
+    let twice = json!({ "amount": "2", "noun": "" });
+    let (status, list) = app.post_op(
+        "add_to_shopping_list",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "shopping_yield": twice }).to_string(),
+    );
+    assert_eq!(status, 200, "{list}");
+    assert_eq!(list["result"]["chosen"][0]["shopping_yield"], twice);
+
+    // One fact, one check: what a cooking refuses, the list refuses too.
+    let (status, refused) = app.post_op(
+        "set_shopping_yield",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "shopping_yield": { "amount": "lots", "noun": "" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_says_what_the_recipe_makes_beside_what_was_cooked() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let made = json!({ "amount": "12", "noun": "biscuits" });
+    let branch_id = shortbread(&app, &key, &kitchen_id, made.clone());
+    let (_, attempt) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt["result"]["id"],
+            "cooking_yield": { "amount": "24", "noun": "biscuits" },
+        })
+        .to_string(),
+    );
+    let (status, diary) = app.post_op("list_attempts", Some(&key), "{}");
+    assert_eq!(status, 200, "{diary}");
+    let entry = &diary["result"]["attempts"][0];
+    assert_eq!(
+        entry["cooking_yield"],
+        json!({ "amount": "24", "noun": "biscuits" })
+    );
+    // Off the Version cooked, so a recipe edited since still reads right.
+    assert_eq!(entry["recipe"]["written_yield"], made);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -20196,6 +20453,38 @@ async fn a_scaled_sheet_prints_the_written_line_and_the_scaled_amount_beneath_it
     assert!(!text.contains("about 600"), "{text}");
 }
 
+/// **A Sheet printed from a scaled recipe page is scaled like the page** (#109,
+/// ADR 0023): the page names its Yield on the read, and the same name on the
+/// Sheet prints the same amounts — with no cooking open at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sheet_prints_the_yield_the_recipe_page_is_scaled_to() {
+    let app = support::spawn_app();
+    let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    read_in(&app, &key, "metric");
+
+    let (_result, _type, text) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": pizza, "wanted_yield": { "amount": "4", "noun": "pizzas" } }),
+    );
+    assert!(
+        text.contains("Scaled to 4 pizzas — as written, makes 2"),
+        "{text}"
+    );
+    assert!(compact(&text).contains("125gmozzarellaabout250g"), "{text}");
+
+    // A multiplier says it is one, rather than "scaled to 3" of nothing.
+    let (_result, _type, text) = a_sheet(
+        &app,
+        "make_sheet",
+        Some(&key),
+        json!({ "branch_id": pizza, "wanted_yield": { "amount": "3", "noun": "" } }),
+    );
+    assert!(text.contains("Scaled ×3"), "{text}");
+    assert!(compact(&text).contains("125gmozzarellaabout375g"), "{text}");
+}
+
 /// **A stranger holding a Share Link is offered a Sheet too** (ADR 0023): no
 /// account, no Credential, the page size decided by their locale, the dough
 /// carried as a Passenger and printed at the amount the pizza asks for, and
@@ -21111,7 +21400,11 @@ async fn a_deleted_recipe_keeps_every_cooking_it_was_ever_made_for() {
     assert_eq!(kept["note"], json!("Chez mes parents"));
     assert_eq!(
         kept["recipe"],
-        json!({ "branch_id": Value::Null, "title": "Soba with walnut miso" }),
+        json!({
+            "branch_id": Value::Null,
+            "title": "Soba with walnut miso",
+            "written_yield": Value::Null,
+        }),
         "the diary must keep the name the recipe was known by and offer no way \
          into a recipe that is not there: {kept}"
     );

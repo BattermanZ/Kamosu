@@ -42,6 +42,7 @@
 	import Section from '$lib/shell/Section.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import { rereads } from '$lib/offline/device.svelte';
+	import { isMultiplier, said } from '$lib/how-much';
 
 	const kamosu = useKamosu();
 
@@ -63,6 +64,8 @@
 	let sizing = $state<string | null>(null);
 	let sizeAmount = $state('');
 	let sizeNoun = $state('');
+	/** The entry being sized is a multiplier, which has no noun (#109). */
+	let sizingTimes = $state(false);
 	/** The list as text, once it has been copied, and how that went. */
 	let sent = $state<'no' | 'yes' | 'failed'>('no');
 	let offering = $state(false);
@@ -124,7 +127,8 @@
 	function shoppingFor(entry: Chosen): string {
 		const wanted = entry.shopping_yield ?? entry.written_yield;
 		if (!wanted) return '';
-		return m.shopping_shopping_for({ amount: `${wanted.amount} ${wanted.noun}` });
+		// `said`: a multiplier from the recipe page (#109) is `×2`, not `2 `.
+		return m.shopping_shopping_for({ amount: said(wanted) ?? '' });
 	}
 
 	function typeItem(event: SubmitEvent) {
@@ -141,6 +145,7 @@
 		const wanted = entry.shopping_yield ?? entry.written_yield;
 		sizeAmount = wanted?.amount ?? '';
 		sizeNoun = wanted?.noun ?? '';
+		sizingTimes = isMultiplier(wanted);
 		sizing = entry.branch_id;
 	}
 
@@ -155,12 +160,12 @@
 		const amount = sizeAmount.trim();
 		const noun = sizeNoun.trim();
 		sizing = null;
-		void act(() =>
-			kamosu.setShoppingYield({
-				branch_id,
-				shopping_yield: amount && noun ? { amount, noun } : null,
-			}),
-		);
+		// A multiplier set on the recipe page (#109) has no noun, and leaving
+		// the noun empty keeps it one rather than quietly putting the recipe
+		// back to as written.
+		const kept =
+			amount && noun ? { amount, noun } : amount && sizingTimes ? { amount, noun: '' } : null;
+		void act(() => kamosu.setShoppingYield({ branch_id, shopping_yield: kept }));
 	}
 
 	/**

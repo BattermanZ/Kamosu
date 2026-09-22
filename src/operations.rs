@@ -914,9 +914,9 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("get_recipe takes { branch_id }"))?;
+        .ok_or_else(|| OpError::bad_request("get_recipe takes { branch_id, wanted_yield? }"))?;
     let caller = caller_of(invocation)?;
-    core.get_recipe(&caller.person_id, branch_id)
+    core.get_recipe(&caller.person_id, branch_id, input.get("wanted_yield"))
 }
 
 /// Receive a Bundle (#67), landed in the caller's Home Kitchen as a Job
@@ -1029,9 +1029,14 @@ pub fn make_sheet(core: &Core, invocation: &Invocation, input: Value) -> Result<
     let branch_id = input
         .get("branch_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("make_sheet takes { branch_id }"))?;
+        .ok_or_else(|| OpError::bad_request("make_sheet takes { branch_id, wanted_yield? }"))?;
     let caller = caller_of(invocation)?;
-    core.make_sheet(&caller.person_id, branch_id, invocation.job.as_ref())
+    core.make_sheet(
+        &caller.person_id,
+        branch_id,
+        input.get("wanted_yield"),
+        invocation.job.as_ref(),
+    )
 }
 
 /// Set a Sheet of what a Share Link shows, for whoever holds it (#75).
