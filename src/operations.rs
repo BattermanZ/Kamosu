@@ -998,6 +998,12 @@ pub fn import_crouton(
     }
 }
 
+/// What has been brought in from outside, by source, with every arrival (#108).
+pub fn list_imports(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.list_imports(&caller.person_id)
+}
+
 /// Throw an Import's ledger away whole (ADR 0025); every recipe it made stays.
 pub fn forget_import(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
     let import_id = input

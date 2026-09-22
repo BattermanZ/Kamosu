@@ -52,6 +52,12 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// Where the cook is. With two devices, the last one moved on is where the
 	// cook is (ADR 0010), so an old answer would put them back a step.
 	get_current_attempt: 'server-first',
+	// What has been brought in (#108). Its whole value is being current, and a
+	// kept answer is wrong in both directions at the moments it is read: the
+	// import you just ran is missing, and a ledger you have just forgotten is
+	// still counted beside the very sentence saying it is gone. Found in live
+	// acceptance, where a new source did not appear until the second load.
+	list_imports: 'server-first',
 	// Who can get in. Ending a Session on another device must show at once.
 	list_sessions: 'server-first',
 	list_access_keys: 'server-first',

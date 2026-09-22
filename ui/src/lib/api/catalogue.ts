@@ -1016,6 +1016,27 @@ export type ImportCroutonOutput = {
 	}[];
 };
 
+/** What has been brought into your Kitchens from outside, and what happened each time. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
+export type ListImportsInput = Record<string, never>;
+/** What list_imports answers. */
+export type ListImportsOutput = {
+	imports: {
+		arrivals: {
+			arrived: number;
+			created: number;
+			created_at: string;
+			job_id: string;
+			offered: number;
+			status: "queued" | "running" | "completed" | "failed" | "cancelled";
+			unreadable: number;
+		}[];
+		created_at: string;
+		import_id: string | null;
+		remembered: number;
+		source_kind: string;
+	}[];
+};
+
 /** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 export type ForgetImportInput = {
 	import_id: string;
@@ -3779,6 +3800,12 @@ export interface Operations {
 		input: ImportCroutonInput;
 		output: ImportCroutonOutput;
 		kind: 'job';
+		permission: 'person';
+	};
+	list_imports: {
+		input: ListImportsInput;
+		output: ListImportsOutput;
+		kind: 'immediate';
 		permission: 'person';
 	};
 	forget_import: {
@@ -9023,6 +9050,108 @@ export const CATALOGUE = [
 				"unreadable",
 				"left_out",
 				"related_candidates"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "list_imports",
+		"summary": "What has been brought into your Kitchens from outside, and what happened each time. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025).",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"imports": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"arrivals": {
+								"description": "Every run of this source the caller asked for, newest first.",
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"arrived": {
+											"type": "integer"
+										},
+										"created": {
+											"description": "Of those that arrived, how many were new rather than already held.",
+											"type": "integer"
+										},
+										"created_at": {
+											"type": "string"
+										},
+										"job_id": {
+											"description": "Pass to `get_job` for the Report itself.",
+											"type": "string"
+										},
+										"offered": {
+											"type": "integer"
+										},
+										"status": {
+											"enum": [
+												"queued",
+												"running",
+												"completed",
+												"failed",
+												"cancelled"
+											]
+										},
+										"unreadable": {
+											"type": "integer"
+										}
+									},
+									"required": [
+										"job_id",
+										"status",
+										"created_at",
+										"arrived",
+										"created",
+										"offered",
+										"unreadable"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"import_id": {
+								"description": "The ledger's id, which `forget_import` takes. Null once it has been forgotten: the arrivals and their Reports outlive the ledger, because forgetting throws away what became what, not what happened.",
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"remembered": {
+								"description": "How many recipes this ledger can still match on a re-run. The Kitchen's figure, not the caller's.",
+								"type": "integer"
+							},
+							"source_kind": {
+								"description": "Which outside source this is — `crouton`, `bundle`, `web`, or whatever an `import` caller named.",
+								"type": "string"
+							}
+						},
+						"required": [
+							"import_id",
+							"source_kind",
+							"created_at",
+							"remembered",
+							"arrivals"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"imports"
 			],
 			"type": "object"
 		}
@@ -21933,6 +22062,7 @@ export const READS: readonly OperationName[] = [
 	'list_kitchens',
 	'list_tags',
 	'read_pasted_recipe',
+	'list_imports',
 	'search_recipes',
 	'home_shelves',
 	'meaning_search_status',
@@ -22000,6 +22130,7 @@ export const METHOD_NAMES = {
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
 	import_crouton: 'importCrouton',
+	list_imports: 'listImports',
 	forget_import: 'forgetImport',
 	import_web_link: 'importWebLink',
 	rename_version: 'renameVersion',
@@ -22147,6 +22278,8 @@ export interface KamosuClient {
 	import(input: ImportInput): Promise<Answer<'import'>>;
 	/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your Home Kitchen through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importCrouton(input: ImportCroutonInput): Promise<Answer<'import_crouton'>>;
+	/** What has been brought into your Kitchens from outside, and what happened each time. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
+	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
 	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */

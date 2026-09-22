@@ -19591,6 +19591,207 @@ mod crouton {
         assert_eq!(status, 404, "{missing}");
     }
 
+    /// #108: every arrival is reachable, whichever importer made it, and an
+    /// arrival names the Job whose Report is still there to be read.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_arrival_is_listed_under_its_source_with_the_report_behind_it() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+
+        // Nothing brought in: an empty list, not a refusal.
+        let listed = list_imports(&app, &key);
+        assert_eq!(listed["imports"], json!([]), "{listed}");
+
+        let first = import_crouton(&app, &key, &a_library());
+        let second = import_crouton(&app, &key, &a_library());
+        // Two runs, one Import: the channel is reused, which is why a list of
+        // Imports is not a list of what happened (ADR 0025, #108).
+        assert_eq!(second["import_id"], first["import_id"]);
+
+        // A second source, through the general importer, so the grouping is
+        // proved to be by source and not by which Operation ran.
+        let (status, ask) = app.post_op(
+            "import",
+            Some(&key),
+            &json!({
+                "source_kind": "notebook",
+                "candidates": [{
+                    "foreign_id": "page-7",
+                    "title": "Tarte Tatin",
+                    "ingredients": [{ "kind": "ingredient", "text": "6 apples" }],
+                    "steps": [{ "kind": "step", "text": "Caramelise." }],
+                }],
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let notebook_job = ask["result"]["job_id"].as_str().unwrap().to_string();
+        support::wait_terminal(&app, Some(&key), &notebook_job);
+
+        let listed = list_imports(&app, &key);
+        let imports = listed["imports"].as_array().unwrap();
+        assert_eq!(imports.len(), 2, "both sources are listed: {listed}");
+
+        let crouton = source(&listed, "crouton");
+        assert_eq!(crouton["import_id"], first["import_id"]);
+        assert_eq!(crouton["remembered"], json!(3), "{crouton}");
+
+        // Both runs are there, newest first — not only the last one, which is
+        // the whole of what the interface could reach before this Operation.
+        let arrivals = crouton["arrivals"].as_array().unwrap();
+        assert_eq!(arrivals.len(), 2, "{crouton}");
+        assert!(
+            arrivals[0]["created_at"].as_str() >= arrivals[1]["created_at"].as_str(),
+            "arrivals are not newest first: {crouton}"
+        );
+
+        // The row says what happened without anyone reading the Report back.
+        assert_eq!(arrivals[0]["arrived"], json!(3), "{crouton}");
+        assert_eq!(
+            arrivals[0]["created"],
+            json!(0),
+            "the re-run made nothing new"
+        );
+        assert_eq!(arrivals[1]["created"], json!(3), "the first run made three");
+        assert_eq!(arrivals[0]["unreadable"], json!(1), "{crouton}");
+        assert_eq!(arrivals[0]["status"], json!("completed"));
+
+        // And an arrival leads to the Report that already exists, unchanged.
+        let (status, job) = app.post_op(
+            "get_job",
+            Some(&key),
+            &json!({ "job_id": arrivals[1]["job_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{job}");
+        assert_eq!(job["result"]["result"], first, "the Report was altered");
+
+        let notebook = source(&listed, "notebook");
+        assert_eq!(notebook["remembered"], json!(1), "{notebook}");
+        assert_eq!(notebook["arrivals"].as_array().unwrap().len(), 1);
+    }
+
+    /// Forgetting throws the ledger away, not the history: the Reports it ran
+    /// stay reachable, which is the unreachability this ticket ends (#108).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_forgotten_ledger_leaves_its_arrivals_listed_and_reachable() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let report = import_crouton(&app, &key, &a_library());
+
+        let (status, forgotten) = app.post_op(
+            "forget_import",
+            Some(&key),
+            &json!({ "import_id": report["import_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{forgotten}");
+
+        let listed = list_imports(&app, &key);
+        let crouton = source(&listed, "crouton");
+        assert_eq!(crouton["import_id"], Value::Null, "{crouton}");
+        assert_eq!(crouton["remembered"], json!(0), "{crouton}");
+
+        let arrivals = crouton["arrivals"].as_array().unwrap();
+        assert_eq!(arrivals.len(), 1, "the arrival went with the ledger");
+        let (status, job) = app.post_op(
+            "get_job",
+            Some(&key),
+            &json!({ "job_id": arrivals[0]["job_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{job}");
+        assert_eq!(job["result"]["result"]["arrived"], report["arrived"]);
+    }
+
+    /// A Person is told about their own arrivals and nobody else's — the rule
+    /// `get_job` already enforces, so no row leads to a refusal (ADR 0040).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_persons_imports_are_not_listed() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        import_crouton(&app, &key, &a_library());
+
+        let stranger = app.core.create_person("Marc").expect("person");
+        let stranger_key = app
+            .core
+            .mint_access_key(&stranger, "marc", false)
+            .unwrap()
+            .secret;
+
+        let listed = list_imports(&app, &stranger_key);
+        assert_eq!(listed["imports"], json!([]), "{listed}");
+    }
+
+    /// An Import is held in the Home Kitchen of whoever asked for it
+    /// (CONTEXT.md, and `import_each` alike), so joining somebody else's
+    /// Kitchen does not put their channel in your list. `imports` is unique per
+    /// `(kitchen_id, source_kind)`, so without this the answer would carry two
+    /// `crouton` entries and this Person's own arrivals would attach to
+    /// whichever sorted first (#108).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_kitchen_mates_import_is_not_mistaken_for_your_own() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let mine = import_crouton(&app, &key, &a_library());
+
+        // Marc imports a Crouton library into HIS Home Kitchen, then invites
+        // Aurélien into it. Two Kitchens now each hold a `crouton` Import.
+        let marc = app.core.create_person("Marc").expect("person");
+        let marc_key = app
+            .core
+            .mint_access_key(&marc, "marc", false)
+            .unwrap()
+            .secret;
+        let his = import_crouton(&app, &marc_key, &a_library());
+        assert_ne!(
+            his["import_id"], mine["import_id"],
+            "same Kitchen after all"
+        );
+
+        let marc_home = app
+            .core
+            .list_kitchens(&marc)
+            .unwrap()
+            .into_iter()
+            .find(|kitchen| kitchen["is_home"] == json!(true))
+            .expect("Marc's Home Kitchen");
+        let (_, secret) = app
+            .core
+            .invite_to_kitchen(&marc, marc_home["id"].as_str().unwrap())
+            .unwrap();
+        let (_, joined) = app.post_op(
+            "accept_kitchen_invite",
+            Some(&key),
+            &json!({ "secret": secret }).to_string(),
+        );
+        assert_eq!(joined["ok"], json!(true), "{joined}");
+
+        // One crouton source, and it is this Person's own.
+        let listed = list_imports(&app, &key);
+        let crouton: Vec<&Value> = listed["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["source_kind"] == json!("crouton"))
+            .collect();
+        assert_eq!(crouton.len(), 1, "{listed}");
+        assert_eq!(crouton[0]["import_id"], mine["import_id"], "{listed}");
+        assert_eq!(crouton[0]["arrivals"].as_array().unwrap().len(), 1);
+    }
+
+    fn list_imports(app: &support::TestApp, key: &str) -> Value {
+        let (status, listed) = app.post_op("list_imports", Some(key), "{}");
+        assert_eq!(status, 200, "{listed}");
+        listed["result"].clone()
+    }
+
+    fn source<'a>(listed: &'a Value, source_kind: &str) -> &'a Value {
+        listed["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["source_kind"] == json!(source_kind))
+            .unwrap_or_else(|| panic!("no {source_kind} source: {listed}"))
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn another_persons_ledger_cannot_be_forgotten() {
         let app = support::spawn_app();

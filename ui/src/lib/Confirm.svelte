@@ -46,6 +46,13 @@
 		busy?: boolean;
 		/** A refusal that arrived, shown in the words it came in. */
 		failed?: string;
+		/**
+		 * The way out, where staying put has a name of its own — "Keep the
+		 * memory" beside forgetting an Import's ledger (#108). Plain `Cancel`
+		 * otherwise, which is what the other three acts here want: there is no
+		 * second noun in "delete this account".
+		 */
+		cancelLabel?: string;
 		run: () => void;
 		cancel: () => void;
 		children?: Snippet;
@@ -60,6 +67,7 @@
 		instead,
 		busy = false,
 		failed,
+		cancelLabel,
 		run,
 		cancel,
 		children,
@@ -127,7 +135,7 @@
 			disabled={busy}
 			class="min-h-12 rounded-sm px-4 text-body font-medium text-accent disabled:opacity-60"
 		>
-			{m.operator_cancel()}
+			{cancelLabel ?? m.operator_cancel()}
 		</button>
 	</div>
 </div>

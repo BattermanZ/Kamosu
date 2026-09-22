@@ -711,6 +711,30 @@
 	{/if}
 
 	<!--
+		The way to what has been brought in (#108). A door rather than the list
+		itself, for the same reason Foods below is one: a source opens onto its
+		own arrivals and onto forgetting, which is a screen and not a section.
+
+		Beneath the Crouton importer on purpose. That control is where an import
+		is *started*; this is where every import that ever ran is found again,
+		including the forty-seven the importer's own "last report" link could
+		never reach.
+	-->
+	{#if signedIn}
+		<Section heading={m.settings_imports()}>
+			<p class="text-body text-ink-2">{m.settings_imports_blurb()}</p>
+			<a
+				href="/imports"
+				class="mt-3 flex min-h-12 items-center justify-between gap-3 rounded-sm border
+				border-rule bg-card px-3 text-body font-medium text-ink"
+			>
+				{m.settings_imports_open()}
+				<span aria-hidden="true" class="text-ink-2">›</span>
+			</a>
+		</Section>
+	{/if}
+
+	<!--
 		The second of the two doors onto a Food (#107). The first is the Reading
 		corrector on the recipe itself, which is where a wrong Cup Weight is
 		noticed; this one is for the Food you have to go looking for, which is

@@ -917,6 +917,92 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::import_crouton,
         },
         Operation {
+            name: "list_imports",
+            summary: "What has been brought into your Kitchens from outside, \
+                      and what happened each time. One entry per source — a \
+                      Crouton library, recipe files, web pages — each holding \
+                      how many recipes its ledger remembers and every arrival \
+                      you asked for, newest first. An arrival names the Job \
+                      whose Report `get_job` serves, so what happened is read \
+                      back long after the screen that started it closed. \
+                      Listed is an event, never a mark on a recipe: an \
+                      imported recipe is an ordinary recipe and says nothing \
+                      about where it came from (ADR 0025).",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "imports": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "import_id": {
+                                    "type": ["string", "null"],
+                                    "description": "The ledger's id, which `forget_import` \
+                                                     takes. Null once it has been forgotten: \
+                                                     the arrivals and their Reports outlive \
+                                                     the ledger, because forgetting throws \
+                                                     away what became what, not what happened.",
+                                },
+                                "source_kind": {
+                                    "type": "string",
+                                    "description": "Which outside source this is — `crouton`, \
+                                                     `bundle`, `web`, or whatever an `import` \
+                                                     caller named.",
+                                },
+                                "created_at": { "type": "string" },
+                                "remembered": {
+                                    "type": "integer",
+                                    "description": "How many recipes this ledger can still \
+                                                     match on a re-run. The Kitchen's figure, \
+                                                     not the caller's.",
+                                },
+                                "arrivals": {
+                                    "type": "array",
+                                    "description": "Every run of this source the caller asked \
+                                                     for, newest first.",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "job_id": {
+                                                "type": "string",
+                                                "description": "Pass to `get_job` for the \
+                                                                 Report itself.",
+                                            },
+                                            "status": { "enum": ["queued", "running", "completed", "failed", "cancelled"] },
+                                            "created_at": { "type": "string" },
+                                            "arrived": { "type": "integer" },
+                                            "created": {
+                                                "type": "integer",
+                                                "description": "Of those that arrived, how many \
+                                                                 were new rather than already \
+                                                                 held.",
+                                            },
+                                            "offered": { "type": "integer" },
+                                            "unreadable": { "type": "integer" },
+                                        },
+                                        "required": ["job_id", "status", "created_at", "arrived", "created", "offered", "unreadable"],
+                                        "additionalProperties": false,
+                                    },
+                                },
+                            },
+                            "required": ["import_id", "source_kind", "created_at", "remembered", "arrivals"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["imports"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::list_imports,
+        },
+        Operation {
             name: "forget_import",
             summary: "Throw an Import's ledger away whole — the memory of \
                       which outside recipe became which of yours. Every \

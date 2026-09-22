@@ -117,6 +117,9 @@ describe('what the phone keeps', () => {
 	it('knows a read from a write by the Catalogue alone', () => {
 		expect(policyFor('get_recipe')).toBe('phone-first');
 		expect(policyFor('get_current_attempt')).toBe('server-first');
+		// #108: an import just run must be on the list, and a ledger just
+		// forgotten must not still be counted.
+		expect(policyFor('list_imports')).toBe('server-first');
 		expect(policyFor('get_job')).toBe('never');
 		expect(policyFor('promote_as_cooked')).toBeUndefined();
 	});

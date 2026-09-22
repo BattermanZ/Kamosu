@@ -1760,6 +1760,155 @@ impl Core {
         self.import_each(caller, "crouton", total, incoming, progress)
     }
 
+    /// What this Person has brought in from outside, and what happened each
+    /// time (#108).
+    ///
+    /// The answer is grouped by **source kind** rather than by Import row, and
+    /// the distinction is the whole design. An Import is one durable channel
+    /// per Kitchen per source, reused by every run after the first (ADR 0025),
+    /// so three Imports can sit behind forty-eight arrivals. `forget_import`
+    /// deletes the channel; the Jobs it ran never vanish, and each still holds
+    /// the Report that `get_job` serves. Keying the answer on the Import row
+    /// would therefore hide every past Report the moment a ledger was
+    /// forgotten — which is the exact unreachability this Operation exists to
+    /// end. So a source is listed while it has *either* a ledger or an
+    /// arrival, and `import_id` is null once the ledger is gone.
+    ///
+    /// **Scoped to the Home Kitchen, and that is what an Import is.** Every
+    /// importer lands its recipes in the Home Kitchen of whoever asked
+    /// (`import_each`, and the Bundle path alike), which CONTEXT.md states as
+    /// the definition rather than as an implementation detail. Reading every
+    /// Kitchen a Person cooks in instead would break the grouping outright:
+    /// `imports` is unique per `(kitchen_id, source_kind)`, so a Kitchen-mate
+    /// who imported a Crouton library into their own Home Kitchen and then
+    /// invited this Person in would put a second `crouton` row in the answer,
+    /// and this Person's arrivals would attach to whichever sorted first.
+    /// Nothing is lost by leaving it out: that channel's arrivals are that
+    /// Person's Jobs, which `get_job` refuses this caller anyway.
+    ///
+    /// Arrivals are the caller's own Jobs, matching `list_jobs` and the reader
+    /// check `get_job` makes: listing a Kitchen-mate's Job would offer a link
+    /// that then refuses. `remembered` is the Kitchen's, because a ledger
+    /// belongs to the Kitchen and not to whoever happened to run the importer.
+    pub fn list_imports(&self, person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            // The ledgers this Person's Home Kitchen holds, newest channel first.
+            let ledgers: Vec<(String, String, String, i64)> = {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT imports.id, imports.source_kind, imports.created_at,
+                                (SELECT COUNT(*) FROM import_ledger
+                                  WHERE import_ledger.import_id = imports.id)
+                           FROM imports
+                           JOIN people ON people.home_kitchen_id = imports.kitchen_id
+                          WHERE people.id = ?1
+                          ORDER BY imports.created_at DESC",
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot list Imports: {e}")))?;
+                statement
+                    .query_map(params![person_id], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    })
+                    .map_err(|e| OpError::internal(format!("cannot list Imports: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot list Imports: {e}")))?
+            };
+
+            // Every arrival this Person asked for, newest first. Queried on the
+            // importer names rather than through `jobs_of`, whose hundred-row
+            // cap is about watching recent work and would quietly drop the old
+            // arrivals this screen exists to reach.
+            //
+            // `input` is read with `json_extract` and never whole. A Job's input
+            // is stored verbatim (`jobs::record`), and `import_crouton` accepts
+            // the export itself as base64 `data` for a Door that can send only
+            // JSON — so a row's input can be a 114 MB library rendered as 152 MB
+            // of text. All this needs from it is one short string, and only for
+            // `import`, the one importer that does not name its source in its
+            // own definition.
+            let arrivals: Vec<ArrivalRow> = {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT id, operation, json_extract(input, '$.source_kind'),
+                                status, result, created_at
+                           FROM jobs
+                          WHERE person_id = ?1
+                            AND operation IN ('import', 'import_crouton',
+                                              'import_bundle', 'import_web_link')
+                          ORDER BY created_at DESC",
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot list arrivals: {e}")))?;
+                statement
+                    .query_map(params![person_id], |row| {
+                        let result: Option<String> = row.get(4)?;
+                        Ok(ArrivalRow {
+                            job_id: row.get(0)?,
+                            operation: row.get(1)?,
+                            declared: row.get(2)?,
+                            status: row.get(3)?,
+                            result: result.and_then(|text| serde_json::from_str(&text).ok()),
+                            created_at: row.get(5)?,
+                        })
+                    })
+                    .map_err(|e| OpError::internal(format!("cannot list arrivals: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot list arrivals: {e}")))?
+            };
+
+            let mut grouped: Vec<(String, Vec<Value>)> = Vec::new();
+            for row in arrivals {
+                let Some(source_kind) = arrival_source_kind(
+                    &row.operation,
+                    row.declared.as_deref(),
+                    row.result.as_ref(),
+                ) else {
+                    continue;
+                };
+                let summary = arrival_summary(
+                    &row.job_id,
+                    &row.status,
+                    &row.created_at,
+                    row.result.as_ref(),
+                );
+                match grouped.iter_mut().find(|(kind, _)| *kind == source_kind) {
+                    Some((_, rows)) => rows.push(summary),
+                    None => grouped.push((source_kind, vec![summary])),
+                }
+            }
+
+            // A source the ledger knows leads; one that only arrivals remember
+            // — a forgotten channel — follows, rather than disappearing.
+            let mut imports = Vec::new();
+            for (import_id, source_kind, created_at, remembered) in ledgers {
+                let position = grouped.iter().position(|(kind, _)| *kind == source_kind);
+                let rows = position.map(|at| grouped.remove(at).1).unwrap_or_default();
+                imports.push(json!({
+                    "import_id": import_id,
+                    "source_kind": source_kind,
+                    "created_at": created_at,
+                    "remembered": remembered,
+                    "arrivals": rows,
+                }));
+            }
+            for (source_kind, rows) in grouped {
+                let created_at = rows
+                    .last()
+                    .and_then(|row| row["created_at"].as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                imports.push(json!({
+                    "import_id": Value::Null,
+                    "source_kind": source_kind,
+                    "created_at": created_at,
+                    "remembered": 0,
+                    "arrivals": rows,
+                }));
+            }
+
+            Ok(json!({ "imports": imports }))
+        })
+    }
+
     /// Throw an Import's ledger away whole (ADR 0025): the record of which
     /// foreign id became which recipe, and the Import itself. Every recipe it
     /// made stays exactly as it is — nothing about where a recipe came from was
@@ -10084,6 +10233,89 @@ fn insert_new_lineage_and_branch(
         read_unread_lines(conn, version_id, language, &content, None);
     }
     Ok(())
+}
+
+/// One arrival as the database hands it over, before it is placed under a
+/// source (#108). Named rather than a six-wide tuple, because positional
+/// fields of which four are `String` are how the wrong two get swapped.
+struct ArrivalRow {
+    job_id: String,
+    operation: String,
+    /// The `source_kind` this Job's own input declared, which only the general
+    /// `import` carries — read with `json_extract` so a base64 export never
+    /// leaves the database.
+    declared: Option<String>,
+    status: String,
+    /// The Import Report, once there is one.
+    result: Option<Value>,
+    created_at: String,
+}
+
+/// Which source an arrival belongs to, answerable the moment the Job row
+/// exists rather than only once it has finished (#108).
+///
+/// The Report states `source_kind` outright, and it is the authority, because
+/// it is the very string the ledger row was opened under. But it exists only
+/// once the work has finished, and an import still in flight is exactly the one
+/// a screen most wants to place. So the Report is read where there is one and
+/// the Job's own declaration otherwise: three importers name their source in
+/// their own definition, and `import`, the general one, carries it in its input
+/// where its schema requires it.
+///
+/// `Report.svelte` faces the same question and answers it the other way round,
+/// preferring the Job's Operation over the Report — which is not a disagreement
+/// but the same reasoning applied to a different need. It is deciding what to
+/// call a page while the bar is still filling, so the earliest answer wins
+/// outright. Here the row being placed is usually long finished, and where it
+/// is not, this falls back to exactly what that screen reads.
+fn arrival_source_kind(
+    operation: &str,
+    declared: Option<&str>,
+    result: Option<&Value>,
+) -> Option<String> {
+    if let Some(kind) = result
+        .and_then(|report| report.get("source_kind"))
+        .and_then(Value::as_str)
+    {
+        return Some(kind.to_string());
+    }
+    match operation {
+        "import_crouton" => Some("crouton".to_string()),
+        "import_bundle" => Some("bundle".to_string()),
+        "import_web_link" => Some("web".to_string()),
+        "import" => declared.map(str::to_string),
+        _ => None,
+    }
+}
+
+/// One arrival as its row: when it happened, how it ended, and the three
+/// counts that let a screen say what happened in a line without reading the
+/// whole Report back. The Report itself is untouched and still reached by
+/// `get_job` with `job_id` (ADR 0025) — these are a summary of it, never a
+/// second copy of it.
+fn arrival_summary(job_id: &str, status: &str, created_at: &str, result: Option<&Value>) -> Value {
+    let arrived = result
+        .and_then(|report| report.get("arrived"))
+        .and_then(Value::as_array);
+    let count = |key: &str| {
+        result
+            .and_then(|report| report.get(key))
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len)
+    };
+    json!({
+        "job_id": job_id,
+        "status": status,
+        "created_at": created_at,
+        "arrived": arrived.map_or(0, Vec::len),
+        "created": arrived.map_or(0, |rows| {
+            rows.iter()
+                .filter(|row| row["status"] == json!("created"))
+                .count()
+        }),
+        "offered": count("offered"),
+        "unreadable": count("unreadable"),
+    })
 }
 
 /// The Import a Kitchen runs candidates of one source kind through — the one
