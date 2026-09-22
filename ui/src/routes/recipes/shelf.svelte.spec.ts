@@ -13,9 +13,11 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { screen, fireEvent } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
+import { standIn } from '$lib/api/stand-in';
 import { renderScreen } from '../../testing/render';
+import ShelfTestHarness from './ShelfTestHarness.svelte';
 import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
 
 // Both offers end by opening the recipe they produced. Where that goes is the
@@ -71,9 +73,21 @@ const entry = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
+/** One of a Kitchen's tags, with everything the Catalogue requires present. */
+const shelfTag = (id: string, name: string, recipes: number) => ({
+	id,
+	kitchen_id: 'k_home',
+	name,
+	language: 'en',
+	names: [{ language: 'en', name }],
+	recipes,
+	language_fallback: false,
+});
+
 describe('the recipes screen', () => {
 	it('shows the shelf it was given, one card per Lineage', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: {
@@ -93,6 +107,7 @@ describe('the recipes screen', () => {
 
 	it('keeps both ways in above the shelf, not only at the dead end below it', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: {
@@ -112,6 +127,7 @@ describe('the recipes screen', () => {
 
 	it('does not say the same thing twice when nothing was found', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
@@ -129,6 +145,7 @@ describe('the recipes screen', () => {
 
 	it('explains why nothing matched, and offers the two things you were about to do', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
@@ -156,6 +173,7 @@ describe('the recipes screen', () => {
 
 	it('offers Meaning Search inside nothing-found, saying what accepting costs', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff({ offer: true }),
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
@@ -180,6 +198,7 @@ describe('the recipes screen', () => {
 
 	it('declines Meaning Search through the Operation, so it is never offered again', async () => {
 		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			// Asked once, then answered: the second reading is what the screen
 			// sees after declining, and it carries no offer.
@@ -206,6 +225,7 @@ describe('the recipes screen', () => {
 
 	it('shows the closest anyway, under exactly that label, rather than an empty screen', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff({ state: 'on', on: true, model_present: true }),
 			search_recipes: {
@@ -241,6 +261,7 @@ describe('the recipes screen', () => {
 
 	it('adds the recipe it offered to add, rather than pointing at a screen to add it on', async () => {
 		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
@@ -274,6 +295,7 @@ describe('the recipes screen', () => {
 
 	it('reads the link it offered to import, waiting on the Job it is', async () => {
 		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
@@ -324,6 +346,7 @@ describe('the recipes screen', () => {
 
 	it('says the shelf is empty rather than that a search failed, when nothing was searched for', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: null, closest: false, recipes: [] },
@@ -335,6 +358,7 @@ describe('the recipes screen', () => {
 
 	it('quotes the line that matched, and says where it came from', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: {
@@ -373,6 +397,7 @@ describe('the recipes screen', () => {
 
 	it('does not quote a title match — the title is already on the card', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: {
@@ -392,6 +417,7 @@ describe('the recipes screen', () => {
 
 	it('marks a recipe shown in a Language its reader did not ask for', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: {
@@ -414,6 +440,7 @@ describe('the recipes screen', () => {
 
 	it('marks nothing on a recipe whose Language is unknown', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: {
@@ -439,6 +466,7 @@ describe('the recipes screen', () => {
 
 	it('names no Kitchen on a card, and offers a Kitchen filter only where there are several', async () => {
 		renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: null, closest: false, recipes: [entry()] },
@@ -452,6 +480,7 @@ describe('the recipes screen', () => {
 
 	it('offers one filter per Kitchen where the Person cooks in several, and asks with it', async () => {
 		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
 			list_kitchens: {
 				kitchens: [kitchen, { ...kitchen, id: 'k_marc', name: 'Chez Marc', is_home: false }],
 			},
@@ -470,5 +499,189 @@ describe('the recipes screen', () => {
 		// Held on the screen and nowhere else: nothing was written to the URL,
 		// so a filter cannot greet you tomorrow or survive the back button.
 		expect(window.location.search).toBe('');
+	});
+
+	// --- Browsing by tag (#104) ---------------------------------------------
+	//
+	// The half of Aurélien's choice that makes a tag something you get around
+	// by rather than a word a search happens to match. The three states are
+	// covered between these: a library with no tags, which is every new
+	// instance and was this project's own on the day it imported 86 recipes; a
+	// handful; and a full shelf with one tag named in another Language.
+
+	it('draws no tag row at all where no Kitchen files by anything yet', async () => {
+		renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+		// A heading over nothing is worse than no heading. The two filters that
+		// always exist are untouched.
+		expect(screen.queryByText('Tags')).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+	});
+
+	it('narrows the shelf by a tag, through the Operation, and counts by that tag', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: {
+				tags: [
+					shelfTag('t_spicy', 'spicy', 14),
+					shelfTag('t_batch', 'batch cook', 9),
+					// Named only in French, read by somebody reading English.
+					{
+						id: 't_mijote',
+						kitchen_id: 'k_home',
+						name: 'mijoté',
+						language: 'fr',
+						names: [{ language: 'fr', name: 'mijoté' }],
+						recipes: 7,
+						// The Core says this, not the screen (#104).
+						language_fallback: true,
+					},
+				],
+			},
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+
+		// Alphabetical by the word the reader sees, which is the only order a
+		// person can predict.
+		const chip = await screen.findByRole('button', { name: /spicy/ });
+		await fireEvent.click(chip);
+
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
+			expect(asked.at(-1)?.input).toMatchObject({ tag_id: 't_spicy' });
+		});
+
+		// The count is said by the tag rather than by the shelf, because that is
+		// the question the reader just asked.
+		expect(await screen.findByText('1 tagged spicy')).toBeInTheDocument();
+		expect(chip).toHaveAttribute('aria-pressed', 'true');
+
+		// A tag named in another Language keeps its own word and says which
+		// Language that is (ADR 0006).
+		expect(screen.getByRole('button', { name: /mijoté/ })).toBeInTheDocument();
+		expect(screen.getByText('fr')).toBeInTheDocument();
+
+		// Tapping the lit chip again lets it go, which is the only way back to
+		// the whole shelf without leaving the screen.
+		await fireEvent.click(chip);
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
+			expect(asked.at(-1)?.input).toMatchObject({ tag_id: null });
+		});
+	});
+
+	it('says which tag found nothing, rather than that the library is empty', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [shelfTag('t_try', 'to try', 0)] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [] },
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: /to try/ }));
+
+		// "You have no recipes" would be a lie about the other eighty-five.
+		await vi.waitFor(() => {
+			expect(kamosu.calls.at(-1)?.input).toMatchObject({ tag_id: 't_try' });
+		});
+		expect(await screen.findByText('Nothing is tagged to try yet.')).toBeInTheDocument();
+	});
+
+	it('offers only the Kitchen’s own tags once a Kitchen filter is held, and lets the narrowing go with them', async () => {
+		// The chips follow the Kitchen chip: a tag of a Kitchen you have just
+		// filtered away can only ever find nothing, and worse, left lit it
+		// narrows the shelf to nothing with no chip on screen to turn off.
+		const marc = { ...kitchen, id: 'k_marc', name: 'Chez Marc', is_home: false };
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: {
+				tags: [
+					shelfTag('t_spicy', 'spicy', 14),
+					{ ...shelfTag('t_marc', 'from Marc', 3), kitchen_id: 'k_marc' },
+				],
+			},
+			list_kitchens: { kitchens: [kitchen, marc] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+
+		// Both Kitchens' words to begin with, because the shelf is both Kitchens.
+		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
+			expect(asked.at(-1)?.input).toMatchObject({ tag_id: 't_spicy' });
+		});
+		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+
+		// Filtering to Marc's Kitchen takes the home Kitchen's word away, and
+		// the narrowing goes with it rather than stranding an invisible filter.
+		await fireEvent.click(screen.getByRole('button', { name: 'Chez Marc' }));
+
+		await vi.waitFor(() => {
+			expect(screen.queryByRole('button', { name: /spicy/ })).not.toBeInTheDocument();
+		});
+		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
+			expect(asked.at(-1)?.input).toMatchObject({ kitchen_id: 'k_marc', tag_id: null });
+		});
+	});
+
+	it('shows the shelf rather than a failure when ?tag= names a tag that is not here', async () => {
+		// Stale, or somebody else's: `search_recipes` answers not-found (ADR
+		// 0040). Left standing, that wore the whole screen as a failure with no
+		// chip lit to turn the filter off.
+		const kamosu = standIn({
+			list_tags: { tags: [shelfTag('t_spicy', 'spicy', 14)] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: () => {
+				const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
+				return asked.some((call) => (call.input as { tag_id?: string }).tag_id === 't_gone')
+					? { refuse: 'not_found' as const, message: 'no such Tag' }
+					: { query: null, closest: false, recipes: [entry()] };
+			},
+		});
+		render(ShelfTestHarness, { props: { client: kamosu.client, tag: 't_gone' } });
+
+		// The shelf, not "Your recipes could not be searched just now."
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+		expect(screen.queryByText(/could not be searched/)).not.toBeInTheDocument();
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
+			expect(asked.at(-1)?.input).toMatchObject({ tag_id: null });
+		});
+	});
+
+	it('opens already narrowed when a chip on a recipe sent the reader here', async () => {
+		// `?tag=` is a message from the recipe page, read by the route into a
+		// prop. Nothing on this screen ever writes it, which is why arriving
+		// tagged and arriving by the tab bar are two different renders rather
+		// than one screen with a memory.
+		const kamosu = standIn({
+			list_tags: { tags: [shelfTag('t_spicy', 'spicy', 14)] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+		render(ShelfTestHarness, { props: { client: kamosu.client, tag: 't_spicy' } });
+
+		// The first ask already carries the tag: the reader does not watch the
+		// whole shelf draw and then collapse.
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
+			expect(asked.at(0)?.input).toMatchObject({ tag_id: 't_spicy' });
+		});
+		expect(await screen.findByText('1 tagged spicy')).toBeInTheDocument();
+		expect(await screen.findByRole('button', { name: /spicy/ })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
 	});
 });

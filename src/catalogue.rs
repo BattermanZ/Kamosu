@@ -1050,6 +1050,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // Created, branched or cooked by this Person — a history,
                     // not an ownership, and one that needs no curating ever.
                     "mine": { "type": "boolean" },
+                    // The third filter, and the one that makes a Tag something
+                    // a person can browse by rather than a word that happens to
+                    // match (#104). Held nowhere, like the other two. It
+                    // narrows the shelf before the query runs, so a Tag and a
+                    // search compose rather than compete.
+                    "tag_id": { "type": ["string", "null"] },
                 },
                 "additionalProperties": false,
             }),
@@ -2692,8 +2698,21 @@ fn tag_schema() -> Value {
                     "additionalProperties": false,
                 },
             },
+            // How many recipes carry it, counted in Lineages so that this
+            // number and the shelf's own agree (#104). A screen offering to
+            // delete a Tag has to say what it is taking the Tag off.
+            "recipes": { "type": "integer" },
+            // Whether `name` is in a Language the reader did not ask for, in
+            // the same word a shelf entry already uses for the same fact
+            // (#104, ADR 0006). The Reading Language is held on the account, so
+            // this is the Core's to answer: a screen comparing against the
+            // interface locale would mark every Tag wrongly for a reader whose
+            // two settings differ.
+            "language_fallback": { "type": "boolean" },
         },
-        "required": ["id", "kitchen_id", "name", "language", "names"],
+        "required": [
+            "id", "kitchen_id", "name", "language", "names", "recipes", "language_fallback"
+        ],
         "additionalProperties": false,
     })
 }

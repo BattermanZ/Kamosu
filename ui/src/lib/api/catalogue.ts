@@ -309,11 +309,13 @@ export type CreateTagOutput = {
 	id: string;
 	kitchen_id: string;
 	language: string | null;
+	language_fallback: boolean;
 	name: string | null;
 	names: {
 		language: string;
 		name: string;
 	}[];
+	recipes: number;
 };
 
 /** List every Tag a Kitchen files by, each shown in the reader's Reading Language where it has a name there. */
@@ -326,11 +328,13 @@ export type ListTagsOutput = {
 		id: string;
 		kitchen_id: string;
 		language: string | null;
+		language_fallback: boolean;
 		name: string | null;
 		names: {
 			language: string;
 			name: string;
 		}[];
+		recipes: number;
 	}[];
 };
 
@@ -345,11 +349,13 @@ export type RenameTagOutput = {
 	id: string;
 	kitchen_id: string;
 	language: string | null;
+	language_fallback: boolean;
 	name: string | null;
 	names: {
 		language: string;
 		name: string;
 	}[];
+	recipes: number;
 };
 
 /** Merge two of a Kitchen's Tags into one: every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version. */
@@ -362,11 +368,13 @@ export type MergeTagsOutput = {
 	id: string;
 	kitchen_id: string;
 	language: string | null;
+	language_fallback: boolean;
 	name: string | null;
 	names: {
 		language: string;
 		name: string;
 	}[];
+	recipes: number;
 };
 
 /** Take a Tag out of a Kitchen's list and off every recipe carrying it. No recipe changes. */
@@ -390,11 +398,13 @@ export type SetRecipeTagOutput = {
 		id: string;
 		kitchen_id: string;
 		language: string | null;
+		language_fallback: boolean;
 		name: string | null;
 		names: {
 			language: string;
 			name: string;
 		}[];
+		recipes: number;
 	}[];
 };
 
@@ -472,11 +482,13 @@ export type CreateRecipeOutput = {
 		id: string;
 		kitchen_id: string;
 		language: string | null;
+		language_fallback: boolean;
 		name: string | null;
 		names: {
 			language: string;
 			name: string;
 		}[];
+		recipes: number;
 	}[];
 	translation: {
 		source_branch_id: string | null;
@@ -721,11 +733,13 @@ export type StartTranslationOutput = {
 		id: string;
 		kitchen_id: string;
 		language: string | null;
+		language_fallback: boolean;
 		name: string | null;
 		names: {
 			language: string;
 			name: string;
 		}[];
+		recipes: number;
 	}[];
 	translation: {
 		source_branch_id: string | null;
@@ -1083,6 +1097,7 @@ export type SearchRecipesInput = {
 	kitchen_id?: string | null;
 	mine?: boolean;
 	query?: string | null;
+	tag_id?: string | null;
 };
 /** What search_recipes answers. */
 export type SearchRecipesOutput = {
@@ -1236,11 +1251,13 @@ export type GetRecipeOutput = {
 		id: string;
 		kitchen_id: string;
 		language: string | null;
+		language_fallback: boolean;
 		name: string | null;
 		names: {
 			language: string;
 			name: string;
 		}[];
+		recipes: number;
 	}[];
 	translation: {
 		source_branch_id: string | null;
@@ -5280,6 +5297,9 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"language_fallback": {
+					"type": "boolean"
+				},
 				"name": {
 					"type": [
 						"string",
@@ -5304,6 +5324,9 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"recipes": {
+					"type": "integer"
 				}
 			},
 			"required": [
@@ -5311,7 +5334,9 @@ export const CATALOGUE = [
 				"kitchen_id",
 				"name",
 				"language",
-				"names"
+				"names",
+				"recipes",
+				"language_fallback"
 			],
 			"type": "object"
 		}
@@ -5352,6 +5377,9 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -5376,6 +5404,9 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
 							}
 						},
 						"required": [
@@ -5383,7 +5414,9 @@ export const CATALOGUE = [
 							"kitchen_id",
 							"name",
 							"language",
-							"names"
+							"names",
+							"recipes",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -5440,6 +5473,9 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"language_fallback": {
+					"type": "boolean"
+				},
 				"name": {
 					"type": [
 						"string",
@@ -5464,6 +5500,9 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"recipes": {
+					"type": "integer"
 				}
 			},
 			"required": [
@@ -5471,7 +5510,9 @@ export const CATALOGUE = [
 				"kitchen_id",
 				"name",
 				"language",
-				"names"
+				"names",
+				"recipes",
+				"language_fallback"
 			],
 			"type": "object"
 		}
@@ -5512,6 +5553,9 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"language_fallback": {
+					"type": "boolean"
+				},
 				"name": {
 					"type": [
 						"string",
@@ -5536,6 +5580,9 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"recipes": {
+					"type": "integer"
 				}
 			},
 			"required": [
@@ -5543,7 +5590,9 @@ export const CATALOGUE = [
 				"kitchen_id",
 				"name",
 				"language",
-				"names"
+				"names",
+				"recipes",
+				"language_fallback"
 			],
 			"type": "object"
 		}
@@ -5622,6 +5671,9 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -5646,6 +5698,9 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
 							}
 						},
 						"required": [
@@ -5653,7 +5708,9 @@ export const CATALOGUE = [
 							"kitchen_id",
 							"name",
 							"language",
-							"names"
+							"names",
+							"recipes",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -6021,6 +6078,9 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -6045,6 +6105,9 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
 							}
 						},
 						"required": [
@@ -6052,7 +6115,9 @@ export const CATALOGUE = [
 							"kitchen_id",
 							"name",
 							"language",
-							"names"
+							"names",
+							"recipes",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -7385,6 +7450,9 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -7409,6 +7477,9 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
 							}
 						},
 						"required": [
@@ -7416,7 +7487,9 @@ export const CATALOGUE = [
 							"kitchen_id",
 							"name",
 							"language",
-							"names"
+							"names",
+							"recipes",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -9287,6 +9360,12 @@ export const CATALOGUE = [
 						"string",
 						"null"
 					]
+				},
+				"tag_id": {
+					"type": [
+						"string",
+						"null"
+					]
 				}
 			},
 			"type": "object"
@@ -9969,6 +10048,9 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"name": {
 								"type": [
 									"string",
@@ -9993,6 +10075,9 @@ export const CATALOGUE = [
 									"type": "object"
 								},
 								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
 							}
 						},
 						"required": [
@@ -10000,7 +10085,9 @@ export const CATALOGUE = [
 							"kitchen_id",
 							"name",
 							"language",
-							"names"
+							"names",
+							"recipes",
+							"language_fallback"
 						],
 						"type": "object"
 					},

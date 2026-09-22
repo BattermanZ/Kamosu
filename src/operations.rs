@@ -871,8 +871,9 @@ pub fn search_recipes(
     let query = input.get("query").and_then(Value::as_str);
     let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
     let mine = input.get("mine").and_then(Value::as_bool).unwrap_or(false);
+    let tag_id = input.get("tag_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.search_recipes(&caller.person_id, query, kitchen_id, mine)
+    core.search_recipes(&caller.person_id, query, kitchen_id, mine, tag_id)
 }
 
 /// Home's computed shelves (#64). Like the diary it takes no input: whose Home

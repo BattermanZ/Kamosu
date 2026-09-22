@@ -6,10 +6,16 @@
 	through the back door, and it taxes every search with a permissions question
 	you should never have to answer to find the katsu curry on a Tuesday.
 
-	The two filters are **held here and nowhere else**, which is the whole of
-	how "neither filter sticks" is built: leaving the screen destroys this
-	component, and coming back makes a new one on the whole shelf. Nothing is
-	written to the URL either, or a filter would survive in the back button.
+	The three filters are **held here and nowhere else**, which is the whole of
+	how "no filter sticks" is built: leaving the screen destroys this component,
+	and coming back makes a new one on the whole shelf.
+
+	The tag filter (#104) is the third, and it is the one exception to "nothing
+	is written to the URL" — `?tag=` exists so that a chip on a recipe page can
+	say which tag it meant, and the route reads it into a prop this screen takes
+	once. It is a message from the other screen, not a place the filter lives:
+	nothing here ever writes it, so the back button cannot resurrect a filter and
+	arriving by the tab bar lands on the whole shelf as it always did.
 
 	Searching is one Operation, the same one that answers the unsearched shelf.
 	Meaning Search arrived inside that Operation rather than beside it, so
@@ -18,10 +24,12 @@
 	answer can say that nothing was close enough and these are the nearest.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { MeaningSearch } from '$lib/meaning.svelte';
+	import { byWord, tagWord, type Tag } from '$lib/tags';
 	import type { ListKitchensOutput, SearchRecipesOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
@@ -31,6 +39,14 @@
 	import MeaningOffer from './MeaningOffer.svelte';
 	import { refreshed } from '$lib/offline/device.svelte';
 
+	interface Props {
+		/** The Tag named by `?tag=`, where the reader arrived from a chip (#104). */
+		tag?: string | null;
+	}
+
+	/** Read once, on purpose: see `tag` below. */
+	const { tag: arrivedTagged = null }: Props = $props();
+
 	const kamosu = useKamosu();
 
 	/** What is typed, moment to moment. The Operation is asked on a short delay. */
@@ -39,8 +55,29 @@
 	let filter = $state<{ kind: 'all' } | { kind: 'mine' } | { kind: 'kitchen'; id: string }>({
 		kind: 'all',
 	});
+	/**
+	 * The Tag this shelf is narrowed to, or nothing (#104). A third filter
+	 * beside the two above and held exactly as they are — here, and nowhere
+	 * else. It composes with both: the recipes Marc tagged *spicy*, searched
+	 * for *chicken*, is one ask.
+	 *
+	 * Seeded once from the route's `?tag=`, because a chip on a recipe page
+	 * arrives by navigating. The query string is how that screen says which
+	 * tag, not a place this filter lives: coming back to Recipes by the tab
+	 * destroys this component and makes a new one on the whole shelf, exactly as
+	 * the other two filters already behave.
+	 */
+	let tag = $state<string | null>(untrack(() => arrivedTagged));
 
 	let kitchens = $state<ListKitchensOutput['kitchens']>([]);
+	/**
+	 * Every Tag the Kitchens this reader cooks in file by, merged — all of them,
+	 * whichever Kitchen filter is held. Which ones to OFFER is worked out from
+	 * this below rather than by asking again, because a Tag carries the Kitchen
+	 * it belongs to (ADR 0007) and re-asking on every filter tap would put a
+	 * round trip between the thumb and a row of chips that is already here.
+	 */
+	let tags = $state<Tag[]>([]);
 	let answer = $state<SearchRecipesOutput | undefined>(undefined);
 	let failed = $state(false);
 	/**
@@ -62,8 +99,28 @@
 		let current = true;
 		kamosu
 			.listKitchens({})
-			.then((held) => {
-				if (current) kitchens = held.kitchens;
+			.then(async (held) => {
+				if (!current) return;
+				kitchens = held.kitchens;
+				// Every Kitchen's Tags, merged into one row — the same merge the
+				// shelf itself is (ADR 0027). Asked per Kitchen because a Tag
+				// belongs to one, and a Kitchen whose list cannot be read costs
+				// only its own words rather than the whole row.
+				const lists = await Promise.all(
+					held.kitchens.map((kitchen) =>
+						kamosu.listTags({ kitchen_id: kitchen.id }).catch((error: unknown) => {
+							if (!(error instanceof OperationError)) throw error;
+							return { tags: [] };
+						}),
+					),
+				);
+				// By id, because several answers are being merged into one row
+				// and a Tag drawn twice is two chips that do the same thing.
+				if (current) {
+					tags = [
+						...new Map(lists.flatMap((list) => list.tags).map((held) => [held.id, held])).values(),
+					];
+				}
 			})
 			.catch((error: unknown) => {
 				// The shelf itself is what this screen is for; failing to learn
@@ -76,6 +133,36 @@
 		};
 	});
 
+	/**
+	 * The Tags to offer: those of the Kitchen being filtered to, or all of them.
+	 * Narrowed HERE rather than by asking again, so the row follows a Kitchen
+	 * chip the moment it is tapped — a chip that can only ever find nothing is
+	 * worse than no chip.
+	 */
+	const chips = $derived.by(() => {
+		// Read into a local first, as the search effect below does: a union held
+		// in state does not stay narrowed across the closure that reads it.
+		const held = filter;
+		return byWord(
+			held.kind === 'kitchen' ? tags.filter((tag) => tag.kitchen_id === held.id) : tags,
+		);
+	});
+
+	/** The Tag being filtered by, once its Kitchen's list has been read. */
+	const filtering = $derived(tags.find((held) => held.id === tag) ?? null);
+	/** Its word, for the count and the nothing-found line. */
+	const filteringWord = $derived(filtering ? tagWord(filtering).name : null);
+
+	/**
+	 * A Tag chip that goes out of reach keeps its filter on with no way to turn
+	 * it off — which is what happens when a Kitchen chip narrows the row past
+	 * the Tag being filtered by. So the filter follows the row: taking the chip
+	 * away takes the narrowing with it.
+	 */
+	$effect(() => {
+		if (tag !== null && tags.length > 0 && !chips.some((held) => held.id === tag)) tag = null;
+	});
+
 	// Asked on open, and again whenever turning Meaning Search on or declining
 	// it changed the answer — so the offer disappears the moment it is answered.
 	$effect(() => meaning.ask());
@@ -85,6 +172,7 @@
 		// re-runs when any of them changes rather than only on the first.
 		const query = typed.trim();
 		const asked = filter;
+		const tagged = tag;
 		// Turning Meaning Search on changes what this same search finds, so the
 		// search is asked again — which is the only confirmation worth giving:
 		// the recipe you were looking for appears.
@@ -100,6 +188,7 @@
 						query: query === '' ? null : query,
 						kitchen_id: asked.kind === 'kitchen' ? asked.id : null,
 						mine: asked.kind === 'mine',
+						tag_id: tagged,
 					});
 					if (current && generation === meaning.generation) {
 						answer = found;
@@ -191,6 +280,45 @@
 				{/each}
 			{/if}
 		</div>
+
+		<!--
+			The tags, as ONE SIDEWAYS LINE and never a block that wraps (#104).
+			Twenty-four tags wrapped is six rows of chips standing between the
+			search field and the recipes, which is the measurement that decided
+			this; Home already settled that a section carries a rail rather than
+			a grid. Full-bleed, so the line visibly runs off the edge — that is
+			what says there is more of it.
+
+			Absent entirely until a Kitchen has a tag: on a new instance, and on
+			this project's own 86-recipe library the day it was imported, this
+			row would otherwise be a heading over nothing.
+		-->
+		{#if chips.length > 0}
+			<h2 class="mt-4 text-label text-ink-2 uppercase">{m.tags_title()}</h2>
+			<div
+				class="-mx-gutter mt-2 flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto px-gutter"
+			>
+				{#each chips as held (held.id)}
+					{@const word = tagWord(held)}
+					<button
+						type="button"
+						aria-pressed={tag === held.id}
+						onclick={() => (tag = tag === held.id ? null : held.id)}
+						class="min-h-8 shrink-0 rounded-sm border px-3 text-read {tag === held.id
+							? 'border-accent bg-accent text-on-accent'
+							: 'border-rule text-ink-2'}"
+					>
+						{word.name}
+						{#if word.elsewhere}
+							<span class="text-label uppercase {tag === held.id ? '' : 'text-support'}">
+								<span aria-hidden="true">{word.elsewhere}</span>
+								<span class="sr-only">{word.said}</span>
+							</span>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
 	</search>
 
 	<!--
@@ -258,10 +386,29 @@
 			</ul>
 		{/if}
 	{:else if entries.length === 0}
-		<Empty>{m.recipes_empty()}</Empty>
+		<!--
+			A tag narrowing the shelf to nothing is not an empty library, and
+			saying "you have no recipes" there would be a lie about the other
+			eighty-five. It says which word found nothing and offers the way
+			back out, which is the chip that is still lit above.
+		-->
+		<Empty>
+			{filteringWord ? m.tags_shelf_none({ tag: filteringWord }) : m.recipes_empty()}
+		</Empty>
 	{:else}
 		<p class="mt-4 mb-3 text-label text-ink-2 uppercase" role="status">
-			{#if query === null}
+			{#if filteringWord && query === null}
+				<!--
+					Counted by the Tag rather than by the shelf, because that is
+					the question the reader just asked. It counts what is on this
+					answer, so it is the Tag's own number only while no other
+					filter is narrowing it further — Settings counts a Tag across
+					its whole Kitchen and says so there.
+				-->
+				{entries.length === 1
+					? m.tags_shelf_count_one({ tag: filteringWord })
+					: m.tags_shelf_count({ count: entries.length, tag: filteringWord })}
+			{:else if query === null}
 				{entries.length === 1 ? m.recipes_count_one() : m.recipes_count({ count: entries.length })}
 			{:else}
 				{entries.length === 1 ? m.recipes_found_one() : m.recipes_found({ count: entries.length })}

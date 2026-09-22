@@ -17,6 +17,7 @@
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import ImportCrouton from './ImportCrouton.svelte';
+	import Tags from './Tags.svelte';
 	import InstallSteps from '$lib/offline/InstallSteps.svelte';
 	import { thisDevice } from '$lib/offline/device.svelte';
 	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
@@ -682,6 +683,30 @@
 					{m.kitchen_join()}
 				</button>
 			</form>
+		</Section>
+
+		<!--
+			Tags (#104). Beneath Kitchens because a tag belongs to a Kitchen
+			(ADR 0007) and this section is one card per Kitchen, reading as a
+			continuation of the one above it.
+
+			Renaming and merging are HERE and not on the recipe page, which is
+			Aurélien's choice of 22 September 2026 — `Tags.svelte` beside this
+			file records his reasoning. Putting them in Settings is not the same
+			mistake Meaning Search would have made by living here: a tag is
+			discovered on a recipe, where the row and the sheet are, and this is
+			only where the list is tidied.
+		-->
+		<!--
+			`readingLanguage` is the account's, not the interface's: this screen
+			already holds the preferences, and naming a Tag in the locale the
+			buttons happen to be in would name it in the wrong Language for
+			anybody whose two settings differ (ADR 0006). Until the preferences
+			land, English — the same fallback `set_reading_preferences` is
+			offered with above.
+		-->
+		<Section heading={m.settings_tags()}>
+			<Tags {kitchens} readingLanguage={preferences?.reading_language ?? 'en'} />
 		</Section>
 	{/if}
 

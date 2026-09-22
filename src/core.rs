@@ -3550,7 +3550,16 @@ impl Core {
     ///
     /// Both filters are the caller's to pass on each request and are held
     /// nowhere: a filter that persists is a mode, and a mode you forgot you
-    /// set is the Kitchen switcher wearing a hat.
+    /// set is the Kitchen switcher wearing a hat. `tag_id` is the third and
+    /// behaves the same way (#104) — it is what makes a Tag something you can
+    /// browse by rather than only a word that happens to match. It narrows the
+    /// shelf *before* the query runs, so a Tag and a search compose: the eight
+    /// recipes tagged *spicy*, and *chicken* among those eight.
+    ///
+    /// A Lineage passes the Tag filter when **any Branch the shelf just decided
+    /// this reader may see** carries it. Tagging is per Branch, and a
+    /// Translation is a Branch (ADR 0006), so a recipe tagged in French and
+    /// read in English is still the recipe you tagged.
     ///
     /// This reads every visible recipe and matches in Rust rather than asking
     /// SQLite. That is honest for a library of this size — the real one is 86
@@ -3564,6 +3573,7 @@ impl Core {
         query: Option<&str>,
         kitchen_id: Option<&str>,
         mine: bool,
+        tag_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let query = query.map(str::trim).filter(|q| !q.is_empty());
         let needle = query.map(folded_for_search);
@@ -3581,6 +3591,17 @@ impl Core {
             if let Some(kitchen_id) = kitchen_id {
                 ensure_member(conn, kitchen_id, person_id)?;
             }
+            // A Tag of a Kitchen the caller does not cook in is not here at
+            // all, rather than here and refused (ADR 0040) — the same answer
+            // `set_recipe_tag` gives for the same id.
+            let tagged = match tag_id {
+                Some(tag_id) => {
+                    let of_kitchen = kitchen_of_tag(conn, tag_id)?;
+                    ensure_member_or_absent(conn, &of_kitchen, person_id, no_such_tag)?;
+                    Some(branches_with_tag(conn, tag_id)?)
+                }
+                None => None,
+            };
             let reading_language = reading_language_of(conn, person_id)?;
             let (lineages, branches) = shelf_of(conn, person_id, kitchen_id, &reading_language)?;
 
@@ -3623,6 +3644,16 @@ impl Core {
                 }
 
                 let of_lineage = &branches[&lineage_id];
+                // The Tag filter, asked of every Branch this reader may see
+                // rather than only the one the card opens: a recipe tagged on
+                // its French Branch and read in English is the same recipe.
+                if let Some(tagged) = &tagged
+                    && !of_lineage
+                        .iter()
+                        .any(|branch| tagged.contains(&branch.branch_id))
+                {
+                    continue;
+                }
                 let shown = &of_lineage[0];
                 let content = version_content(conn, &shown.head_version_id)?;
                 let title = content["title"].as_str().unwrap_or_default().to_string();
@@ -11559,7 +11590,56 @@ fn tag_summary(
         "name": shown.map(|(_, name)| name.as_str()),
         "language": shown.map(|(language, _)| language.as_str()),
         "names": names,
+        "recipes": recipes_with_tag(conn, tag_id)?,
+        // Whether the word above is NOT in this reader's Reading Language
+        // (#104). Said here rather than worked out by a screen, for the reason
+        // a shelf entry's `language_fallback` is: the Reading Language lives on
+        // the account, so a screen comparing against the *interface* locale
+        // marks every tag wrongly for anybody whose two settings differ. Only
+        // the Core knows which name it just chose and why.
+        "language_fallback": shown.is_some_and(|(language, _)| language != &reading_language),
     }))
+}
+
+/// How many recipes carry a Tag — **distinct Lineages, not Branches** (#104).
+///
+/// Counted that way because it is a number the screen sets beside the shelf's
+/// own. A Tag says *9 recipes* in Settings and the shelf says *9 tagged batch
+/// cook*, and the shelf is one entry per Lineage (ADR 0027): counting rows of
+/// `branch_tags` would say ten the moment somebody tagged both a recipe and its
+/// Translation, which is one recipe on every screen that shows it.
+///
+/// No permission question here. A Tag belongs to one Kitchen (ADR 0007) and so
+/// does every Branch that can carry it, so a caller who may see the Tag at all
+/// may see everything counted.
+fn recipes_with_tag(conn: &rusqlite::Connection, tag_id: &str) -> Result<i64, OpError> {
+    conn.query_row(
+        "SELECT COUNT(DISTINCT branches.lineage_id) FROM branch_tags \
+         JOIN branches ON branches.id = branch_tags.branch_id \
+         WHERE branch_tags.tag_id = ?1",
+        params![tag_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot count a Tag's recipes: {e}")))
+}
+
+/// The Branches carrying one Tag, for the shelf's Tag filter (#104).
+///
+/// Read once before the shelf's loop rather than asked per Lineage: the filter
+/// is a set membership test, and forty recipes would otherwise be forty
+/// queries.
+fn branches_with_tag(
+    conn: &rusqlite::Connection,
+    tag_id: &str,
+) -> Result<HashSet<String>, OpError> {
+    let mut statement = conn
+        .prepare("SELECT branch_id FROM branch_tags WHERE tag_id = ?1")
+        .map_err(|e| OpError::internal(format!("cannot read a Tag's recipes: {e}")))?;
+    statement
+        .query_map(params![tag_id], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read a Tag's recipes: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read a Tag's recipes: {e}")))
 }
 
 /// The fold two spellings of one word share **for the purpose of finding it**

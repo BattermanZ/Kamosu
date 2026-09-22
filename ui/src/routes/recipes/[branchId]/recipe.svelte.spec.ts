@@ -288,6 +288,41 @@ describe('a Divergence', () => {
 		expect(screen.getByRole('button', { name: /Cross to Maison Batterman/ })).toBeInTheDocument();
 	});
 
+	it('carries your tags in your own Branch and none once you have crossed', async () => {
+		// A Divergence does not mark Tags (ADR 0019), and the `divergence`
+		// Operation therefore carries none — so there is nothing of his to show,
+		// and showing yours beside his recipe would say something false about
+		// whose filing it is (#104).
+		const spicy = {
+			id: 't_spicy',
+			kitchen_id: 'k_mine',
+			name: 'spicy',
+			language: 'en',
+			names: [{ language: 'en', name: 'spicy' }],
+			recipes: 14,
+			// The Core decides this, against the Reading Language (#104).
+			language_fallback: false,
+		};
+		renderRecipe(
+			forked({
+				list_tags: { tags: [spicy] },
+				get_recipe: { ...(forked().get_recipe as GetRecipeOutput), tags: [spicy] },
+			}),
+		);
+
+		expect(await screen.findByRole('link', { name: /spicy/ })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Add a tag' })).toBeInTheDocument();
+
+		// The Threshold arrives with the `divergence` answer, which lands after
+		// the recipe does — so it is waited for rather than assumed.
+		await fireEvent.click(await screen.findByRole('button', { name: /Cross to Chez Marc/ }));
+		await screen.findByText('¾ cup potato starch');
+
+		// His recipe, so no Tags row at all — not yours, and not an empty one.
+		expect(screen.queryByRole('link', { name: /spicy/ })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Add a tag' })).not.toBeInTheDocument();
+	});
+
 	it('shows a line only one side has as a Ghost, named, in its own position', async () => {
 		renderRecipe();
 

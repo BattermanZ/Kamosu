@@ -3697,6 +3697,226 @@ async fn a_rename_onto_a_word_the_kitchen_already_files_by_is_refused() {
     assert_eq!(respelt["result"]["name"], json!("Dessert"));
 }
 
+/// The shelf's Tag filter (#104): a Tag is something a person browses by, not
+/// only a word a search happens to match.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tag_narrows_the_shelf_and_composes_with_a_search() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, other_key, other_kitchen) = person_with_kitchen(&app, "Marc");
+
+    let spicy = tag_in(&app, &key, &kitchen, "en", "spicy");
+    let ramen = recipe_in(&app, &key, &kitchen, "Spicy Korean Chicken Ramen");
+    let curry = recipe_in(&app, &key, &kitchen, "Katsu Curry");
+    // The one this filter must never answer with.
+    recipe_in(&app, &key, &kitchen, "Gâteau au chocolat");
+    file_under(&app, &key, &ramen, &spicy, true);
+    file_under(&app, &key, &curry, &spicy, true);
+
+    let shelf = |input: Value| {
+        let (status, answer) = app.post_op("search_recipes", Some(&key), &input.to_string());
+        assert_eq!(status, 200, "{answer}");
+        answer["result"]["recipes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["title"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+
+    // No Tag named is the whole shelf, as it was before this filter existed.
+    assert_eq!(shelf(json!({})).len(), 3);
+
+    // Named, it is the two carrying it — and the cake is not among them.
+    let tagged = shelf(json!({ "tag_id": spicy }));
+    assert_eq!(tagged.len(), 2, "{tagged:?}");
+    assert!(!tagged.iter().any(|title| title.contains("Gâteau")));
+
+    // A Tag and a query COMPOSE rather than compete: *ramen* among the spicy
+    // ones, which is one recipe, not the whole shelf's ramen and not all the
+    // spicy.
+    assert_eq!(
+        shelf(json!({ "tag_id": spicy, "query": "ramen" })),
+        vec!["Spicy Korean Chicken Ramen".to_string()]
+    );
+
+    // A word that matches nothing inside the Tag finds nothing, even though it
+    // matches a recipe on the shelf: the filter is applied, not suggested.
+    assert!(shelf(json!({ "tag_id": spicy, "query": "gâteau" })).is_empty());
+
+    // Taking a recipe back off the Tag takes it off this answer too. Nothing
+    // here is a Version, so nothing needed saving.
+    file_under(&app, &key, &curry, &spicy, false);
+    assert_eq!(
+        shelf(json!({ "tag_id": spicy })),
+        vec!["Spicy Korean Chicken Ramen".to_string()]
+    );
+
+    // Marc's Tag is not this caller's to hear about, so naming it answers
+    // exactly as an unminted Tag id does (ADR 0040).
+    let theirs = tag_in(&app, &other_key, &other_kitchen, "en", "spicy");
+    let (status, refused) = app.post_op(
+        "search_recipes",
+        Some(&key),
+        &json!({ "tag_id": theirs }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("no such Tag"),
+        "{refused}"
+    );
+
+    // And an id that names nothing says the same sentence.
+    let (status, refused) = app.post_op(
+        "search_recipes",
+        Some(&key),
+        &json!({ "tag_id": "t_nothing" }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("no such Tag"),
+        "an unminted id and somebody else's Tag answer in the same words: {refused}"
+    );
+}
+
+/// A Tag says how many recipes carry it, counted the way the shelf counts
+/// (#104) — so *9 recipes* in Settings and *9 tagged batch cook* on the shelf
+/// are the same nine.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tag_counts_its_recipes_as_the_shelf_counts_them() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let dessert = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let count_of = |tag_id: &str| {
+        let (status, listed) = app.post_op(
+            "list_tags",
+            Some(&key),
+            &json!({ "kitchen_id": kitchen }).to_string(),
+        );
+        assert_eq!(status, 200, "{listed}");
+        listed["result"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tag| tag["id"] == json!(tag_id))
+            .unwrap()["recipes"]
+            .as_i64()
+            .unwrap()
+    };
+
+    // A Tag nobody has used yet counts zero. Settings offers to delete one and
+    // has to say what that would cost, and *no recipes* is an answer where a
+    // blank is not.
+    assert_eq!(count_of(&dessert), 0);
+
+    let mousse = recipe_in(&app, &key, &kitchen, "Mousse au chocolat");
+    file_under(&app, &key, &mousse, &dessert, true);
+    assert_eq!(count_of(&dessert), 1);
+
+    // A Translation is a Branch of the SAME Lineage (ADR 0006). Tagging both
+    // Branches is still one recipe on every screen that shows it, so the count
+    // stays at one — this is why it counts Lineages rather than rows.
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": mousse,
+            "language": "fr",
+            "title": "Mousse au chocolat",
+            "ingredients": [{ "kind": "ingredient", "text": "200 g de chocolat noir" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"].as_str().unwrap();
+    file_under(&app, &key, french, &dessert, true);
+    assert_eq!(count_of(&dessert), 1, "one recipe, two Branches of it");
+
+    // And the shelf agrees, which is the whole reason for counting this way.
+    let (_, answer) = app.post_op(
+        "search_recipes",
+        Some(&key),
+        &json!({ "tag_id": dessert }).to_string(),
+    );
+    assert_eq!(answer["result"]["recipes"].as_array().unwrap().len(), 1);
+
+    // Setting a Tag answers with the recipe's Tags, counts included, so a
+    // screen that has just tagged something need not ask again.
+    let sponge = recipe_in(&app, &key, &kitchen, "Biscuit roulé");
+    let tags = file_under(&app, &key, &sponge, &dessert, true);
+    assert_eq!(tags["tags"][0]["recipes"], json!(2));
+}
+
+/// Whether a Tag's name is in the reader's own Language is **the Core's answer**
+/// (#104), in the same word a shelf entry already uses for the same fact.
+///
+/// A screen cannot work it out. The Reading Language is held on the account, so
+/// a screen comparing a Tag's Language against the *interface* locale marks
+/// every Tag wrongly for anybody whose two settings differ — and those are two
+/// separate settings on purpose (ADR 0016).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tag_says_whether_its_name_is_in_the_readers_own_language() {
+    let app = support::spawn_app();
+    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+
+    let mijote = tag_in(&app, &key, &kitchen, "fr", "mijoté");
+    let dessert = tag_in(&app, &key, &kitchen, "en", "dessert");
+
+    let marked = |tag_id: &str| {
+        let (status, listed) = app.post_op(
+            "list_tags",
+            Some(&key),
+            &json!({ "kitchen_id": kitchen }).to_string(),
+        );
+        assert_eq!(status, 200, "{listed}");
+        let tag = listed["result"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tag| tag["id"] == json!(tag_id))
+            .unwrap()
+            .clone();
+        (
+            tag["name"].as_str().unwrap().to_string(),
+            tag["language"].as_str().unwrap().to_string(),
+            tag["language_fallback"].as_bool().unwrap(),
+        )
+    };
+
+    // Reading in English, which is where an account starts: the French-only
+    // word is shown as the French word and marked, because a preference may
+    // never hide what a Kitchen holds (ADR 0006).
+    assert_eq!(
+        marked(&mijote),
+        ("mijoté".to_string(), "fr".to_string(), true)
+    );
+    assert_eq!(
+        marked(&dessert),
+        ("dessert".to_string(), "en".to_string(), false)
+    );
+
+    // Reading in French flips both, and neither Tag changed.
+    let (status, set) = app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "fr", "reading_measures": "metric" }).to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+
+    assert_eq!(
+        marked(&mijote),
+        ("mijoté".to_string(), "fr".to_string(), false)
+    );
+    // English is all this one has, so it is still shown — and now marked.
+    assert_eq!(
+        marked(&dessert),
+        ("dessert".to_string(), "en".to_string(), true)
+    );
+}
+
 // --- Related Recipes (issue #52) ---------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

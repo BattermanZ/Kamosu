@@ -126,6 +126,7 @@
 	import Correcting from './Correcting.svelte';
 	import Writing from './Writing.svelte';
 	import Promotion from './Promotion.svelte';
+	import Tags from './Tags.svelte';
 	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online, refreshed } from '$lib/offline/device.svelte';
@@ -860,6 +861,22 @@
 					<p class="mt-1 px-gutter text-read text-accent">{markOf(name)}</p>
 				{/if}
 			{/each}
+
+			<!--
+			What this Kitchen says about the dish, above the dish itself (#104).
+			The row is drawn on every recipe, tagged or not — Aurélien's choice,
+			and `Tags.svelte` holds why.
+
+			NOT DRAWN WHEN YOU HAVE CROSSED TO THE OTHER BRANCH. A Divergence
+			does not mark tags (ADR 0019) and the `divergence` Operation
+			therefore carries none, so there is nothing of theirs to show and
+			showing yours beside their recipe would say something false about
+			whose filing it is. Standing in your own Branch — which is every
+			recipe that has no second Branch at all — the row is simply there.
+		-->
+			{#if recipe && side === 'mine'}
+				<Tags branchId={recipe.branch_id} kitchenId={recipe.kitchen_id} tags={recipe.tags} />
+			{/if}
 			<!--
 			`nutrition` is deliberately absent from that loop. Its mark goes with
 			the figure, at the foot of the Ingredients, because that is where
