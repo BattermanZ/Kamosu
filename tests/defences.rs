@@ -1517,3 +1517,339 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
         );
     }
 }
+
+// --- A Photograph is seen by whoever can already see it (#99, ADR 0026) ------
+
+/// A real, freshly encoded picture, different for each `seed`, so every
+/// Photograph below is its own hash.
+fn a_picture(seed: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(24 + seed, 20, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, (seed * 40 % 256) as u8])
+    });
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Jpeg,
+        )
+        .expect("encodes");
+    bytes
+}
+
+/// Upload a picture through the out-of-band route, as the writing screen does,
+/// and answer its Photograph id.
+fn an_upload(app: &support::TestApp, key: &str, seed: u32) -> String {
+    let (status, uploaded) = app.post_bytes(
+        "/api/photographs",
+        Some(key),
+        "image/jpeg",
+        &a_picture(seed),
+    );
+    assert_eq!(status, 200, "{uploaded}");
+    uploaded["result"]["photograph_id"]
+        .as_str()
+        .expect("a Photograph id")
+        .to_string()
+}
+
+/// What one picture route answers, reduced to what the caller can tell apart:
+/// the status and the whole body of a refusal, or a marker for bytes served.
+fn picture_answer(app: &support::TestApp, key: Option<&str>, path: &str) -> String {
+    let (status, _type, body) = app.get_bytes(path, key);
+    if status == 200 {
+        return "200 — a picture".to_string();
+    }
+    format!("{status} {}", String::from_utf8_lossy(&body))
+}
+
+/// A save more than the collapse window after the last one, so it adds a
+/// Version to the Thread rather than replacing the head (ADR 0005).
+fn backdate_the_head(app: &support::TestApp, branch_id: &str) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE branch_versions SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-2 hours') \
+                 WHERE branch_id = ?1 AND sequence = (SELECT MAX(sequence) FROM branch_versions WHERE branch_id = ?1)",
+                rusqlite::params![branch_id],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("backdate the head");
+}
+
+fn save_version(app: &support::TestApp, key: &str, input: serde_json::Value) -> String {
+    let (status, saved) = app.post_op("save_recipe_version", Some(key), &input.to_string());
+    assert_eq!(status, 200, "{saved}");
+    saved["result"]["branch_id"]
+        .as_str()
+        .expect("a Branch")
+        .to_string()
+}
+
+/// **#99: a Photograph is readable by a Person who can already see it
+/// somewhere, and by nobody else.** Two households on one instance. A
+/// Photograph's id is the hash of its bytes (ADR 0017), so Nadia needs no help
+/// to name Marc's picture: holding the same image file is enough. Asking for it
+/// must then answer exactly what asking for a picture this instance never held
+/// answers, at both routes, and must cost the instance nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_photograph_is_seen_only_by_whoever_can_already_see_it() {
+    let app = support::spawn_app();
+    let data_dir = app.data_dir().expect("a data directory").to_path_buf();
+    let marc = a_household(&app, "Marc");
+    let nadia = a_household(&app, "Nadia");
+
+    // Léa cooks in Marc's Kitchen and uploads nothing herself: every picture
+    // she reads below, she reads because the household can see it.
+    let lea = {
+        let person = app.core.create_person("Léa").expect("a Person");
+        app.core
+            .mint_access_key(&person, "browser", false)
+            .expect("an Access Key")
+            .secret
+    };
+    let (status, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&marc.key),
+        &json!({ "kitchen_id": marc.kitchen }).to_string(),
+    );
+    assert_eq!(status, 200, "{invite}");
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&lea),
+        &json!({ "secret": invite["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+
+    // What a hash this instance has never held answers, at each route. Every
+    // refusal below is held to exactly this.
+    let never = "0".repeat(64);
+    let unknown = picture_answer(&app, Some(&nadia.key), &format!("/api/photographs/{never}"));
+    let unknown_card = picture_answer(
+        &app,
+        Some(&nadia.key),
+        &format!("/api/photographs/{never}/card"),
+    );
+    assert!(unknown.starts_with("404"), "{unknown}");
+    let refused_like_nothing = |who: &str, hash: &str, why: &str| {
+        assert_eq!(
+            picture_answer(&app, Some(who), &format!("/api/photographs/{hash}")),
+            unknown,
+            "the Photograph route {why}"
+        );
+        assert_eq!(
+            picture_answer(&app, Some(who), &format!("/api/photographs/{hash}/card")),
+            unknown_card,
+            "the Display Copy route {why}"
+        );
+    };
+    let readable = |who: &str, hash: &str, why: &str| {
+        for suffix in ["", "/card", "/page", "/print"] {
+            assert_eq!(
+                picture_answer(&app, Some(who), &format!("/api/photographs/{hash}{suffix}")),
+                "200 — a picture",
+                "{suffix} {why}"
+            );
+        }
+    };
+
+    // --- The writing screen: the uploader reads a picture no recipe names yet.
+    let main = an_upload(&app, &marc.key, 1);
+    readable(
+        &marc.key,
+        &main,
+        "refuses the uploader their own picture before the save",
+    );
+    refused_like_nothing(
+        &nadia.key,
+        &main,
+        "hands Nadia a picture only Marc has uploaded",
+    );
+    refused_like_nothing(
+        &lea,
+        &main,
+        "hands the household a picture no recipe shows yet",
+    );
+
+    // --- A saved recipe: its Kitchen sees it, nobody else does.
+    let recipe = a_recipe(&app, &marc, "Pizza");
+    save_version(
+        &app,
+        &marc.key,
+        json!({ "branch_id": recipe, "title": "Pizza", "main_photo": main }),
+    );
+    readable(
+        &lea,
+        &main,
+        "refuses a member the Main Photo of her own Kitchen's recipe",
+    );
+    refused_like_nothing(
+        &nadia.key,
+        &main,
+        "tells Nadia that Marc's household holds this picture",
+    );
+
+    // A refused ask draws nothing. Nobody has asked for a `print` copy of it
+    // yet, so one on disk after Nadia's ask would be work she caused.
+    let print_copy = kamosu::photographs::display_path(
+        &data_dir,
+        &main,
+        kamosu::photographs::DisplaySize::Print,
+    );
+    let _ = std::fs::remove_file(&print_copy);
+    assert_eq!(
+        picture_answer(
+            &app,
+            Some(&nadia.key),
+            &format!("/api/photographs/{main}/print")
+        ),
+        picture_answer(
+            &app,
+            Some(&nadia.key),
+            &format!("/api/photographs/{never}/print")
+        ),
+    );
+    assert!(
+        !print_copy.exists(),
+        "a refused request generated a Display Copy"
+    );
+
+    // --- A Step's picture, shown only by an older Version in the Thread.
+    let step = an_upload(&app, &marc.key, 2);
+    save_version(
+        &app,
+        &marc.key,
+        json!({
+            "branch_id": recipe,
+            "title": "Pizza",
+            "main_photo": main,
+            "steps": [{ "kind": "step", "text": "Stretch the dough.", "photo": step }],
+        }),
+    );
+    backdate_the_head(&app, &recipe);
+    save_version(
+        &app,
+        &marc.key,
+        json!({ "branch_id": recipe, "title": "Pizza", "main_photo": main }),
+    );
+    readable(&lea, &step, "forgets a picture the Thread still shows");
+    refused_like_nothing(
+        &nadia.key,
+        &step,
+        "hands Nadia a picture from Marc's Thread",
+    );
+
+    // --- A picture shown only by a Translation of the recipe.
+    let (status, started) = app.post_op(
+        "start_translation",
+        Some(&marc.key),
+        &json!({ "branch_id": recipe, "language": "fr", "title": "Pizza" }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let translation = started["result"]["branch_id"]
+        .as_str()
+        .expect("a Translation")
+        .to_string();
+    let translated = an_upload(&app, &marc.key, 3);
+    save_version(
+        &app,
+        &marc.key,
+        json!({ "branch_id": translation, "title": "Pizza", "main_photo": translated }),
+    );
+    readable(
+        &lea,
+        &translated,
+        "refuses a member the picture on a Translation",
+    );
+    refused_like_nothing(
+        &nadia.key,
+        &translated,
+        "hands Nadia a Translation's picture",
+    );
+
+    // --- A picture an Attempt holds and no recipe names (#59).
+    let (status, attempt) = app.post_op(
+        "start_attempt",
+        Some(&marc.key),
+        &json!({ "branch_id": recipe }).to_string(),
+    );
+    assert_eq!(status, 200, "{attempt}");
+    let plate = an_upload(&app, &marc.key, 4);
+    let (status, edited) = app.post_op(
+        "edit_attempt",
+        Some(&marc.key),
+        &json!({ "attempt_id": attempt["result"]["id"], "add_photographs": [plate] }).to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    readable(
+        &lea,
+        &plate,
+        "refuses the household a picture of its own cooking",
+    );
+    refused_like_nothing(
+        &nadia.key,
+        &plate,
+        "hands Nadia a picture of Marc's cooking",
+    );
+
+    // --- Detached from everything: the household stops seeing it at once,
+    // rather than a week later when the sweep takes it. A save inside the
+    // collapse window replaces the head, so the picture is on nothing.
+    let passing = an_upload(&app, &marc.key, 5);
+    let pasta = a_recipe(&app, &marc, "Pasta");
+    save_version(
+        &app,
+        &marc.key,
+        json!({ "branch_id": pasta, "title": "Pasta", "main_photo": passing }),
+    );
+    readable(
+        &lea,
+        &passing,
+        "refuses a member a picture on her Kitchen's recipe",
+    );
+    save_version(
+        &app,
+        &marc.key,
+        json!({ "branch_id": pasta, "title": "Pasta" }),
+    );
+    refused_like_nothing(
+        &lea,
+        &passing,
+        "keeps a detached picture readable by the household",
+    );
+
+    // --- Nobody without a Credential, as before.
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{main}"), None);
+    assert_eq!(status, 401);
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{main}/card"), None);
+    assert_eq!(status, 401);
+
+    // --- The Share Link is its own route with its own check, untouched: a
+    // stranger with a live link reads the shared recipe's picture, and an
+    // ended link refuses.
+    let (status, shared) = app.post_op(
+        "share_recipe",
+        Some(&marc.key),
+        &json!({ "branch_id": recipe, "public_address": "https://kamosu.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "{shared}");
+    let token = shared["result"]["url"]
+        .as_str()
+        .expect("a link")
+        .rsplit('/')
+        .next()
+        .expect("a token")
+        .to_string();
+    let (status, content_type, _) = app.get_bytes(&format!("/s/{token}/photo/{main}"), None);
+    assert_eq!((status, content_type.as_str()), (200, "image/webp"));
+    let (status, ended) = app.post_op(
+        "end_share_link",
+        Some(&marc.key),
+        &json!({ "branch_id": recipe }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+    let (status, _, _) = app.get_bytes(&format!("/s/{token}/photo/{main}"), None);
+    assert_eq!(status, 404, "an ended link still hands out the picture");
+}

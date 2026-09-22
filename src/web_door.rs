@@ -270,7 +270,7 @@ fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response 
     let secret = bearer_from_headers(headers);
     match core
         .authenticate_for_write(secret.as_deref())
-        .and_then(|_| core.store_photograph(body))
+        .and_then(|caller| core.upload_photograph(&caller, body))
     {
         Ok(result) => respond_to(headers, Ok(result)),
         Err(err) => respond_to(headers, Err(err)),
@@ -333,11 +333,14 @@ async fn write_upload(body: Body, path: &std::path::Path) -> Result<(), OpError>
 }
 
 /// `GET /api/photographs/{hash}`: the Photograph's own bytes, WebP.
+///
+/// The Caller goes through to the Core, which decides whether they may see
+/// the picture (#99). Nothing here asks: a check in a Door is a bug (ADR 0001).
 fn get_photograph(core: &Core, headers: &HeaderMap, hash: &str) -> Response {
     let secret = bearer_from_headers(headers);
     match core
         .authenticate(secret.as_deref())
-        .and_then(|_| core.read_photograph(hash))
+        .and_then(|caller| core.read_photograph(&caller, hash))
     {
         Ok(bytes) => image_response(bytes),
         Err(err) => respond_to(headers, Err(err)),
@@ -358,7 +361,7 @@ fn get_display_copy(core: &Core, headers: &HeaderMap, hash: &str, size: &str) ->
     };
     match core
         .authenticate(secret.as_deref())
-        .and_then(|_| core.read_display_copy(hash, size))
+        .and_then(|caller| core.read_display_copy(&caller, hash, size))
     {
         Ok(bytes) => image_response(bytes),
         Err(err) => respond_to(headers, Err(err)),

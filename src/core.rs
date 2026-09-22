@@ -3173,11 +3173,92 @@ impl Core {
         })
     }
 
-    /// Read a Photograph's own bytes back — the out-of-band Web Door route
-    /// asks for these directly; no Operation wraps binary output in JSON.
-    pub fn read_photograph(&self, hash: &str) -> Result<Vec<u8>, OpError> {
+    /// A picture a Person uploaded, remembered as theirs so they can read it
+    /// back before anything names it (#99). What the upload answers is exactly
+    /// what [`Core::store_photograph`] answers, whether or not the picture was
+    /// already here, so uploading still tells the caller nothing.
+    pub fn upload_photograph(&self, caller: &Caller, bytes: &[u8]) -> Result<Value, OpError> {
+        let stored = self.store_photograph(bytes)?;
+        let hash = stored["photograph_id"]
+            .as_str()
+            .ok_or_else(|| OpError::internal("a stored Photograph came back with no id"))?;
+        self.db().with_conn(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO photograph_uploads (hash, person_id) VALUES (?1, ?2)",
+                params![hash, caller.person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record the upload: {e}")))?;
+            Ok(())
+        })?;
+        Ok(stored)
+    }
+
+    /// Read a Photograph's own bytes back, for a caller who may see it — the
+    /// out-of-band Web Door route asks for these directly; no Operation wraps
+    /// binary output in JSON.
+    ///
+    /// **Who may see it is asked here and not in the Door** (ADR 0001): the
+    /// route carries raw bytes, so it never passes through the Catalogue's
+    /// dispatch, and a check written into the Door would be the bug that rule
+    /// names. A caller who may not see it is told exactly what a hash this
+    /// instance never held is told (ADR 0040) — a Photograph's id is a hash of
+    /// its bytes, so anybody holding the file can name it (ADR 0017).
+    pub fn read_photograph(&self, caller: &Caller, hash: &str) -> Result<Vec<u8>, OpError> {
+        self.may_see_photograph(caller, hash)?;
+        self.photograph_bytes(hash)
+    }
+
+    /// Read a Photograph's bytes with no question asked of who wants them —
+    /// for the paths that have already decided: a Share Link that carries the
+    /// picture, a Sheet or Bundle of a recipe the caller may read.
+    fn photograph_bytes(&self, hash: &str) -> Result<Vec<u8>, OpError> {
         std::fs::read(photographs::photograph_path(&self.data_dir(), hash))
-            .map_err(|_| OpError::not_found("no such Photograph"))
+            .map_err(|_| no_such_photograph())
+    }
+
+    /// Refuse, as if the picture were not here at all, unless this caller can
+    /// already see it somewhere (#99). Three places count, and ADR 0026's
+    /// boundary — the Kitchens you cook in — is the whole of the first two:
+    ///
+    /// - **a Version** naming it, carried by a Branch of a Kitchen the caller
+    ///   cooks in. Every Version the Branch carries, not only its head,
+    ///   because the Thread opens any of them (ADR 0005); a Translation is a
+    ///   Branch like any other, so it is covered by the same join (ADR 0006).
+    /// - **an Attempt** holding it, of the caller's own or of anybody in the
+    ///   household: the people sharing with them a Kitchen that holds the
+    ///   Lineage, the scope [`cooking_record`] already uses. A household
+    ///   Attempt counts for its own pictures only; the Version it pins is the
+    ///   cook's own business, while their own Attempts count whole, since the
+    ///   Diary shows them after the recipe has gone.
+    /// - **an upload** of it by the caller. This is what lets the writing
+    ///   screen show a picture before the save names it.
+    ///
+    /// The uploader keeps it for good, not only while it is attached to
+    /// nothing. Limiting it that way makes an oracle of its own: upload a picture, and whether you can
+    /// read it back would say whether some recipe on the instance shows it.
+    /// An uploader holds the bytes already, so reading them back leaks
+    /// nothing. The household, meanwhile, loses a detached picture at once
+    /// rather than when the sweep takes it a week later.
+    ///
+    /// **Asked fresh every time, not kept in a table beside the sweep.** The
+    /// Recipes screen asks for dozens of Display Copies at once, so this runs
+    /// in bursts — but each one is a few indexed joins filtered by `instr` on
+    /// the stored JSON, so only the rows that could name this hash are parsed.
+    /// A kept table would need the sweep's reasoning about tallies (see
+    /// [`Core::referenced_photographs`]) and would only move the cost to the
+    /// writes, where a stale row wrongly *grants* a picture.
+    ///
+    /// Runs before any file is read, so a refused ask never draws a Display
+    /// Copy: that is work a stranger could cause at will (ADR 0032).
+    fn may_see_photograph(&self, caller: &Caller, hash: &str) -> Result<(), OpError> {
+        let seen = self
+            .db()
+            .with_conn(|conn| photograph_seen_by(conn, &caller.person_id, hash))?;
+        if seen {
+            Ok(())
+        } else {
+            Err(no_such_photograph())
+        }
     }
 
     /// How long a Photograph nothing points at is kept before the sweep takes
@@ -3402,7 +3483,22 @@ impl Core {
     /// Read a Display Copy, generating and caching it on first ask. Display
     /// Copies are worked out from the Photograph and kept only for
     /// convenience (ADR 0017), so a missing one is made rather than an error.
+    ///
+    /// Asks [`Core::may_see_photograph`] first, before the cache as much as
+    /// before the drawing: a cached copy is still somebody's picture.
     pub fn read_display_copy(
+        &self,
+        caller: &Caller,
+        hash: &str,
+        size: photographs::DisplaySize,
+    ) -> Result<Vec<u8>, OpError> {
+        self.may_see_photograph(caller, hash)?;
+        self.display_copy_bytes(hash, size)
+    }
+
+    /// [`Core::read_display_copy`] with no question asked of who wants it,
+    /// for the paths that have already decided, as [`Core::photograph_bytes`].
+    fn display_copy_bytes(
         &self,
         hash: &str,
         size: photographs::DisplaySize,
@@ -3411,7 +3507,7 @@ impl Core {
         if let Ok(cached) = std::fs::read(&path) {
             return Ok(cached);
         }
-        let source = self.read_photograph(hash)?;
+        let source = self.photograph_bytes(hash)?;
         let copy = photographs::display_copy(&source, size.long_edge())?;
         std::fs::create_dir_all(photographs::display_dir(&self.data_dir())).map_err(|e| {
             OpError::internal(format!("cannot create Display Copies directory: {e}"))
@@ -6086,7 +6182,7 @@ impl Core {
                 "this Photograph is not on this shared Recipe",
             ));
         }
-        self.read_display_copy(hash, size)
+        self.display_copy_bytes(hash, size)
     }
 
     /// The picture a messaging app shows for a Share Link (#65).
@@ -6123,7 +6219,7 @@ impl Core {
         let title = recipe["content"]["title"].as_str().unwrap_or("");
         let lineage_id = recipe["lineage_id"].as_str().unwrap_or("");
         let photograph = match recipe["content"]["main_photo"].as_str() {
-            Some(hash) => Some(self.read_display_copy(hash, photographs::DisplaySize::Print)?),
+            Some(hash) => Some(self.display_copy_bytes(hash, photographs::DisplaySize::Print)?),
             None => None,
         };
         let drawn = crate::share_card::draw(
@@ -6287,7 +6383,7 @@ impl Core {
                 // A Main Photo whose picture cannot be read prints no strip
                 // rather than failing the page: the recipe is what it is for.
                 let photo = main_photo.as_deref().and_then(|hash| {
-                    self.read_display_copy(hash, photographs::DisplaySize::Print)
+                    self.display_copy_bytes(hash, photographs::DisplaySize::Print)
                         .and_then(|copy| sheet::print_photo(&copy))
                         .map_err(|err| {
                             tracing::warn!("a Sheet prints without its photograph: {err}")
@@ -6487,7 +6583,7 @@ impl Core {
     /// but the Bundle says so rather than being quietly short.
     fn fill_photographs(&self, contents: &mut bundles::Contents, hashes: Vec<String>) {
         for hash in hashes {
-            match self.read_photograph(&hash) {
+            match self.photograph_bytes(&hash) {
                 Ok(bytes) => contents.photographs.push((hash, bytes)),
                 Err(_) => contents.missing_photographs.push(hash),
             }
@@ -10639,10 +10735,128 @@ fn person_name(conn: &Connection, person_id: &str) -> Result<String, OpError> {
 /// *what changed* line, the Hand that wrote it, and when.
 type ThreadRow = (i64, Option<String>, Option<String>, String, String);
 
+/// What a Photograph route answers about a hash this instance never held, and
+/// so, word for word, about one the caller may not see (#99, ADR 0040).
+fn no_such_photograph() -> OpError {
+    OpError::not_found("no such Photograph")
+}
+
+/// Whether this Person can already see this Photograph somewhere — the rule
+/// [`Core::may_see_photograph`] explains.
+///
+/// Every query narrows with `instr` on the stored JSON before anything is
+/// parsed, so a burst of Display Copies costs a string search per candidate
+/// row rather than a parse of the whole library. What `instr` finds is then
+/// confirmed field by field: a hash typed into a recipe's words is not a
+/// picture the recipe shows.
+fn photograph_seen_by(conn: &Connection, person_id: &str, hash: &str) -> Result<bool, OpError> {
+    let failed = |e: rusqlite::Error| OpError::internal(format!("cannot read who sees it: {e}"));
+
+    let uploaded: bool = conn
+        .query_row(
+            "SELECT EXISTS (SELECT 1 FROM photograph_uploads WHERE hash = ?1 AND person_id = ?2)",
+            params![hash, person_id],
+            |row| row.get(0),
+        )
+        .map_err(failed)?;
+    if uploaded {
+        return Ok(true);
+    }
+
+    // A Version carried by a Branch of a Kitchen this Person cooks in.
+    let mut statement = conn
+        .prepare_cached(
+            "SELECT versions.content FROM versions
+               JOIN branch_versions ON branch_versions.version_id = versions.id
+               JOIN branches ON branches.id = branch_versions.branch_id
+               JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id
+              WHERE kitchen_members.person_id = ?2 AND instr(versions.content, ?1) > 0",
+        )
+        .map_err(failed)?;
+    let contents = statement
+        .query_map(params![hash, person_id], |row| row.get::<_, String>(0))
+        .map_err(failed)?;
+    for content in contents {
+        if stored_content_shows(&content.map_err(failed)?, hash) {
+            return Ok(true);
+        }
+    }
+
+    // An Attempt: this Person's own, whole — its pictures and the Versions it
+    // pins — or one of the household's, for the pictures it holds itself.
+    let mut statement = conn
+        .prepare_cached(
+            "SELECT attempts.person_id = ?2, attempts.photographs,
+                    pinned.content, as_cooked.content
+               FROM attempts
+               JOIN versions AS pinned ON pinned.id = attempts.version_id
+               LEFT JOIN versions AS as_cooked ON as_cooked.id = attempts.as_cooked_version_id
+              WHERE (instr(attempts.photographs, ?1) > 0
+                     OR instr(pinned.content, ?1) > 0
+                     OR instr(as_cooked.content, ?1) > 0)
+                AND (attempts.person_id = ?2 OR EXISTS (
+                      SELECT 1 FROM branches
+                        JOIN kitchen_members AS mine ON mine.kitchen_id = branches.kitchen_id
+                        JOIN kitchen_members AS theirs ON theirs.kitchen_id = branches.kitchen_id
+                       WHERE branches.lineage_id = attempts.lineage_id
+                         AND mine.person_id = ?2
+                         AND theirs.person_id = attempts.person_id))",
+        )
+        .map_err(failed)?;
+    let attempts = statement
+        .query_map(params![hash, person_id], |row| {
+            Ok((
+                row.get::<_, bool>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(failed)?;
+    for attempt in attempts {
+        let (own, held, pinned, as_cooked) = attempt.map_err(failed)?;
+        let held: Vec<String> = serde_json::from_str(&held).unwrap_or_default();
+        if held.iter().any(|photograph| photograph == hash) {
+            return Ok(true);
+        }
+        if !own {
+            continue;
+        }
+        if std::iter::once(pinned)
+            .chain(as_cooked)
+            .any(|content| stored_content_shows(&content, hash))
+        {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+/// [`content_shows_photograph`] over a Version's content as it is stored.
+///
+/// A row that will not parse shows nothing, so its pictures are refused: the
+/// safe way to fail here, where the sweep's hard failure would be the unsafe
+/// one. It is still said, since a damaged Version is worth knowing about.
+fn stored_content_shows(stored: &str, hash: &str) -> bool {
+    match serde_json::from_str::<Value>(stored) {
+        Ok(content) => content_shows_photograph(&content, hash),
+        Err(error) => {
+            tracing::warn!("a Version's content is not readable: {error}");
+            false
+        }
+    }
+}
+
 /// Whether one shared Version actually shows this Photograph — its Main Photo,
 /// or the picture on one of its Steps.
 fn version_shows_photograph(version: &Value, hash: &str) -> bool {
-    let content = &version["content"];
+    content_shows_photograph(&version["content"], hash)
+}
+
+/// Whether a Version's content shows this Photograph, read off the content
+/// alone.
+fn content_shows_photograph(content: &Value, hash: &str) -> bool {
     if content["main_photo"].as_str() == Some(hash) {
         return true;
     }

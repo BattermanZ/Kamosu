@@ -834,7 +834,7 @@ pub fn rename_version(
 /// the identical `Core::store_photograph`.
 pub fn upload_photograph(
     core: &Core,
-    _invocation: &Invocation,
+    invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
     let data = input.get("data").and_then(Value::as_str).ok_or_else(|| {
@@ -844,7 +844,7 @@ pub fn upload_photograph(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
-    core.store_photograph(&bytes)
+    core.upload_photograph(caller_of(invocation)?, &bytes)
 }
 
 /// Ask for the orphan sweep now rather than waiting for the daily one (#46).

@@ -1302,6 +1302,32 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX shopping_choices_by_person ON shopping_choices(person_id, chosen_at);
         "#,
     },
+    Migration {
+        version: 34,
+        description: "who uploaded a Photograph, so they can read it back (#99)",
+        sql: r#"
+        -- A Photograph is read by whoever can already see it: a Kitchen whose
+        -- recipe shows it, a household whose cooking holds it, or the Person
+        -- who uploaded it (#99). The last one is what this records. The writing
+        -- screen shows a picture the moment its upload answers, long before a
+        -- save names it anywhere, and without this row nobody could read it.
+        --
+        -- A table rather than a column on `photographs`, because storage is
+        -- content-addressed: two Persons uploading the same picture get the
+        -- same Photograph, and each must read it back. One column would hand
+        -- it to whoever came first and break the second writer's screen.
+        --
+        -- Starts empty. A picture already on an instance is either attached
+        -- to something or inside the orphan grace, and handing an old picture
+        -- to a Person who never uploaded it here would be the leak this closes.
+        CREATE TABLE photograph_uploads (
+            hash        TEXT NOT NULL REFERENCES photographs(hash) ON DELETE CASCADE,
+            person_id   TEXT NOT NULL REFERENCES people(id),
+            uploaded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (hash, person_id)
+        );
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

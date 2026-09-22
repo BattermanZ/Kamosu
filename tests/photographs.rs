@@ -228,8 +228,11 @@ async fn fetching_a_photograph_without_a_credential_is_refused() {
     assert_eq!(status, 401);
 }
 
+/// Once #99's rule: a picture no recipe shows yet is its uploader's alone. The
+/// rest of that rule — Kitchens, Threads, Attempts, and two households
+/// answered alike — is asserted in `tests/defences.rs`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_photograph_is_readable_by_any_person_on_the_instance_not_only_its_uploader() {
+async fn a_photograph_nothing_shows_yet_is_readable_by_its_uploader_and_nobody_else() {
     let app = support::spawn_app();
     let uploader = app.core.create_person("Aurélien").expect("person");
     let uploader_key = app
@@ -254,20 +257,44 @@ async fn a_photograph_is_readable_by_any_person_on_the_instance_not_only_its_upl
     let hash = uploaded["result"]["photograph_id"].as_str().unwrap();
 
     let (status, content_type, _) =
-        app.get_bytes(&format!("/api/photographs/{hash}"), Some(&stranger_key));
+        app.get_bytes(&format!("/api/photographs/{hash}"), Some(&uploader_key));
     assert_eq!(status, 200);
     assert_eq!(content_type, "image/webp");
+
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{hash}"), Some(&stranger_key));
+    assert_eq!(status, 404);
+
+    // The same picture uploaded again by the stranger is the same Photograph,
+    // and now theirs to read back too: they plainly hold its bytes.
+    let (_, again) = app.post_bytes(
+        "/api/photographs",
+        Some(&stranger_key),
+        "image/jpeg",
+        &picture,
+    );
+    assert_eq!(again["result"]["photograph_id"].as_str(), Some(hash));
+    let (status, _, _) = app.get_bytes(&format!("/api/photographs/{hash}"), Some(&stranger_key));
+    assert_eq!(status, 200);
+
+    // And the base64 fallback records its uploader the same way.
+    let other = make_jpeg(21, 20);
+    let (status, sent) = app.post_op(
+        "upload_photograph",
+        Some(&stranger_key),
+        &json!({ "data": base64_of(&other) }).to_string(),
+    );
+    assert_eq!(status, 200, "{sent}");
+    let other_hash = sent["result"]["photograph_id"].as_str().unwrap();
+    let (status, _, _) = app.get_bytes(
+        &format!("/api/photographs/{other_hash}/card"),
+        Some(&stranger_key),
+    );
+    assert_eq!(status, 200);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_photograph_arriving_already_made_is_stored_byte_for_byte_with_no_reencoding() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
-    let key = app
-        .core
-        .mint_access_key(&person, "browser session", false)
-        .unwrap()
-        .secret;
 
     // A Photograph another instance already made: a real picture, because a
     // Bundle is a file somebody else wrote and what is in it is still checked
@@ -290,9 +317,13 @@ async fn a_photograph_arriving_already_made_is_stored_byte_for_byte_with_no_reen
     );
     let hash = first["photograph_id"].as_str().unwrap().to_string();
 
-    let (status, _content_type, stored) =
-        app.get_bytes(&format!("/api/photographs/{hash}"), Some(&key));
-    assert_eq!(status, 200);
+    // Read off the disk rather than through the route: nothing names this
+    // picture and nobody uploaded it, so the route answers nobody (#99).
+    let stored = std::fs::read(kamosu::photographs::photograph_path(
+        app.data_dir().expect("a data directory"),
+        &hash,
+    ))
+    .expect("the stored bytes");
     assert_eq!(
         stored, bundle_bytes,
         "a Photograph stored verbatim must be exactly the bytes that arrived"
