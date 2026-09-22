@@ -220,11 +220,11 @@ describe('the share screen', () => {
 	});
 
 	it('saves the file straight from the server, without holding it in memory', async () => {
-		const went: string[] = [];
-		const assign = window.location.assign;
+		const assigned: string[] = [];
+		const real = Object.getOwnPropertyDescriptor(window, 'location');
 		Object.defineProperty(window, 'location', {
 			configurable: true,
-			value: { ...window.location, assign: (to: string) => went.push(to) },
+			value: { ...window.location, assign: (to: string) => assigned.push(to) },
 		});
 
 		try {
@@ -232,12 +232,11 @@ describe('the share screen', () => {
 			await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
 			// The address `export_bundle` named, and no second Operation: the
 			// bytes come down the Credential-bearing route as a download.
-			expect(went).toEqual(['/api/bundles/b_1']);
+			expect(assigned).toEqual(['/api/bundles/b_1']);
 		} finally {
-			Object.defineProperty(window, 'location', {
-				configurable: true,
-				value: { ...window.location, assign },
-			});
+			// The descriptor as it was, not a copy of it: a plain object standing in
+			// for the real Location would outlive this file.
+			if (real) Object.defineProperty(window, 'location', real);
 		}
 	});
 	it('keeps the file where it is offline, saying what it waits for', async () => {
@@ -245,7 +244,6 @@ describe('the share screen', () => {
 		// phone (`$lib/offline/reads`), so off the network there is nothing to
 		// describe the file with. The block stays put and greys rather than
 		// vanishing from under the reader (#76, option C).
-		const online = Object.getOwnPropertyDescriptor(Navigator.prototype, 'onLine');
 		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
 		try {
 			renderShare({
@@ -258,7 +256,7 @@ describe('the share screen', () => {
 			// And it does not report the link as broken: the file is not the link.
 			expect(screen.queryByText(/The link could not be changed/)).toBeNull();
 		} finally {
-			if (online) Object.defineProperty(Navigator.prototype, 'onLine', online);
+			Reflect.deleteProperty(navigator, 'onLine');
 		}
 	});
 });

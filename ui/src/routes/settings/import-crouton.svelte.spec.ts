@@ -11,9 +11,7 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 import ImportTestHarness from './ImportTestHarness.svelte';
 import { standIn } from '$lib/api/stand-in';
 import { OperationError } from '$lib/api/client';
-
-const went = vi.hoisted(() => vi.fn());
-vi.mock('$app/navigation', () => ({ goto: went }));
+import { went } from '../../testing/navigation';
 
 const zip = () => new File(['PK'], 'Crouton Recipes.zip', { type: 'application/zip' });
 

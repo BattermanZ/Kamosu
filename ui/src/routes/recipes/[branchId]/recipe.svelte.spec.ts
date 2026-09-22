@@ -15,11 +15,11 @@ import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
+import { went } from '../../../testing/navigation';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
-// stand on. Where that goes is the router's business, not this screen's.
-const went = vi.hoisted(() => vi.fn());
-vi.mock('$app/navigation', () => ({ goto: went }));
+// stand on. Where that goes is the router's business, not this screen's, so
+// `setup.ts` stubs it and `went` says where the screen asked to go.
 
 /** One slot of a Version's `readings`: what Kamosu understood, or nothing. */
 type Slot = GetRecipeOutput['versions'][number]['readings'][number];

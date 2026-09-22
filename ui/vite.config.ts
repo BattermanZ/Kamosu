@@ -73,6 +73,10 @@ export default defineConfig({
 		expect: { requireAssertions: true },
 		environment: 'jsdom',
 		setupFiles: ['./src/testing/setup.ts'],
+		// One jsdom per worker rather than per file: building it 34 times was 43 of
+		// the screen tests' 48 seconds (#122). What a shared environment lets one
+		// file leave for the next, `setup.ts` puts back at the top of every file.
+		isolate: false,
 		include: ['src/**/*.{test,spec}.{js,ts}'],
 	},
 

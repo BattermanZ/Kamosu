@@ -20,12 +20,6 @@ import { renderScreen } from '../../testing/render';
 import ShelfTestHarness from './ShelfTestHarness.svelte';
 import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
 
-// Both offers end by opening the recipe they produced. Where that goes is the
-// router's business, not this screen's, so it is stubbed and the assertions
-// below are about the Operations that ran before it.
-const went = vi.hoisted(() => vi.fn());
-vi.mock('$app/navigation', () => ({ goto: went }));
-
 const kitchen = {
 	id: 'k_home',
 	name: 'Maison',

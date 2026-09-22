@@ -22,12 +22,6 @@ import type { HomeShelvesOutput } from '$lib/api/catalogue';
 
 type Shelf = HomeShelvesOutput['shelves'][number];
 
-// Writing a recipe from the empty state ends by opening what it produced. Where
-// that goes is the router's business, not this screen's, so it is stubbed and
-// the assertion below is about the Operation that ran before it.
-const went = vi.hoisted(() => vi.fn());
-vi.mock('$app/navigation', () => ({ goto: went }));
-
 /** One card, with everything the Catalogue requires present. */
 const card = (over: Record<string, unknown> = {}) => ({
 	lineage_id: 'l_1',

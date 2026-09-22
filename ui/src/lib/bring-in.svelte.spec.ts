@@ -18,12 +18,9 @@ import BringInTestHarness from './BringInTestHarness.svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import { OperationError } from '$lib/api/client';
 import { forgetArrival } from './arrival.svelte';
-
-const went = vi.hoisted(() => vi.fn());
-vi.mock('$app/navigation', () => ({ goto: went }));
+import { went } from '../testing/navigation';
 
 afterEach(() => {
-	went.mockClear();
 	Reflect.deleteProperty(navigator, 'onLine');
 	// The arrival outlives a component on purpose: it has to survive the
 	// navigation that shows it. So a test that noted one puts it away.
