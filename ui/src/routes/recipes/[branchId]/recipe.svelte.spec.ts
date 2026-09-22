@@ -1115,6 +1115,30 @@ describe('the recipe screen', () => {
 		expect(screen.getByText('Some cooking oil (for deep frying)')).toBeInTheDocument();
 	});
 
+	/**
+	 * The first of the two doors onto a Food (#107). It carries the SAVED word
+	 * rather than whatever is in the box, and it hands over a word rather than
+	 * an id, because a Reading has no Food id to hand — `reading_schema` keeps
+	 * one out so that a Reading means the same thing in a Bundle elsewhere.
+	 */
+	it('offers the way to the Food a line named, carrying the word it was read from', async () => {
+		renderRecipe(solo());
+
+		await fireEvent.click(await screen.findByText('1.4 kg whole chicken'));
+		const door = screen.getByRole('link', { name: /About chicken/i });
+		expect(door).toHaveAttribute('href', '/foods?q=chicken');
+	});
+
+	it('offers no way to a Food where Kamosu read no Food, which has none to visit', async () => {
+		// A line with no Reading is an ordinary state, not a failure (ADR 0002),
+		// and there is no Food behind it to go and look at.
+		renderRecipe(solo());
+
+		await fireEvent.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		expect(screen.getByText('What Kamosu read')).toBeInTheDocument();
+		expect(screen.queryByRole('link', { name: /^About / })).not.toBeInTheDocument();
+	});
+
 	it('clears a Reading entirely when Kamosu read nothing there', async () => {
 		const { kamosu } = renderRecipe({
 			...solo(),

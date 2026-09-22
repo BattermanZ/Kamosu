@@ -260,6 +260,35 @@
 		</button>
 	</div>
 
+	<!--
+		THE WAY TO THE FOOD ITSELF (#107). One line, not a panel: everything a
+		Food needs saying — its names in three Languages, what a cup of it
+		weighs, how many lines point at it — is a screen's worth, and this box
+		already carries five controls.
+
+		It carries the SAVED word rather than what is in the box above, because
+		the saved word is the one that resolved to a Food. Linking to whatever
+		somebody is halfway through typing would go looking for a Food that does
+		not exist yet.
+
+		It hands over the WORD and not an id, because a Reading has no id to
+		hand: a Food is instance-local and `reading_schema` keeps an id out of
+		the Reading deliberately, so that a Reading means the same thing in a
+		Bundle on somebody else's instance. The Foods screen resolves the word,
+		and shows both where two Foods answer to it (ADR 0022) rather than
+		guessing which was meant.
+
+		Matcha, like every other way out of this page into another (#50).
+	-->
+	{#if !isComponent && reading?.target}
+		<a
+			href="/foods?q={encodeURIComponent(reading.target)}"
+			class="mt-2 block w-full text-center {MATCHA}"
+		>
+			{m.reading_about_food({ food: reading.target })}
+		</a>
+	{/if}
+
 	<button
 		type="button"
 		onclick={clear}

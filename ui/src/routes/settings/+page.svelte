@@ -711,6 +711,34 @@
 	{/if}
 
 	<!--
+		The second of the two doors onto a Food (#107). The first is the Reading
+		corrector on the recipe itself, which is where a wrong Cup Weight is
+		noticed; this one is for the Food you have to go looking for, which is
+		every Food whose name in another Language is missing — nothing on a
+		recipe naming `salt` tells you a separate `sel` exists elsewhere.
+
+		A door rather than the list itself, which is where Tags above differs: a
+		Kitchen has a handful of Tags and this instance has 607 Foods, so the
+		list is a screen with a search field on it and not a section anybody
+		scrolls past.
+
+		Shown to every Person, because a Food is instance-wide and all five of
+		its Operations are `Permission::Person` — correcting one is not an
+		Operator's power, and #103 holds the two that are.
+	-->
+	<Section heading={m.settings_foods()}>
+		<p class="text-body text-ink-2">{m.settings_foods_blurb()}</p>
+		<a
+			href="/foods"
+			class="mt-3 flex min-h-12 items-center justify-between gap-3 rounded-sm border
+			border-rule bg-card px-3 text-body font-medium text-ink"
+		>
+			{m.settings_foods_open()}
+			<span aria-hidden="true" class="text-ink-2">›</span>
+		</a>
+	</Section>
+
+	<!--
 		Shown only to somebody who could act on it, and only once they have
 		answered the offer — this is where Meaning Search is *managed*, never
 		where it is discovered. A settings screen is where features go to be

@@ -646,4 +646,25 @@ describe('the settings screen', () => {
 			input: { keep_tag_id: 't_weeknight', merge_tag_id: 't_quick' },
 		});
 	});
+
+	/**
+	 * The second of the two doors onto a Food (#107). The first is the Reading
+	 * corrector on the recipe; this is the one for a Food you have to go looking
+	 * for, and nothing else in the interface reaches it.
+	 */
+	it('offers the way into the Foods, to every Person and not only an Operator', async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			list_kitchens: { kitchens: [] },
+			...readsInAmerican,
+		});
+
+		const door = await screen.findByRole('link', { name: 'Look up a Food' });
+		expect(door).toHaveAttribute('href', '/foods');
+		// A Food is instance-wide and all five of its Operations are
+		// Permission::Person, so this door is not the Operator's (#103).
+		expect(screen.queryByRole('link', { name: 'Administer this Kamosu' })).not.toBeInTheDocument();
+	});
 });
