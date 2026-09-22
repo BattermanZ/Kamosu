@@ -12,6 +12,23 @@ use std::time::{Duration, Instant};
 
 // --- The Job shape (issue #34) -----------------------------------------------
 
+/// Every test that drives `probe_job` exists only under `test-jobs`, as does the
+/// web link importer's section, so without the feature they are compiled out.
+/// This one failure stands in for them (#123). Otherwise a bare `cargo test`
+/// would report a row of assertion failures that have nothing to do with
+/// whatever was just changed. A new test that asks for `probe_job` takes the
+/// same `#[cfg(feature = "test-jobs")]`.
+#[cfg(not(feature = "test-jobs"))]
+#[test]
+fn the_behaviour_suite_needs_the_test_jobs_feature() {
+    panic!(
+        "\n\n    This suite needs `--features test-jobs`: run `just test`, \
+         or `cargo test --features test-jobs`.\n    \
+         Without it the Job and web link tests are compiled out, so a bare `cargo test` \
+         tests less than the suite.\n\n"
+    );
+}
+
 /// Per-request capability declaration for the long-running-task extension.
 fn tasks_meta() -> Value {
     json!({
@@ -25,6 +42,7 @@ fn tasks_meta() -> Value {
     })
 }
 
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn asking_for_a_job_returns_an_id_at_once_and_the_result_is_read_at_both_doors() {
     let app = support::spawn_app();
@@ -4634,6 +4652,7 @@ async fn fonts_icons_and_mark_are_self_hosted_under_the_binary() {
     assert_eq!(status, 404);
 }
 
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_job_that_fails_reports_why_through_the_same_operations() {
     let app = support::spawn_app();
@@ -4701,6 +4720,7 @@ async fn a_job_that_fails_reports_why_through_the_same_operations() {
     panic!("the failing task never ended");
 }
 
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stranger_may_cause_work_but_never_work_that_scales_with_them() {
     let app = support::spawn_app();
@@ -4735,6 +4755,7 @@ async fn a_stranger_may_cause_work_but_never_work_that_scales_with_them() {
     assert_eq!(status, 200, "members have their own lane ({body})");
 }
 
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_job_is_read_by_the_person_who_asked_for_it_and_listed_to_them_alone() {
     let app = support::spawn_app();
@@ -4812,6 +4833,7 @@ async fn a_job_is_read_by_the_person_who_asked_for_it_and_listed_to_them_alone()
     assert_eq!(status, 200);
 }
 
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelling_a_task_is_acknowledged_and_honoured_while_it_waits_in_line() {
     let app = support::spawn_app();
@@ -4910,6 +4932,7 @@ async fn cancelling_a_task_is_acknowledged_and_honoured_while_it_waits_in_line()
     panic!("the running task never completed");
 }
 
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn work_accepted_before_a_restart_never_strands() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -7148,6 +7171,8 @@ fn stored_schema_version(data_dir: &std::path::Path) -> i64 {
     .expect("numeric schema_version")
 }
 
+// Gated because it proves the migrated schema serves by asking for `probe_job`.
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_database_at_an_old_schema_migrates_forward_and_serves() {
     let dir = tempfile::tempdir().unwrap();
