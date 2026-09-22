@@ -13,41 +13,14 @@
  */
 
 import { CATALOGUE, METHOD_NAMES, type KamosuClient, type OperationName } from './catalogue';
+import { wentWrong } from '../mistake.svelte';
+import { OperationError, type ErrorKind } from './refusal';
 
-/** The kinds of refusal the Core distinguishes, as the web door names them. */
-export type ErrorKind =
-	'unauthorized' | 'unknown_operation' | 'not_found' | 'busy' | 'bad_request' | 'internal';
-
-/**
- * An Operation that failed: refused by Kamosu, or — where `reached` is false —
- * never answered by it at all.
- */
-export class OperationError extends Error {
-	readonly kind: ErrorKind;
-	readonly operation: string;
-	/**
-	 * Whether Kamosu itself answered. False where the request never arrived, or
-	 * something standing in front of Kamosu answered for it: the proxy's 502
-	 * for a server at home that is off, or a hotel wifi's login page (#76).
-	 * What a phone with no network may keep and send later is decided on this
-	 * (#77): a refusal will refuse again, and a request that never arrived has
-	 * not been asked yet.
-	 */
-	readonly reached: boolean;
-
-	constructor(
-		operation: string,
-		kind: ErrorKind,
-		message: string,
-		options?: ErrorOptions & { reached?: boolean },
-	) {
-		super(message, options);
-		this.name = 'OperationError';
-		this.kind = kind;
-		this.operation = operation;
-		this.reached = options?.reached ?? true;
-	}
-}
+// A refusal's own declaration lives next door so that the module saying what a
+// *mistake* is can name it without the two importing each other in a circle
+// (#98). Re-exported here because this is where a screen looks for it, and one
+// way in is worth more than a tidy import graph.
+export { OperationError, type ErrorKind };
 
 /** One call to one Operation. Everything above this is generated. */
 export type Transport = (operation: OperationName, input: unknown) => Promise<unknown>;
@@ -150,7 +123,27 @@ export function createClient(transport: Transport): KamosuClient {
 	const client: Record<string, (input?: unknown) => Promise<unknown>> = {};
 	for (const declaration of CATALOGUE) {
 		const name = declaration.name as OperationName;
-		client[METHOD_NAMES[name]] = (input) => transport(name, input ?? {});
+		client[METHOD_NAMES[name]] = async (input) => {
+			try {
+				return await transport(name, input ?? {});
+			} catch (thrown) {
+				// The one place every Operation call passes through, in the app and
+				// behind a stand-in alike — so it is where a mistake in Kamosu is
+				// caught before the screen re-throws it into nowhere (#98). A
+				// refusal is not a mistake and `wentWrong` ignores it. Re-thrown
+				// either way: saying so is not handling it, and what the screen
+				// does about the call having failed is still the screen's business.
+				//
+				// Deliberately `await`ed rather than watched from the side with
+				// `answer.catch(…)`. That costs no microtask, but attaching any
+				// handler marks the promise handled — which would swallow a refusal
+				// no screen caught, and so quietly blind the very stray detector
+				// `src/testing/setup.ts` adds for this issue. One tick is the
+				// cheaper half of that trade.
+				wentWrong(thrown);
+				throw thrown;
+			}
+		};
 	}
 	return client as unknown as KamosuClient;
 }

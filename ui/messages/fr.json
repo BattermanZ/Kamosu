@@ -228,8 +228,8 @@
   "nav_recipes": "Recettes",
   "nav_sections": "Sections",
   "nav_shopping": "Courses",
+  "notice_got_it": "Compris",
   "offline_cached": "Cette recette n'est pas dans votre Cuisine. Vous lisez la copie gardée quand vous l'avez ouverte le {date}.",
-  "offline_got_it": "Compris",
   "offline_held": "Toutes les recettes de votre Cuisine sont sur ce téléphone. Cuisiner et votre liste marchent comme d'habitude ; modifier une recette attend le serveur.",
   "offline_insecure_body": "Kamosu est joint en http://, il ne peut donc rien garder sur ce téléphone pour quand il n'y a pas de réseau. La personne qui gère ce Kamosu peut lui donner une adresse https://.",
   "offline_insecure_title": "Cette connexion n'est pas sécurisée",
@@ -645,5 +645,7 @@
   "write_will_fork": "Ceci démarrera votre propre copie",
   "write_will_save": "Ceci enregistrera",
   "write_yield_amount": "Rendement, combien",
-  "write_yield_noun": "Rendement, de quoi"
+  "write_yield_noun": "Rendement, de quoi",
+  "wrong_body": "C'est une erreur de Kamosu, pas quelque chose que vous avez fait. Rien de ce que vous avez écrit n'est perdu. Réessayer ne changera probablement rien.",
+  "wrong_title": "Kamosu s'est trompé"
 }

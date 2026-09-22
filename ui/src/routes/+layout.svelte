@@ -11,6 +11,8 @@
 	import { realPhotographUpload, realUpload } from '$lib/api/upload';
 	import { readToken } from '$lib/tokens';
 	import Notices from '$lib/offline/Notices.svelte';
+	import WentWrong from '$lib/WentWrong.svelte';
+	import { watchForMistakes, wentWrong } from '$lib/mistake.svelte';
 	import Arrived from '$lib/Arrived.svelte';
 	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
 	import { realOutbox } from '$lib/offline/outbox';
@@ -58,6 +60,13 @@
 	$effect(() => listenToTheWorker());
 	$effect(() => retryWhileUnreachable(client));
 
+	// The last of the three nets under a mistake in Kamosu's own code (#98): the
+	// client catches what an Operation call throws, the boundary below catches
+	// what rendering throws, and this catches the rest — everything a screen
+	// throws after an await, which Svelte awaits neither for an event handler nor
+	// for a fire-and-forget `$effect`.
+	$effect(() => watchForMistakes());
+
 	// What was written with no network goes as soon as the server answers
 	// again (#77): on opening, whenever the server is found again, and when the
 	// browser says the network is back.
@@ -88,9 +97,23 @@
 	{/if}
 
 	<main>
-		<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
-		     the cooking screen, which carries nothing but the Step. -->
 		{#if !cooking}
+			<!-- Kamosu itself went wrong (#98), above the rest, because it outranks
+			     every "not right now" card: those say what cannot be done, and this
+			     says the thing you just did went wrong.
+
+			     Not on the cooking screen, for the same reason as everything else
+			     here (ADR 0011) — and, drawn there, not even visible: that screen is
+			     `fixed inset-0 z-30`, so a card in ordinary flow is painted
+			     underneath it, unseen by the cook while a screen reader still
+			     announces the alert. The mistake is remembered rather than dropped,
+			     and the card is waiting the moment the cook leaves the step. What a
+			     cook should be told mid-cook is its own decision and its own
+			     ticket — Aurélien, 22 September 2026. -->
+			<WentWrong />
+
+			<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
+			     the cooking screen, which carries nothing but the Step. -->
 			<Notices />
 			<!-- And what bringing a recipe file in just said, above the recipe it
 			     brought (#93). Said here rather than inside the recipe screen
@@ -98,7 +121,22 @@
 			     away — the same place, and the same card, as the rest. -->
 			<Arrived pathname={page.url.pathname} />
 		{/if}
-		{@render children()}
+
+		<!--
+			The screen itself, walled off (#98). A mistake made while rendering, or
+			inside an effect, reaches no promise at all — a boundary is the only thing
+			that sees it, and without one it tears down the whole app, the card
+			included, so the one surface meant to report the mistake would go with it.
+
+			The boundary sits INSIDE main and the card outside it, which is what keeps
+			that from happening: the screen is what is walled off, and the card is
+			what survives to say so. A handled boundary drops its content, so the
+			half-drawn screen goes rather than sitting there looking like it is still
+			loading — which is the whole complaint this issue was filed about.
+		-->
+		<svelte:boundary onerror={wentWrong}>
+			{@render children()}
+		</svelte:boundary>
 	</main>
 
 	{#if !cooking}

@@ -63,7 +63,7 @@
 {#if card === 'offline'}
 	<Notice
 		title={m.offline_title()}
-		actions={[{ label: m.offline_got_it(), act: () => (offlineAway = online.spell) }]}
+		actions={[{ label: m.notice_got_it(), act: () => (offlineAway = online.spell) }]}
 	>
 		{#if standing.branchId && library.onlyOpened(standing.branchId) && standing.keptAt}
 			<p>{m.offline_cached({ date: when(standing.keptAt) })}</p>
@@ -79,7 +79,7 @@
 		tone="warning"
 		actions={[
 			{
-				label: m.offline_got_it(),
+				label: m.notice_got_it(),
 				act: () => {
 					putAway('insecure');
 					insecureAway = true;

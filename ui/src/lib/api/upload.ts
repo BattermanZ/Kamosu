@@ -15,6 +15,7 @@
 
 import { getContext, setContext } from 'svelte';
 import { OperationError, readEnvelope } from './client';
+import { watched } from '../mistake.svelte';
 
 /** Stage one file and answer the id an Operation names it by. */
 export type Uploader = (file: Blob) => Promise<string>;
@@ -55,26 +56,30 @@ export function usePhotograph(): Uploader {
 
 export const realUpload =
 	(doFetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis)): Uploader =>
-	async (file) => {
-		let response: Response;
-		try {
-			response = await doFetch('/api/uploads', {
-				method: 'POST',
-				headers: { 'content-type': file.type || 'application/octet-stream' },
-				body: file,
-			});
-		} catch (cause) {
-			throw new OperationError('upload', 'internal', 'Kamosu could not be reached.', {
-				cause,
-				reached: false,
-			});
-		}
-		const staged = (await readEnvelope('upload', response)) as { upload_id?: string };
-		if (!staged?.upload_id) {
-			throw new OperationError('upload', 'internal', 'Kamosu staged the file but named no id.');
-		}
-		return staged.upload_id;
-	};
+	(file) =>
+		// Not an Operation, so `createClient` reports none of its mistakes (#98).
+		watched(stage(doFetch, file));
+
+async function stage(doFetch: typeof globalThis.fetch, file: Blob): Promise<string> {
+	let response: Response;
+	try {
+		response = await doFetch('/api/uploads', {
+			method: 'POST',
+			headers: { 'content-type': file.type || 'application/octet-stream' },
+			body: file,
+		});
+	} catch (cause) {
+		throw new OperationError('upload', 'internal', 'Kamosu could not be reached.', {
+			cause,
+			reached: false,
+		});
+	}
+	const staged = (await readEnvelope('upload', response)) as { upload_id?: string };
+	if (!staged?.upload_id) {
+		throw new OperationError('upload', 'internal', 'Kamosu staged the file but named no id.');
+	}
+	return staged.upload_id;
+}
 
 /**
  * Send one picture to `POST /api/photographs`, where it is remade at the door
@@ -82,29 +87,33 @@ export const realUpload =
  */
 export const realPhotographUpload =
 	(doFetch: typeof globalThis.fetch = globalThis.fetch.bind(globalThis)) =>
-	async (picture: Blob): Promise<string> => {
-		let response: Response;
-		try {
-			response = await doFetch('/api/photographs', {
-				method: 'POST',
-				headers: { 'content-type': picture.type || 'application/octet-stream' },
-				body: picture,
-			});
-		} catch (cause) {
-			throw new OperationError('upload_photograph', 'internal', 'Kamosu could not be reached.', {
-				cause,
-				reached: false,
-			});
-		}
-		const made = (await readEnvelope('upload_photograph', response)) as {
-			photograph_id?: string;
-		};
-		if (!made?.photograph_id) {
-			throw new OperationError(
-				'upload_photograph',
-				'internal',
-				'Kamosu kept the picture but named no Photograph.',
-			);
-		}
-		return made.photograph_id;
+	(picture: Blob): Promise<string> =>
+		// Nor is this one (#98).
+		watched(keep(doFetch, picture));
+
+async function keep(doFetch: typeof globalThis.fetch, picture: Blob): Promise<string> {
+	let response: Response;
+	try {
+		response = await doFetch('/api/photographs', {
+			method: 'POST',
+			headers: { 'content-type': picture.type || 'application/octet-stream' },
+			body: picture,
+		});
+	} catch (cause) {
+		throw new OperationError('upload_photograph', 'internal', 'Kamosu could not be reached.', {
+			cause,
+			reached: false,
+		});
+	}
+	const made = (await readEnvelope('upload_photograph', response)) as {
+		photograph_id?: string;
 	};
+	if (!made?.photograph_id) {
+		throw new OperationError(
+			'upload_photograph',
+			'internal',
+			'Kamosu kept the picture but named no Photograph.',
+		);
+	}
+	return made.photograph_id;
+}

@@ -16,7 +16,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/svelte';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
@@ -205,10 +205,18 @@ const rowFields = () =>
 			/^(Ingredient line \d+|Step \d+|Heading)$/.test(field.getAttribute('aria-label') ?? ''),
 		) as HTMLTextAreaElement[];
 
-/** Walk the save through the sheet that states the outcome. */
+/**
+ * Walk the save through the sheet that states the outcome.
+ *
+ * The control is waited for rather than assumed present: what it says depends
+ * on the Kitchens the screen was told about, which arrive from Kamosu. Reading
+ * it synchronously happened to work while the answer landed on a particular
+ * tick, and broke the moment anything upstream of the client took one more
+ * (#98).
+ */
 async function saveThrough(name: RegExp) {
-	await fireEvent.click(screen.getAllByRole('button', { name })[0] as HTMLElement);
-	const inSheet = screen.getAllByRole('button', { name });
+	await fireEvent.click((await screen.findAllByRole('button', { name }))[0] as HTMLElement);
+	const inSheet = await screen.findAllByRole('button', { name });
 	await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
 }
 
@@ -581,7 +589,7 @@ describe('writing a recipe', () => {
 		const { kamosu } = renderWriting();
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
 
-		await fireEvent.click(screen.getAllByRole('button', { name: /Save onto mine/ })[0]!);
+		await fireEvent.click((await screen.findAllByRole('button', { name: /Save onto mine/ }))[0]!);
 		// The outcome is stated before it happens, naming the recipe and the
 		// Kitchen — "Save" and "Save" are the same word for two different acts.
 		expect(
@@ -609,7 +617,9 @@ describe('writing a recipe', () => {
 		// The forking save wears its own words. Finding *Save onto mine* here
 		// would mean the two acts had been collapsed into one button.
 		expect(screen.queryByRole('button', { name: /Save onto mine/ })).not.toBeInTheDocument();
-		await fireEvent.click(screen.getAllByRole('button', { name: /Start my own copy/ })[0]!);
+		await fireEvent.click(
+			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
+		);
 		expect(screen.getByText(/is not in one of your Kitchens/)).toBeInTheDocument();
 		expect(screen.getByText(/the original stays where it is/)).toBeInTheDocument();
 	});
@@ -780,8 +790,12 @@ describe('naming another recipe from a line', () => {
 				lineage_id: 'l_chilli',
 			},
 		]);
-		expect(onSaved).toHaveBeenCalledWith(
-			expect.objectContaining({ branch_id: 'mine', named: true }),
+		// Handed up only after the read-back and the Reading have landed, which
+		// is three asks deep — waited for rather than counted in ticks.
+		await waitFor(() =>
+			expect(onSaved).toHaveBeenCalledWith(
+				expect.objectContaining({ branch_id: 'mine', named: true }),
+			),
 		);
 	});
 
@@ -877,8 +891,12 @@ describe('naming another recipe from a line', () => {
 		} as Answers);
 		await nameARecipe('Ingredient line 1');
 		await saveThrough(/Save onto mine/);
-		expect(onSaved).toHaveBeenCalledWith(
-			expect.objectContaining({ branch_id: 'mine', collapsed: false, named: false }),
+		// Handed up only after the read-back and the Reading have landed, which
+		// is three asks deep — waited for rather than counted in ticks.
+		await waitFor(() =>
+			expect(onSaved).toHaveBeenCalledWith(
+				expect.objectContaining({ branch_id: 'mine', collapsed: false, named: false }),
+			),
 		);
 	});
 });

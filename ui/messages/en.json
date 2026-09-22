@@ -228,8 +228,8 @@
   "nav_recipes": "Recipes",
   "nav_sections": "Sections",
   "nav_shopping": "Shopping",
+  "notice_got_it": "Got it",
   "offline_cached": "This recipe isn't in your Kitchen. You're reading the copy kept when you opened it on {date}.",
-  "offline_got_it": "Got it",
   "offline_held": "Every recipe in your Kitchen is on this phone. Cooking and your list work as usual; changing a recipe waits for the server.",
   "offline_insecure_body": "Kamosu is reached over http://, so it can't keep anything on this phone for when there's no signal. Whoever runs this Kamosu can give it an https:// address.",
   "offline_insecure_title": "This connection isn't secure",
@@ -645,5 +645,7 @@
   "write_will_fork": "This will start your own copy",
   "write_will_save": "This will save",
   "write_yield_amount": "Yield, how many",
-  "write_yield_noun": "Yield, of what"
+  "write_yield_noun": "Yield, of what",
+  "wrong_body": "This is a mistake in Kamosu, not something you did. Nothing you have written is lost. Trying again is unlikely to help.",
+  "wrong_title": "Kamosu went wrong"
 }

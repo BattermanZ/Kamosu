@@ -1,5 +1,6 @@
 import { getContext, setContext } from 'svelte';
 import { OperationError } from './api/client';
+import { watched } from './mistake.svelte';
 import { sessionBegan } from './offline/library.svelte';
 
 export interface AuthClient {
@@ -21,22 +22,45 @@ export function useAuth(): AuthClient {
 	return client;
 }
 
-export const realAuth = (): AuthClient => ({
-	async authenticate(mode, input) {
-		const path = {
-			'first-person': '/auth/first-person',
-			login: '/auth/login',
-			invite: '/auth/invite',
-			recover: '/auth/recover',
-		}[mode];
-		const response = await fetch(path, {
+/**
+ * Authenticating is the one ask a screen makes that cannot be an Operation —
+ * there is no Credential yet — so the Catalogue's client carries none of it,
+ * and `watched` below is what puts its mistakes where an Operation's go (#98).
+ */
+async function reach(
+	mode: Parameters<AuthClient['authenticate']>[0],
+	input: Parameters<AuthClient['authenticate']>[1],
+): Promise<void> {
+	const path = {
+		'first-person': '/auth/first-person',
+		login: '/auth/login',
+		invite: '/auth/invite',
+		recover: '/auth/recover',
+	}[mode];
+
+	let response: Response;
+	try {
+		response = await fetch(path, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(input),
 		});
-		if (!response.ok)
-			throw new OperationError('authentication', 'unauthorized', 'authentication failed');
-		// Whoever this is, the library on this phone was not filled for them (#76).
-		sessionBegan();
-	},
+	} catch (cause) {
+		// Never reached, named exactly as `httpTransport` names it: a phone with
+		// no network signing in is not Kamosu having gone wrong, and the bare
+		// `TypeError` this used to let through would have said it was.
+		throw new OperationError('authentication', 'internal', 'Kamosu could not be reached.', {
+			cause,
+			reached: false,
+		});
+	}
+
+	if (!response.ok)
+		throw new OperationError('authentication', 'unauthorized', 'authentication failed');
+	// Whoever this is, the library on this phone was not filled for them (#76).
+	sessionBegan();
+}
+
+export const realAuth = (): AuthClient => ({
+	authenticate: (mode, input) => watched(reach(mode, input)),
 });
