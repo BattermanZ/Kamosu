@@ -408,17 +408,21 @@ export type SetRecipeTagOutput = {
 	}[];
 };
 
-/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. */
+/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 export type SetRelatedRecipeInput = {
 	branch_id: string;
 	related: boolean;
-	related_branch_id: string;
+	related_branch_id?: string;
+	related_lineage_id?: string;
 };
 /** What set_related_recipe answers. */
 export type SetRelatedRecipeOutput = {
 	related_recipes: {
 		branch_id: string | null;
+		language: string | null;
+		language_fallback: boolean;
 		lineage_id: string;
+		main_photo: string | null;
 		title: string;
 	}[];
 };
@@ -475,7 +479,10 @@ export type CreateRecipeOutput = {
 	origin_address: string | null;
 	related_recipes: {
 		branch_id: string | null;
+		language: string | null;
+		language_fallback: boolean;
 		lineage_id: string;
+		main_photo: string | null;
 		title: string;
 	}[];
 	tags: {
@@ -726,7 +733,10 @@ export type StartTranslationOutput = {
 	origin_address: string | null;
 	related_recipes: {
 		branch_id: string | null;
+		language: string | null;
+		language_fallback: boolean;
 		lineage_id: string;
+		main_photo: string | null;
 		title: string;
 	}[];
 	tags: {
@@ -1244,7 +1254,10 @@ export type GetRecipeOutput = {
 	origin_address: string | null;
 	related_recipes: {
 		branch_id: string | null;
+		language: string | null;
+		language_fallback: boolean;
 		lineage_id: string;
+		main_photo: string | null;
 		title: string;
 	}[];
 	tags: {
@@ -5725,7 +5738,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_related_recipe",
-		"summary": "Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share.",
+		"summary": "Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -5738,12 +5751,16 @@ export const CATALOGUE = [
 					"type": "boolean"
 				},
 				"related_branch_id": {
+					"description": "The Recipe at the far end, named by its Branch. The ordinary way to say it.",
+					"type": "string"
+				},
+				"related_lineage_id": {
+					"description": "The far end named by its Lineage instead. Use this to take off a link to a Recipe that has been deleted, which has no Branch left to name.",
 					"type": "string"
 				}
 			},
 			"required": [
 				"branch_id",
-				"related_branch_id",
 				"related"
 			],
 			"type": "object"
@@ -5761,8 +5778,23 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"lineage_id": {
 								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"title": {
 								"type": "string"
@@ -5771,7 +5803,10 @@ export const CATALOGUE = [
 						"required": [
 							"lineage_id",
 							"branch_id",
-							"title"
+							"title",
+							"main_photo",
+							"language",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -6046,8 +6081,23 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"lineage_id": {
 								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"title": {
 								"type": "string"
@@ -6056,7 +6106,10 @@ export const CATALOGUE = [
 						"required": [
 							"lineage_id",
 							"branch_id",
-							"title"
+							"title",
+							"main_photo",
+							"language",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -7418,8 +7471,23 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"lineage_id": {
 								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"title": {
 								"type": "string"
@@ -7428,7 +7496,10 @@ export const CATALOGUE = [
 						"required": [
 							"lineage_id",
 							"branch_id",
-							"title"
+							"title",
+							"main_photo",
+							"language",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -10016,8 +10087,23 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
 							"lineage_id": {
 								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"title": {
 								"type": "string"
@@ -10026,7 +10112,10 @@ export const CATALOGUE = [
 						"required": [
 							"lineage_id",
 							"branch_id",
-							"title"
+							"title",
+							"main_photo",
+							"language",
+							"language_fallback"
 						],
 						"type": "object"
 					},
@@ -22040,7 +22129,7 @@ export interface KamosuClient {
 	deleteTag(input: DeleteTagInput): Promise<Answer<'delete_tag'>>;
 	/** File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is. */
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
-	/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. */
+	/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;

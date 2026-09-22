@@ -61,8 +61,16 @@ export function matchedLabel(matched: Matched | null): string | null {
  *
  * Null when there is nothing to mark — a preference never hides a recipe from
  * its owner, and the card says which Language it fell back to (ADR 0006).
+ *
+ * Takes the two fields it reads rather than a whole shelf `Entry`, so the
+ * Related Recipes strip marks a fallback in the same words as the shelf does
+ * (#105). A second copy of this mapping is how "In French" becomes "In fr" on
+ * one screen and nobody notices.
  */
-export function fallbackLanguage(entry: Entry): string | null {
+export function fallbackLanguage(entry: {
+	language: string;
+	language_fallback: boolean;
+}): string | null {
 	if (!entry.language_fallback) return null;
 	const language =
 		{

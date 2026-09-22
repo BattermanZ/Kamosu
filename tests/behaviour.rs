@@ -3951,7 +3951,7 @@ async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_
     assert_eq!(status, 200, "{linked}");
     assert_eq!(
         linked["result"]["related_recipes"],
-        json!([{ "lineage_id": naan_lineage, "branch_id": naan_branch, "title": "Naan" }]),
+        json!([{ "lineage_id": naan_lineage, "branch_id": naan_branch, "title": "Naan", "main_photo": null, "language": "en", "language_fallback": false }]),
     );
 
     // Repeating the request from the other end still leaves one link, visible
@@ -3981,7 +3981,7 @@ async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_
     );
     assert_eq!(
         curry_read["result"]["related_recipes"],
-        json!([{ "lineage_id": naan_lineage, "branch_id": naan_branch, "title": "Naan" }]),
+        json!([{ "lineage_id": naan_lineage, "branch_id": naan_branch, "title": "Naan", "main_photo": null, "language": "en", "language_fallback": false }]),
     );
     assert_ne!(
         curry_lineage, naan_lineage,
@@ -4019,7 +4019,7 @@ async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_
     );
     assert_eq!(
         departed["result"]["related_recipes"],
-        json!([{ "lineage_id": naan_lineage, "branch_id": null, "title": "Naan" }]),
+        json!([{ "lineage_id": naan_lineage, "branch_id": null, "title": "Naan", "main_photo": null, "language": null, "language_fallback": false }]),
     );
 
     // Either end may remove the one shared link.
@@ -4055,6 +4055,116 @@ async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_
         &json!({
             "branch_id": naan_branch,
             "related_branch_id": curry_branch,
+            "related": false,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{unlinked}");
+    assert_eq!(unlinked["result"]["related_recipes"], json!([]));
+    let (_, final_curry) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": curry_branch }).to_string(),
+    );
+    assert_eq!(final_curry["result"]["related_recipes"], json!([]));
+}
+
+/// A link to a Recipe that has since been deleted can be taken off (#105).
+///
+/// The far end has no Branch left to name, and before this it could only be
+/// read: `set_related_recipe` addressed the other side by Branch alone, so the
+/// row stayed on the shelf for good. The link was always stored between two
+/// Lineages, and a deleted Branch leaves its Lineage behind, so naming the
+/// Lineage names the thing the link is made of.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_link_to_a_deleted_recipe_can_be_taken_off_by_naming_its_lineage() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, curry) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Curry" }).to_string(),
+    );
+    let (_, naan) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Naan" }).to_string(),
+    );
+    let curry_branch = curry["result"]["branch_id"].as_str().unwrap();
+    let naan_branch = naan["result"]["branch_id"].as_str().unwrap();
+    let naan_lineage = naan["result"]["lineage_id"].as_str().unwrap();
+
+    // A Lineage this Kitchen holds may be named either way, so the two names
+    // are one address rather than two behaviours.
+    let (status, linked) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": curry_branch,
+            "related_lineage_id": naan_lineage,
+            "related": true,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{linked}");
+    assert_eq!(
+        linked["result"]["related_recipes"],
+        json!([{ "lineage_id": naan_lineage, "branch_id": naan_branch, "title": "Naan", "main_photo": null, "language": "en", "language_fallback": false }]),
+    );
+
+    // The far end goes for good, through its own Door.
+    let (status, deleted) = app.post_op(
+        "delete_recipe",
+        Some(&key),
+        &json!({ "branch_id": naan_branch }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    let (_, departed) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": curry_branch }).to_string(),
+    );
+    assert_eq!(
+        departed["result"]["related_recipes"],
+        json!([{ "lineage_id": naan_lineage, "branch_id": null, "title": "Naan", "main_photo": null, "language": null, "language_fallback": false }]),
+        "a deleted Recipe still reads as the name it was known by"
+    );
+
+    // Relating to a Lineage this Kitchen no longer holds is refused: there is
+    // no recipe to point at, and a link to nothing is not worth making.
+    let (status, refused) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": curry_branch,
+            "related_lineage_id": naan_lineage,
+            "related": true,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+
+    // Naming both ways at once is a caller's mistake, said as one.
+    let (status, both) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": curry_branch,
+            "related_branch_id": naan_branch,
+            "related_lineage_id": naan_lineage,
+            "related": false,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{both}");
+
+    // And the row nobody could reach before comes off.
+    let (status, unlinked) = app.post_op(
+        "set_related_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": curry_branch,
+            "related_lineage_id": naan_lineage,
             "related": false,
         })
         .to_string(),

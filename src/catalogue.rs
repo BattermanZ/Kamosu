@@ -630,7 +630,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "set_related_recipe",
             summary: "Relate two Recipes on the same Kitchen shelf, or take \
                       that single two-way, untyped link back off. It never \
-                      changes either Recipe or travels in a Bundle or Share.",
+                      changes either Recipe or travels in a Bundle or Share. \
+                      Name the far end with `related_branch_id`, or with \
+                      `related_lineage_id` where the Recipe there has since \
+                      been deleted — exactly one of the two.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -640,10 +643,26 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "branch_id": { "type": "string" },
-                    "related_branch_id": { "type": "string" },
+                    "related_branch_id": {
+                        "type": "string",
+                        "description": "The Recipe at the far end, named by its \
+                                        Branch. The ordinary way to say it.",
+                    },
+                    // A deleted Branch leaves its Lineage behind, and the link
+                    // is stored between two Lineages, so this is what makes a
+                    // link breakable after the recipe at the far end is gone
+                    // (#105). It cannot MAKE a link to a Lineage this Kitchen
+                    // no longer holds: there would be no recipe to point at.
+                    "related_lineage_id": {
+                        "type": "string",
+                        "description": "The far end named by its Lineage instead. \
+                                        Use this to take off a link to a Recipe \
+                                        that has been deleted, which has no \
+                                        Branch left to name.",
+                    },
                     "related": { "type": "boolean" },
                 },
-                "required": ["branch_id", "related_branch_id", "related"],
+                "required": ["branch_id", "related"],
                 "additionalProperties": false,
             }),
             output_schema: json!({
@@ -2727,8 +2746,24 @@ fn related_recipe_schema() -> Value {
             "lineage_id": { "type": "string" },
             "branch_id": { "type": ["string", "null"] },
             "title": { "type": "string" },
+            // So a screen can draw a related recipe wearing the face it wears
+            // on the shelf without searching the whole library to find it
+            // (#105). Null where the recipe has no Main Photo — which is a
+            // third of the real corpus, and wears a Cover — and null again
+            // where the Lineage has left the shelf, along with `branch_id`.
+            "main_photo": { "type": ["string", "null"] },
+            // The Language of the Branch this names, and whether that is one
+            // the reader did not ask for. A shelf entry carries both for the
+            // same reason: a Language preference may never hide a recipe from
+            // its owner, so the recipe is shown and the difference is said
+            // (ADR 0006). Null and false once the Lineage has left the shelf,
+            // where there is no Branch to have a Language at all.
+            "language": { "type": ["string", "null"] },
+            "language_fallback": { "type": "boolean" },
         },
-        "required": ["lineage_id", "branch_id", "title"],
+        "required": [
+            "lineage_id", "branch_id", "title", "main_photo", "language", "language_fallback"
+        ],
         "additionalProperties": false,
     })
 }

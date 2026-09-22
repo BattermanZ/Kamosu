@@ -558,6 +558,9 @@
   .snap-mandatory {
     --tw-scroll-snap-strictness: mandatory;
   }
+  .snap-start {
+    scroll-snap-align: start;
+  }
   .scroll-mt-12 {
     scroll-margin-top: var(--spacing-12);
   }

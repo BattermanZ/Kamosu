@@ -127,6 +127,7 @@
 	import Writing from './Writing.svelte';
 	import Promotion from './Promotion.svelte';
 	import Tags from './Tags.svelte';
+	import RelatedRecipes from './RelatedRecipes.svelte';
 	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online, refreshed } from '$lib/offline/device.svelte';
@@ -1287,6 +1288,25 @@
 			{/if}
 			{#if markOf('note')}
 				<p class="mx-gutter mt-1 text-read text-accent">{markOf('note')}</p>
+			{/if}
+
+			<!--
+			What this recipe goes with (#105, #52). Aurélien's choice of
+			22 September 2026: the shelf's own cards, here between the Method and
+			Cooked, and `RelatedRecipes.svelte` holds why.
+
+			NOT DRAWN WHEN YOU HAVE CROSSED TO THE OTHER BRANCH, for the reason
+			the Tags row is not. A Divergence does not mark Related Recipes
+			(ADR 0019) and the `divergence` Operation carries none, so there is
+			nothing of theirs to show, and showing yours beside their recipe
+			would say something false about whose shelf the links are on.
+		-->
+			{#if recipe && side === 'mine'}
+				<RelatedRecipes
+					branchId={recipe.branch_id}
+					kitchenId={recipe.kitchen_id}
+					related={recipe.related_recipes}
+				/>
 			{/if}
 
 			<!--

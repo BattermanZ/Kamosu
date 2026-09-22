@@ -25,7 +25,7 @@
 use serde_json::Value;
 use serde_json::json;
 
-use crate::core::{Caller, Core, Invocation, OpError, Reading};
+use crate::core::{Caller, Core, Invocation, OpError, Reading, RelatedSide};
 use crate::jobs;
 
 /// The instance status: the version and whether setup has happened.
@@ -500,21 +500,34 @@ pub fn set_related_recipe(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes = "set_related_recipe takes { branch_id, related_branch_id, related }";
+    let takes = "set_related_recipe takes { branch_id, related_branch_id or \
+                 related_lineage_id, related }";
     let branch_id = input
         .get("branch_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request(takes))?;
-    let related_branch_id = input
-        .get("related_branch_id")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let related = input
         .get("related")
         .and_then(Value::as_bool)
         .ok_or_else(|| OpError::bad_request(takes))?;
+    // Exactly one of the two names the far end. The Catalogue's schema checks
+    // shape and cannot say "one of these", so the rule is stated here — where
+    // both Doors inherit it, since both arrive through this one handler.
+    let other = match (
+        input.get("related_branch_id").and_then(Value::as_str),
+        input.get("related_lineage_id").and_then(Value::as_str),
+    ) {
+        (Some(branch), None) => RelatedSide::Branch(branch),
+        (None, Some(lineage)) => RelatedSide::Lineage(lineage),
+        (Some(_), Some(_)) => {
+            return Err(OpError::bad_request(
+                "set_related_recipe takes related_branch_id or related_lineage_id, not both",
+            ));
+        }
+        (None, None) => return Err(OpError::bad_request(takes)),
+    };
     let caller = caller_of(invocation)?;
-    core.set_related_recipe(&caller.person_id, branch_id, related_branch_id, related)
+    core.set_related_recipe(&caller.person_id, branch_id, other, related)
 }
 
 pub fn create_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
