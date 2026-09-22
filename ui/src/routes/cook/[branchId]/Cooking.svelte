@@ -66,6 +66,9 @@
 	} from './as-cooked.svelte';
 	import { useKeeping } from '$lib/offline/outbox';
 	import { photographCooking, pickedFile } from '$lib/offline/photograph';
+	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
+	import { rereads } from '$lib/offline/device.svelte';
 
 	interface Props {
 		branchId: string;
@@ -557,6 +560,107 @@
 		return cooking ? `${cooking.amount} ${cooking.noun}` : null;
 	});
 
+	// ==== PROTOTYPE #109 — three ways to say how much you are cooking =======
+	// Throwaway. Lives on branch prototype/109-cooking-yield only. Switch with
+	// ?variant=A|B|C or the floating bar. The scaled amounts are the Core's own
+	// (`get_recipe` reads the Attempt's Yield); what the browser works out here
+	// — whether scaling is on, the ×2 chip's number — is a prototype shortcut
+	// that the real build takes from the Core instead.
+	const VARIANTS = ['A', 'B', 'C'] as const;
+	const VARIANT_NAMES: Record<string, string> = {
+		A: 'Tap the Yield',
+		B: 'Asked at the start',
+		C: 'A strip and a sheet',
+	};
+	const variant = $derived(
+		(VARIANTS as readonly string[]).includes(page.url.searchParams.get('variant') ?? '')
+			? (page.url.searchParams.get('variant') as string)
+			: 'A',
+	);
+	function cycle(by: number) {
+		const at = VARIANTS.indexOf(variant as (typeof VARIANTS)[number]);
+		const next = VARIANTS[(at + by + VARIANTS.length) % VARIANTS.length];
+		const url = new URL(page.url);
+		url.searchParams.set('variant', next);
+		yieldOpen = false;
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}
+	$effect(() => {
+		const key = (event: KeyboardEvent) => {
+			const target = event.target as HTMLElement | null;
+			if (target?.closest('input, textarea, [contenteditable]')) return;
+			if (event.key === 'ArrowLeft') cycle(-1);
+			if (event.key === 'ArrowRight') cycle(1);
+		};
+		addEventListener('keydown', key);
+		return () => removeEventListener('keydown', key);
+	});
+
+	/** The picker is open (A: in the amounts' place; B: the start card; C: the sheet). */
+	let yieldOpen = $state(false);
+	/** B: the question at the start was answered or waved away, this visit. */
+	let askedAtStart = $state(false);
+	const written = $derived(content?.yield ?? null);
+	const writtenWhole = $derived(written && /^\d+$/.test(written.amount) ? Number(written.amount) : null);
+	const wanted = $derived(attempt?.cooking_yield ?? null);
+	const wantedWhole = $derived(
+		wanted && /^\d+$/.test(wanted.amount) ? Number(wanted.amount) : writtenWhole,
+	);
+	const scaling = $derived(
+		!!wanted && !!written && wanted.noun === written.noun && wanted.amount !== written.amount,
+	);
+	const factor = $derived(
+		scaling && writtenWhole && wantedWhole ? wantedWhole / writtenWhole : 1,
+	);
+	const factorText = $derived(
+		factor === 0.5 ? '½' : Number.isInteger(factor) ? `${factor}` : factor.toFixed(2).replace(/0$/, ''),
+	);
+	/** How many of the recipe's lines the Core could not scale, while scaling. */
+	const unscaledCount = $derived(
+		scaling
+			? (content?.ingredients ?? []).filter(
+					(line, at) => line.kind === 'ingredient' && !version?.measured.ingredients[at],
+				).length
+			: 0,
+	);
+	const freshCooking = $derived(
+		!!attempt &&
+			attempt.current_step_index === 0 &&
+			attempt.ticked_ingredients.length === 0 &&
+			attempt.cooking_yield === null,
+	);
+	/** Whether this visit opened on a cooking nothing had happened to yet. */
+	let startedFresh = $state<boolean | undefined>(undefined);
+	$effect(() => {
+		if (startedFresh === undefined && attempt) startedFresh = freshCooking;
+	});
+	const bAsking = $derived(
+		variant === 'B' && !!written && ((!!startedFresh && !askedAtStart) || yieldOpen),
+	);
+
+	async function setYield(amount: number | null) {
+		if (!attempt || !written) return;
+		const cooking_yield =
+			amount === null || String(amount) === written.amount
+				? null
+				: { amount: String(amount), noun: written.noun };
+		attempt = { ...attempt, cooking_yield };
+		try {
+			attempt = await kamosu.advanceAttempt({ attempt_id: attempt.id, cooking_yield });
+			recipe = await kamosu.getRecipe({ branch_id: branchId });
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+		}
+	}
+	// The service worker answers get_recipe from the phone first; when the
+	// server's scaled answer lands behind it, read again.
+	const again = rereads('get_recipe');
+	$effect(() => {
+		if (again.count === 0) return;
+		void kamosu.getRecipe({ branch_id: branchId }).then((read) => (recipe = read));
+	});
+	// ==== end PROTOTYPE ======================================================
+
 	// ---- the timer --------------------------------------------------------
 
 	const duration = $derived(outOfText?.timer_seconds ?? null);
@@ -711,9 +815,102 @@
 			</button>
 		</header>
 
+		<!-- PROTOTYPE #109 — the picker, one snippet shared by all three placements. -->
+		{#snippet picker()}
+			{#if written}
+				<p class="text-label text-cook-ink-2 uppercase">How much are you making?</p>
+				<div class="flex items-center gap-4 py-3">
+					<button
+						type="button"
+						class="min-h-12 w-12 rounded-sm border border-cook-accent font-display text-title text-cook-accent disabled:opacity-40"
+						disabled={!wantedWhole || wantedWhole <= 1}
+						aria-label="One fewer"
+						onclick={() => wantedWhole && setYield(wantedWhole - 1)}>−</button
+					>
+					<p class="min-w-0 flex-1 text-center font-display text-title font-semibold">
+						{wanted?.amount ?? written.amount}
+						<span class="text-body font-normal text-cook-ink-2">{written.noun}</span>
+					</p>
+					<button
+						type="button"
+						class="min-h-12 w-12 rounded-sm border border-cook-accent font-display text-title text-cook-accent disabled:opacity-40"
+						disabled={!wantedWhole}
+						aria-label="One more"
+						onclick={() => wantedWhole && setYield(wantedWhole + 1)}>+</button
+					>
+				</div>
+				<div class="flex flex-wrap gap-2">
+					{#each [0.5, 1, 2, 3] as k (k)}
+						{@const n = writtenWhole ? writtenWhole * k : null}
+						{#if n && Number.isInteger(n)}
+							<button
+								type="button"
+								class="min-h-12 rounded-sm border px-4 text-read font-semibold
+									{(wantedWhole ?? writtenWhole) === n
+									? 'border-cook-accent bg-cook-accent text-cook-on-accent'
+									: 'border-cook-rule text-cook-ink'}"
+								onclick={() => setYield(n)}
+							>
+								{k === 1 ? `As written · ${written.amount}` : k === 0.5 ? `½ · ${n}` : `×${k} · ${n}`}
+							</button>
+						{/if}
+					{/each}
+				</div>
+				<p class="pt-3 text-read text-cook-ink-2">
+					Your amounts change beneath each line. The recipe itself does not.
+				</p>
+			{/if}
+		{/snippet}
+
+		<!-- PROTOTYPE #109 — C: the strip under the header, always there when a Yield is written. -->
+		{#if variant === 'C' && written}
+			<button
+				type="button"
+				class="tap-out mb-3 flex h-8 w-full shrink-0 items-center justify-between rounded-sm px-3 text-read
+					{scaling
+					? 'bg-cook-accent font-semibold text-cook-on-accent'
+					: 'border border-cook-rule text-cook-ink-2'}"
+				onclick={() => (yieldOpen = true)}
+			>
+				<span>
+					{scaling && wanted
+						? `Cooking ×${factorText} · ${wanted.amount} ${wanted.noun}`
+						: `As written · ${written.amount} ${written.noun}`}
+				</span>
+				<span>{scaling && unscaledCount ? `${unscaledCount} lines left as written` : 'Change'}</span>
+			</button>
+		{/if}
+
 		{#if section}
 			<p class="shrink-0 pb-2 font-display text-body font-semibold text-cook-accent">{section}</p>
 		{/if}
+
+		{#if bAsking}
+			<!--
+				PROTOTYPE #109 — B: the question, asked once at the start of a fresh
+				cooking, in the place the amounts and the Step will stand. Tapping the
+				Yield on the row later brings it back.
+			-->
+			<div class="flex min-h-0 flex-1 flex-col justify-center gap-2 border-t border-cook-rule pt-3">
+				<p class="font-display text-title font-semibold">
+					{startedFresh && !askedAtStart ? 'Before you start' : 'Change how much'}
+				</p>
+				<p class="pb-3 text-read text-cook-ink-2">
+					The recipe makes {written?.amount} {written?.noun}.
+				</p>
+				{@render picker()}
+				<button
+					type="button"
+					class="mt-4 min-h-12 w-full rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					onclick={() => {
+						askedAtStart = true;
+						yieldOpen = false;
+					}}
+				>
+					{startedFresh && !askedAtStart ? 'Start cooking' : 'Back to the step'}
+				</button>
+			</div>
+		{:else}
 
 		<!--
 			THE AMOUNTS FOR THIS STEP, and what buys the cook not being sent back
@@ -847,8 +1044,21 @@
 						{m.cook_add_a_line()}
 					</button>
 				{/if}
+			{:else if variant === 'A' && yieldOpen}
+				<!-- PROTOTYPE #109 — A: the picker opens where the amounts stand, like Changed it. -->
+				{@render picker()}
+				<button
+					type="button"
+					class="mt-3 min-h-12 w-full rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					onclick={() => (yieldOpen = false)}
+				>
+					Done
+				</button>
 			{:else if amounts.length === 0}
 				<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
+				{#if scaling && variant === 'B'}
+					<p class="pt-2 text-read text-cook-ink-2">Cooking ×{factorText} — {wanted?.amount} {wanted?.noun}</p>
+				{/if}
 			{:else}
 				<ul class="flex flex-col gap-2">
 					{#each amounts as amount (amount.at)}
@@ -868,14 +1078,49 @@
 									class="min-w-0 flex-1 {isTicked(amount.row) ? 'opacity-45' : ''}
 										{amount.changed || amount.row.dropped ? 'border-l-2 border-cook-accent pl-2' : ''}"
 								>
-									<span
-										class="block font-display text-panel-figure font-semibold
-											{amount.row.dropped ? 'line-through opacity-45' : ''}"
-									>
-										{amount.row.text}
-									</span>
-									{#if amount.beneath}
-										<span class="block text-read text-cook-ink-2">{amount.beneath}</span>
+									<!-- PROTOTYPE #109 — how each variant shows a scaled line. -->
+									{#if scaling && variant === 'B' && amount.beneath && !amount.row.dropped}
+										<!-- B: the scaled amount leads; the recipe's line drops beneath it. -->
+										<span class="block font-display text-panel-figure font-semibold">
+											{amount.beneath}
+										</span>
+										<span class="block text-read text-cook-ink-2">
+											recipe: {amount.row.text}
+										</span>
+									{:else if scaling && variant === 'C' && !amount.row.dropped}
+										<!-- C: the recipe's line, and a column of your amounts to its right. -->
+										<span class="flex items-baseline gap-3">
+											<span class="min-w-0 flex-1 font-display text-body font-semibold">
+												{amount.row.text}
+											</span>
+											<span
+												class="shrink-0 text-right font-display text-body font-semibold
+													{amount.beneath ? 'text-cook-accent' : 'text-cook-ink-2'}"
+												style="width: 6.5rem"
+											>
+												{amount.beneath ?? '—'}
+											</span>
+										</span>
+									{:else}
+										<span
+											class="block font-display text-panel-figure font-semibold
+												{amount.row.dropped ? 'line-through opacity-45' : ''}"
+										>
+											{amount.row.text}
+										</span>
+										{#if scaling && !amount.row.dropped}
+											{#if amount.beneath}
+												<span class="block text-read font-semibold text-cook-ink">
+													×{factorText} → {amount.beneath}
+												</span>
+											{:else}
+												<span class="block text-read text-cook-ink-2 italic">
+													not scaled — Kamosu could not read this amount
+												</span>
+											{/if}
+										{:else if amount.beneath}
+											<span class="block text-read text-cook-ink-2">{amount.beneath}</span>
+										{/if}
 									{/if}
 									<!--
 										What the recipe asked for, kept under what went in. One
@@ -929,7 +1174,19 @@
 				read — so it shrinks and ellipsises rather than pushing them off
 				the edge of a narrow phone (#77).
 			-->
-			{#if cookingYield && !writing}
+			<!-- PROTOTYPE #109 — A and B: the Yield on this row is what you tap. C has its strip. -->
+			{#if cookingYield && !writing && variant !== 'C' && written}
+				<button
+					type="button"
+					class="tap-out h-8 min-w-0 truncate rounded-sm border px-3 text-read
+						{scaling
+						? 'border-cook-accent bg-cook-accent font-semibold text-cook-on-accent'
+						: 'border-cook-rule text-cook-ink'}"
+					onclick={() => (yieldOpen = !yieldOpen)}
+				>
+					{scaling ? `×${factorText} · ${cookingYield}` : `${cookingYield} ▾`}
+				</button>
+			{:else if cookingYield && !writing && variant !== 'C'}
 				<span class="min-w-0 truncate text-read text-cook-ink-2">{cookingYield}</span>
 			{/if}
 			{#if writing}
@@ -1113,6 +1370,7 @@
 			{/if}
 		</div>
 
+		{/if}
 		<!--
 			THE TWO WAYS THROUGH THE RECIPE, and now the only things at the foot of
 			the phone (#88). Back was a 112px box against a full-width Next, which
@@ -1154,6 +1412,25 @@
 			{/if}
 		</div>
 
+		{#if variant === 'C' && yieldOpen}
+			<!-- PROTOTYPE #109 — C: a sheet from the bottom, over Back and Next. -->
+			<div
+				class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl bg-cook-panel px-gutter pt-6 pb-safe"
+				role="dialog"
+				aria-modal="true"
+				aria-label="How much are you making?"
+			>
+				{@render picker()}
+				<button
+					type="button"
+					class="mt-4 mb-4 min-h-12 w-full rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					onclick={() => (yieldOpen = false)}
+				>
+					Done
+				</button>
+			</div>
+		{/if}
+
 		{#if discarding}
 			<div
 				bind:this={discardDialog}
@@ -1181,4 +1458,13 @@
 			</div>
 		{/if}
 	{/if}
+</div>
+
+<!-- PROTOTYPE #109 — the variant switcher. Not part of any design. -->
+<div
+	style="position: fixed; top: 50%; right: 4px; z-index: 60; display: flex; flex-direction: column; align-items: center; gap: 4px; background: #ffd84d; color: #111; border-radius: 10px; padding: 6px 4px; font: 600 12px system-ui; box-shadow: 0 2px 10px rgb(0 0 0 / 0.5);"
+>
+	<button type="button" style="padding: 6px 8px" onclick={() => cycle(-1)} aria-label="Previous variant">▲</button>
+	<span style="writing-mode: vertical-rl">{variant} · {VARIANT_NAMES[variant]}</span>
+	<button type="button" style="padding: 6px 8px" onclick={() => cycle(1)} aria-label="Next variant">▼</button>
 </div>
