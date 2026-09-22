@@ -3500,7 +3500,7 @@ fn divergence_schema() -> Value {
 
 /// A Version's content exactly as stored and read back: every field above,
 /// always present — absent input normalises to `null` or `[]` rather than
-/// being left out (see `parse_recipe_content` in `core.rs`).
+/// being left out (see `parse_recipe_content` in `core/recipes.rs`).
 fn recipe_content_schema() -> Value {
     json!({
         "type": "object",

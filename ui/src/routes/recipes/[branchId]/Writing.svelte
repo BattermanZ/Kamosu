@@ -81,8 +81,8 @@
 
 	There are two things worth saying. A second save by the same Hand within
 	`COLLAPSE_WINDOW_SECONDS` joins the Version already being shaped instead of
-	appending (`src/core.rs`), and a save that silently made no Thread entry
-	reads as a save that did not happen. And a Copy lands on a DIFFERENT
+	appending (`src/core/recipes.rs`), and a save that silently made no Thread
+	entry reads as a save that did not happen. And a Copy lands on a DIFFERENT
 	Branch: the answer's `branch_id` is the new one, so the page has to go
 	there or the cook is left reading the recipe they did not change.
 

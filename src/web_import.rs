@@ -35,7 +35,7 @@ const MAX_REDIRECTS: usize = 5;
 
 /// One dish read off a page: everything [`extract_recipe`] could tell, mapped
 /// as closely as schema.org's own field names allow. Kamosu's Recipe content
-/// schema fields it lands on live in `src/core.rs::parse_recipe_content` and
+/// schema fields it lands on live in `src/core/recipes.rs::parse_recipe_content` and
 /// `src/catalogue.rs::recipe_content_properties` — this type mirrors only
 /// what an importer needs to decide, not the stored shape itself.
 #[derive(Debug, Clone, PartialEq)]

@@ -190,7 +190,29 @@ src/backups.rs      a Backup: one archive of the database and the
 src/bundles.rs      a Bundle: one recipe's worth of Vault, written as a zip of
                     readable notes and a .kamosu/ sidecar (ADR 0020)
 src/catalogue.rs    the Catalogue: every Operation declared once
-src/core.rs         the Core: dispatch + the only authorisation check in Kamosu
+src/core/           the Core, one file per area, all adding to one `Core`:
+  mod.rs            the Core itself, startup, `execute` with the only
+                    authorisation check in Kamosu, and Credential resolution
+  accounts.rs       people, logins, Sessions, Access Keys, invites, recovery,
+                    a Person's Reading Language, Operator
+  kitchens.rs       Kitchens, their members, and the membership checks
+  recipes.rs        creating, saving, reading a recipe; threads and divergence;
+                    unfolding components; `parse_recipe_content`
+  tags.rs           Tags, and putting one on a recipe
+  related.rs        Related Recipes (#105)
+  shelves.rs        the home shelves, and the shelf entry every list shows
+  translation.rs    translation and a Branch's Language
+  readings.rs       Ingredient Lines, Readings, Foods and Food merges
+  cooking.rs        Attempts and promotion
+  keeping_photographs.rs
+                    storing, reading and sweeping Photographs
+  imports.rs        Crouton, staged uploads, the import ledger
+  sharing.rs        Share Links, Sheets, Bundles
+  shopping_list.rs  the shopping list
+  search.rs         word search and Meaning Search
+  keeping_backups.rs
+                    taking and listing Backups
+  shared.rs         the few helpers several areas call and none owns
 src/crouton.rs      reading a Crouton export into import candidates: lines rebuilt
                     from split fields, favicons and nutrition text left out (#69)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only
@@ -261,7 +283,7 @@ predates it.**
   Kamosu has done it. Either give the field an empty default instead, or write
   that migration deliberately and say so in an ADR.
 
-`a_field_added_to_a_recipe_moves_no_existing_id` in `src/core.rs` fails the build
+`a_field_added_to_a_recipe_moves_no_existing_id` in `src/core/recipes.rs` fails the build
 on the second case. Two behaviour tests guard the rest: one sweeps a database
 carried forward from an earlier schema, which fails if a migration rewrote
 `versions.content` without re-fingerprinting it, and one drives every path that

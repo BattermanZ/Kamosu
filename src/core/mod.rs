@@ -4,6 +4,23 @@
 //!
 //! Authorisation lives here, beneath both Doors, keyed on a Credential. A
 //! permission check written inside a Door is a bug.
+//!
+//! This file holds what every caller passes through before any Operation runs:
+//! the `Core` itself, startup, `execute` with its permission check, and
+//! resolving a Credential. The work behind each Operation lives beside it, one
+//! file per area, each adding its methods to `Core` in an `impl` of its own.
+//!
+//! Three areas are named for what they do rather than what they hold —
+//! `keeping_backups`, `keeping_photographs`, `shopping_list` — because
+//! `crate::backups`, `crate::photographs` and `crate::shopping` already exist
+//! and the code in those files names them by path.
+//!
+//! Every area's items are gathered back into this module, so the areas reach
+//! one another's helpers through `use super::*` and every `crate::core::X`
+//! path still works. How widely each area is re-exported follows what it
+//! holds: `pub use` where it has something public, `pub(crate) use` where the
+//! widest is crate-wide, and a plain `use` where everything in it is for the
+//! other areas only. An area nobody outside it calls into has no line at all.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
