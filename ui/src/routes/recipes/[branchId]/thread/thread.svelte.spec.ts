@@ -463,3 +463,80 @@ describe('the Thread screen', () => {
 		expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
 	});
 });
+
+describe('a Language said, in the Thread', () => {
+	/** One occurrence on one Branch, with everything the Catalogue requires. */
+	const occurrence = (sequence: number, version_id: string, language: string, extra = {}) => ({
+		branch_id: 'b_mine',
+		sequence,
+		version_id,
+		parent_version_id: sequence === 1 ? null : 'v_1',
+		hand_id: 'h_aurelien',
+		name: null,
+		change_note: null,
+		created_at: '2026-09-22T00:00:00Z',
+		translates_version_id: null,
+		language,
+		...extra,
+	});
+
+	/**
+	 * Saying a recipe's Language appends an occurrence of the head content
+	 * carrying the new Language — the SAME Version id, occurring twice, told
+	 * apart by its sequence. That is what `set_recipe_language` does.
+	 */
+	const saidItIsFrench = {
+		get_thread: {
+			lineage_id: 'l_1',
+			branches: [
+				{
+					branch_id: 'b_mine',
+					kitchen_id: 'k_1',
+					hand_id: 'h_aurelien',
+					language: 'fr',
+					head_version_id: 'v_1',
+					translation: null,
+				},
+			],
+			versions: [
+				occurrence(1, 'v_1', 'en', { change_note: 'Written down' }),
+				occurrence(2, 'v_1', 'fr'),
+			],
+			attempts: [],
+		},
+	} as Answers;
+
+	it('says which entry changed the Language, rather than repeating the row', async () => {
+		// #106's promise, kept: a Language change MAKES a Version, unlike
+		// tagging (#104) or relating (#105), and the sheet says so before it is
+		// tapped. Without this the trace it leaves is a second identical row
+		// with nothing to say for itself — the Version is there and nobody can
+		// see why.
+		renderThread('b_mine', saidItIsFrench);
+
+		expect(await screen.findByText('Said this recipe is in French.')).toBeInTheDocument();
+		// And it is not passed off as an ordinary save with nothing written down.
+		expect(screen.queryByText('Saved with nothing written down.')).not.toBeInTheDocument();
+	});
+
+	it('never folds a Language said into a run of quiet saves', async () => {
+		// It carries no name and no change note, so the fold would take it —
+		// and folding away the one row that explains the duplicate is worse
+		// than not drawing it at all.
+		const many = {
+			get_thread: {
+				...(saidItIsFrench.get_thread as Record<string, unknown>),
+				versions: [
+					occurrence(1, 'v_1', 'en'),
+					occurrence(2, 'v_2', 'en'),
+					occurrence(3, 'v_3', 'en'),
+					occurrence(4, 'v_4', 'en'),
+					occurrence(5, 'v_4', 'fr'),
+				],
+			},
+		} as Answers;
+		renderThread('b_mine', many);
+
+		expect(await screen.findByText('Said this recipe is in French.')).toBeInTheDocument();
+	});
+});

@@ -14,6 +14,7 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { ratingLabel } from '$lib/rating';
+	import { isUnknown, languageName } from '$lib/language';
 	import ThreadGroup from './ThreadGroup.svelte';
 	import type { ForkGroup, ThreadBranch, ThreadVersion } from './tree';
 	import type { GetThreadOutput } from '$lib/api/catalogue';
@@ -32,6 +33,13 @@
 		/** This group's own trunk was already drawn by the rail that deferred
 		 *  to this instance — skip it and go straight to what forks past it. */
 		hideTrunk?: boolean;
+		/**
+		 * Which rows said what Language this recipe is in, keyed the way a row
+		 * is keyed (#106). Computed once for the whole Thread rather than per
+		 * group, because the comparison runs down a Branch and a group only
+		 * ever holds part of one.
+		 */
+		languageSaid: Map<string, string>;
 	}
 
 	let {
@@ -42,10 +50,20 @@
 		onOpenAttempt,
 		nested = false,
 		hideTrunk = false,
+		languageSaid,
 	}: Props = $props();
 
 	const RUN_THRESHOLD = 4;
-	const isQuiet = (version: ThreadVersion) => !version.name && !version.change_note;
+	/**
+	 * A save with nothing written down, which runs of get folded away.
+	 *
+	 * **Saying a Language is never quiet** (#106). It carries no name and no
+	 * change note — nothing was typed — but it is the whole reason that row
+	 * exists, and folding it into *show 4 more* would hide the trace the
+	 * append-only history was minted to leave.
+	 */
+	const isQuiet = (version: ThreadVersion) =>
+		!version.name && !version.change_note && !languageSaid.has(rowKey(version));
 	const rowKey = (version: ThreadVersion) => `${version.branch_id}:${version.sequence}`;
 
 	let expanded = $state(new Set<string>());
@@ -87,12 +105,29 @@
 		expanded = next;
 	}
 
+	/**
+	 * What names a rail: whose Branch it is, and — where it is worth saying —
+	 * the Language it stands in.
+	 *
+	 * TWO THINGS IT MUST NOT DO (#106, ADR 0006). It must not print a Language
+	 * CODE: "(fr)" is not a word, and read aloud it is worse than read. And it
+	 * must not mark a Branch whose Language is Unknown, because a recipe
+	 * honestly written in two Languages carries no prompt, no badge and no nag
+	 * anywhere — which is the whole of what Unknown buys, and this rail was
+	 * the last place still taking it back.
+	 *
+	 * English is unmarked here for the reason the shelf leaves it unmarked: a
+	 * rail says what distinguishes it, and the overwhelming majority of rails
+	 * are not distinguished by their Language at all.
+	 */
 	function railLabel(branchIds: string[]): string {
 		return branchIds
 			.map((id) => branches.get(id))
 			.filter((branch): branch is ThreadBranch => !!branch)
 			.map((branch) =>
-				branch.language === 'en' ? branch.hand_id : `${branch.hand_id} (${branch.language})`,
+				branch.language === 'en' || isUnknown(branch.language)
+					? branch.hand_id
+					: `${branch.hand_id} (${languageName(branch.language)})`,
 			)
 			.join(', ');
 	}
@@ -139,8 +174,20 @@
 									<span class="text-accent"> · “{version.name}”</span>
 								{/if}
 							</span>
+							<!--
+								What this entry was: what was written down, or — where
+								nothing was — what the save itself did. A Language said
+								is the one save that has something to report without
+								anybody typing it (#106).
+							-->
 							<span class="block text-read text-ink-2">
-								{version.change_note ?? m.thread_quiet_save()}
+								{#if languageSaid.has(rowKey(version))}
+									{m.thread_said_language({
+										language: languageName(languageSaid.get(rowKey(version)) ?? ''),
+									})}
+								{:else}
+									{version.change_note ?? m.thread_quiet_save()}
+								{/if}
 							</span>
 						</span>
 					</button>
@@ -208,6 +255,7 @@
 					{attemptsByVersion}
 					{onOpenVersion}
 					{onOpenAttempt}
+					{languageSaid}
 					hideTrunk
 				/>
 			{/if}
@@ -219,6 +267,7 @@
 			{attemptsByVersion}
 			{onOpenVersion}
 			{onOpenAttempt}
+			{languageSaid}
 			{nested}
 		/>
 	{/if}

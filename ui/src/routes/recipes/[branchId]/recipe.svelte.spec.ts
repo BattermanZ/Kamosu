@@ -195,6 +195,25 @@ function divergence() {
 	};
 }
 
+/** One occurrence of one Version on one Branch, as the Thread lists it. */
+const occurrenceOf = (
+	branch_id: string,
+	sequence: number,
+	version_id: string,
+	parent_version_id: string | null,
+) => ({
+	branch_id,
+	sequence,
+	version_id,
+	parent_version_id,
+	hand_id: `h_${branch_id}`,
+	name: null,
+	change_note: null,
+	created_at: '2026-08-09T00:00:00Z',
+	translates_version_id: null,
+	language: 'en',
+});
+
 function forked(extra: Answers = {}) {
 	return {
 		get_recipe: {
@@ -252,7 +271,19 @@ function forked(extra: Answers = {}) {
 					translation: null,
 				},
 			],
-			versions: [],
+			// **A real Divergence shares a Version.** Two Branches that parted
+			// have a root in common and their own heads after it, and the page
+			// reads exactly that to decide whether a pair can be laid over each
+			// other at all — a Translation's chain starts fresh and shares
+			// nothing, which is why asking the Core to pair one was refused
+			// (#106, ADR 0006). An empty list here would describe a Lineage
+			// whose Branches came from nowhere.
+			versions: [
+				occurrenceOf('mine', 1, 'v_root', null),
+				occurrenceOf('mine', 2, 'v_mine', 'v_root'),
+				occurrenceOf('theirs', 1, 'v_root', null),
+				occurrenceOf('theirs', 2, 'v_theirs', 'v_root'),
+			],
 			attempts: [],
 		},
 		divergence: divergence(),
@@ -554,7 +585,12 @@ describe('a Divergence', () => {
 						head_version_id: `v_${id}`,
 						translation: null,
 					})),
-					versions: [],
+					// All three parted from the same root, which is what makes
+					// them a crowd rather than unrelated recipes.
+					versions: ['mine', 'theirs', 'camille'].flatMap((id) => [
+						occurrenceOf(id, 1, 'v_root', null),
+						occurrenceOf(id, 2, `v_${id}`, 'v_root'),
+					]),
 					attempts: [],
 				},
 			}),
@@ -1911,5 +1947,157 @@ describe('deleting a recipe', () => {
 		expect(screen.getByRole('dialog')).toBeInTheDocument();
 		expect(went).not.toHaveBeenCalledWith('/recipes', { replaceState: true });
 		expect(kamosu.calls.some((call) => call.operation === 'delete_recipe')).toBe(true);
+	});
+});
+
+// ---- the Language offer, at the seam it was dropped at (#106, ADR 0006) ---
+//
+// `Language.svelte`, `LanguageSheet` and `LanguageOffer` are tested on their
+// own in `language.svelte.spec.ts`. What is tested HERE is the wiring those
+// cannot see: `save_recipe_version` answers `language_offer`, `Writing` hands
+// it up, and this page has to put it. That hand-off is the exact shape of the
+// original defect — a field the Core answered and the interface dropped — so
+// it is tested where the drop would happen.
+
+/**
+ * What the recipe page asks for on the side and never waits on, plus the one
+ * Kitchen the writing screen needs to know whether a save forks.
+ */
+const MY_KITCHENS = {
+	note_recipe_opened: { lineage_id: 'l_1', opened_at: '2026-09-22T00:00:00Z' },
+	shopping_basis: {
+		branch_id: 'mine',
+		title: 'Korean Fried Chicken',
+		written_yield: null,
+		lines: [],
+	},
+	get_shopping_list: { chosen: [], rows: [] },
+	list_kitchens: {
+		kitchens: [
+			{
+				id: 'k_mine',
+				name: 'Maison Batterman',
+				nickname: null,
+				is_home: true,
+				hand_id: 'h_mine',
+				members: [],
+			},
+		],
+	},
+} as Answers;
+
+/** A save that landed, and what Language its text read as. */
+const savedReading = (language_offer: string | null, extra: Record<string, unknown> = {}) =>
+	({
+		save_recipe_version: {
+			branch_id: 'mine',
+			version_id: 'v_new',
+			parent_version_id: 'v_mine',
+			sequence: 2,
+			copied: false,
+			collapsed: false,
+			language: 'en',
+			language_offer,
+			translates_version_id: null,
+			...extra,
+		},
+	}) as Answers;
+
+/** Open the writing screen and take the save all the way through its sheet. */
+async function editAndSave() {
+	await fireEvent.click(await screen.findByRole('button', { name: 'Edit this recipe' }));
+	const act = /Save onto mine/;
+	await fireEvent.click((await screen.findAllByRole('button', { name: act }))[0] as HTMLElement);
+	const inSheet = await screen.findAllByRole('button', { name: act });
+	await fireEvent.click(inSheet[inSheet.length - 1] as HTMLElement);
+}
+
+/** The Thread as it reads when this recipe has one Translation and no Divergence. */
+const withATranslation = (extra: Answers = {}) =>
+	forked({
+		...MY_KITCHENS,
+		get_thread: {
+			lineage_id: 'l_1',
+			branches: [
+				{
+					branch_id: 'mine',
+					kitchen_id: 'k_mine',
+					hand_id: 'h_mine',
+					language: 'en',
+					head_version_id: 'v_mine',
+					translation: null,
+				},
+				{
+					branch_id: 'b_fr',
+					kitchen_id: 'k_mine',
+					hand_id: 'h_mine',
+					language: 'fr',
+					head_version_id: 'v_fr',
+					// A Translation renders a Version of this Branch, and its own
+					// chain starts fresh — so it shares no Version with it.
+					translation: {
+						translates_version_id: 'v_mine',
+						source_branch_id: 'mine',
+						versions_behind: 0,
+					},
+				},
+			],
+			versions: [],
+			attempts: [],
+		},
+		...extra,
+	});
+
+describe('a recipe that has a Translation', () => {
+	it('never asks for a Divergence against it, and reads perfectly well', async () => {
+		// The defect #106 surfaced: a Lineage holding exactly two Branches used
+		// to be paired unconditionally, so the one Lineage shape this ticket
+		// creates — a recipe and its Translation — asked the Core to find a
+		// shared Version between two chains that start apart. The Core refuses,
+		// the refusal is an internal error, and this screen turned that into a
+		// blank recipe. It was invisible only because no screen could make a
+		// Translation before now.
+		const { kamosu } = renderRecipe(withATranslation());
+
+		expect(await screen.findByText('Korean Fried Chicken')).toBeInTheDocument();
+		// Awaited, because the Translation arrives with the Thread rather than
+		// with the recipe — and this is the assertion that proves the page did
+		// not blank out on a refused Divergence.
+		expect(await screen.findByRole('link', { name: 'Also in French.' })).toHaveAttribute(
+			'href',
+			'/recipes/b_fr',
+		);
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('divergence');
+	});
+
+	it('does not call a Translation a crowd of Branches either', async () => {
+		renderRecipe(withATranslation());
+
+		expect(await screen.findByRole('link', { name: 'Also in French.' })).toBeInTheDocument();
+		expect(screen.queryByText(/other versions of this recipe|too many/i)).not.toBeInTheDocument();
+	});
+});
+
+describe('the Language offer on the recipe', () => {
+	it('puts the offer where the save already speaks, once a save answers one', async () => {
+		renderRecipe({ ...forked({ ...MY_KITCHENS, ...savedReading('fr') }) });
+		await screen.findByText('Maison Batterman');
+
+		await editAndSave();
+
+		expect(await screen.findByText('Saved.')).toBeInTheDocument();
+		expect(
+			screen.getByText('This recipe is filed as English, but it reads as French.'),
+		).toBeInTheDocument();
+	});
+
+	it('says nothing when the save’s text agreed with the Language the recipe carries', async () => {
+		renderRecipe({ ...forked({ ...MY_KITCHENS, ...savedReading(null) }) });
+		await screen.findByText('Maison Batterman');
+
+		await editAndSave();
+
+		expect(await screen.findByText('Saved.')).toBeInTheDocument();
+		expect(screen.queryByText(/but it reads as/)).not.toBeInTheDocument();
 	});
 });

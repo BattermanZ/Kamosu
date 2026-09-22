@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
 	import type { KamosuClient, GetRecipeOutput } from '$lib/api/catalogue';
+	import type { WrittenLanguage } from '$lib/language';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 	import Writing from './Writing.svelte';
 
@@ -16,12 +17,15 @@
 		/** The lines that already name a Recipe, as the Core unfolds them (#87). */
 		components?: GetRecipeOutput['versions'][number]['components'];
 		photograph?: (file: Blob) => Promise<string>;
+		/** Translating into this Language rather than editing (#106). */
+		translatingInto?: WrittenLanguage;
 		onCancel?: () => void;
 		onSaved?: (landed: {
 			branch_id: string;
 			collapsed: boolean;
 			copied: boolean;
 			named: boolean;
+			language_offer: string | null;
 		}) => void;
 	}
 
@@ -31,6 +35,7 @@
 		kitchenId,
 		components = [],
 		photograph,
+		translatingInto,
 		onCancel = () => {},
 		onSaved = () => {},
 	}: Props = $props();
@@ -43,6 +48,7 @@
 		{kitchenId}
 		{content}
 		{components}
+		{translatingInto}
 		{onCancel}
 		{onSaved}
 	/>

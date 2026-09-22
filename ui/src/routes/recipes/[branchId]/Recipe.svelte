@@ -102,8 +102,16 @@
 	 * Branch's first Version has no Readings to carry any of them forward — so
 	 * it is the save where a failure to attach one matters most, and it was the
 	 * one save that could not say so: the page that knew was already gone.
+	 *
+	 * It carries the save's Language offer for exactly the same reason (#106).
+	 * The Core answers one on a copied save like any other, and writing French
+	 * onto a recipe somebody else's Kitchen wrote is *where an offer is most
+	 * likely* — so a Copy dropping it on the floor would leave the one case
+	 * that needed it most as the one case that never got it.
 	 */
-	let copiedInto = $state<{ branchId: string; named: boolean } | undefined>(undefined);
+	let copiedInto = $state<
+		{ branchId: string; named: boolean; languageOffer: string | null } | undefined
+	>(undefined);
 </script>
 
 <script lang="ts">
@@ -128,6 +136,10 @@
 	import Promotion from './Promotion.svelte';
 	import Tags from './Tags.svelte';
 	import RelatedRecipes from './RelatedRecipes.svelte';
+	import Language from './Language.svelte';
+	import LanguageSheet from './LanguageSheet.svelte';
+	import LanguageOffer from './LanguageOffer.svelte';
+	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
 	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online, refreshed } from '$lib/offline/device.svelte';
@@ -164,6 +176,15 @@
 	 * the recipe screen is where Promotion is offered.
 	 */
 	let attempts = $state<GetThreadOutput['attempts']>([]);
+	/**
+	 * Every Branch of this Lineage the reader can reach, which the Thread
+	 * already answers and which this screen used to read for one fact and
+	 * throw away. It is what tells a recipe it exists in another Language
+	 * (#106, ADR 0006): a Translation is an ordinary Branch, so there is
+	 * nothing else to ask — no Operation lists *this recipe's translations*,
+	 * because there is no such object to list.
+	 */
+	let lineageBranches = $state<GetThreadOutput['branches']>([]);
 	/** Bumped after a Promotion, to read the recipe back with its new Version. */
 	let reread = $state(0);
 
@@ -224,9 +245,107 @@
 	 * saving closes that screen, so anything it drew would be destroyed before
 	 * it could be read (#83).
 	 */
-	let wrote = $state<{ collapsed: boolean; copied: boolean; named: boolean } | undefined>(
-		undefined,
+	let wrote = $state<
+		| { collapsed: boolean; copied: boolean; named: boolean; language_offer: string | null }
+		| undefined
+	>(undefined);
+
+	/**
+	 * The Language sheet is open (#106) — where a recipe's Language is said by
+	 * hand and where a Translation is started. Both mint a Version, which is
+	 * why they are here among the acts and not up beside the Tags row.
+	 */
+	let sayingLanguage = $state(false);
+	/**
+	 * Translating into this Language: the writing screen opens on this
+	 * recipe's own words, to be replaced. Undefined is the ordinary edit.
+	 */
+	let translatingInto = $state<WrittenLanguage | undefined>(undefined);
+
+	/**
+	 * Every OTHER Branch of this Lineage, which is the whole of what the
+	 * Language line reads. Computed here rather than inside `Language.svelte`
+	 * so that the component takes plain facts and can be rendered in a test
+	 * without a Thread.
+	 */
+	const otherBranches = $derived(
+		lineageBranches
+			.filter((each) => each.branch_id !== branchId)
+			.map((each) => ({ branch_id: each.branch_id, language: each.language })),
 	);
+	/**
+	 * The Branches that translate THIS one. A Translation names the Version it
+	 * renders and `get_thread` answers that pointer per Branch, so this is a
+	 * fact rather than an inference from Languages: two Branches in different
+	 * Languages are not necessarily a Translation and its source — one may be
+	 * a Divergence somebody relabelled.
+	 */
+	const translationsOfThis = $derived(
+		lineageBranches.filter(
+			(each) => each.branch_id !== branchId && each.translation?.source_branch_id === branchId,
+		),
+	);
+	/**
+	 * Whether Unknown is barred here, **in the Core's own terms**: this recipe
+	 * translates something, or something translates it —
+	 * `set_recipe_language` refuses exactly those two. Not "a sibling is in
+	 * another Language", which would wrongly bar a recipe whose only sibling
+	 * is a Divergence, and is not the rule being enforced.
+	 *
+	 * Where the two could still disagree — a Translation held by a Kitchen
+	 * this reader does not cook in is absent from the Thread — this errs
+	 * toward OFFERING, and the Core's refusal is then shown in its own words.
+	 * Wrongly offering costs a sentence; wrongly barring hides a choice behind
+	 * a reason that is not true.
+	 */
+	const inALanguageFamily = $derived(Boolean(recipe?.translation) || translationsOfThis.length > 0);
+	/**
+	 * The Languages not worth offering to translate into: this recipe's own,
+	 * and those of the Translations this family already holds. A Divergence is
+	 * deliberately NOT counted — somebody else's copy of these words happening
+	 * to be in French is no reason to refuse to write a French translation.
+	 */
+	const languagesTaken = $derived([
+		...(recipe ? [recipe.language] : []),
+		...translationsOfThis.map((each) => each.language),
+		...otherBranches
+			.filter((each) => each.branch_id === recipe?.translation?.source_branch_id)
+			.map((each) => each.language),
+	]);
+
+	/**
+	 * The Language this save's text reads as, narrowed to one this build can
+	 * act on. `language_offer` is declared as a plain string, so a newer
+	 * server could answer a Language this build has no word for — not a thing
+	 * to offer, since accepting it could not be carried out.
+	 *
+	 * Read from the Copy as well as the ordinary save: a copied save answers
+	 * an offer like any other, and the page it lands on is the one that has to
+	 * put it (#106).
+	 */
+	/**
+	 * **Go to the Branch a write landed on, if it is not this one** — true when
+	 * it navigated, so a caller can say what to do otherwise.
+	 *
+	 * Four different writes on this page can land somewhere else: a save that
+	 * Copied, a Translation, and either half of #106 acting on a recipe another
+	 * Kitchen writes. They are four Operations but one rule — staying here
+	 * would leave the cook reading a recipe that is no longer the one they
+	 * just changed — so it is written once.
+	 */
+	function follow(landedOn: string): boolean {
+		if (landedOn === branchId) return false;
+		void goto(`/recipes/${landedOn}`);
+		return true;
+	}
+
+	const offeredLanguage = $derived.by(() => {
+		const offered =
+			copiedInto?.branchId === branchId
+				? copiedInto.languageOffer
+				: (wrote?.language_offer ?? null);
+		return offered ? asBranchLanguage(offered) : null;
+	});
 
 	/**
 	 * Print a Sheet (#75, ADR 0023): the recipe as it stands on this screen,
@@ -401,16 +520,53 @@
 				const thread = await kamosu.getThread({ branch_id: branchId });
 				if (!current) return;
 				attempts = thread.attempts;
-				const others = thread.branches.filter((each) => each.branch_id !== branchId);
+				lineageBranches = thread.branches;
+				// **A Translation is not a Divergence, and cannot be paired with
+				// one.** A Divergence is two Branches that parted from a shared
+				// Version; a Translation's chain STARTS FRESH, which is exactly
+				// what separates it from a Copy (ADR 0006, `start_translation`).
+				// So a Translation and the recipe it renders share no Version at
+				// all, and asking for a Divergence between them is answered —
+				// correctly — with "their chains never converge".
+				//
+				// Before #106 that ask was made anyway, on any Lineage holding
+				// exactly two Branches. A recipe with one Translation therefore
+				// failed its own read and drew nothing: the refusal is an
+				// internal error, and this screen turns those into `failed`. It
+				// was invisible only because no screen could make a Translation.
+				//
+				// **Whether two Branches share a chain is answerable here**, and
+				// is not worth a request that would be refused. The Thread
+				// carries every Branch's every occurrence, so two Branches part
+				// from a shared Version exactly when they have a Version id in
+				// common — which two Translations of one recipe never do, and
+				// a Branch and its Copy always do.
+				const versionsOf = new Map<string, Set<string>>();
+				for (const occurrence of thread.versions) {
+					const seen = versionsOf.get(occurrence.branch_id) ?? new Set<string>();
+					seen.add(occurrence.version_id);
+					versionsOf.set(occurrence.branch_id, seen);
+				}
+				const mine = versionsOf.get(branchId) ?? new Set<string>();
+				const others = thread.branches.filter(
+					(each) =>
+						each.branch_id !== branchId &&
+						[...(versionsOf.get(each.branch_id) ?? [])].some((id) => mine.has(id)),
+				);
 				if (others.length !== 1) {
-					if (others.length > 1) crowded = thread.branches.length;
+					if (others.length > 1) crowded = others.length + 1;
 					return;
 				}
 
-				divergence = await kamosu.divergence({
-					branch_id: branchId,
-					other_branch_id: others[0].branch_id,
-				});
+				// Read on its own, so a refusal costs the Divergence and never
+				// the recipe. Whatever the Core declines to pair, the cook is
+				// still holding a recipe they can read and cook from.
+				divergence = await kamosu
+					.divergence({ branch_id: branchId, other_branch_id: others[0].branch_id })
+					.catch((error: unknown) => {
+						if (!(error instanceof OperationError)) throw error;
+						return undefined;
+					});
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
 				if (current) failed = true;
@@ -748,13 +904,25 @@
 		kitchenId={recipe.kitchen_id}
 		{content}
 		components={recipe.versions.at(-1)?.components ?? []}
-		onCancel={() => (writing = false)}
+		{translatingInto}
+		onCancel={() => {
+			writing = false;
+			translatingInto = undefined;
+		}}
 		onSaved={(landed) => {
 			writing = false;
+			const wasTranslating = translatingInto !== undefined;
+			translatingInto = undefined;
 			// A save moves the head Version, and both of these are keyed by a
 			// line's index into the list that just changed underneath them.
 			correcting = null;
 			fixed = new Map();
+			// A Translation is a Branch of its own, and the cook has just
+			// written it — so the page goes there, the way it follows a Copy.
+			// Staying here would leave them reading the recipe they translated
+			// with no sign the translation exists. It answers no offer: it
+			// declared the Language it is written in.
+			if (wasTranslating && follow(landed.branch_id)) return;
 			// A Copy put the Version on a NEW Branch. Staying here would leave
 			// the cook reading the recipe they deliberately did not change, so
 			// the page follows the one they now hold.
@@ -764,8 +932,13 @@
 				// navigation because a Copy is the one save whose outcome is
 				// not obvious from what is on screen afterwards: the recipe
 				// looks the same, and only the Kitchen it now sits in changed.
-				copiedInto = { branchId: landed.branch_id, named: landed.named };
-				void goto(`/recipes/${landed.branch_id}`);
+				// The Language offer rides along for the same reason (#106).
+				copiedInto = {
+					branchId: landed.branch_id,
+					named: landed.named,
+					languageOffer: landed.language_offer,
+				};
+				follow(landed.branch_id);
 				return;
 			}
 			wrote = landed;
@@ -826,6 +999,26 @@
 			{/if}
 			{#if markOf('title')}
 				<p class="px-gutter pt-2 text-read text-accent">{markOf('title')}</p>
+			{/if}
+
+			<!--
+			What this recipe says about its Language, and nothing at all on the
+			ordinary recipe that has nothing to say (#106, ADR 0006). Aurélien's
+			choice of 22 September 2026; `Language.svelte` holds the reasoning
+			and the rule that an empty state here would undo it.
+
+			NOT DRAWN WHEN YOU HAVE CROSSED TO THE OTHER BRANCH, for the reason
+			the Tags row is not. `recipe.language` and `recipe.translation` are
+			THIS Branch's, and a Divergence does not carry theirs — so standing
+			in their recipe under a line describing yours would say something
+			false about which recipe you are reading.
+		-->
+			{#if recipe && side === 'mine'}
+				<Language
+					language={recipe.language}
+					translation={recipe.translation}
+					others={otherBranches}
+				/>
 			{/if}
 
 			<!-- The meta: one full-bleed strip, three cells, hairlines between. -->
@@ -1367,6 +1560,29 @@
 				</p>
 			{/if}
 
+			<!--
+			The Language offer, put to the cook (#106, ADR 0006) — the half of
+			that ADR the interface never kept. It lands HERE, under the save's
+			own line, which is Aurélien's choice of 22 September 2026 against a
+			band at the top of the page: the offer arrives at the moment of
+			saving, so it goes where the save already speaks.
+
+			It belongs to one save. `language_offer` rides out on the save's
+			answer and nothing stores it, so there is nothing to come back to —
+			declining ends it, and `wrote` being cleared when the page moves to
+			another recipe ends it too.
+		-->
+			{#if recipe && offeredLanguage}
+				<LanguageOffer
+					branchId={recipe.branch_id}
+					filed={recipe.language}
+					offered={offeredLanguage}
+					onSaid={(landed) => {
+						if (!follow(landed.branch_id)) reread += 1;
+					}}
+				/>
+			{/if}
+
 			{#if saved === 'yes'}
 				<p class="mx-gutter mt-4 text-read text-accent" role="status">{m.divergence_saved()}</p>
 			{:else if saved === 'failed'}
@@ -1424,6 +1640,30 @@
 			>
 				{m.recipe_the_thread()}
 			</a>
+			<!--
+			Saying what Language this recipe is in, and translating it (#106).
+			Here among the acts rather than up beside the Tags row, because
+			both mint a Version and the Tags row is explicitly the place where
+			nothing does (ADR 0035, ADR 0006).
+
+			`NeedsServer` for the reason editing is: both Operations are on the
+			server's side of the line and neither is ever queued. An offline
+			queue for a Language would be two Kitchens disagreeing about what a
+			recipe is written in, and Kamosu does not merge (ADR 0013, #76).
+
+			Drawn only in your own Branch, as the Tags row and the Related
+			strip are: it changes the recipe, and the recipe you are standing
+			in across a Divergence is not yours to change.
+		-->
+			{#if recipe && side === 'mine'}
+				<NeedsServer
+					label={m.recipe_language_title()}
+					waiting={m.offline_waits_edit()}
+					onclick={() => (sayingLanguage = true)}
+					shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
+					lookClass="border border-rule text-accent"
+				/>
+			{/if}
 			<!--
 			Into the share screen (#65, ADR 0026). A link rather than a switch
 			here on purpose: turning sharing on is one deliberate act taken on a
@@ -1639,6 +1879,37 @@
 			<p class="text-body text-support">{m.recipe_delete_share_unknown()}</p>
 		{/if}
 	</Confirm>
+{/if}
+
+<!--
+	The Language sheet (#106): what this recipe is written in, and the way into
+	translating it. Raised over the page rather than a route, as `TagSheet` and
+	`RelatedSheet` are — going to another screen and coming back loses the
+	place you were standing in.
+-->
+{#if sayingLanguage && recipe}
+	<LanguageSheet
+		branchId={recipe.branch_id}
+		language={recipe.language}
+		inAFamily={inALanguageFamily}
+		taken={languagesTaken}
+		onSaid={(landed) => {
+			sayingLanguage = false;
+			// Saying this about a recipe another Kitchen writes is a Copy like
+			// any other change (ADR 0020), so the Version may have landed on a
+			// new Branch and the page follows the recipe the cook now holds.
+			if (!follow(landed.branch_id)) reread += 1;
+		}}
+		onTranslate={(into) => {
+			sayingLanguage = false;
+			// The writing screen opens on THIS recipe's words, which is what a
+			// person replaces to translate it. It is the same screen as an
+			// edit on purpose: a translation is a recipe.
+			translatingInto = into;
+			writing = true;
+		}}
+		onClose={() => (sayingLanguage = false)}
+	/>
 {/if}
 
 <style>

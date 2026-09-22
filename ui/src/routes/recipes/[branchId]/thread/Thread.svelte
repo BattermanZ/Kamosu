@@ -16,7 +16,7 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import ThreadGroup from './ThreadGroup.svelte';
-	import { buildGroup, chainsByBranch, type ThreadVersion } from './tree';
+	import { buildGroup, chainsByBranch, languageSaidAt, type ThreadVersion } from './tree';
 	import type { GetThreadOutput, GetRecipeOutput } from '$lib/api/catalogue';
 
 	type Attempt = GetThreadOutput['attempts'][number];
@@ -54,6 +54,13 @@
 	const branchesById = $derived(
 		new Map(thread?.branches.map((branch) => [branch.branch_id, branch]) ?? []),
 	);
+
+	/**
+	 * Which entries said what Language this recipe is in (#106, ADR 0006).
+	 * Worked out once, over the whole Thread, because the comparison runs down
+	 * a Branch and a group only ever holds part of one.
+	 */
+	const languageSaid = $derived(languageSaidAt(thread?.versions ?? []));
 
 	const attemptsByVersion = $derived.by(() => {
 		const map = new Map<string, Attempt[]>();
@@ -123,6 +130,7 @@
 			group={rootGroup}
 			branches={branchesById}
 			{attemptsByVersion}
+			{languageSaid}
 			onOpenVersion={openVersionDetail}
 			onOpenAttempt={(attempt) => (openAttempt = attempt)}
 		/>

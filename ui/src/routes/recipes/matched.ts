@@ -17,6 +17,7 @@
  */
 
 import { m } from '$lib/paraglide/messages';
+import { languageName } from '$lib/language';
 import type { SearchRecipesOutput } from '$lib/api/catalogue';
 
 export type Entry = SearchRecipesOutput['recipes'][number];
@@ -65,20 +66,14 @@ export function matchedLabel(matched: Matched | null): string | null {
  * Takes the two fields it reads rather than a whole shelf `Entry`, so the
  * Related Recipes strip marks a fallback in the same words as the shelf does
  * (#105). A second copy of this mapping is how "In French" becomes "In fr" on
- * one screen and nobody notices.
+ * one screen and nobody notices — which is why the mapping itself moved to
+ * `$lib/language` when the recipe screen needed it too (#106), and why this
+ * reads it rather than keeping a copy.
  */
 export function fallbackLanguage(entry: {
 	language: string;
 	language_fallback: boolean;
 }): string | null {
 	if (!entry.language_fallback) return null;
-	const language =
-		{
-			en: m.recipes_language_en(),
-			fr: m.recipes_language_fr(),
-			es: m.recipes_language_es(),
-			// A Language this build has no word for keeps its own code rather than
-			// the recipe quietly losing its mark.
-		}[entry.language] ?? entry.language;
-	return m.recipes_language_fallback({ language });
+	return m.recipes_language_fallback({ language: languageName(entry.language) });
 }

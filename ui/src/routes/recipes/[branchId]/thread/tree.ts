@@ -68,3 +68,39 @@ export function buildGroup(
 
 	return { trunk, children };
 }
+
+/**
+ * **Which occurrences said what Language this recipe is in** (#106, ADR 0006),
+ * as a map from a row's key to the Language it settled on.
+ *
+ * Saying a recipe's Language appends an occurrence of the head content
+ * carrying the new Language — the same Version, occurring twice, told apart by
+ * its sequence. That is what makes the change leave a trace in an append-only
+ * history, and it is the one thing separating it from tagging (#104) and
+ * relating (#105), neither of which the Thread ever hears about.
+ *
+ * Without this, that trace reads as a second identical row with nothing to say
+ * for itself — the Version is there, but nobody can see WHY. The Language of
+ * an occurrence is answered per occurrence precisely so this is answerable, so
+ * the comparison is against the previous occurrence ON THE SAME BRANCH rather
+ * than against the Branch's Language now, which is only ever the latest one.
+ */
+export function languageSaidAt(versions: ThreadVersion[]): Map<string, string> {
+	const said = new Map<string, string>();
+	const carried = new Map<string, string | null>();
+	// Oldest first per Branch, which is the order a Thread is read in.
+	const inOrder = [...versions].sort(
+		(a, b) => a.branch_id.localeCompare(b.branch_id) || a.sequence - b.sequence,
+	);
+	for (const version of inOrder) {
+		const before = carried.get(version.branch_id);
+		// The first occurrence on a Branch states a Language rather than
+		// changing one: a recipe has always been in some Language, and saying
+		// so of its first Version would mark every recipe ever written.
+		if (before !== undefined && version.language !== null && version.language !== before) {
+			said.set(`${version.branch_id}:${version.sequence}`, version.language);
+		}
+		carried.set(version.branch_id, version.language);
+	}
+	return said;
+}

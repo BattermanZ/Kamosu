@@ -86,12 +86,22 @@ function renderWriting(
 	components: Components = [],
 	/** The recipe underneath, where a test needs one that is not Dan Dan Noodles. */
 	start: Content = content(),
+	/** Translating into this Language rather than editing (#106). */
+	translatingInto?: 'en' | 'fr' | 'es',
 ) {
 	const onSaved = vi.fn();
 	const onCancel = vi.fn();
 	const kamosu = standIn({ ...KITCHENS, ...SAVED, ...answers });
 	render(WritingTestHarness, {
-		props: { client: kamosu.client, content: start, kitchenId, components, onSaved, onCancel },
+		props: {
+			client: kamosu.client,
+			content: start,
+			kitchenId,
+			components,
+			translatingInto,
+			onSaved,
+			onCancel,
+		},
 	});
 	return { kamosu, onSaved, onCancel };
 }
@@ -171,6 +181,23 @@ const READ_BACK = {
 		cooked: { count: 0, last_cooked_at: null, ratings: [] },
 	},
 	set_reading: { line_index: 1, reading: null, measured: null },
+} as Answers;
+
+/**
+ * What `start_translation` answers: a whole recipe, because what it makes is a
+ * recipe (#106, ADR 0006). There is no Translation object for it to answer.
+ */
+const TRANSLATED = {
+	start_translation: {
+		...(READ_BACK.get_recipe as Record<string, unknown>),
+		branch_id: 'b_fr',
+		language: 'fr',
+		translation: {
+			translates_version_id: 'v_2',
+			source_branch_id: 'mine',
+			versions_behind: 0,
+		},
+	},
 } as Answers;
 
 /** Open the picker on one line and choose the only recipe the shelf holds. */
@@ -650,6 +677,10 @@ describe('writing a recipe', () => {
 			collapsed: true,
 			copied: false,
 			named: true,
+			// The save's Language offer travels up with the rest (#106): this
+			// save's text agreed with the Language the recipe carries, so there
+			// is nothing to put to the cook.
+			language_offer: null,
 		});
 	});
 
@@ -680,6 +711,7 @@ describe('writing a recipe', () => {
 			collapsed: false,
 			copied: true,
 			named: true,
+			language_offer: null,
 		});
 	});
 
@@ -1126,5 +1158,92 @@ describe('pasting a whole recipe', () => {
 		// By its text rather than by `role="alert"`: an empty recipe is already
 		// showing one, since it has no title yet.
 		expect(await screen.findByText('too long')).toBeInTheDocument();
+	});
+});
+
+// ---- translating (#106, ADR 0006) ---------------------------------------
+
+describe('translating a recipe', () => {
+	it('is the same screen, saying what it is doing and what the save will make', async () => {
+		// A translation is a recipe, so it is written where recipes are written.
+		// The draft opens on the source's own words, which is what a person
+		// replaces — so without the screen saying so, the only difference from
+		// an ordinary edit would be the button, by which point they have
+		// retyped the recipe.
+		renderWriting({ ...TRANSLATED }, 'k_mine', [], content(), 'fr');
+
+		expect(await screen.findByText('Translating into French')).toBeInTheDocument();
+		await fireEvent.click(
+			(await screen.findAllByRole('button', { name: /Save the translation/ }))[0] as HTMLElement,
+		);
+		expect(
+			await screen.findByText(
+				'This makes a new recipe in the same family, written in French. The one you are translating is untouched.',
+			),
+		).toBeInTheDocument();
+	});
+
+	it('calls start_translation with the Language, and never save_recipe_version', async () => {
+		const { kamosu, onSaved } = renderWriting({ ...TRANSLATED }, 'k_mine', [], content(), 'fr');
+
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await saveThrough(/Save the translation/);
+
+		const asked = kamosu.calls.map((call) => call.operation);
+		expect(asked).toContain('start_translation');
+		// The recipe being translated is not touched. A Version on it would be
+		// an edit nobody asked for.
+		expect(asked).not.toContain('save_recipe_version');
+
+		const input = kamosu.calls.find((call) => call.operation === 'start_translation')
+			?.input as Record<string, unknown>;
+		expect(input.language).toBe('fr');
+		expect(input.branch_id).toBe('mine');
+
+		// It lands on a Branch of its own, and answers no offer: it declared
+		// the Language it is written in, so there is nothing to put to the cook.
+		expect(onSaved).toHaveBeenCalledWith({
+			branch_id: 'b_fr',
+			collapsed: false,
+			copied: false,
+			named: true,
+			language_offer: null,
+		});
+	});
+
+	it('is never dressed as a fork, whoever holds the recipe being translated', async () => {
+		// `start_translation` makes a Branch of the same Lineage whatever
+		// Kitchen holds the source, so #54's two sentences — save onto this
+		// one, start my own copy — are both wrong here.
+		renderWriting({ ...TRANSLATED }, 'k_someone_else', [], content(), 'fr');
+
+		expect(await screen.findByText('Translating into French')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Start my own copy/ })).not.toBeInTheDocument();
+	});
+});
+
+describe('the Language offer a save answers', () => {
+	it('hands the offered Language up, rather than dropping it', async () => {
+		// The whole of #106's cause: the Core answers this on every save and
+		// no production code in ui/ read it, so the offered half of ADR 0006
+		// never happened for anybody using a browser.
+		const { onSaved } = renderWriting({
+			save_recipe_version: {
+				branch_id: 'mine',
+				version_id: 'v_2',
+				parent_version_id: 'v_1',
+				sequence: 2,
+				collapsed: false,
+				copied: false,
+				language: 'en',
+				language_offer: 'fr',
+				translates_version_id: null,
+			},
+		} as Answers);
+
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await saveThrough(/Save onto mine/);
+
+		expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ language_offer: 'fr' }));
 	});
 });

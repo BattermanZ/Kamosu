@@ -114,6 +114,7 @@
 		ReadPastedRecipeOutput,
 	} from '$lib/api/catalogue';
 	import type { Nutrition } from './divergence';
+	import { languageName, type WrittenLanguage } from '$lib/language';
 	import Cover from '$lib/cover/Cover.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 
@@ -134,6 +135,18 @@
 		 * edited on the inner recipe's own page.
 		 */
 		components?: GetRecipeOutput['versions'][number]['components'];
+		/**
+		 * **Translating rather than editing** (#106, ADR 0006): the Language
+		 * the draft below is being rendered into. Set, the save calls
+		 * `start_translation` and makes an ordinary Branch of the same Lineage
+		 * in that Language; the recipe being translated is not touched.
+		 *
+		 * The screen is otherwise the same screen, which is the point. A
+		 * translation is a recipe, so it is written where recipes are written —
+		 * there is no translation editor, and the draft starts as the source's
+		 * own words because replacing them in place is what translating is.
+		 */
+		translatingInto?: WrittenLanguage;
 		onCancel: () => void;
 		/**
 		 * A Version landed. The page re-reads and this screen closes, so what
@@ -146,12 +159,20 @@
 		 * `named` is false where the Version landed but a line naming another
 		 * recipe could not be marked (#87). It travels with the rest for the
 		 * same reason they do: the screen that knows is closing.
+		 *
+		 * `language_offer` is the Language this text reads as where that
+		 * disagrees with the one the recipe carries — an offer to be put to
+		 * the cook and never a change (#106, ADR 0006). It travels up with the
+		 * rest because it belongs to THIS save and to no later read: nothing
+		 * stores it, and `get_recipe` does not answer it. A Translation's
+		 * first save answers none, since it declared its own Language.
 		 */
 		onSaved: (landed: {
 			branch_id: string;
 			collapsed: boolean;
 			copied: boolean;
 			named: boolean;
+			language_offer: string | null;
 		}) => void;
 	}
 
@@ -161,9 +182,13 @@
 		kitchenId,
 		content,
 		components = [],
+		translatingInto,
 		onCancel,
 		onSaved,
 	}: Props = $props();
+
+	/** Whether this screen is rendering the recipe into another Language rather than editing it. */
+	const translating = $derived(translatingInto !== undefined);
 
 	const kamosu = useKamosu();
 	const sendPhotograph = usePhotograph();
@@ -453,6 +478,41 @@
 	const holding = $derived(kitchens.find((kitchen) => kitchen.id === kitchenId));
 	/** The Kitchen the save writes into, whichever of the two acts it is. */
 	const savingInto = $derived(forking ? landsIn : (holding ?? landsIn));
+
+	/**
+	 * **What this save is, in words** — the one place the three acts are told
+	 * apart, so the bar, the button and the sheet cannot drift into saying
+	 * three different things about the same tap.
+	 *
+	 * Translating is checked FIRST and is never a fork: `start_translation`
+	 * makes a Branch of the same Lineage whatever Kitchen holds the recipe
+	 * being translated, so #54's two sentences are both wrong for it.
+	 */
+	const act = $derived.by(() => {
+		if (translatingInto) {
+			const language = languageName(translatingInto);
+			return {
+				called: m.write_translation_heading({ language }),
+				said: m.write_translation_what({ language }),
+				does: m.write_translation_save(),
+				/** Beni is reserved for a fork, and a Translation is not one. */
+				grave: false,
+			};
+		}
+		return forking
+			? {
+					called: m.write_will_fork(),
+					said: m.write_said_fork({ title: title.trim(), kitchen: savingInto?.name ?? '' }),
+					does: m.write_do_fork(),
+					grave: true,
+				}
+			: {
+					called: m.write_will_save(),
+					said: m.write_said_save({ title: title.trim(), kitchen: savingInto?.name ?? '' }),
+					does: m.write_do_save(),
+					grave: false,
+				};
+	});
 
 	// ---- the lists ------------------------------------------------------
 
@@ -810,12 +870,28 @@
 		saving = true;
 		failed = undefined;
 		try {
-			const answered = await kamosu.saveRecipeVersion({
+			const common = {
 				...drafted(),
 				...(versionName.trim() === '' ? {} : { name: versionName.trim() }),
 				...(changeNote.trim() === '' ? {} : { change_note: changeNote.trim() }),
 				...(savingInto ? { kitchen_id: savingInto.id } : {}),
-			});
+			};
+			// Two Operations, one screen. Translating makes a Branch of the same
+			// Lineage carrying its own Language and pointing at the Version of
+			// the source it renders; editing writes a Version on this Branch.
+			// Neither is a mode of the other, which is why the answers differ in
+			// shape and are read apart rather than merged (#106, ADR 0006).
+			const answered = translatingInto
+				? {
+						...(await kamosu.startTranslation({ ...common, language: translatingInto })),
+						// A Translation's first Version is its own first Version:
+						// it joins nothing and forks nothing, and it declared the
+						// Language it is in, so there is no offer to make.
+						collapsed: false,
+						copied: false,
+						language_offer: null,
+					}
+				: await kamosu.saveRecipeVersion(common);
 			// The Version has landed. Whatever happens to the pointers now, it
 			// has landed — so a failure here is reported beside the save rather
 			// than as one, and never as an error that hides what did work.
@@ -833,6 +909,7 @@
 				collapsed: answered.collapsed,
 				copied: answered.copied,
 				named,
+				language_offer: answered.language_offer,
 			});
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -905,7 +982,15 @@
 		<button type="button" class="text-body text-ink-2" onclick={onCancel}>
 			{m.write_cancel()}
 		</button>
-		<span class="flex-1 text-center text-label text-ink-2 uppercase">{m.write_editing()}</span>
+		<!--
+			What this screen is doing, said where it says it is being written on.
+			A translation opens on the source's own words, so without this the
+			only difference between translating and editing would be the button
+			at the foot — and by then you have retyped the recipe.
+		-->
+		<span class="flex-1 text-center text-label text-ink-2 uppercase">
+			{translating ? act.called : m.write_editing()}
+		</span>
 		<!--
 			The way in to a paste, once the page holds something (#83). Pasting
 			over a recipe REPLACES it, so it does not sit in the open beside
@@ -1268,7 +1353,7 @@
 			{#if !kitchensKnown}
 				{kitchensFailed ? m.write_outcome_unknown() : m.loading()}
 			{:else}
-				{forking ? m.write_do_fork() : m.write_do_save()}
+				{act.does}
 			{/if}
 		</button>
 	</div>
@@ -1470,16 +1555,16 @@
 		class="py-5 fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pb-safe"
 		role="dialog"
 		aria-modal="true"
-		aria-label={forking ? m.write_will_fork() : m.write_will_save()}
+		aria-label={act.called}
 	>
-		<p class="text-label text-ink-2 uppercase">
-			{forking ? m.write_will_fork() : m.write_will_save()}
-		</p>
-		<p class="mt-2 text-body">
-			{forking
-				? m.write_said_fork({ title: title.trim(), kitchen: savingInto?.name ?? '' })
-				: m.write_said_save({ title: title.trim(), kitchen: savingInto?.name ?? '' })}
-		</p>
+		<!--
+			A translation is neither of the two saves #54 named. It is never a
+			fork — it makes a Branch of the same Lineage whatever Kitchen holds
+			the source — and it is never a Version on this Branch. So it says
+			its own sentence rather than borrowing the closer of two wrong ones.
+		-->
+		<p class="text-label text-ink-2 uppercase">{act.called}</p>
+		<p class="mt-2 text-body">{act.said}</p>
 		<label class="mt-4 block">
 			<span class="block text-label text-ink-2 uppercase">
 				{m.write_name_label()} · {m.write_optional()}
@@ -1495,13 +1580,13 @@
 		<p class="mt-1 text-read text-ink-2">{m.write_changed_now()}</p>
 		<button
 			type="button"
-			class="mt-4 block w-full p-4 text-center font-display text-body text-on-accent {forking
+			class="mt-4 block w-full p-4 text-center font-display text-body text-on-accent {act.grave
 				? 'bg-support'
 				: 'bg-accent'}"
 			disabled={saving}
 			onclick={save}
 		>
-			{forking ? m.write_do_fork() : m.write_do_save()}
+			{act.does}
 		</button>
 		<button
 			type="button"
