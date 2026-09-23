@@ -40,7 +40,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { useUpload } from '$lib/api/upload';
-	import { waitForJob } from '$lib/api/job';
+	import { StillRunning, waitForJob } from '$lib/api/job';
 	import { noteArrival, outcomeOf } from '$lib/arrival.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online } from '$lib/offline/device.svelte';
@@ -69,6 +69,11 @@
 	let link = $state('');
 	let failed = $state<string | undefined>(undefined);
 	/**
+	 * The wait ran out before the Job did (#117). Not a failure: the recipe
+	 * still arrives, and this says so rather than what went wrong.
+	 */
+	let stillGoing = $state(false);
+	/**
 	 * The file field, clicked by the button beside it. A file cannot be chosen
 	 * from a `<button>`, and the button has to be `NeedsServer`'s so that
 	 * offline it greys and says what it is waiting for (#76) rather than failing
@@ -91,6 +96,7 @@
 	async function fromLink() {
 		nowWorking('link');
 		failed = undefined;
+		stillGoing = false;
 		try {
 			const asked = await kamosu.importWebLink({ url: link.trim() });
 			const finished = await waitForJob(kamosu, asked.job_id);
@@ -104,8 +110,9 @@
 			// Saying so is the whole answer; there is nothing to open.
 			failed = result.unreadable[0]?.reason ?? m.recipes_import_unreadable();
 		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			failed = error.message;
+			if (error instanceof StillRunning) stillGoing = true;
+			else if (error instanceof OperationError) failed = error.message;
+			else throw error;
 		} finally {
 			nowWorking('no');
 		}
@@ -126,6 +133,7 @@
 		if (!file) return;
 		nowWorking('file');
 		failed = undefined;
+		stillGoing = false;
 		try {
 			const uploadId = await upload(file);
 			const asked = await kamosu.importBundle({ upload_id: uploadId });
@@ -148,11 +156,14 @@
 			await goto(`/recipes/${outcome.landed.branchId}`);
 		} catch (error) {
 			// A Job that failed is raised as a plain Error by `waitForJob`, and a
-			// refused Operation as an OperationError. Both are this act's to say:
+			// refused Operation as an OperationError. A Job that outlasted the
+			// wait is neither, and says it is still going (#117). All are this
+			// act's to say:
 			// a person who has just chosen a file is owed a sentence, never a
 			// silence (#93).
 			if (!(error instanceof Error)) throw error;
-			failed = error.message;
+			if (error instanceof StillRunning) stillGoing = true;
+			else failed = error.message;
 		} finally {
 			nowWorking('no');
 		}
@@ -300,4 +311,8 @@
 
 {#if failed}
 	<p class="mt-2 text-read text-support" role="alert">{failed}</p>
+{:else if stillGoing}
+	<p class="mt-2 text-read text-ink-2" role="status">
+		{m.bring_in_still_going({ where: `${m.settings_title()} › ${m.settings_imports()}` })}
+	</p>
 {/if}

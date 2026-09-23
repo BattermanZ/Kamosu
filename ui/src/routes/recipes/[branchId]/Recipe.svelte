@@ -121,7 +121,7 @@
 	import { cookingDay } from '$lib/cooking-day';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import { waitForJob } from '$lib/api/job';
+	import { StillRunning, waitForJob } from '$lib/api/job';
 	import type {
 		DivergenceOutput,
 		GetRecipeOutput,
@@ -272,7 +272,9 @@
 	let howMuchFailed = $state(false);
 	let shopping = $state(false);
 	/** Where asking for a Sheet has got to (#75). */
-	let printing = $state<'idle' | 'setting' | 'failed'>('idle');
+	let printing = $state<'idle' | 'setting' | 'stillSetting' | 'failed'>('idle');
+	/** Being set, however long it takes: one Sheet at a time, and never a second tab. */
+	const settingSheet = $derived(printing === 'setting' || printing === 'stillSetting');
 	/**
 	 * Whether the page is being written on rather than read (#83). It is the
 	 * same page either way, which is the whole of the direction Aurélien
@@ -467,8 +469,19 @@
 	 *
 	 * The tab is opened at the tap and filled once the Job ends: a tab opened
 	 * later, from a promise, is one a browser is entitled to block.
+	 *
+	 * A Sheet that outlasts the ordinary wait has not failed (#117). The screen
+	 * says it is still being set and goes on waiting while the cook stays on
+	 * this recipe, so the tab it promised is the tab the Sheet arrives in.
+	 * Leaving — for another screen, or for another recipe on this one — stops
+	 * the reading: a Sheet not ready by then is not waited for, and its empty
+	 * tab closes. The Job itself carries on regardless (ADR 0032). One that was
+	 * ready as the cook left still fills its tab, but never moves the page they
+	 * have gone to.
 	 */
 	async function printSheet() {
+		const forVisit = visit;
+		const leftBehind = () => closed || visit !== forVisit;
 		printing = 'setting';
 		const tab = window.open('', '_blank');
 		try {
@@ -480,16 +493,36 @@
 					? { branch_id: branchId }
 					: { branch_id: branchId, wanted_yield: named },
 			);
-			const job = await waitForJob(kamosu, asked.job_id);
+			const job = await waitForJob(kamosu, asked.job_id, { stopped: leftBehind }).catch(
+				(error: unknown) => {
+					if (!(error instanceof StillRunning)) throw error;
+					printing = 'stillSetting';
+					return waitForJob(kamosu, asked.job_id, {
+						giveUpAfter: Infinity,
+						stopped: leftBehind,
+					});
+				},
+			);
+			if (job.status !== 'completed') {
+				// Left before the Sheet was ready: nothing is left to fill.
+				tab?.close();
+				return;
+			}
 			const at = (job.result as MakeSheetOutput).fetch_at;
 			if (tab) tab.location.href = at;
-			else window.location.assign(at);
-			printing = 'idle';
+			else if (!leftBehind()) window.location.assign(at);
+			if (!leftBehind()) printing = 'idle';
 		} catch {
 			tab?.close();
-			printing = 'failed';
+			if (!leftBehind()) printing = 'failed';
 		}
 	}
+
+	/** Set once this screen closes, so a Sheet still being waited on stops being read. */
+	let closed = false;
+	$effect(() => () => {
+		closed = true;
+	});
 
 	/**
 	 * Read the recipe at another amount (#109). The Core scales every line it
@@ -617,14 +650,23 @@
 	 * not be marked* is an alert about a defect that is not there.
 	 */
 	let saidFor: string | undefined;
+	/**
+	 * Counts the recipes this screen has shown, so work begun on one can tell
+	 * it has been left — even for the same recipe opened again (#117).
+	 */
+	let visit = 0;
 	$effect(() => {
 		if (saidFor !== branchId) {
 			saidFor = branchId;
+			visit += 1;
 			untrack(() => {
 				wrote = undefined;
 				named = undefined;
 				choosingHowMuch = false;
 				howMuchFailed = false;
+				// A Sheet being set was the last recipe's; `printSheet` stops
+				// waiting on it once it sees the recipe has changed (#117).
+				printing = 'idle';
 			});
 		}
 	});
@@ -1962,15 +2004,19 @@
 			It waits for the server, since the server is what sets it.
 		-->
 			<NeedsServer
-				label={printing === 'setting' ? m.recipe_print_setting() : m.recipe_print_sheet()}
+				label={settingSheet ? m.recipe_print_setting() : m.recipe_print_sheet()}
 				waiting={m.offline_waits_print()}
 				onclick={printSheet}
-				disabled={printing === 'setting'}
+				disabled={settingSheet}
 				shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
 				lookClass="border border-rule text-accent"
 			/>
 			{#if printing === 'failed'}
 				<p class="mx-gutter mt-2 text-read text-support" role="alert">{m.recipe_print_failed()}</p>
+			{:else if printing === 'stillSetting'}
+				<p class="mx-gutter mt-2 text-read text-ink-2" role="status">
+					{m.recipe_print_still_going()}
+				</p>
 			{/if}
 			<!--
 			Onto the Shopping List (#73, ADR 0024). A button and not a link: it

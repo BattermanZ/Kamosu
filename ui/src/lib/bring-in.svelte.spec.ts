@@ -19,6 +19,7 @@ import { standIn, type Answers } from '$lib/api/stand-in';
 import { OperationError } from '$lib/api/client';
 import { forgetArrival } from './arrival.svelte';
 import { went } from '../testing/navigation';
+import { outlivingTheWait, withTheClockFaked } from '../testing/jobs';
 
 afterEach(() => {
 	Reflect.deleteProperty(navigator, 'onLine');
@@ -76,6 +77,19 @@ const finishedWith = (result: ReturnType<typeof report>): Answers => ({
 		updated_at: '2026-09-21T10:00:02.000Z',
 		result,
 	},
+});
+
+/** A Job still running when the screen stops waiting on it (#117). */
+const running = (operation: string) => ({
+	id: 'j_9',
+	operation,
+	status: 'running' as const,
+	progress: {},
+	error: null,
+	errorCode: null,
+	created_at: '2026-09-21T10:00:00.000Z',
+	updated_at: '2026-09-21T10:00:02.000Z',
+	result: null,
 });
 
 async function bringIn(answers: Answers, upload = vi.fn(async () => 'u_staged')) {
@@ -268,6 +282,20 @@ describe('bringing a recipe file in', () => {
 		expect(went).not.toHaveBeenCalled();
 	});
 
+	it('says a recipe file still arriving is still arriving, not that it failed (#117)', () =>
+		withTheClockFaked(async () => {
+			await bringIn({
+				import_bundle: { job_id: 'j_9' },
+				get_job: outlivingTheWait(running('import_bundle')),
+			});
+
+			expect(await screen.findByRole('status')).toHaveTextContent(
+				'still going. The recipe should arrive in your library on its own, and Settings › Brought in will show how it went.',
+			);
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+			expect(went).not.toHaveBeenCalled();
+		}));
+
 	it('waits for the server offline rather than failing when pressed', async () => {
 		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
 		const kamosu = standIn({});
@@ -330,4 +358,25 @@ describe('the quiet line above the shelf', () => {
 		expect(await screen.findByLabelText(/web address/)).toBeInTheDocument();
 		expect(went).not.toHaveBeenCalled();
 	});
+});
+
+describe('importing from a link', () => {
+	it('says a page still being read is still being read, not that Kamosu went wrong (#117)', () =>
+		withTheClockFaked(async () => {
+			const kamosu = standIn({
+				import_web_link: { job_id: 'j_9' },
+				get_job: outlivingTheWait(running('import_web_link')),
+			});
+			render(BringInTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
+			await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
+			const field = screen.getByLabelText(/web address/);
+			await fireEvent.input(field, { target: { value: 'https://example.test/osso-buco' } });
+			await fireEvent.submit(field.closest('form')!);
+
+			// Before #117 this escaped uncaught, which a real browser shows as the
+			// "Kamosu went wrong" card.
+			expect(await screen.findByRole('status')).toHaveTextContent(/still going/);
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+			expect(went).not.toHaveBeenCalled();
+		}));
 });

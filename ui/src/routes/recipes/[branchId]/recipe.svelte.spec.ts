@@ -10,12 +10,13 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { cleanup, render, screen, fireEvent } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
+import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
 // stand on. Where that goes is the router's business, not this screen's, so
@@ -1915,6 +1916,76 @@ describe('a Sheet (#75)', () => {
 		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be made/);
 		expect(tab.close).toHaveBeenCalled();
 	});
+
+	it('says a sheet still being set is still being set, and opens it when it is ready (#117)', () =>
+		withTheClockFaked(async () => {
+			const tab = { location: { href: '' }, close: vi.fn() };
+			vi.stubGlobal(
+				'open',
+				vi.fn(() => tab),
+			);
+			renderRecipe({
+				...forked(),
+				make_sheet: { job_id: 'j_sheet' },
+				get_job: outlivingTheWait(
+					{ ...sheetJob, status: 'running' as const, result: null },
+					sheetJob,
+				),
+			});
+			await screen.findByText('Maison Batterman');
+
+			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+			// Several lines on this screen are statuses, so the sentence is found by
+			// its words and then checked for the role.
+			expect(await screen.findByText(/still being made/)).toHaveAttribute('role', 'status');
+			expect(screen.queryByText(/could not be made/)).not.toBeInTheDocument();
+			// Still being set, so not offered again: a second press is a second tab.
+			expect(screen.getByRole('button', { name: /Setting the sheet/ })).toBeDisabled();
+
+			// The wait goes on, and the Sheet lands in the tab that was promised.
+			await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
+			expect(tab.close).not.toHaveBeenCalled();
+		}));
+
+	/** A Sheet still being set, asked for and outwaited, on the recipe `mine`. */
+	async function stillSetting() {
+		const tab = { location: { href: '' }, close: vi.fn() };
+		vi.stubGlobal(
+			'open',
+			vi.fn(() => tab),
+		);
+		const rendered = renderRecipe({
+			...forked(),
+			make_sheet: { job_id: 'j_sheet' },
+			get_job: outlivingTheWait({ ...sheetJob, status: 'running' as const, result: null }),
+		});
+		await screen.findByText('Maison Batterman');
+		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+		await screen.findByText(/still being made/);
+		return { tab, ...rendered };
+	}
+
+	it('stops waiting on a sheet, and closes its empty tab, when the cook walks to another recipe (#117)', () =>
+		withTheClockFaked(async () => {
+			const { tab, goTo } = await stillSetting();
+
+			await goTo('theirs');
+
+			await vi.waitFor(() => expect(tab.close).toHaveBeenCalled());
+			// The sheet was the last recipe's: this one offers its own.
+			expect(screen.queryByText(/still being made/)).not.toBeInTheDocument();
+			expect(screen.getByRole('button', { name: /Print a sheet/ })).toBeEnabled();
+		}));
+
+	it('stops waiting on a sheet, and closes its empty tab, when the screen closes (#117)', () =>
+		withTheClockFaked(async () => {
+			const { tab } = await stillSetting();
+
+			cleanup();
+
+			await vi.waitFor(() => expect(tab.close).toHaveBeenCalled());
+			expect(tab.location.href).toBe('');
+		}));
 });
 
 describe('on the phone (#76)', () => {

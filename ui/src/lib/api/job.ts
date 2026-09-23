@@ -16,6 +16,19 @@ export interface JobAsk {
 	job_id: string;
 }
 
+/**
+ * What `waitForJob` throws when its caller's patience runs out first. The Job
+ * has not failed: it carries on, and its result lands wherever it would have.
+ * Only the waiting stopped — so a screen that catches this says the work is
+ * still going, never that it went wrong (#117).
+ */
+export class StillRunning extends Error {
+	constructor() {
+		super('the job is still running');
+		this.name = 'StillRunning';
+	}
+}
+
 /** The states a Job never leaves once it reaches one. */
 const ENDED = ['completed', 'failed', 'cancelled'] as const;
 
@@ -33,6 +46,11 @@ const ENDED = ['completed', 'failed', 'cancelled'] as const;
  * Jobs are long — downloading a model is hundreds of megabytes — so
  * `giveUpAfter` is the caller's to set rather than a constant that fits the
  * shortest one.
+ *
+ * Waiting past `giveUpAfter` throws `StillRunning`, which is not a failure.
+ * The screens whose waits are short say so (#117); those that wait for hours
+ * (the Import Report, Meaning Search, the Operator's Backups and line reading)
+ * show its message as they show any other, and were deliberately left so.
  *
  * `stopped` lets a screen that has closed stop asking: the waiting ends with
  * the last answer read, and the Job itself carries on — only the reading of it
@@ -62,7 +80,7 @@ export async function waitForJob(
 		}
 		whileWaiting?.(job);
 		if (stopped?.()) return job;
-		if (Date.now() > until) throw new Error('the job is still running');
+		if (Date.now() > until) throw new StillRunning();
 		await new Promise((wake) => setTimeout(wake, every));
 	}
 }
