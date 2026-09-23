@@ -272,13 +272,15 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
             }
             // **No mark distinguishes a read line from an unread one** (#71):
             // a slot holds the Reading itself or nothing, and a Reading holds
-            // the three parts of ADR 0002 and no fourth field about itself.
+            // the three parts of ADR 0002 and no field about itself. Its
+            // target is spelt two ways, a Food's `target` or a Component's
+            // `lineage_id` (ADR 0008, #86), which is still the one part.
             if let Some(reading) = reading.as_object() {
                 let mut keys: Vec<&str> = reading.keys().map(String::as_str).collect();
                 keys.sort_unstable();
                 assert_eq!(
                     keys,
-                    ["amount", "target", "unit"],
+                    ["amount", "lineage_id", "target", "unit"],
                     "{title}: a Reading says what it read, never how sure it is"
                 );
             }

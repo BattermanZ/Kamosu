@@ -290,8 +290,9 @@ async fn the_whole_real_library_on_one_list_merges_adds_and_admits_what_it_canno
             );
         }
         // **Nothing is ticked** (ADR 0024, ADR 0019): a row has no name to
-        // staple a tick to, so it carries exactly these six fields and no
-        // seventh about itself.
+        // staple a tick to, so it carries exactly these fields and none about
+        // itself. `said` is why a Component's line still stands on the list
+        // (ADR 0008, #86): a sentence about the recipe, not about the row.
         let mut keys: Vec<&str> = row
             .as_object()
             .unwrap()
@@ -301,7 +302,15 @@ async fn the_whole_real_library_on_one_list_merges_adds_and_admits_what_it_canno
         keys.sort_unstable();
         assert_eq!(
             keys,
-            ["id", "kind", "lines", "name", "name_language", "parts"],
+            [
+                "id",
+                "kind",
+                "lines",
+                "name",
+                "name_language",
+                "parts",
+                "said"
+            ],
             "a Shopping Row says what to buy, never how sure it is or whether it is done"
         );
     }
