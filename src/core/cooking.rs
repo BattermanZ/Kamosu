@@ -342,6 +342,7 @@ impl Core {
     /// The Attempt itself is untouched. The picture stays on the cooking
     /// record as well, because a promotion is not a move: the same Photograph
     /// is one stored picture however many things point at it (ADR 0017).
+    #[allow(clippy::too_many_arguments)]
     pub fn promote_attempt_photograph(
         &self,
         caller: &Caller,
@@ -350,6 +351,7 @@ impl Core {
         branch_id: &str,
         step_index: Option<i64>,
         change_note: Option<&str>,
+        kitchen_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = self.db().with_conn(|conn| {
             // Yours to promote from: an Attempt is a private record, and
@@ -457,13 +459,14 @@ impl Core {
             }
         }
 
+        let kitchen_id = self.where_a_copy_goes(caller, branch_id, kitchen_id)?;
         self.save_recipe_version(
             caller,
             branch_id,
             &edited,
             head_name.as_deref(),
             change_note,
-            None,
+            kitchen_id,
             None,
         )
     }
@@ -641,6 +644,7 @@ impl Core {
         branch_id: &str,
         name: Option<&str>,
         change_note: Option<&str>,
+        kitchen_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = self.db().with_conn(|conn| {
             // Yours to promote from. An Attempt is a private record, and
@@ -711,13 +715,14 @@ impl Core {
 
         // An ordinary save of an ordinary recipe. Deliberately not inside the
         // connection above: `save_recipe_version` takes the database itself.
+        let kitchen_id = self.where_a_copy_goes(caller, branch_id, kitchen_id)?;
         self.save_recipe_version(
             caller,
             branch_id,
             &content,
             name.or(head_name.as_deref()),
             change_note,
-            None,
+            kitchen_id,
             None,
         )
     }
@@ -800,6 +805,32 @@ impl Core {
                 entry["recipe"] = recipe;
             }
             Ok(json!({ "attempts": entries }))
+        })
+    }
+
+    /// The Kitchen a promotion names, kept only where the promotion is a
+    /// **Copy** — a Branch held by a Kitchen the caller does not cook in
+    /// (#111). There the cook in several Kitchens is asked which keeps it,
+    /// exactly as the writing screen asks.
+    ///
+    /// Where the caller does cook in the holding Kitchen the promotion is an
+    /// edit of it, and a named Kitchen is dropped rather than handed on:
+    /// `save_recipe_version` would read it as *start a Copy over there*, and
+    /// whether a recipe may be put into a second Kitchen of yours is #125's
+    /// question, not something a picture or a cooking should answer by the
+    /// back door.
+    fn where_a_copy_goes<'a>(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        kitchen_id: Option<&'a str>,
+    ) -> Result<Option<&'a str>, OpError> {
+        let Some(kitchen_id) = kitchen_id else {
+            return Ok(None);
+        };
+        self.db().with_conn(|conn| {
+            let holding = branch_kitchen(conn, branch_id)?;
+            Ok((!is_member(conn, &holding, &caller.person_id)?).then_some(kitchen_id))
         })
     }
 }

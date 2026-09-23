@@ -2592,6 +2592,7 @@ export type PromoteAttemptPhotographInput = {
 	attempt_id: string;
 	branch_id: string;
 	change_note?: string | null;
+	kitchen_id?: string;
 	photograph_id: string;
 	step_index?: number | null;
 };
@@ -2821,6 +2822,7 @@ export type PromoteAsCookedInput = {
 	attempt_id: string;
 	branch_id: string;
 	change_note?: string | null;
+	kitchen_id?: string;
 	name?: string | null;
 };
 /** What promote_as_cooked answers. */
@@ -17313,6 +17315,10 @@ export const CATALOGUE = [
 						"null"
 					]
 				},
+				"kitchen_id": {
+					"description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+					"type": "string"
+				},
 				"photograph_id": {
 					"description": "One of this Attempt's own Photographs. Any other Photograph is refused: this is not a second way to set the Main Photo.",
 					"type": "string"
@@ -18517,6 +18523,10 @@ export const CATALOGUE = [
 						"string",
 						"null"
 					]
+				},
+				"kitchen_id": {
+					"description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+					"type": "string"
 				},
 				"name": {
 					"type": [

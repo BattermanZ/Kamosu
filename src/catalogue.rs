@@ -2072,6 +2072,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "description": "The Step whose photo this becomes. Left out or null, the picture becomes the Main Photo.",
                     },
                     "change_note": { "type": ["string", "null"] },
+                    "kitchen_id": {
+                        "type": "string",
+                        "description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+                    },
                 },
                 "required": ["attempt_id", "photograph_id", "branch_id"],
                 "additionalProperties": false,
@@ -2150,6 +2154,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     },
                     "name": { "type": ["string", "null"] },
                     "change_note": { "type": ["string", "null"] },
+                    "kitchen_id": {
+                        "type": "string",
+                        "description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+                    },
                 },
                 "required": ["attempt_id", "branch_id"],
                 "additionalProperties": false,

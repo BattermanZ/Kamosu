@@ -16912,6 +16912,110 @@ async fn promoting_into_another_kitchens_branch_takes_a_copy() {
     let _ = lineage_id;
 }
 
+/// A cook in several Kitchens is asked which of them keeps a Copy (#111), and
+/// both promotions carry the answer through to it. Named on a Branch the
+/// cook's own Kitchen holds, the Kitchen is dropped: that is an edit, and
+/// whether one recipe may be put into a second Kitchen of yours is #125's
+/// question, not something a promotion answers by the back door.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_promotion_that_copies_lands_in_the_kitchen_named() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, home) = recipe_ready_to_cook(&app, "Aurélien");
+    let (status, club) = app.post_op(
+        "create_kitchen",
+        Some(&key),
+        &json!({ "name": "Supper Club" }).to_string(),
+    );
+    assert_eq!(status, 200, "{club}");
+    let club = club["result"]["id"].as_str().unwrap().to_string();
+
+    // Camille's Branch of the dish, in a Kitchen Aurélien does not cook in.
+    let (_camille, camille_key, camille_kitchen) = person_with_kitchen(&app, "Camille");
+    let mut hers = katsu_as_written();
+    hers["steps"][2]["text"] = json!("Servir avec du riz japonais");
+    hers["branch_id"] = json!(branch_id);
+    hers["kitchen_id"] = json!(camille_kitchen);
+    let (status, copied) =
+        app.post_op("save_recipe_version", Some(&camille_key), &hers.to_string());
+    assert_eq!(status, 200, "{copied}");
+    let hers = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    age_branch_head(&app, &hers);
+
+    let kitchen_of = |branch: &str| {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        read["result"]["kitchen_id"].clone()
+    };
+
+    // A cooking's photograph, made the recipe's on her Branch.
+    let plated = upload_a_picture(&app, &key, 77);
+    let attempt = cook_it(&app, &key, &branch_id, json!({ "photographs": [plated] }));
+    let (status, promoted) = app.post_op(
+        "promote_attempt_photograph",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt,
+            "photograph_id": plated,
+            "branch_id": hers,
+            "kitchen_id": club,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(promoted["result"]["copied"], json!(true), "{promoted}");
+    let pictured = promoted["result"]["branch_id"].as_str().unwrap();
+    assert_eq!(
+        kitchen_of(pictured),
+        json!(club),
+        "the Copy is held by the Kitchen named, not the Home Kitchen"
+    );
+
+    // Named on his own recipe, the Kitchen is dropped: an edit, on his Branch.
+    backdate_branch_head(&app, &branch_id);
+    let again = upload_a_picture(&app, &key, 78);
+    let second = cook_it(&app, &key, &branch_id, json!({ "photographs": [again] }));
+    let (status, edited) = app.post_op(
+        "promote_attempt_photograph",
+        Some(&key),
+        &json!({
+            "attempt_id": second,
+            "photograph_id": again,
+            "branch_id": branch_id,
+            "kitchen_id": club,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    assert_eq!(edited["result"]["copied"], json!(false), "{edited}");
+    assert_eq!(edited["result"]["branch_id"], json!(branch_id));
+    assert_eq!(kitchen_of(&branch_id), json!(home));
+
+    // What was cooked, kept onto her Branch: the same answer, the same place.
+    let cooking = cooking_katsu(&app, &key, &branch_id);
+    let mut cooked = katsu_as_written();
+    cooked["steps"][0]["text"] = json!("Paner les escalopes deux fois");
+    let (status, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": cooking, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{deviated}");
+    let (status, kept) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": cooking, "branch_id": hers, "kitchen_id": club }).to_string(),
+    );
+    assert_eq!(status, 200, "{kept}");
+    assert_eq!(kept["result"]["copied"], json!(true), "{kept}");
+    assert_eq!(
+        kitchen_of(kept["result"]["branch_id"].as_str().unwrap()),
+        json!(club)
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn another_cooks_as_cooked_never_leaves_the_core() {
     let app = support::spawn_app();

@@ -1325,7 +1325,7 @@ pub fn promote_attempt_photograph(
     input: Value,
 ) -> Result<Value, OpError> {
     let takes = "promote_attempt_photograph takes { attempt_id, photograph_id, \
-                 branch_id, step_index?, change_note? }";
+                 branch_id, step_index?, change_note?, kitchen_id? }";
     let attempt_id = input
         .get("attempt_id")
         .and_then(Value::as_str)
@@ -1356,6 +1356,7 @@ pub fn promote_attempt_photograph(
         branch_id,
         step_index,
         change_note,
+        input.get("kitchen_id").and_then(Value::as_str),
     )
 }
 
@@ -1397,7 +1398,8 @@ pub fn promote_as_cooked(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes = "promote_as_cooked takes { attempt_id, branch_id, name?, change_note? }";
+    let takes =
+        "promote_as_cooked takes { attempt_id, branch_id, name?, change_note?, kitchen_id? }";
     let attempt_id = input
         .get("attempt_id")
         .and_then(Value::as_str)
@@ -1413,6 +1415,7 @@ pub fn promote_as_cooked(
         branch_id,
         input.get("name").and_then(Value::as_str),
         input.get("change_note").and_then(Value::as_str),
+        input.get("kitchen_id").and_then(Value::as_str),
     )
 }
 

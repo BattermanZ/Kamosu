@@ -1887,6 +1887,7 @@
 			{#if recipe}
 				<Promotion
 					{branchId}
+					kitchenId={recipe.kitchen_id}
 					{attempts}
 					versions={recipe.versions}
 					promoted={() => (reread += 1)}

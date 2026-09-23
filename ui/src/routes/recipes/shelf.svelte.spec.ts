@@ -13,12 +13,12 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
 import { standIn } from '$lib/api/stand-in';
 import { renderScreen } from '../../testing/render';
 import ShelfTestHarness from './ShelfTestHarness.svelte';
-import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import type { ListKitchensOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
 
 const kitchen = {
 	id: 'k_home',
@@ -284,6 +284,124 @@ describe('the recipes screen', () => {
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
 			expect(asked?.input).toMatchObject({ kitchen_id: 'k_home', title: 'osso buco' });
+		});
+	});
+
+	describe('asks whose recipe it is, of a cook in several Kitchens (#111)', () => {
+		const made = {
+			branch_id: 'b_new',
+			lineage_id: 'l_new',
+			kitchen_id: 'k_marc',
+			hand_id: 'h_1',
+			language: 'en',
+			origin_address: null,
+			head_version_id: 'v_new',
+			versions: [],
+			translation: null,
+			tags: [],
+			related_recipes: [],
+			cooked: { count: 0, last_cooked_at: null, ratings: [] },
+		};
+		const other = (id: string, name: string, who: string) => ({
+			...kitchen,
+			id,
+			name,
+			is_home: false,
+			members: [
+				{ person_id: 'p_1', name: 'Aurélien' },
+				{ person_id: `p_${id}`, name: who },
+			],
+		});
+		const two = [kitchen, other('k_marc', 'Chez Marc', 'Marc')];
+		const six = [
+			other('k_marc', 'Chez Marc', 'Marc'),
+			other('k_elodie', 'Chez Élodie', 'Élodie'),
+			other('k_chalet', 'Le Chalet', 'Paul'),
+			other('k_papi', 'Chez Papi', 'Papi'),
+			other('k_marie', 'Chez Marie', 'Marie'),
+			// Last from the Core, and still listed first: the Home Kitchen says
+			// which it is and has no other standing.
+			kitchen,
+		];
+
+		function adding(kitchens: ListKitchensOutput['kitchens']) {
+			return renderScreen(Recipes, {
+				list_tags: { tags: [] },
+				list_kitchens: { kitchens },
+				meaning_search_status: meaningOff(),
+				search_recipes: { query: 'osso buco', closest: false, recipes: [] },
+				create_recipe: made,
+			});
+		}
+
+		it('never asks a cook in one Kitchen', async () => {
+			const { kamosu } = adding([kitchen]);
+			await fireEvent.click(
+				await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
+			);
+			expect(screen.queryByRole('dialog')).toBeNull();
+			await vi.waitFor(() =>
+				expect(kamosu.calls.map((call) => call.operation)).toContain('create_recipe'),
+			);
+		});
+
+		for (const [count, kitchens] of [
+			['two', two],
+			['six', six],
+		] as const) {
+			it(`asks a cook in ${count}, picks nothing for them, and writes where they chose`, async () => {
+				const { kamosu } = adding([...kitchens]);
+				await fireEvent.click(
+					await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
+				);
+
+				const sheet = await screen.findByRole('dialog', { name: 'Whose recipe is this?' });
+				const choices = within(sheet).getAllByRole('radio');
+				expect(choices).toHaveLength(kitchens.length);
+				// Nothing picked — not even the Home Kitchen, which is listed first.
+				expect(choices.every((choice) => !(choice as HTMLInputElement).checked)).toBe(true);
+				expect(choices[0]).toHaveAccessibleName(/Maison/);
+				expect(within(sheet).getByText('Aurélien · your Home Kitchen')).toBeInTheDocument();
+				const go = within(sheet).getByRole('button', { name: 'Choose a Kitchen first' });
+				expect(go).toBeDisabled();
+				expect(kamosu.calls.map((call) => call.operation)).not.toContain('create_recipe');
+
+				await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
+				await fireEvent.click(within(sheet).getByRole('button', { name: 'Write it in Chez Marc' }));
+				await vi.waitFor(() => {
+					const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
+					expect(asked?.input).toEqual({ kitchen_id: 'k_marc', title: 'osso buco' });
+				});
+			});
+		}
+
+		it('names a Kitchen by the Nickname the cook gave it', async () => {
+			adding([kitchen, { ...other('k_marc', 'Chez Marc', 'Marc'), nickname: 'Marc & Léa' }]);
+			await fireEvent.click(
+				await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
+			);
+			const sheet = await screen.findByRole('dialog');
+			await fireEvent.click(within(sheet).getByRole('radio', { name: /Marc & Léa/ }));
+			expect(within(sheet).queryByText('Chez Marc')).toBeNull();
+			expect(within(sheet).getByRole('button', { name: 'Write it in Marc & Léa' })).toBeEnabled();
+		});
+
+		it('remembers nothing: asked again, nothing is picked', async () => {
+			adding(two);
+			const add = await screen.findByRole('button', { name: /Add a recipe called .osso buco./ });
+			await fireEvent.click(add);
+			let sheet = await screen.findByRole('dialog');
+			await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
+			await fireEvent.click(within(sheet).getByRole('button', { name: 'Back' }));
+			expect(screen.queryByRole('dialog')).toBeNull();
+
+			await fireEvent.click(add);
+			sheet = await screen.findByRole('dialog');
+			expect(
+				within(sheet)
+					.getAllByRole('radio')
+					.some((choice) => (choice as HTMLInputElement).checked),
+			).toBe(false);
 		});
 	});
 

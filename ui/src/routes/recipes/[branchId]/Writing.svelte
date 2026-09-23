@@ -107,7 +107,8 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import { whereASaveLands } from '$lib/where-a-save-lands';
+	import { kitchenName, whereASaveLands } from '$lib/where-a-save-lands';
+	import KitchenChoice from '$lib/KitchenChoice.svelte';
 	import { usePhotograph } from '$lib/api/upload';
 	import type {
 		GetRecipeOutput,
@@ -474,10 +475,25 @@
 	 * until that answers — the sheet is what states the outcome, and it is not
 	 * opened before the answer is in.
 	 */
-	const lands = $derived(whereASaveLands(kitchens, kitchenId));
+	let chosenKitchen = $state<string | undefined>(undefined);
+	const lands = $derived(whereASaveLands(kitchens, kitchenId, chosenKitchen));
 	const forking = $derived(kitchensKnown && lands.forking);
-	/** The Kitchen the save writes into, whichever of the two acts it is. */
+	/**
+	 * Whether the sheet asks which of the cook's Kitchens keeps what this
+	 * save starts (#111): a Copy, or a Translation of a recipe none of their
+	 * Kitchens holds, by a cook in several. Asked afresh each time the sheet
+	 * opens, with nothing picked.
+	 */
+	const askingWhere = $derived(kitchensKnown && lands.asking);
+	/** The Kitchen the save writes into, whichever of the acts it is. */
 	const savingInto = $derived(lands.into);
+	const savingIntoName = $derived(savingInto ? kitchenName(savingInto) : '');
+
+	/** The sheet states the outcome before the save, so every save opens it. */
+	function openSheet() {
+		chosenKitchen = undefined;
+		asking = true;
+	}
 
 	/**
 	 * **What this save is, in words** — the one place the three acts are told
@@ -502,13 +518,18 @@
 		return forking
 			? {
 					called: m.write_will_fork(),
-					said: m.write_said_fork({ title: title.trim(), kitchen: savingInto?.name ?? '' }),
-					does: m.write_do_fork(),
+					said: askingWhere
+						? m.write_said_fork_asked({ title: title.trim() })
+						: m.write_said_fork({ title: title.trim(), kitchen: savingIntoName }),
+					does:
+						askingWhere && savingInto
+							? m.write_do_fork_in({ kitchen: savingIntoName })
+							: m.write_do_fork(),
 					grave: true,
 				}
 			: {
 					called: m.write_will_save(),
-					said: m.write_said_save({ title: title.trim(), kitchen: savingInto?.name ?? '' }),
+					said: m.write_said_save({ title: title.trim(), kitchen: savingIntoName }),
 					does: m.write_do_save(),
 					grave: false,
 				};
@@ -867,6 +888,9 @@
 		// Belt and braces: both controls are already disabled while `wrong` is
 		// set, and the reason is on screen beside them.
 		if (wrong) return;
+		// And a save that starts something in a Kitchen nobody has chosen yet
+		// is not a save: the button says so and is disabled (#111).
+		if (askingWhere && !savingInto) return;
 		saving = true;
 		failed = undefined;
 		try {
@@ -1025,7 +1049,7 @@
 			type="button"
 			class="text-body font-medium {kitchensKnown && !wrong ? 'text-accent' : 'text-ink-2'}"
 			disabled={saving || !kitchensKnown || Boolean(wrong)}
-			onclick={() => (asking = true)}
+			onclick={openSheet}
 		>
 			{saving ? m.write_saving() : m.write_save()}
 		</button>
@@ -1348,7 +1372,7 @@
 					: 'bg-accent text-on-accent'
 				: 'border border-rule text-ink-2'}"
 			disabled={saving || !kitchensKnown || Boolean(wrong)}
-			onclick={() => (asking = true)}
+			onclick={openSheet}
 		>
 			{#if !kitchensKnown}
 				{kitchensFailed ? m.write_outcome_unknown() : m.loading()}
@@ -1565,6 +1589,11 @@
 		-->
 		<p class="text-label text-ink-2 uppercase">{act.called}</p>
 		<p class="mt-2 text-body">{act.said}</p>
+		{#if askingWhere}
+			<div class="mt-4">
+				<KitchenChoice {kitchens} bind:chosen={chosenKitchen} />
+			</div>
+		{/if}
 		<label class="mt-4 block">
 			<span class="block text-label text-ink-2 uppercase">
 				{m.write_name_label()} · {m.write_optional()}
@@ -1580,13 +1609,13 @@
 		<p class="mt-1 text-read text-ink-2">{m.write_changed_now()}</p>
 		<button
 			type="button"
-			class="mt-4 block w-full p-4 text-center font-display text-body text-on-accent {act.grave
+			class="mt-4 block w-full p-4 text-center font-display text-body text-on-accent disabled:opacity-60 {act.grave
 				? 'bg-support'
 				: 'bg-accent'}"
-			disabled={saving}
+			disabled={saving || (askingWhere && !savingInto)}
 			onclick={save}
 		>
-			{act.does}
+			{askingWhere && !savingInto ? m.kitchen_ask_choose_first() : act.does}
 		</button>
 		<button
 			type="button"

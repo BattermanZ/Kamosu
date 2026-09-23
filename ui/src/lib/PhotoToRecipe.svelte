@@ -13,6 +13,9 @@
 	Not the end of a cook. Both targets are one flow: a Step only adds which
 	Step.
 
+	A COPY BY A COOK IN SEVERAL KITCHENS ASKS WHICH KEEPS IT (#111), with the
+	list the writing screen asks with, and the button waits for the answer.
+
 	IT SAYS WHAT SAYING YES DOES, BESIDE THE BUTTON. Every other photograph act
 	in the interface is quiet; this one edits the recipe AND takes a picture
 	from the private side to the public one (ADR 0005, ADR 0026). So once a
@@ -46,7 +49,8 @@
 	} from '$lib/api/catalogue';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { whereASaveLands } from '$lib/where-a-save-lands';
+	import { chosenKitchenInput, kitchenName, whereASaveLands } from '$lib/where-a-save-lands';
+	import KitchenChoice from '$lib/KitchenChoice.svelte';
 	import { focusInAndBack } from '$lib/focus-in-and-back';
 
 	interface Props {
@@ -95,12 +99,17 @@
 
 	const content = $derived(recipe?.versions.at(-1)?.content);
 
+	/** Which Kitchen keeps a Copy, where the cook is asked (#111). */
+	let chosenKitchen = $state<string | undefined>(undefined);
 	/** A Version, or a Copy — and where — by the writing screen's own rule. */
 	const lands = $derived(
-		recipe && kitchens ? whereASaveLands(kitchens, recipe.kitchen_id) : undefined,
+		recipe && kitchens ? whereASaveLands(kitchens, recipe.kitchen_id, chosenKitchen) : undefined,
 	);
 	const forking = $derived(lands?.forking ?? false);
+	/** A Copy by a cook in several Kitchens: which keeps it is asked (#111). */
+	const askingWhere = $derived(lands?.asking ?? false);
 	const savingInto = $derived(lands?.into);
+	const savingIntoName = $derived(savingInto ? kitchenName(savingInto) : '');
 
 	/** A Step's number counts Steps only; a section heading takes none. */
 	const steps = $derived.by(() => {
@@ -114,7 +123,7 @@
 
 	async function promote() {
 		const from = pictures.find((picture) => picture.photograph === chosen);
-		if (!from || target === undefined) return;
+		if (!from || target === undefined || (askingWhere && !savingInto)) return;
 		working = true;
 		refused = undefined;
 		try {
@@ -123,6 +132,7 @@
 				photograph_id: from.photograph,
 				branch_id: branchId,
 				step_index: target === 'main' ? null : target,
+				...(lands ? chosenKitchenInput(lands) : {}),
 			});
 			onPromoted(landed);
 		} catch (error) {
@@ -257,6 +267,12 @@
 					</ul>
 				</details>
 			</div>
+
+			{#if askingWhere}
+				<div class="mt-4">
+					<KitchenChoice kitchens={kitchens ?? []} bind:chosen={chosenKitchen} />
+				</div>
+			{/if}
 		{/if}
 	</div>
 
@@ -268,8 +284,10 @@
 			</p>
 			<p class="mt-1 text-read">
 				{forking
-					? m.write_said_fork({ title: content.title, kitchen: savingInto?.name ?? '' })
-					: `${m.write_said_save({ title: content.title, kitchen: savingInto?.name ?? '' })} ${m.promote_in_thread()}`}
+					? askingWhere
+						? m.write_said_fork_asked({ title: content.title })
+						: m.write_said_fork({ title: content.title, kitchen: savingIntoName })
+					: `${m.write_said_save({ title: content.title, kitchen: savingIntoName })} ${m.promote_in_thread()}`}
 			</p>
 			<p class="mt-2 text-read">{m.promote_public()}</p>
 		</div>
@@ -291,10 +309,20 @@
 			{m.promote_cancel()}
 		</button>
 		<NeedsServer
-			label={working ? m.promote_doing() : forking ? m.write_do_fork() : m.promote_do()}
+			label={working
+				? m.promote_doing()
+				: forking
+					? savingInto && askingWhere
+						? m.write_do_fork_in({ kitchen: savingIntoName })
+						: m.write_do_fork()
+					: m.promote_do()}
 			waiting={m.offline_waits_save()}
 			onclick={promote}
-			disabled={!chosen || target === undefined || working || !content}
+			disabled={!chosen ||
+				target === undefined ||
+				working ||
+				!content ||
+				(askingWhere && !savingInto)}
 			shapeClass="flex-1 p-4 text-center font-display text-body disabled:opacity-40"
 			lookClass={forking ? 'bg-support text-on-accent' : 'bg-accent text-on-accent'}
 		/>

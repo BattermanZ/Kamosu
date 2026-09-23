@@ -777,6 +777,116 @@ describe('writing a recipe', () => {
  * checks that the recipe was CHOSEN. Nothing on this screen may ever arrive at
  * a pointer by matching words.
  */
+/**
+ * Kitchens as a cook in several has them (#111): the Home Kitchen, and others
+ * each shared with somebody.
+ */
+const kitchenOf = (id: string, name: string, is_home = false) => ({
+	id,
+	name,
+	nickname: null,
+	is_home,
+	hand_id: `h_${id}`,
+	members: [
+		{ person_id: 'p_1', name: 'Aurélien' },
+		{ person_id: `p_${id}`, name: 'Marie' },
+	],
+});
+const TWO = [kitchenOf('k_mine', 'Chez Aurélien', true), kitchenOf('k_marc', 'Chez Marc')];
+const SIX = [
+	...TWO,
+	kitchenOf('k_elodie', 'Chez Élodie'),
+	kitchenOf('k_chalet', 'Le Chalet'),
+	kitchenOf('k_papi', 'Chez Papi'),
+	kitchenOf('k_marie', 'Chez Marie'),
+];
+
+describe('which Kitchen keeps a Copy (#111)', () => {
+	it('never asks a cook in one Kitchen, and names it', async () => {
+		const { kamosu } = renderWriting({}, 'k_someone_else');
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.click(
+			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
+		);
+
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).queryAllByRole('radio')).toHaveLength(0);
+		expect(
+			within(sheet).getByText(/your own Dan Dan Noodles in Chez Aurélien/),
+		).toBeInTheDocument();
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Start my own copy' }));
+		expect(sent(kamosu)?.kitchen_id).toBe('k_mine');
+	});
+
+	for (const [count, kitchens] of [
+		['two', TWO],
+		['six', SIX],
+	] as const) {
+		it(`asks a cook in ${count}, picks nothing, and forks into the one chosen`, async () => {
+			const { kamosu } = renderWriting(
+				{ list_kitchens: { kitchens: [...kitchens] } } as Answers,
+				'k_someone_else',
+			);
+			await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+			await fireEvent.click(
+				(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
+			);
+
+			const sheet = await screen.findByRole('dialog');
+			// No Kitchen is named in the sentence: that is the question below it.
+			expect(
+				within(sheet).getByText(/your own Dan Dan Noodles, from this point/),
+			).toBeInTheDocument();
+			const choices = within(sheet).getAllByRole('radio');
+			expect(choices).toHaveLength(kitchens.length);
+			expect(choices.some((choice) => (choice as HTMLInputElement).checked)).toBe(false);
+			const go = within(sheet).getByRole('button', { name: 'Choose a Kitchen first' });
+			expect(go).toBeDisabled();
+
+			await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
+			await fireEvent.click(
+				within(sheet).getByRole('button', { name: 'Start my own copy in Chez Marc' }),
+			);
+			await waitFor(() => expect(sent(kamosu)?.kitchen_id).toBe('k_marc'));
+		});
+	}
+
+	it('asks nothing of a cook whose own Kitchen holds the recipe, however many they have', async () => {
+		const { kamosu } = renderWriting({ list_kitchens: { kitchens: SIX } } as Answers, 'k_marc');
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.click((await screen.findAllByRole('button', { name: /Save onto mine/ }))[0]!);
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).queryAllByRole('radio')).toHaveLength(0);
+		expect(within(sheet).getByText(/onto your Dan Dan Noodles, in Chez Marc/)).toBeInTheDocument();
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Save onto mine' }));
+		expect(sent(kamosu)?.kitchen_id).toBe('k_marc');
+	});
+
+	it('asks where a Translation of a recipe none of their Kitchens holds goes', async () => {
+		// A Translation is a new Branch too, and it has to be held somewhere.
+		const { kamosu } = renderWriting(
+			{ ...TRANSLATED, list_kitchens: { kitchens: TWO } } as Answers,
+			'k_someone_else',
+			[],
+			content(),
+			'fr',
+		);
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.click(
+			(await screen.findAllByRole('button', { name: /Save the translation/ }))[0] as HTMLElement,
+		);
+		const sheet = await screen.findByRole('dialog');
+		expect(within(sheet).getByRole('button', { name: 'Choose a Kitchen first' })).toBeDisabled();
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: /Save the translation/ }));
+		await waitFor(() => {
+			const input = kamosu.calls.find((call) => call.operation === 'start_translation')?.input as
+				Record<string, unknown> | undefined;
+			expect(input?.kitchen_id).toBe('k_marc');
+		});
+	});
+});
+
 describe('naming another recipe from a line', () => {
 	it('offers no recipe until one is searched for, and pre-selects nothing', async () => {
 		renderWriting({ ...SHELF, ...READ_BACK });

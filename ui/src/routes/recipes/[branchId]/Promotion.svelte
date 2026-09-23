@@ -34,20 +34,31 @@
 	again after every later edit of the recipe, which is a nag rather than a
 	question. Those words are in the recipe's history either way, and the
 	cooking keeps its own record of them.
+
+	ON A RECIPE NONE OF YOUR KITCHENS HOLDS, KEEPING IS A COPY, and the band
+	says so in the writing screen's own words before the tap, by the one rule
+	`whereASaveLands` keeps. A cook in several Kitchens is asked which keeps
+	it, with the same list (#111). Kept, the Copy is where the cook goes next:
+	the recipe on screen did not change, and a "Kept" over it would say it had.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+	import { goto } from '$app/navigation';
+	import type { GetRecipeOutput, GetThreadOutput, ListKitchensOutput } from '$lib/api/catalogue';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import KitchenChoice from '$lib/KitchenChoice.svelte';
+	import { chosenKitchenInput, kitchenName, whereASaveLands } from '$lib/where-a-save-lands';
 	import { Online } from '$lib/offline/device.svelte';
 
 	type Attempt = GetThreadOutput['attempts'][number];
 
 	interface Props {
 		branchId: string;
+		/** The Kitchen holding this Branch, which says whether keeping is a Copy. */
+		kitchenId: string;
 		/** Every Attempt on this Lineage, whatever Branch it cooked. */
 		attempts: Attempt[];
 		/** This Branch's chain, which says what has already been kept. */
@@ -56,7 +67,7 @@
 		promoted: () => void;
 	}
 
-	let { branchId, attempts, versions, promoted }: Props = $props();
+	let { branchId, kitchenId, attempts, versions, promoted }: Props = $props();
 
 	const kamosu = useKamosu();
 
@@ -95,6 +106,49 @@
 			.sort((a, b) => b.created_at.localeCompare(a.created_at))
 			.at(0),
 	);
+
+	/**
+	 * The cook's Kitchens, which say whether keeping is a Version or a Copy.
+	 * Keeping waits for them, as the writing screen's save does: the band is
+	 * about to state the outcome, and must not guess it.
+	 */
+	let kitchens = $state<ListKitchensOutput['kitchens'] | undefined>(undefined);
+	/**
+	 * They could not be read. Keeping then goes ahead as it did before #111,
+	 * naming no Kitchen and leaving the Core to decide, rather than locking a
+	 * button that never needed them for a cook keeping onto their own recipe.
+	 */
+	let kitchensFailed = $state(false);
+	/**
+	 * Asked only where there is a band to draw, which is nearly never: every
+	 * other opening of a recipe page would pay for a question nobody needed.
+	 */
+	const offering = $derived(pending !== undefined);
+	$effect(() => {
+		if (!offering || kitchens) return;
+		let current = true;
+		kamosu
+			.listKitchens({})
+			.then((all) => {
+				if (current) kitchens = all.kitchens;
+			})
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+				if (current) kitchensFailed = true;
+			});
+		return () => {
+			current = false;
+		};
+	});
+	let chosenKitchen = $state<string | undefined>(undefined);
+	const lands = $derived(
+		kitchens ? whereASaveLands(kitchens, kitchenId, chosenKitchen) : undefined,
+	);
+	const forking = $derived(lands?.forking ?? false);
+	const askingWhere = $derived(lands?.asking ?? false);
+	const savingInto = $derived(lands?.into);
+	/** Whether keeping can be pressed: the outcome known, or unknowable. */
+	const known = $derived(lands !== undefined || kitchensFailed);
 
 	/**
 	 * Whether the recipe has moved since this cooking. Promotion appends onto
@@ -159,11 +213,19 @@
 	}
 
 	async function promote() {
-		if (!pending) return;
+		if (!pending || !known || (askingWhere && !savingInto)) return;
 		saving = true;
 		failed = false;
 		try {
-			await kamosu.promoteAsCooked({ attempt_id: pending.id, branch_id: branchId });
+			const landed = await kamosu.promoteAsCooked({
+				attempt_id: pending.id,
+				branch_id: branchId,
+				...(lands ? chosenKitchenInput(lands) : {}),
+			});
+			if (landed.copied) {
+				await goto(`/recipes/${landed.branch_id}`);
+				return;
+			}
 			saved = true;
 			opened = false;
 			promoted();
@@ -213,13 +275,33 @@
 				{/each}
 			</ul>
 
+			{#if forking && pending.as_cooked}
+				<p class="mt-4 text-label text-support uppercase">{m.write_will_fork()}</p>
+				<p class="mt-1 text-read">
+					{askingWhere
+						? m.write_said_fork_asked({ title: pending.as_cooked.content.title })
+						: m.write_said_fork({
+								title: pending.as_cooked.content.title,
+								kitchen: savingInto ? kitchenName(savingInto) : '',
+							})}
+				</p>
+				{#if askingWhere && kitchens}
+					<div class="mt-3">
+						<KitchenChoice {kitchens} bind:chosen={chosenKitchen} />
+					</div>
+				{/if}
+			{/if}
 			<NeedsServer
-				label={m.recipe_save_as_version()}
+				label={!forking
+					? m.recipe_save_as_version()
+					: askingWhere && savingInto
+						? m.write_do_fork_in({ kitchen: kitchenName(savingInto) })
+						: m.write_do_fork()}
 				waiting={m.offline_waits_keep()}
-				disabled={saving}
+				disabled={saving || !known || (askingWhere && !savingInto)}
 				onclick={promote}
 				shapeClass="mt-3 block w-full p-4 text-center font-display text-body"
-				lookClass="bg-accent text-on-accent disabled:opacity-60"
+				lookClass="{forking ? 'bg-support' : 'bg-accent'} text-on-accent disabled:opacity-60"
 			/>
 			<button
 				type="button"
@@ -230,7 +312,7 @@
 			</button>
 		{:else}
 			<NeedsServer
-				label={m.recipe_keep_as_version()}
+				label={forking ? m.recipe_keep_as_copy() : m.recipe_keep_as_version()}
 				waiting={m.offline_waits_keep()}
 				onclick={() => (opened = true)}
 				shapeClass="mt-3 block w-full p-4 text-center font-display text-body"

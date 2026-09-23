@@ -12,11 +12,13 @@
 		client: KamosuClient;
 		attempts: GetThreadOutput['attempts'];
 		versions: GetRecipeOutput['versions'];
+		/** The Kitchen holding the Branch; the cook's own, unless a test says not. */
+		kitchenId?: string;
 	}
 
-	let { client, attempts, versions }: Props = $props();
+	let { client, attempts, versions, kitchenId = 'k_home' }: Props = $props();
 </script>
 
 <Kamosu {client}>
-	<Promotion branchId="b_1" {attempts} {versions} promoted={() => {}} />
+	<Promotion branchId="b_1" {kitchenId} {attempts} {versions} promoted={() => {}} />
 </Kamosu>

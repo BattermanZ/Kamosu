@@ -7,7 +7,7 @@
  * rules begin, so a thumb brushing past must not spend it.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
@@ -119,14 +119,30 @@ const version = (id: string): GetRecipeOutput['versions'][number] => ({
 	cooking: { steps: [{ uses: [], timer_seconds: null }] },
 });
 
-function show(attempts: Attempt[], versions: string[], answers: Answers = {}) {
+const kitchenOf = (id: string, name: string, is_home = false) => ({
+	id,
+	name,
+	nickname: null,
+	is_home,
+	hand_id: `h_${id}`,
+	members: [{ person_id: 'p_1', name: 'Aurélien' }],
+});
+const HOME = kitchenOf('k_home', 'Maison', true);
+
+function show(
+	attempts: Attempt[],
+	versions: string[],
+	answers: Answers = {},
+	kitchenId = 'k_home',
+) {
 	const kamosu = standIn({
 		promote_as_cooked: saved,
 		decline_promotion: attempt(),
+		list_kitchens: { kitchens: [HOME] },
 		...answers,
 	});
 	render(PromotionTestHarness, {
-		props: { client: kamosu.client, attempts, versions: versions.map(version) },
+		props: { client: kamosu.client, attempts, versions: versions.map(version), kitchenId },
 	});
 	return kamosu;
 }
@@ -249,5 +265,96 @@ describe('promotion, on the recipe', () => {
 		} finally {
 			Reflect.deleteProperty(navigator, 'onLine');
 		}
+	});
+});
+
+describe('promotion onto a recipe none of your Kitchens holds (#111)', () => {
+	const copied = { ...saved, branch_id: 'b_copy', copied: true };
+	const TWO = [HOME, kitchenOf('k_marc', 'Chez Marc')];
+	const SIX = [
+		...TWO,
+		kitchenOf('k_elodie', 'Chez Élodie'),
+		kitchenOf('k_chalet', 'Le Chalet'),
+		kitchenOf('k_papi', 'Chez Papi'),
+		kitchenOf('k_marie', 'Chez Marie'),
+	];
+
+	it('says keeping makes a Copy, and names the one Kitchen it can go to', async () => {
+		const kamosu = show([attempt()], ['v_1'], { promote_as_cooked: copied }, 'k_someone_else');
+		await fireEvent.click(await screen.findByRole('button', { name: /keep it as your own copy/i }));
+
+		expect(await screen.findByText(/will start your own copy/i)).toBeInTheDocument();
+		expect(screen.getByText(/your own Chicken Katsu Curry in Maison/)).toBeInTheDocument();
+		expect(screen.queryAllByRole('radio')).toHaveLength(0);
+		await fireEvent.click(await screen.findByRole('button', { name: 'Start my own copy' }));
+		const promoted = kamosu.calls.find((call) => call.operation === 'promote_as_cooked');
+		expect(promoted?.input).toEqual({ attempt_id: 'at_1', branch_id: 'b_1' });
+	});
+
+	for (const [count, kitchens] of [
+		['two', TWO],
+		['six', SIX],
+	] as const) {
+		it(`asks a cook in ${count} which keeps it, picking nothing`, async () => {
+			const kamosu = show(
+				[attempt()],
+				['v_1'],
+				{ promote_as_cooked: copied, list_kitchens: { kitchens: [...kitchens] } },
+				'k_someone_else',
+			);
+			await fireEvent.click(
+				await screen.findByRole('button', { name: /keep it as your own copy/i }),
+			);
+
+			const choices = await screen.findAllByRole('radio');
+			expect(choices).toHaveLength(kitchens.length);
+			expect(choices.some((choice) => (choice as HTMLInputElement).checked)).toBe(false);
+			expect(screen.getByRole('button', { name: 'Start my own copy' })).toBeDisabled();
+
+			await fireEvent.click(screen.getByRole('radio', { name: /Chez Marc/ }));
+			await fireEvent.click(
+				await screen.findByRole('button', { name: 'Start my own copy in Chez Marc' }),
+			);
+			await vi.waitFor(() => {
+				const promoted = kamosu.calls.find((call) => call.operation === 'promote_as_cooked');
+				expect(promoted?.input).toEqual({
+					attempt_id: 'at_1',
+					branch_id: 'b_1',
+					kitchen_id: 'k_marc',
+				});
+			});
+		});
+	}
+
+	it('asks nothing where one of your Kitchens holds the recipe', async () => {
+		show([attempt()], ['v_1'], { list_kitchens: { kitchens: SIX } }, 'k_marc');
+		await fireEvent.click(await screen.findByRole('button', { name: /keep it as a new version/i }));
+		expect(
+			await screen.findByRole('button', { name: /save as a new version/i }),
+		).toBeInTheDocument();
+		expect(screen.queryAllByRole('radio')).toHaveLength(0);
+		expect(screen.queryByText(/will start your own copy/i)).not.toBeInTheDocument();
+	});
+
+	it('says it will be a Copy before the band is even opened', async () => {
+		show([attempt()], ['v_1'], { list_kitchens: { kitchens: TWO } }, 'k_someone_else');
+		expect(
+			await screen.findByRole('button', { name: /keep it as your own copy/i }),
+		).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /keep it as a new version/i })).toBeNull();
+	});
+
+	it('still keeps, as before, when the Kitchens cannot be read', async () => {
+		// Nothing about keeping onto your own recipe needed them before #111,
+		// so failing to read them must not lock the button.
+		const kamosu = show([attempt()], ['v_1'], { list_kitchens: { refuse: 'internal' } } as Answers);
+		await fireEvent.click(await screen.findByRole('button', { name: /keep it as a new version/i }));
+		const save = await screen.findByRole('button', { name: /save as a new version/i });
+		await vi.waitFor(() => expect(save).toBeEnabled());
+		await fireEvent.click(save);
+		await vi.waitFor(() => {
+			const promoted = kamosu.calls.find((call) => call.operation === 'promote_as_cooked');
+			expect(promoted?.input).toEqual({ attempt_id: 'at_1', branch_id: 'b_1' });
+		});
 	});
 });

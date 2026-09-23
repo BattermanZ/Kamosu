@@ -137,6 +137,65 @@ describe('your cooking photographs on the recipe page', () => {
 	});
 });
 
+describe('a cooking photo that makes a Copy (#111)', () => {
+	const kitchenOf = (id: string, name: string, is_home = false) => ({
+		...MY_KITCHENS.kitchens[0]!,
+		id,
+		hand_id: id,
+		name,
+		is_home,
+	});
+	const TWO = [kitchenOf('k_home', 'Home', true), kitchenOf('k_marc', 'Chez Marc')];
+	const SIX = [
+		...TWO,
+		kitchenOf('k_elodie', 'Chez Élodie'),
+		kitchenOf('k_chalet', 'Le Chalet'),
+		kitchenOf('k_papi', 'Chez Papi'),
+		kitchenOf('k_marie', 'Chez Marie'),
+	];
+
+	/** The recipe on screen is held by a Kitchen the cook does not cook in. */
+	async function openOnSomeoneElses(kitchens: typeof TWO) {
+		const kamosu = show({
+			get_recipe: recipeAnswer({ kitchen_id: 'k_someone_else' }),
+			list_kitchens: { kitchens },
+			list_attempts: { attempts: [diaryEntry({ photographs: ['p_first'] })] },
+			promote_attempt_photograph: { ...PROMOTED, branch_id: 'b_copy', copied: true },
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Use one on the recipe…' }));
+		const on = within(await screen.findByRole('dialog'));
+		await fireEvent.click(await on.findByRole('button', { name: /The recipe's photo/ }));
+		return { kamosu, on };
+	}
+	const sentTo = (kamosu: ReturnType<typeof show>) =>
+		kamosu.calls.find((call) => call.operation === 'promote_attempt_photograph')?.input;
+
+	it('names the one Kitchen a cook in one can copy into, and asks nothing', async () => {
+		const { kamosu, on } = await openOnSomeoneElses([kitchenOf('k_home', 'Home', true)]);
+		expect(on.getByText(/your own Miso Soup in Home/)).toBeInTheDocument();
+		expect(on.queryAllByRole('radio')).toHaveLength(0);
+		await fireEvent.click(on.getByRole('button', { name: 'Start my own copy' }));
+		await vi.waitFor(() => expect(sentTo(kamosu)).not.toHaveProperty('kitchen_id'));
+	});
+
+	for (const [count, kitchens] of [
+		['two', TWO],
+		['six', SIX],
+	] as const) {
+		it(`asks a cook in ${count} which keeps the Copy, picking nothing`, async () => {
+			const { kamosu, on } = await openOnSomeoneElses([...kitchens]);
+			const choices = on.getAllByRole('radio');
+			expect(choices).toHaveLength(kitchens.length);
+			expect(choices.some((choice) => (choice as HTMLInputElement).checked)).toBe(false);
+			expect(on.getByRole('button', { name: 'Start my own copy' })).toBeDisabled();
+
+			await fireEvent.click(on.getByRole('radio', { name: /Chez Marc/ }));
+			await fireEvent.click(on.getByRole('button', { name: 'Start my own copy in Chez Marc' }));
+			await vi.waitFor(() => expect(sentTo(kamosu)).toMatchObject({ kitchen_id: 'k_marc' }));
+		});
+	}
+});
+
 describe('a Step’s photograph on the recipe page', () => {
 	it('sits beside its Step as a small square, and opens across the screen', async () => {
 		show();

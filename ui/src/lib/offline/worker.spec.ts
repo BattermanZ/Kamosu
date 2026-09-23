@@ -120,6 +120,9 @@ describe('what the phone keeps', () => {
 		// #108: an import just run must be on the list, and a ledger just
 		// forgotten must not still be counted.
 		expect(policyFor('list_imports')).toBe('server-first');
+		// #111: whether a new recipe asks whose it is depends on the Kitchens
+		// you cook in now, not the ones you cooked in last time.
+		expect(policyFor('list_kitchens')).toBe('server-first');
 		expect(policyFor('get_job')).toBe('never');
 		expect(policyFor('promote_as_cooked')).toBeUndefined();
 	});

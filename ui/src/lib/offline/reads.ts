@@ -58,6 +58,14 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// still counted beside the very sentence saying it is gone. Found in live
 	// acceptance, where a new source did not appear until the second load.
 	list_imports: 'server-first',
+	// Which Kitchens you cook in. It decides whether a new recipe asks whose
+	// it is (#111), and a kept answer is wrong at exactly that moment when
+	// the Kitchens changed somewhere else — another device, or another member
+	// removing you. (A change made on this phone already goes past the kept
+	// answer.) A Kitchen joined elsewhere is missing, so the cook is not asked
+	// and the recipe lands in the Home Kitchen silently, which is the thing
+	// #111 removed; one left is still offered. Found in live acceptance.
+	list_kitchens: 'server-first',
 	// Who can get in. Ending a Session on another device must show at once.
 	list_sessions: 'server-first',
 	list_access_keys: 'server-first',
