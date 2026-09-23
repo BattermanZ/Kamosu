@@ -2,6 +2,8 @@
 
 **Import** brings recipes in from a Crouton `.crumb`, a web page or a **Bundle**. What comes out the other side is a recipe like any other: nothing about where it came from is stapled to it, and nothing marks it as second-hand.
 
+_(Amended by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): an Import lands in the asker's **Cookbook**; the Home Kitchen is retired, and so is the question of letting an Import choose where it goes. The import ledger below matches within a Cookbook, not a Kitchen.)_
+
 > **An import leaves nothing on the recipe. What it remembers, it remembers itself.**
 
 - **An Import keeps a ledger** of what it made — the foreign id it read (a Crouton UUID, a URL) against the **Lineage** it became. Held by the import, never on the recipe.

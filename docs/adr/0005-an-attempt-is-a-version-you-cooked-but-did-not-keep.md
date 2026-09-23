@@ -2,6 +2,8 @@
 
 An **Attempt** is one person's record of one cooking. Where the cook deviated, the Attempt holds an **As Cooked** — a complete recipe state, structurally identical to a Version, differing only in that it never joined a Branch, never becomes part of the recipe's history, and never travels. Deviations are written as ordinary Ingredient Lines and Step text, not as a separate structured record of what changed.
 
+_(Reopened by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): a recipe is now seen in every Kitchen its Cookbook's Co-authors cook in, so "an Attempt inherits its recipe's visibility" would show a cook's Attempt in Kitchens they never joined. Who sees an Attempt is an open question on the build ticket.)_
+
 **Promotion** is the deliberate act that moves something provisional out of an Attempt and into the recipe: an As Cooked becoming a Version, or an Attempt photograph becoming the Main Photo or a Step's photo. It is the boundary at which the recipe's rules — append-only history, and the right to edit — take over.
 
 ## Why

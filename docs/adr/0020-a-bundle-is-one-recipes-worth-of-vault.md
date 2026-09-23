@@ -2,6 +2,8 @@
 
 There is **one** form in which recipes leave Kamosu. A **Bundle** is a folder holding a readable Markdown note per recipe and a hidden `.kamosu/` sidecar carrying the machine detail. Sharing a recipe writes that folder and zips it. The deferred **Vault** ([ADR 0003](./0003-the-database-is-the-truth-the-vault-is-a-published-copy.md)) is the same folder holding a whole library, written to a directory and kept up to date, rather than a second format.
 
+_(Amended by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): the one thing writing a Branch is a **Cookbook**, not a Kitchen, and a received Branch lands in the receiver's Cookbook.)_
+
 The note is the recipe as it reads today, with the **Thread** beneath it — every Version in order with its date, its name, its *what changed* line and its **Hand**, in the same words the Share Link page uses ([ADR 0018](./0018-a-share-begins-at-the-beginning-and-there-is-no-unsay.md)). The complete past states live in the sidecar, as complete states and never as deltas.
 
 A Bundle holds more than one recipe in the general case — a Branch's Translations ([ADR 0006](./0006-a-translation-is-a-branch.md)) and any **Component** travelling as a passenger ([ADR 0008](./0008-a-composed-recipe-is-an-ingredient.md)) — so the sidecar names which Lineages the Bundle is **about**. Everything else in it is a **Passenger**: present because something needed it. A Vault is the same file with every recipe a subject, which is why there is no third case.

@@ -1,6 +1,6 @@
 # Kamosu
 
-A self-hosted cookbook. People and software agents are equal users of it: everything a person can do to a recipe, an agent can do too.
+A self-hosted place to keep and cook recipes. People and software agents are equal users of it: everything a person can do to a recipe, an agent can do too.
 
 ## Language
 
@@ -33,27 +33,31 @@ _Avoid_: Semantic search, vector search, embeddings, AI search, similarity searc
 ### People and access
 
 **Person**:
-Someone with an account on this instance. Cooks in one or more Kitchens, keeps their own Attempts, mints their own Access Keys, reads Kamosu in their Reading Language and writes under a Hand. An agent is never a Person — it acts as one, under that Person's Hand.
+Someone with an account on this instance. Writes in exactly one Cookbook, cooks in any number of Kitchens, keeps their own Attempts, mints their own Access Keys, reads Kamosu in their Reading Language and writes under a Hand. An agent is never a Person — it acts as one, under that Person's Hand.
 _Avoid_: User, member, profile, actor, account
 
+**Cookbook**:
+Where a recipe belongs. Only its Co-authors may change what is in it. Every Person has exactly one, and anything they write, import or receive, and every Branch they start, goes into it. It is named after its Co-authors until one of them gives it a name, and it has a Hand of its own, which travels with every Branch it writes.
+_Avoid_: Library, collection, account, personal space, home kitchen
+
+**Co-author**:
+A Person who writes in a Cookbook. Every Cookbook starts with one; two or more people may join their Cookbooks into one and later separate again, each leaving with their own Branch of every recipe in it. Co-authors change the same recipes as one history with several names on it.
+_Avoid_: Owner, editor, collaborator, partner
+
 **Kitchen**:
-The circle a recipe is held by, and the only circle that may edit it. Every Branch belongs to exactly one Kitchen; a Person cooks in one or more, and a Person on their own is a Kitchen of one — there is no solo case sitting beside a shared one. Anyone may create one. It has a Name given by its creator, which any member may change, and a Nickname each member may set for themselves alone and which nobody else ever sees. Any member may invite another Person or remove one; the last member cannot be removed. It has a Hand of its own, which travels with every Branch it writes.
+A group of People who cook from each other's Cookbooks. Everyone in it sees, cooks and records Attempts against every recipe in the Cookbook of every member; it holds no recipe and changes none. A Person cooks in any number of Kitchens, or in none. Anyone may create one. It has a Name given by its creator, which any member may change, and a Nickname each member may set for themselves alone and which nobody else ever sees. Any member may invite another Person or remove one. A Cookbook leaves a Kitchen once none of its Co-authors cooks there, and each member who stays keeps a Branch, in their own Cookbook, of every recipe of it they cooked.
 _Avoid_: Household, group, team, family, workspace, organisation, account
 
-**Home Kitchen**:
-The Kitchen a Person was created with. Where anything they write, import, receive or Copy is held unless they say otherwise — a question only ever put to someone who cooks in more than one.
-_Avoid_: Default kitchen, primary group, personal space
-
 **Hand**:
-How Kamosu says who wrote something: a name together with a permanent id, minted with the account and never changed, carried by every Version a Person writes and every Branch a Kitchen holds. It travels in a share bundle and is never verified — anyone editing that file can put any Hand in it, and Kamosu says so plainly rather than implying a check it does not make. Recognisable in the way handwriting on a card is recognisable, and forgeable for the same reason. On the instance that minted it the name is looked up live, so renaming yourself reaches all of your history at once; anywhere else the name that arrived is all there will ever be.
+How Kamosu says who wrote something: a name together with a permanent id, minted with the account and never changed, carried by every Version a Person writes and every Branch a Cookbook writes. It travels in a share bundle and is never verified — anyone editing that file can put any Hand in it, and Kamosu says so plainly rather than implying a check it does not make. Recognisable in the way handwriting on a card is recognisable, and forgeable for the same reason. On the instance that minted it the name is looked up live, so renaming yourself reaches all of your history at once; anywhere else the name that arrived is all there will ever be.
 _Avoid_: Author id, account id, signature, public key, handle, attribution, fingerprint (that names a Version)
 
 **Copy**:
-Changing a recipe your Kitchen did not write — which starts a new Branch of the same Lineage, yours from then on, forking at the Version you changed and carrying the whole chain behind it. It happens at the moment of the change, never at the moment of receipt: a **Bundle** arriving puts the sender's Branch in your Kitchen under their id, and only editing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
+A new Branch of a recipe, started in your own Cookbook, forking at a Version and carrying the whole chain behind it. It happens when you change a recipe your Cookbook did not write, when you start a second Branch of one of your own on purpose, and when a Cookbook leaves a Kitchen and you keep one of its recipes you cooked. Merely reading a recipe never starts one: a **Bundle** arriving puts the sender's Branch in your Cookbook under their id, and only changing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
 _Avoid_: Duplicate, fork, clone, save, import
 
 **Share Link**:
-The unguessable address at which a recipe can be read by anyone holding it — the only way a recipe leaves the Kitchen that holds it, and the same way whether the reader is on this instance or another. One per recipe, never expiring, freely passed on. There is no scale of audiences and no naming of individuals: a recipe is seen by its Kitchen, or by anyone with its link. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, the recipe's **Thread** beneath it, and offers both the share bundle and a **Sheet**. It never shows Attempts. Ending a link stops new people arriving and reaches no copy already sent, which the share screen says in the same words every time.
+The unguessable address at which a recipe can be read by anyone holding it — the only way a recipe reaches anyone outside the Kitchens its Cookbook is in, and the same way whether the reader is on this instance or another. One per recipe, never expiring, freely passed on. There is no scale of audiences and no naming of individuals: a recipe is seen by the Kitchens its Cookbook is in, or by anyone with its link. Turning sharing off ends it; turning it back on makes a new one, so a withdrawn link stays dead. It shows the recipe and its Translations, the recipe's **Thread** beneath it, and offers both the share bundle and a **Sheet**. It never shows Attempts. Ending a link stops new people arriving and reaches no copy already sent, which the share screen says in the same words every time.
 _Avoid_: Public URL, guest access, token link, published recipe
 
 **Invite**:
@@ -61,7 +65,7 @@ A one-use link that turns a stranger into a Person, or adds a Person to a Kitche
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. It acts as that Person across every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite, so an agent cannot turn a leak into an account.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite, so an agent cannot turn a leak into an account.
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator**:
@@ -93,7 +97,7 @@ _Avoid_: Task, background job, async operation, queue item
 ### Getting recipes in and out
 
 **Import**:
-Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. An Operation like any other, available at both Doors, and held in the **Home Kitchen** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
+Bringing recipes into Kamosu from elsewhere — another app's export, a web page, or a **Bundle**. An Operation like any other, available at both Doors, and held in the **Cookbook** of the Person who asked for it. What it produces is an ordinary Recipe: nothing about where it came from is kept on it, no line is marked as one Kamosu had to write rather than read, and the **Hand** on its first **Version** is that Person's, where it came from being a matter for its **Source**. The Import itself remembers what it made — the id a recipe had in the place it came from, against the **Lineage** it became — so importing the same file again matches what is already there instead of shelving it twice. That memory belongs to the Import and never to the recipe, so it is in no fingerprint and no Bundle, and it can be thrown away whole once the place it names is gone.
 _Avoid_: Migration, sync, ingest
 
 **Import Report**:
@@ -117,7 +121,7 @@ One recipe rendered for paper — the printable form a **Share Link** offers bes
 _Avoid_: PDF, printout, export, print view, hard copy
 
 **Vault**:
-An optional folder of Markdown notes and images in which one Kitchen's recipes are published, kept up to date by Kamosu and optionally backed by Git. Kamosu writes a Vault and never reads it back; changes made to the files return only through Import. A Vault is a publication with a Kitchen that owns it, a destination and a scope — not where recipes are stored. One per Kitchen, set up by any of its members.
+An optional folder of Markdown notes and images in which one Cookbook's recipes are published, kept up to date by Kamosu and optionally backed by Git. Kamosu writes a Vault and never reads it back; changes made to the files return only through Import. A Vault is a publication with a Cookbook that owns it, a destination and a scope — not where recipes are stored. One per Cookbook, set up by any of its Co-authors.
 _Avoid_: Mirror, source of truth, repository, notes folder
 
 **Backup**:
@@ -241,11 +245,11 @@ One saved state of a recipe, named by a fingerprint of what a person wrote and c
 _Avoid_: Revision, snapshot, commit, edit, history entry
 
 **Branch**:
-One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Kitchen writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. That id is really two, told apart below: a **Travelling id** and a **Local id**, the same on the instance the Branch started on and different on one that received it. A Kitchen may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Kitchen. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. It may also carry the address of the instance it lives on — a hint written into a Bundle, never fetched and never required, since a Bundle must work with that server switched off. A Branch in a different Language from the one it grew out of is a Translation.
+One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Cookbook writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. That id is really two, told apart below: a **Travelling id** and a **Local id**, the same on the instance the Branch started on and different on one that received it. A Cookbook may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Cookbook. One started beside your own on purpose carries a name you give it, since nothing else tells the two apart. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. It may also carry the address of the instance it lives on — a hint written into a Bundle, never fetched and never required, since a Bundle must work with that server switched off. A Branch in a different Language from the one it grew out of is a Translation.
 _Avoid_: Copy, fork, variant, clone
 
 **Travelling id**:
-The id a **Branch** travels under: minted when the Branch starts, written into every **Bundle** it appears in, and never changed by anything that receives it. It is what makes the sender's next Bundle that Branch continuing rather than a second one lining up beside it. It is unique to a **Kitchen**, not to an instance — two households on one Kamosu may each receive the same friend's recipe, and each holds its own copy of it under his travelling id.
+The id a **Branch** travels under: minted when the Branch starts, written into every **Bundle** it appears in, and never changed by anything that receives it. It is what makes the sender's next Bundle that Branch continuing rather than a second one lining up beside it. It is unique to a **Cookbook**, not to an instance — two Cookbooks on one Kamosu may each receive the same friend's recipe, and each holds its own copy of it under his travelling id.
 _Avoid_: Global id, canonical id, origin id, foreign id (that is what an importer's source called a recipe)
 
 **Local id**:

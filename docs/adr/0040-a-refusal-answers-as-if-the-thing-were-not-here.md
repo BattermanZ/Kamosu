@@ -2,6 +2,8 @@
 
 Where Kamosu **worked a Kitchen out** from an id the caller named, a Person who does not cook in that Kitchen is refused with the answer they would have got had the thing they named never existed here. Word for word, status for status.
 
+_(Amended by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): Kitchen membership is no longer the one check. There are two, *may change* (a Co-author of the recipe's Cookbook) and *may see* (a member of a Kitchen the Cookbook is in), and the rule below governs both.)_
+
 - **The caller named the Kitchen** — `create_recipe` with a `kitchen_id`, and most of the membership checks in the Core — keeps the plain refusal: *this Person does not cook in this Kitchen*. Being told you do not cook in a Kitchen whose id you just supplied tells you nothing you did not already know.
 - **Kamosu worked the Kitchen out** — from a Branch, a Tag, an Import, a shopping-list row, a Thread — answers *no such Branch*, *no such Tag*, *no such Import*: the very sentence the absent case raises, from the very function that raises it.
 - **A Job follows the same rule**, and so do a Sheet and an Attempt. A Job belonging to another Person answers exactly as a Job id naming nothing does. `/api/sheets/<id>` resolved a *Sheet* id, so it answers *no Sheet with that id* in both cases — saying *no Job with id* there would itself have told the caller their id names somebody's Job. An Attempt that is not yours answers *no such Attempt*, which is what an id naming nothing answers.

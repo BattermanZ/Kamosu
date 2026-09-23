@@ -2,6 +2,8 @@
 
 A Version records the **Hand** of the Person who wrote it: their name together with a permanent id minted with their account. A Branch has an id of its own and records the Hand of the Kitchen writing it. Both travel in a share bundle, and **neither is ever verified**. Anyone who opens the file can put any Hand in it, Kamosu will display exactly what it was handed, and Kamosu says so plainly rather than implying a check it does not make.
 
+_(Amended by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): the Hand a Branch records is its **Cookbook**'s, not a Kitchen's, and the Cookbook's name is what labels the switch.)_
+
 Attribution in Kamosu is a courtesy. It works because you already know who sent you the file — it is not introducing you to Marc, it is helping you remember which recipe is his.
 
 ## Why

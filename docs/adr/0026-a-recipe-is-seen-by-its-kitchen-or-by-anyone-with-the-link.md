@@ -2,6 +2,8 @@
 
 A recipe is seen by the **Kitchen** that holds it. That is the whole of it: every member of that Kitchen reads it, cooks it and records an **Attempt** against it, and nobody else on the instance sees it at all.
 
+_(Amended by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): a recipe is seen by every Kitchen its Cookbook's Co-authors cook in, or by anyone with its link. The rejection of *Everyone here* and *Chosen* as settings on a recipe stands.)_
+
 To put it in anyone else's hands you turn on its **Share Link**. They open a page and read it. To keep it, they take it into a Kitchen of their own — which is a **Copy**, exactly as it has always been.
 
 There is no *Everyone here* and no *Chosen*. [ADR 0007](./0007-a-recipe-is-held-by-a-kitchen-not-a-person.md)'s four-level **Visibility** scale is reduced to a single fact — a Share Link exists, or it does not — and the term **Visibility** is retired with it.

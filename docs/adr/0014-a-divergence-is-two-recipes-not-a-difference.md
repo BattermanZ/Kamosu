@@ -2,6 +2,8 @@
 
 When an instance holds two Branches of one Lineage, Kamosu shows **two recipes**, never a difference between them. There is no comparison screen, no side-by-side, no object called "the difference". You stand inside one recipe or the other — whole, in order, cookable — and a switch at the top moves you between them.
 
+_(Amended by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): a recipe now often has more than two Branches seen in one Kitchen, so the switch must hold more than two. How it does is a screen question still open.)_
+
 Each Branch marks the handful of lines that are not the same as the other's, and tapping one unfolds the other side **in place**. A line that only one of the two has is a **Ghost**: shown struck through, in the position it occupies in the recipe that really has it, labelled with whose it is.
 
 History is a separate screen — the **Thread** — running oldest to newest and forking at the Branch Point.
