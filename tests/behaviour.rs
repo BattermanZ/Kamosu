@@ -974,6 +974,139 @@ async fn renaming_a_version_never_changes_its_identity_hand_or_parent() {
     assert_eq!(cleared["result"]["name"], json!(null));
 }
 
+/// Spec item 22, ADR 0015 (#113). A Hand is named live, so renaming yourself
+/// reaches every Version you ever wrote, and it moves nothing: no Version id,
+/// no fingerprint, no Hand. The name is also what you sign in with, so the
+/// new one signs in, the old one no longer does, and nobody else may take it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn renaming_yourself_reaches_every_version_you_wrote_and_moves_no_id() {
+    let app = support::spawn_app();
+    let first =
+        json!({ "name": "Aurélien", "password": "the right password", "session_name": "laptop" });
+    let signed_up = app.post_auth_response("/auth/first-person", &first.to_string());
+    assert_eq!(signed_up.status, 200, "{}", signed_up.text());
+    let secret = support::session_cookie_secret(&signed_up);
+    let secret = secret.as_str();
+
+    let (_, me) = app.post_op("get_person", Some(secret), "{}");
+    assert_eq!(me["result"]["name"], json!("Aurélien"));
+    let person = me["result"]["person_id"].as_str().unwrap().to_string();
+    let kitchen_id = home_kitchen_of(&app, &person);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(secret),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &branch_id);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(secret),
+        &json!({ "branch_id": branch_id, "title": "Soupe à l'oignon" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+
+    let thread = |app: &support::TestApp| {
+        app.post_op(
+            "get_thread",
+            Some(secret),
+            &json!({ "branch_id": branch_id }).to_string(),
+        )
+        .1["result"]
+            .clone()
+    };
+    let before = thread(&app);
+    let before_versions = before["versions"].as_array().unwrap().clone();
+    assert_eq!(before_versions.len(), 2);
+    for version in &before_versions {
+        assert_eq!(version["hand_id"], json!(person));
+        assert_eq!(version["hand_name"], json!("Aurélien"));
+    }
+    assert_eq!(
+        before["branches"][0]["hand_name"],
+        json!("Aurélien's Home Kitchen"),
+        "a Branch is named by its Kitchen, the same live way"
+    );
+
+    // Spaces around a name are nobody's name.
+    let (status, renamed) = app.post_op(
+        "rename_person",
+        Some(secret),
+        r#"{"name":"  Aurélien Dupont "}"#,
+    );
+    assert_eq!(status, 200, "{renamed}");
+    assert_eq!(renamed["result"]["name"], json!("Aurélien Dupont"));
+    let (_, me) = app.post_op("get_person", Some(secret), "{}");
+    assert_eq!(me["result"]["name"], json!("Aurélien Dupont"));
+    assert_eq!(me["result"]["person_id"], json!(person));
+
+    let after = thread(&app);
+    let after_versions = after["versions"].as_array().unwrap();
+    assert_eq!(after_versions.len(), before_versions.len());
+    for (was, is) in before_versions.iter().zip(after_versions) {
+        assert_eq!(
+            is["hand_name"],
+            json!("Aurélien Dupont"),
+            "the old Version too"
+        );
+        assert_eq!(is["version_id"], was["version_id"], "no fingerprint moves");
+        assert_eq!(is["hand_id"], was["hand_id"], "no Hand moves");
+        assert_eq!(is["parent_version_id"], was["parent_version_id"]);
+    }
+    let unfingerprinted: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(unfingerprinted, 0);
+
+    // The new name signs in; the old one is nobody's now.
+    let login = |name: &str| {
+        app.post_auth(
+            "/auth/login",
+            &json!({ "name": name, "password": "the right password", "session_name": "phone" })
+                .to_string(),
+        )
+        .0
+    };
+    assert_eq!(login("Aurélien Dupont"), 200);
+    assert_eq!(login("Aurélien"), 401);
+
+    // Somebody else may not take a name another Person signs in with, and is
+    // told so in words rather than in SQLite's.
+    let (_, minted) = app.post_op("mint_invite", Some(secret), "{}");
+    let link = minted["result"]["link"].as_str().expect("invite link");
+    let join = json!({ "link": link, "name": "Marie", "password": "Marie's own", "session_name": "Marie's phone" });
+    let joined = app.post_auth_response("/auth/invite", &join.to_string());
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    let marie = support::session_cookie_secret(&joined);
+    let (status, refused) = app.post_op(
+        "rename_person",
+        Some(&marie),
+        r#"{"name":"Aurélien Dupont"}"#,
+    );
+    assert_eq!(status, 400, "{refused}");
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("already signs in as Aurélien Dupont"),
+        "{message}"
+    );
+    assert!(!message.contains("UNIQUE"), "{message}");
+    let (_, marie_now) = app.post_op("get_person", Some(&marie), "{}");
+    assert_eq!(marie_now["result"]["name"], json!("Marie"));
+
+    let (status, _) = app.post_op("rename_person", Some(secret), r#"{"name":"   "}"#);
+    assert_eq!(status, 400, "a blank name is refused");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recurring_version_id_is_named_per_occurrence_not_globally() {
     // The same content can land on a Branch more than once — save something

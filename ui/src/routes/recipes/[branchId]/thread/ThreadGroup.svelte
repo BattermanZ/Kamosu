@@ -126,10 +126,20 @@
 			.filter((branch): branch is ThreadBranch => !!branch)
 			.map((branch) =>
 				branch.language === 'en' || isUnknown(branch.language)
-					? branch.hand_id
-					: `${branch.hand_id} (${languageName(branch.language)})`,
+					? handName(branch)
+					: `${handName(branch)} (${languageName(branch.language)})`,
 			)
 			.join(', ');
+	}
+
+	/**
+	 * Who a Hand is, in words (#113, ADR 0015). A Version's writer and a
+	 * Branch's Kitchen are named live by the server, so a rename reaches every
+	 * past Version. A Hand nothing here has a name for is said to be one,
+	 * rather than printed as the id a person cannot read.
+	 */
+	function handName(holder: { hand_name: string | null }): string {
+		return holder.hand_name ?? m.thread_unnamed_hand();
 	}
 
 	const RAIL_COLORS = ['border-accent', 'border-support', 'border-support-2'];
@@ -170,7 +180,7 @@
 								{version.created_at.slice(0, 10)}
 							</span>
 							<span class="block font-display text-body text-ink">
-								{version.hand_id}{#if version.name}
+								{handName(version)}{#if version.name}
 									<span class="text-accent"> · “{version.name}”</span>
 								{/if}
 							</span>

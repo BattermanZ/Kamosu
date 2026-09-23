@@ -159,8 +159,29 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_reading_preferences,
         },
         Operation {
+            name: "get_person",
+            summary: "Who this Credential names: the Person's permanent id, \
+                      which is also their Hand, and the name they currently \
+                      go by — the name every Version they wrote shows here, \
+                      and the one they sign in with.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({ "type": "object", "properties": { "person_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["person_id", "name"], "additionalProperties": false }),
+            handler: crate::operations::get_person,
+        },
+        Operation {
             name: "rename_person",
-            summary: "Change this Person's current reminder name.",
+            summary: "Change this Person's current reminder name. Every \
+                      Version they ever wrote shows the new one on this \
+                      instance, since a Hand is named live and nothing is \
+                      keyed on the name; no id or fingerprint moves. It is \
+                      also the name they sign in with, so a name somebody \
+                      else here signs in with is refused. A Bundle already \
+                      sent keeps the name it left with.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -3239,6 +3260,10 @@ fn thread_version_schema() -> Value {
             "version_id": { "type": "string" },
             "parent_version_id": { "type": ["string", "null"] },
             "hand_id": { "type": "string" },
+            // Who wrote it, named live where this instance minted the Hand
+            // (ADR 0015) — so a rename reaches every past Version. Null for a
+            // Hand nothing here has a name for.
+            "hand_name": { "type": ["string", "null"] },
             "name": { "type": ["string", "null"] },
             "change_note": { "type": ["string", "null"] },
             "created_at": { "type": "string" },
@@ -3247,7 +3272,7 @@ fn thread_version_schema() -> Value {
         },
         "required": [
             "branch_id", "sequence", "version_id", "parent_version_id",
-            "hand_id", "name", "change_note", "created_at",
+            "hand_id", "hand_name", "name", "change_note", "created_at",
             "translates_version_id", "language",
         ],
         "additionalProperties": false,
@@ -3263,12 +3288,15 @@ fn thread_branch_schema() -> Value {
             "branch_id": { "type": "string" },
             "kitchen_id": { "type": "string" },
             "hand_id": { "type": "string" },
+            // The Kitchen's name, the same way a Version's writer is named.
+            "hand_name": { "type": ["string", "null"] },
             "language": { "type": "string" },
             "head_version_id": { "type": "string" },
             "translation": translation_schema(),
         },
         "required": [
-            "branch_id", "kitchen_id", "hand_id", "language", "head_version_id", "translation"
+            "branch_id", "kitchen_id", "hand_id", "hand_name", "language", "head_version_id",
+            "translation"
         ],
         "additionalProperties": false,
     })

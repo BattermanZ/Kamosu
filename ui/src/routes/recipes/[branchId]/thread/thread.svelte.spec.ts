@@ -25,6 +25,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_mine',
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						language: 'en',
 						head_version_id: 'v_2',
 						translation: null,
@@ -37,6 +38,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Imported from mykoreankitchen.com',
 						created_at: '2026-03-03T00:00:00Z',
@@ -49,6 +51,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_2',
 						parent_version_id: 'v_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: 'Hotter second fry',
 						change_note: null,
 						created_at: '2026-03-14T00:00:00Z',
@@ -95,6 +98,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_mine',
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						language: 'en',
 						head_version_id: 'v_3',
 						translation: null,
@@ -103,6 +107,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_marc',
 						kitchen_id: 'k_2',
 						hand_id: 'h_marc',
+						hand_name: 'Marc',
 						language: 'en',
 						head_version_id: 'v_4',
 						translation: null,
@@ -115,6 +120,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -127,6 +133,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -139,6 +146,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_3',
 						parent_version_id: 'v_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Hotter second fry',
 						created_at: '2026-08-09T00:00:00Z',
@@ -151,6 +159,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_4',
 						parent_version_id: 'v_1',
 						hand_id: 'h_marc',
+						hand_name: 'Marc',
 						name: null,
 						change_note: 'Air fryer',
 						created_at: '2026-06-02T00:00:00Z',
@@ -163,8 +172,10 @@ describe('the Thread screen', () => {
 		});
 
 		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
-		expect(screen.getAllByText('h_aurelien').length).toBeGreaterThan(0);
-		expect(screen.getAllByText('h_marc').length).toBeGreaterThan(0);
+		expect(screen.getAllByText('Aurélien').length).toBeGreaterThan(0);
+		expect(screen.getAllByText('Marc').length).toBeGreaterThan(0);
+		// A Hand is shown by its name, never by the id a person cannot read (#113).
+		expect(screen.queryByText(/h_aurelien|h_marc/)).not.toBeInTheDocument();
 		expect(screen.getByText('Hotter second fry')).toBeInTheDocument();
 		expect(screen.getByText('Air fryer')).toBeInTheDocument();
 	});
@@ -181,6 +192,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_mine',
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						language: 'en',
 						head_version_id: 'v_2',
 						translation: null,
@@ -189,6 +201,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_marc',
 						kitchen_id: 'k_2',
 						hand_id: 'h_marc',
+						hand_name: 'Marc',
 						language: 'en',
 						head_version_id: 'm_2',
 						translation: null,
@@ -197,6 +210,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_camille',
 						kitchen_id: 'k_3',
 						hand_id: 'h_camille',
+						hand_name: 'Camille',
 						language: 'fr',
 						head_version_id: 'c_1',
 						translation: null,
@@ -209,6 +223,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -221,6 +236,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -233,6 +249,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -245,6 +262,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_2',
 						parent_version_id: 'v_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Hotter second fry',
 						created_at: '2026-08-09T00:00:00Z',
@@ -257,6 +275,7 @@ describe('the Thread screen', () => {
 						version_id: 'm_1',
 						parent_version_id: 'v_1',
 						hand_id: 'h_marc',
+						hand_name: 'Marc',
 						name: null,
 						change_note: 'Air fryer',
 						created_at: '2026-06-02T00:00:00Z',
@@ -269,6 +288,7 @@ describe('the Thread screen', () => {
 						version_id: 'm_1',
 						parent_version_id: 'v_1',
 						hand_id: 'h_marc',
+						hand_name: 'Marc',
 						name: null,
 						change_note: 'Air fryer',
 						created_at: '2026-06-02T00:00:00Z',
@@ -281,6 +301,7 @@ describe('the Thread screen', () => {
 						version_id: 'm_2',
 						parent_version_id: 'm_1',
 						hand_id: 'h_marc',
+						hand_name: 'Marc',
 						name: 'Kid-friendly',
 						change_note: null,
 						created_at: '2026-08-10T00:00:00Z',
@@ -293,6 +314,7 @@ describe('the Thread screen', () => {
 						version_id: 'c_1',
 						parent_version_id: 'm_1',
 						hand_id: 'h_camille',
+						hand_name: 'Camille',
 						name: null,
 						change_note: 'Translated into French',
 						created_at: '2026-08-12T00:00:00Z',
@@ -328,6 +350,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_mine',
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						language: 'en',
 						head_version_id: 'v_1',
 						translation: null,
@@ -340,6 +363,7 @@ describe('the Thread screen', () => {
 						version_id: 'v_1',
 						parent_version_id: null,
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						name: null,
 						change_note: 'Imported',
 						created_at: '2026-03-03T00:00:00Z',
@@ -431,6 +455,7 @@ describe('the Thread screen', () => {
 			version_id: `v_${n}`,
 			parent_version_id: n === 1 ? null : `v_${n - 1}`,
 			hand_id: 'h_aurelien',
+			hand_name: 'Aurélien',
 			name: null,
 			change_note: null,
 			created_at: `2026-08-1${n}T00:00:00Z`,
@@ -446,6 +471,7 @@ describe('the Thread screen', () => {
 						branch_id: 'b_mine',
 						kitchen_id: 'k_1',
 						hand_id: 'h_aurelien',
+						hand_name: 'Aurélien',
 						language: 'en',
 						head_version_id: 'v_4',
 						translation: null,
@@ -473,6 +499,7 @@ describe('a Language said, in the Thread', () => {
 		version_id,
 		parent_version_id: sequence === 1 ? null : 'v_1',
 		hand_id: 'h_aurelien',
+		hand_name: 'Aurélien',
 		name: null,
 		change_note: null,
 		created_at: '2026-09-22T00:00:00Z',
@@ -494,6 +521,7 @@ describe('a Language said, in the Thread', () => {
 					branch_id: 'b_mine',
 					kitchen_id: 'k_1',
 					hand_id: 'h_aurelien',
+					hand_name: 'Aurélien',
 					language: 'fr',
 					head_version_id: 'v_1',
 					translation: null,
@@ -539,5 +567,48 @@ describe('a Language said, in the Thread', () => {
 		renderThread('b_mine', many);
 
 		expect(await screen.findByText('Said this recipe is in French.')).toBeInTheDocument();
+	});
+});
+
+describe('who wrote each Version, in the Thread (#113)', () => {
+	const version = (sequence: number, hand_name: string | null) => ({
+		branch_id: 'b_mine',
+		sequence,
+		version_id: `v_${sequence}`,
+		parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
+		hand_id: sequence === 1 ? 'p_stranger' : 'p_aurelien',
+		hand_name,
+		name: null,
+		change_note: `Save ${sequence}`,
+		created_at: `2026-09-0${sequence}T00:00:00Z`,
+		translates_version_id: null,
+		language: 'en',
+	});
+
+	it('names every Version by the name the server has for its Hand now, and says so when it has none', async () => {
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [
+					{
+						branch_id: 'b_mine',
+						kitchen_id: 'k_1',
+						hand_id: 'k_1',
+						hand_name: 'Chez nous',
+						language: 'en',
+						head_version_id: 'v_3',
+						translation: null,
+					},
+				],
+				// The server names a Hand live, so the oldest Version of a
+				// Person who renamed themselves carries the new name too.
+				versions: [version(1, null), version(2, 'Aurélien Dupont'), version(3, 'Aurélien Dupont')],
+				attempts: [],
+			},
+		});
+
+		expect(await screen.findAllByText('Aurélien Dupont')).toHaveLength(2);
+		expect(screen.getByText('Someone Kamosu has no name for')).toBeInTheDocument();
+		expect(screen.queryByText(/p_stranger|p_aurelien/)).not.toBeInTheDocument();
 	});
 });

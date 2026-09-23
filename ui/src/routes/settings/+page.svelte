@@ -29,6 +29,7 @@
 		ListAccessKeysOutput,
 		ListKitchensOutput,
 		GetReadingPreferencesOutput,
+		GetPersonOutput,
 	} from '$lib/api/catalogue';
 
 	const kamosu = useKamosu();
@@ -236,6 +237,49 @@
 		void savePreferences({ reading_measures: measures });
 	}
 
+	// --- You (#113) ---------------------------------------------------------
+	//
+	// Your own name, and where it is changed. Aurélien's choice of 23 September
+	// 2026 (option A): a section of its own at the top, because the name is
+	// about you rather than your devices, and it reaches your whole history.
+	// Nothing is keyed on it (ADR 0015) — a Version carries a Hand, and the
+	// server names that Hand live — so renaming rewrites no id and moves no
+	// fingerprint. What it does reach is said before the button, since it is
+	// also the name you sign in with.
+	let me = $state<GetPersonOutput | undefined>(undefined);
+	let editingName = $state(false);
+	let draftName = $state('');
+	let renaming = $state(false);
+	let renameError = $state<string | undefined>(undefined);
+	/** The name just taken, said once above the section. */
+	let renamedTo = $state<string | undefined>(undefined);
+
+	function startRenaming() {
+		if (!me) return;
+		draftName = me.name;
+		renameError = undefined;
+		renamedTo = undefined;
+		editingName = true;
+	}
+
+	async function renameMe() {
+		renaming = true;
+		renameError = undefined;
+		try {
+			const answer = await kamosu.renamePerson({ name: draftName });
+			if (me) me = { ...me, name: answer.name };
+			renamedTo = answer.name;
+			editingName = false;
+			// Your own row in each Kitchen reads the name the server holds.
+			await loadKitchens();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			renameError = error.message;
+		} finally {
+			renaming = false;
+		}
+	}
+
 	// Sessions and Access Keys, listed together and each ending individually
 	// from any device (ADR 0031). Reached only by a Person: a stranger visiting
 	// this screen simply sees nothing here, rather than a refusal.
@@ -253,14 +297,16 @@
 
 	async function loadAccess() {
 		try {
-			const [sessionsAnswer, keysAnswer, preferencesAnswer] = await Promise.all([
+			const [sessionsAnswer, keysAnswer, preferencesAnswer, personAnswer] = await Promise.all([
 				kamosu.listSessions(),
 				kamosu.listAccessKeys(),
 				kamosu.getReadingPreferences(),
+				kamosu.getPerson(),
 			]);
 			sessions = sessionsAnswer.sessions.filter((session) => !session.revoked);
 			accessKeys = keysAnswer.access_keys.filter((key) => !key.revoked);
 			preferences = preferencesAnswer;
+			me = personAnswer;
 			split = preferencesAnswer.reading_language !== locale;
 			signedIn = true;
 		} catch (error) {
@@ -403,6 +449,62 @@
 {/snippet}
 
 <Screen title={m.settings_title()} expandsFrom="settings">
+	{#if signedIn && me}
+		<Section heading={m.settings_you()}>
+			{#if renamedTo}
+				<p role="status" class="mb-3 border-l-3 border-accent bg-card px-3 py-2 text-read text-ink">
+					{m.you_name_changed({ name: renamedTo })}
+				</p>
+			{/if}
+			{#if editingName}
+				<form
+					class="grid gap-3"
+					onsubmit={(event) => {
+						event.preventDefault();
+						renameMe();
+					}}
+				>
+					<label class="grid gap-1 text-body text-ink">
+						{m.you_name_label()}
+						<input
+							class="min-h-12 min-w-0 rounded-sm border border-rule bg-card px-3"
+							bind:value={draftName}
+							required
+							{@attach (node) => node.focus()}
+						/>
+					</label>
+					<!-- What renaming reaches, said before it happens. -->
+					<p class="text-read text-ink">{m.you_name_reach_versions()}</p>
+					<p class="text-read text-ink">{m.you_name_reach_sign_in()}</p>
+					{#if renameError}
+						<p class="text-body text-accent" role="alert">{renameError}</p>
+					{/if}
+					<div class="flex flex-wrap items-center gap-4">
+						<button
+							class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+							disabled={renaming}
+						>
+							{m.you_name_confirm()}
+						</button>
+						<button
+							type="button"
+							class="text-read text-accent underline"
+							onclick={() => (editingName = false)}
+						>
+							{m.you_name_keep()}
+						</button>
+					</div>
+				</form>
+			{:else}
+				<p class="font-display text-title font-semibold break-words text-ink">{me.name}</p>
+				<p class="mt-1 mb-3 text-read text-ink-2">{m.you_name_explained()}</p>
+				<button type="button" class="text-read text-accent underline" onclick={startRenaming}>
+					{m.you_change_name()}
+				</button>
+			{/if}
+		</Section>
+	{/if}
+
 	<Section heading={m.settings_language()}>
 		<p class="mb-3 text-read text-ink-2">
 			{preferences && !split ? m.settings_language_together() : m.settings_language_words()}
@@ -741,7 +843,14 @@
 						<ul class="grid gap-1">
 							{#each kitchen.members as member (member.person_id)}
 								<li class="flex items-center justify-between gap-3 text-body text-ink">
-									<span>{member.name}</span>
+									<span>
+										{member.name}
+										{#if member.person_id === me?.person_id}
+											<span class="ml-1 text-label text-ink-2 uppercase"
+												>{m.kitchen_member_you()}</span
+											>
+										{/if}
+									</span>
 									<button
 										type="button"
 										class="shrink-0 text-label text-accent underline"

@@ -317,6 +317,7 @@
   "kitchen_join": "Join",
   "kitchen_join_secret_label": "Invite",
   "kitchen_join_title": "Join a Kitchen",
+  "kitchen_member_you": "you",
   "kitchen_members": "Members",
   "kitchen_name_label": "Kitchen name",
   "kitchen_nickname_label": "Your Nickname",
@@ -701,6 +702,7 @@
   "settings_tags_renamed_one": "Renamed on 1 recipe.",
   "settings_title": "Settings",
   "settings_unaudited": "Nobody has audited Kamosu. It is a recipe app written for one household and shared.",
+  "settings_you": "You",
   "share_address_hint": "Where people reach this Kamosu from outside, e.g. https://kamosu.example.com. Asked once, and kept — a link is stored as a token, so changing the address later does not break a link already sent.",
   "share_address_label": "This instance’s public address",
   "share_address_missing": "A link needs an address people can open.",
@@ -798,6 +800,7 @@
   "thread_said_language": "Said this recipe is in {language}.",
   "thread_show": "Show",
   "thread_title": "The Thread",
+  "thread_unnamed_hand": "Someone Kamosu has no name for",
   "tokens_blurb": "Every value below is read from the stylesheet this page loaded. Nothing here is maintained by hand.",
   "tokens_colour": "Colour",
   "tokens_shape": "Shape",
@@ -890,5 +893,13 @@
   "write_yield_amount": "Yield, how many",
   "write_yield_noun": "Yield, of what",
   "wrong_body": "This is a mistake in Kamosu, not something you did. Nothing you have written is lost. Trying again is unlikely to help.",
-  "wrong_title": "Kamosu went wrong"
+  "wrong_title": "Kamosu went wrong",
+  "you_change_name": "Change your name",
+  "you_name_changed": "Done. Every Version you wrote now says {name}. Sign in with that name from now on.",
+  "you_name_confirm": "Change my name",
+  "you_name_explained": "The name on every Version you save, and the one you sign in with.",
+  "you_name_keep": "Keep it",
+  "you_name_label": "Your name",
+  "you_name_reach_sign_in": "You will sign in with the new name. A recipe you already sent someone as a file keeps the name it left with.",
+  "you_name_reach_versions": "Every Version you have ever saved will show the new name, the old ones too, in every Kitchen. Nothing else about them changes."
 }

@@ -35,7 +35,15 @@ export type GetReadingPreferencesOutput = {
 	reading_measures: "us" | "metric" | "as_written";
 };
 
-/** Change this Person's current reminder name. */
+/** Who this Credential names: the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+export type GetPersonInput = Record<string, never>;
+/** What get_person answers. */
+export type GetPersonOutput = {
+	name: string;
+	person_id: string;
+};
+
+/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 export type RenamePersonInput = {
 	name: string;
 };
@@ -1511,6 +1519,7 @@ export type GetThreadOutput = {
 	branches: {
 		branch_id: string;
 		hand_id: string;
+		hand_name: string | null;
 		head_version_id: string;
 		kitchen_id: string;
 		language: string;
@@ -1526,6 +1535,7 @@ export type GetThreadOutput = {
 		change_note: string | null;
 		created_at: string;
 		hand_id: string;
+		hand_name: string | null;
 		language: string | null;
 		name: string | null;
 		parent_version_id: string | null;
@@ -3600,6 +3610,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	get_person: {
+		input: GetPersonInput;
+		output: GetPersonOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	rename_person: {
 		input: RenamePersonInput;
 		output: RenamePersonOutput;
@@ -4330,8 +4346,35 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "get_person",
+		"summary": "Who this Credential names: the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"person_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"person_id",
+				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "rename_person",
-		"summary": "Change this Person's current reminder name.",
+		"summary": "Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -11598,6 +11641,12 @@ export const CATALOGUE = [
 							"hand_id": {
 								"type": "string"
 							},
+							"hand_name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
 							"head_version_id": {
 								"type": "string"
 							},
@@ -11644,6 +11693,7 @@ export const CATALOGUE = [
 							"branch_id",
 							"kitchen_id",
 							"hand_id",
+							"hand_name",
 							"language",
 							"head_version_id",
 							"translation"
@@ -11673,6 +11723,12 @@ export const CATALOGUE = [
 							},
 							"hand_id": {
 								"type": "string"
+							},
+							"hand_name": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"language": {
 								"type": [
@@ -11711,6 +11767,7 @@ export const CATALOGUE = [
 							"version_id",
 							"parent_version_id",
 							"hand_id",
+							"hand_name",
 							"name",
 							"change_note",
 							"created_at",
@@ -22231,6 +22288,7 @@ export const CATALOGUE = [
 export const READS: readonly OperationName[] = [
 	'instance_status',
 	'get_reading_preferences',
+	'get_person',
 	'list_accounts',
 	'list_backups',
 	'list_sessions',
@@ -22268,6 +22326,7 @@ export const METHOD_NAMES = {
 	instance_status: 'instanceStatus',
 	set_reading_preferences: 'setReadingPreferences',
 	get_reading_preferences: 'getReadingPreferences',
+	get_person: 'getPerson',
 	rename_person: 'renamePerson',
 	list_accounts: 'listAccounts',
 	mint_invite: 'mintInvite',
@@ -22378,7 +22437,9 @@ export interface KamosuClient {
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
 	/** The Language and measures this Person reads in. Reading Measures live on the account rather than in a browser, so every Door and every device reads the same recipe the same way; the default is American, a stated convention rather than a guess about anybody. */
 	getReadingPreferences(input?: GetReadingPreferencesInput): Promise<Answer<'get_reading_preferences'>>;
-	/** Change this Person's current reminder name. */
+	/** Who this Credential names: the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+	getPerson(input?: GetPersonInput): Promise<Answer<'get_person'>>;
+	/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
 	/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt or Kitchen of theirs is reachable from here. */
 	listAccounts(input?: ListAccountsInput): Promise<Answer<'list_accounts'>>;

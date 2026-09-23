@@ -20,6 +20,7 @@ function show(over: Answers = {}) {
 					branch_id: 'b_1',
 					kitchen_id: 'k_home',
 					hand_id: 'h_1',
+					hand_name: 'Aurélien',
 					language: 'en',
 					head_version_id: 'v_1',
 					translation: null,

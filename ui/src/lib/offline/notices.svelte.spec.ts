@@ -78,6 +78,7 @@ const thread = (branch_id: string, others: string[] = []) => ({
 		branch_id: id,
 		kitchen_id: `k_${id}`,
 		hand_id: `h_${id}`,
+		hand_name: `Chez ${id}`,
 		language: 'en',
 		head_version_id: `v_${id}`,
 		translation: null,

@@ -243,15 +243,41 @@ impl Core {
 
     /// A Person's name is a reminder, not their Hand's identity: records keep
     /// the permanent Person id and render this current value when read.
-    pub fn rename_person(&self, person_id: &str, name: &str) -> Result<(), OpError> {
+    ///
+    /// It is also the name this Person signs in with, which is why two people
+    /// here cannot hold one: migration 4's index refuses it, and the refusal
+    /// is said in words rather than passed on as SQLite's.
+    pub fn rename_person(&self, person_id: &str, name: &str) -> Result<String, OpError> {
         let name = required_text(name, "name")?;
         self.db().with_conn(|conn| {
             conn.execute(
                 "UPDATE people SET name = ?1 WHERE id = ?2",
                 params![name, person_id],
             )
-            .map_err(|e| OpError::bad_request(format!("cannot use that name: {e}")))?;
+            .map_err(|e| match e.sqlite_error_code() {
+                Some(rusqlite::ErrorCode::ConstraintViolation) => OpError::bad_request(format!(
+                    "somebody here already signs in as {name}; choose another name"
+                )),
+                _ => OpError::internal(format!("cannot rename this Person: {e}")),
+            })?;
             Ok(())
+        })?;
+        Ok(name.to_string())
+    }
+
+    /// Who this Credential names: the Person's permanent id, which is also
+    /// their Hand, and the name they currently go by. What lets a screen say
+    /// *you* without matching names, since a name is a reminder (ADR 0015).
+    pub fn person(&self, person_id: &str) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let name: String = conn
+                .query_row(
+                    "SELECT name FROM people WHERE id = ?1",
+                    params![person_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read this Person: {e}")))?;
+            Ok(json!({ "person_id": person_id, "name": name }))
         })
     }
 

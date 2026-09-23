@@ -721,14 +721,15 @@ impl Core {
             // cooks in — never a Branch in a Kitchen they do not belong to,
             // the same boundary a single `get_recipe` enforces.
             let mut statement = conn
-                .prepare(
+                .prepare(&format!(
                     "SELECT DISTINCT branches.id, branches.kitchen_id, branches.hand_id, \
-                            branches.language, branches.head_version_id \
+                            branches.language, branches.head_version_id, {} \
                        FROM branches \
                        JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
                       WHERE branches.lineage_id = ?1 AND kitchen_members.person_id = ?2 \
                       ORDER BY branches.created_at ASC, branches.id ASC",
-                )
+                    hand_name_sql("branches.hand_id"),
+                ))
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
             let mut branches: Vec<Value> = statement
                 .query_map(params![lineage_id, person_id], |row| {
@@ -738,6 +739,7 @@ impl Core {
                         "hand_id": row.get::<_, String>(2)?,
                         "language": row.get::<_, String>(3)?,
                         "head_version_id": row.get::<_, String>(4)?,
+                        "hand_name": row.get::<_, Option<String>>(5)?,
                     }))
                 })
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?
@@ -762,11 +764,12 @@ impl Core {
                     .as_str()
                     .expect("branch_id is always a string");
                 let mut vstmt = conn
-                    .prepare(
+                    .prepare(&format!(
                         "SELECT sequence, version_id, parent_version_id, hand_id, name, \
-                                change_note, created_at, translates_version_id, language \
+                                change_note, created_at, translates_version_id, language, {} \
                            FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence ASC",
-                    )
+                        hand_name_sql("branch_versions.hand_id"),
+                    ))
                     .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?;
                 let rows: Vec<Value> = vstmt
                     .query_map(params![this_branch_id], |row| {
@@ -781,6 +784,7 @@ impl Core {
                             "created_at": row.get::<_, String>(6)?,
                             "translates_version_id": row.get::<_, Option<String>>(7)?,
                             "language": row.get::<_, Option<String>>(8)?,
+                            "hand_name": row.get::<_, Option<String>>(9)?,
                         }))
                     })
                     .map_err(|e| OpError::internal(format!("cannot read Thread: {e}")))?

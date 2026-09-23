@@ -72,6 +72,10 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// before a change made on another device shows the two folded when they
 	// are not, and writes the old Measures back over the new ones.
 	get_reading_preferences: 'server-first',
+	// Who you are called (#113). Settings shows it beside the button that
+	// changes it, and a kept answer from before a rename on another device
+	// would offer to change a name you no longer have.
+	get_person: 'server-first',
 	// Who can get in. Ending a Session on another device must show at once.
 	list_sessions: 'server-first',
 	list_access_keys: 'server-first',

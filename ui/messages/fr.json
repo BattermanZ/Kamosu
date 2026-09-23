@@ -317,6 +317,7 @@
   "kitchen_join": "Rejoindre",
   "kitchen_join_secret_label": "Invitation",
   "kitchen_join_title": "Rejoindre une Cuisine",
+  "kitchen_member_you": "vous",
   "kitchen_members": "Membres",
   "kitchen_name_label": "Nom de la cuisine",
   "kitchen_nickname_label": "Votre surnom",
@@ -701,6 +702,7 @@
   "settings_tags_renamed_one": "Renommée sur 1 recette.",
   "settings_title": "Réglages",
   "settings_unaudited": "Personne n'a audité Kamosu. C'est une application de recettes écrite pour un foyer, puis partagée.",
+  "settings_you": "Vous",
   "share_address_hint": "Là où l’on atteint ce Kamosu depuis l’extérieur, par ex. https://kamosu.example.com. Demandée une fois, puis conservée — un lien est stocké comme jeton, donc changer l’adresse plus tard ne casse aucun lien déjà envoyé.",
   "share_address_label": "Adresse publique de cette instance",
   "share_address_missing": "Un lien a besoin d’une adresse que l’on puisse ouvrir.",
@@ -798,6 +800,7 @@
   "thread_said_language": "A déclaré que cette recette est en {language}.",
   "thread_show": "Afficher",
   "thread_title": "Le Fil",
+  "thread_unnamed_hand": "Quelqu’un dont Kamosu n’a pas le nom",
   "tokens_blurb": "Chaque valeur ci-dessous est lue dans la feuille de style que cette page a chargée. Rien ici n’est maintenu à la main.",
   "tokens_colour": "Couleur",
   "tokens_shape": "Forme",
@@ -890,5 +893,13 @@
   "write_yield_amount": "Rendement, combien",
   "write_yield_noun": "Rendement, de quoi",
   "wrong_body": "C'est une erreur de Kamosu, pas quelque chose que vous avez fait. Rien de ce que vous avez écrit n'est perdu. Réessayer ne changera probablement rien.",
-  "wrong_title": "Kamosu s'est trompé"
+  "wrong_title": "Kamosu s'est trompé",
+  "you_change_name": "Changer de nom",
+  "you_name_changed": "C’est fait. Chaque Version que vous avez écrite dit maintenant {name}. Connectez-vous désormais avec ce nom.",
+  "you_name_confirm": "Changer mon nom",
+  "you_name_explained": "Le nom sur chaque Version que vous enregistrez, et celui avec lequel vous vous connectez.",
+  "you_name_keep": "Le garder",
+  "you_name_label": "Votre nom",
+  "you_name_reach_sign_in": "Vous vous connecterez avec le nouveau nom. Une recette déjà envoyée à quelqu’un sous forme de fichier garde le nom avec lequel elle est partie.",
+  "you_name_reach_versions": "Chaque Version que vous avez enregistrée affichera le nouveau nom, les anciennes aussi, dans chaque Cuisine. Rien d’autre ne change."
 }

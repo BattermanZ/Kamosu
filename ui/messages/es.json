@@ -317,6 +317,7 @@
   "kitchen_join": "Unirse",
   "kitchen_join_secret_label": "Invitación",
   "kitchen_join_title": "Unirse a una Cocina",
+  "kitchen_member_you": "tú",
   "kitchen_members": "Miembros",
   "kitchen_name_label": "Nombre de la cocina",
   "kitchen_nickname_label": "Tu apodo",
@@ -701,6 +702,7 @@
   "settings_tags_renamed_one": "Cambiada en 1 receta.",
   "settings_title": "Ajustes",
   "settings_unaudited": "Nadie ha auditado Kamosu. Es una aplicación de recetas escrita para un hogar y compartida.",
+  "settings_you": "Tú",
   "share_address_hint": "Donde se llega a este Kamosu desde fuera, p. ej. https://kamosu.example.com. Se pregunta una vez y se conserva — un enlace se guarda como testigo, así que cambiar la dirección después no rompe ningún enlace ya enviado.",
   "share_address_label": "Dirección pública de esta instancia",
   "share_address_missing": "Un enlace necesita una dirección que se pueda abrir.",
@@ -798,6 +800,7 @@
   "thread_said_language": "Dijo que esta receta está en {language}.",
   "thread_show": "Mostrar",
   "thread_title": "El Hilo",
+  "thread_unnamed_hand": "Alguien de quien Kamosu no tiene el nombre",
   "tokens_blurb": "Cada valor de abajo se lee de la hoja de estilos que cargó esta página. Nada aquí se mantiene a mano.",
   "tokens_colour": "Color",
   "tokens_shape": "Forma",
@@ -890,5 +893,13 @@
   "write_yield_amount": "Rendimiento, cuántos",
   "write_yield_noun": "Rendimiento, de qué",
   "wrong_body": "Es un error de Kamosu, no algo que hayas hecho. Nada de lo que has escrito se ha perdido. Volver a intentarlo probablemente no sirva de nada.",
-  "wrong_title": "Kamosu se ha equivocado"
+  "wrong_title": "Kamosu se ha equivocado",
+  "you_change_name": "Cambiar tu nombre",
+  "you_name_changed": "Hecho. Cada Versión que escribiste dice ahora {name}. Inicia sesión con ese nombre a partir de ahora.",
+  "you_name_confirm": "Cambiar mi nombre",
+  "you_name_explained": "El nombre en cada Versión que guardas, y con el que inicias sesión.",
+  "you_name_keep": "Dejarlo así",
+  "you_name_label": "Tu nombre",
+  "you_name_reach_sign_in": "Iniciarás sesión con el nombre nuevo. Una receta que ya enviaste a alguien como archivo conserva el nombre con el que salió.",
+  "you_name_reach_versions": "Cada Versión que hayas guardado mostrará el nombre nuevo, también las antiguas, en cada Cocina. Nada más cambia."
 }

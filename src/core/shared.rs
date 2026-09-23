@@ -40,6 +40,20 @@ pub(super) fn written_moment(
     Ok(if moment > now { now } else { moment })
 }
 
+/// The name a Hand is shown by, as a SQL expression over the column holding
+/// it (CONTEXT.md, "Hand"; ADR 0015). A Hand this instance minted is named
+/// live, a Person's from `people` and a Kitchen's from `kitchens`, so renaming
+/// either reaches every Version and Branch at once. A Hand that arrived in a
+/// Bundle is named by what arrived with it (#67). NULL for a Hand nothing
+/// here names, which the screen says in words rather than printing an id.
+pub(super) fn hand_name_sql(column: &str) -> String {
+    format!(
+        "COALESCE((SELECT name FROM people WHERE id = {column}), \
+                  (SELECT name FROM kitchens WHERE hand_id = {column}), \
+                  (SELECT name FROM arrived_hands WHERE hand_id = {column}))"
+    )
+}
+
 /// A Branch id that names nothing here — and, by ADR 0040, a Branch held by a
 /// Kitchen the caller does not cook in.
 pub(super) fn no_such_branch() -> OpError {

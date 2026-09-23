@@ -83,8 +83,15 @@ pub fn rename_person(core: &Core, invocation: &Invocation, input: Value) -> Resu
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request("rename_person takes { name }"))?;
     let caller = caller_of(invocation)?;
-    core.rename_person(&caller.person_id, name)?;
+    // The name as stored, spaces trimmed, so the screen shows what it will
+    // read back rather than what was typed.
+    let name = core.rename_person(&caller.person_id, name)?;
     Ok(json!({ "name": name }))
+}
+
+pub fn get_person(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.person(&caller.person_id)
 }
 
 /// Who holds an account here (#103). `is_you` is answered by the Core rather

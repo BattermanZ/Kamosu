@@ -36,6 +36,7 @@ const anonymous: Answers = {
 	list_accounts: { refuse: 'unauthorized' },
 	list_access_keys: { refuse: 'unauthorized' },
 	get_reading_preferences: { refuse: 'unauthorized' },
+	get_person: { refuse: 'unauthorized' },
 	meaning_search_status: { refuse: 'unauthorized' },
 };
 
@@ -68,6 +69,8 @@ const meaningStatus = (
  */
 const readsInAmerican: Answers = {
 	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
+	// Who is signed in, and what they are called (#113).
+	get_person: { person_id: 'p_1', name: 'Aurélien' },
 	// A signed-in Person who does not administer the instance (#103).
 	list_accounts: { refuse: 'unauthorized' },
 	// Meaning Search as most instances have it: nobody has been asked, so this
@@ -893,5 +896,163 @@ describe('the Reading Language (#112)', () => {
 			screen.getByText("The words on Kamosu's own buttons and headings. This browser only."),
 		).toBeInTheDocument();
 		expect(screen.queryByText(/Recipes follow it/)).not.toBeInTheDocument();
+	});
+});
+
+describe('your own name (#113)', () => {
+	/** Your Home Kitchen and one you share with Marie, as the server names them now. */
+	const kitchensNaming = (you: string) => ({
+		kitchens: [
+			{
+				id: 'k_home',
+				name: "Aurélien's Home Kitchen",
+				hand_id: 'k_home',
+				is_home: true,
+				nickname: null,
+				members: [{ person_id: 'p_1', name: you }],
+			},
+			{
+				id: 'k_shared',
+				name: 'Supper Club',
+				hand_id: 'k_shared',
+				is_home: false,
+				nickname: null,
+				members: [
+					{ person_id: 'p_1', name: you },
+					{ person_id: 'p_2', name: 'Marie' },
+				],
+			},
+		],
+	});
+
+	const signedIn = (over: Answers = {}): Answers => ({
+		instance_status: { version: '0.1.0', setup_complete: true },
+		list_sessions: { sessions: [] },
+		list_access_keys: { access_keys: [] },
+		...readsInAmerican,
+		list_tags: { tags: [] },
+		list_kitchens: kitchensNaming('Aurélien'),
+		...over,
+	});
+
+	/** The You section alone, so a name elsewhere on the screen cannot answer for it. */
+	const youSection = async () =>
+		(await screen.findByRole('heading', { name: 'You' })).closest('section') as HTMLElement;
+
+	it('shows your name first, and marks your own row in every Kitchen as you', async () => {
+		renderScreen(Settings, signedIn());
+
+		const you = await youSection();
+		expect(within(you).getByText('Aurélien')).toBeInTheDocument();
+		expect(
+			within(you).getByText('The name on every Version you save, and the one you sign in with.'),
+		).toBeInTheDocument();
+		// It is the first section on the screen.
+		expect(document.querySelector('section h2')?.textContent?.trim()).toBe('You');
+
+		await screen.findByDisplayValue('Supper Club');
+		const marked = screen.getAllByText('you');
+		expect(marked).toHaveLength(2);
+		for (const mark of marked) expect(mark.closest('li')?.textContent).toContain('Aurélien');
+		const marieRow = screen.getByText('Marie').closest('li') as HTMLElement;
+		expect(within(marieRow).queryByText('you')).not.toBeInTheDocument();
+	});
+
+	it('says what renaming reaches before anything is renamed', async () => {
+		const { kamosu } = renderScreen(Settings, signedIn());
+
+		await fireEvent.click(
+			within(await youSection()).getByRole('button', { name: 'Change your name' }),
+		);
+
+		expect(screen.getByLabelText('Your name')).toHaveValue('Aurélien');
+		expect(
+			screen.getByText(
+				'Every Version you have ever saved will show the new name, the old ones too, in every Kitchen. Nothing else about them changes.',
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'You will sign in with the new name. A recipe you already sent someone as a file keeps the name it left with.',
+			),
+		).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_person');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+		expect(within(await youSection()).getByText('Aurélien')).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_person');
+	});
+
+	it('renames you through the Operation, and every place on the screen reads the new name', async () => {
+		let renamed = false;
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({
+				list_kitchens: () => kitchensNaming(renamed ? 'Aurélien Dupont' : 'Aurélien'),
+				rename_person: () => {
+					renamed = true;
+					return { name: 'Aurélien Dupont' };
+				},
+			}),
+		);
+
+		await fireEvent.click(
+			within(await youSection()).getByRole('button', { name: 'Change your name' }),
+		);
+		await fireEvent.input(screen.getByLabelText('Your name'), {
+			target: { value: 'Aurélien Dupont' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Change my name' }));
+
+		expect(
+			await screen.findByText(
+				'Done. Every Version you wrote now says Aurélien Dupont. Sign in with that name from now on.',
+			),
+		).toBeInTheDocument();
+		expect(kamosu.calls).toContainEqual({
+			operation: 'rename_person',
+			input: { name: 'Aurélien Dupont' },
+		});
+		const you = await youSection();
+		expect(within(you).getByText('Aurélien Dupont')).toBeInTheDocument();
+		expect(within(you).getByRole('button', { name: 'Change your name' })).toBeInTheDocument();
+		// Your rows in the Kitchens were read again, and still say they are you.
+		await vi.waitFor(() => expect(screen.getAllByText(/^Aurélien Dupont$/).length).toBe(3));
+		expect(screen.getAllByText('you')).toHaveLength(2);
+	});
+
+	it('says why a name was refused, and keeps the field open to try another', async () => {
+		renderScreen(
+			Settings,
+			signedIn({
+				rename_person: {
+					refuse: 'bad_request',
+					message: 'somebody here already signs in as Marie; choose another name',
+				},
+			}),
+		);
+
+		await fireEvent.click(
+			within(await youSection()).getByRole('button', { name: 'Change your name' }),
+		);
+		await fireEvent.input(screen.getByLabelText('Your name'), { target: { value: 'Marie' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Change my name' }));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'somebody here already signs in as Marie; choose another name',
+		);
+		expect(screen.getByLabelText('Your name')).toHaveValue('Marie');
+		expect(screen.queryByText(/^Done\./)).not.toBeInTheDocument();
+	});
+
+	it('shows a stranger no name to change', async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			...anonymous,
+		});
+
+		await screen.findByText(/Version 0\.1\.0/);
+		expect(screen.queryByRole('heading', { name: 'You' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Change your name' })).not.toBeInTheDocument();
 	});
 });
