@@ -15,6 +15,7 @@
 	import { useAuth } from '$lib/auth';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
+	import { deviceName } from '$lib/device-name';
 
 	interface Props {
 		/**
@@ -101,7 +102,11 @@
 			await auth.authenticate(mode, {
 				name: recovery ? undefined : name,
 				password,
-				session_name: 'this browser',
+				// Named for the device it is on, so the Sessions list in Settings
+				// can tell your phone from your laptop (#114).
+				session_name:
+					deviceName(navigator.userAgent, navigator.maxTouchPoints) ??
+					m.account_session_unknown_device(),
 				link: invite ?? recovery,
 			});
 			if (mode === 'first-person' || mode === 'invite') setupComplete = true;

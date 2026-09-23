@@ -612,6 +612,123 @@ async fn logging_in_mints_a_revocable_session_credential() {
     assert_eq!(app.post_op("list_jobs", Some(secret), "{}").0, 401);
 }
 
+/// Several Sessions of one Person are told apart (#114): the one asking is
+/// marked as such, and any of them can be given a name afterwards — including
+/// one minted before names were worth reading, still called "this browser".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sessions_are_told_apart_and_can_be_renamed() {
+    let app = support::spawn_app();
+    let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "this browser" });
+    let first = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(first.status, 200, "{}", first.text());
+    let first_id = serde_json::from_str::<Value>(&first.text()).expect("auth envelope")["result"]
+        ["session_id"]
+        .as_str()
+        .expect("Session id")
+        .to_string();
+    let first_secret = support::session_cookie_secret(&first);
+
+    let login = json!({ "name": "Aurélien", "password": "the right password", "session_name": "Safari · iPhone" });
+    let phone = app.post_auth_response("/auth/login", &login.to_string());
+    assert_eq!(phone.status, 200, "{}", phone.text());
+    let phone_id = serde_json::from_str::<Value>(&phone.text()).expect("auth envelope")["result"]
+        ["session_id"]
+        .as_str()
+        .expect("Session id")
+        .to_string();
+    let phone_secret = support::session_cookie_secret(&phone);
+
+    let current_of = |secret: &str| -> Vec<(String, String, bool)> {
+        let (status, listed) = app.post_op("list_sessions", Some(secret), "{}");
+        assert_eq!(status, 200, "{listed}");
+        listed["result"]["sessions"]
+            .as_array()
+            .expect("sessions")
+            .iter()
+            .map(|s| {
+                (
+                    s["id"].as_str().unwrap().to_string(),
+                    s["name"].as_str().unwrap().to_string(),
+                    s["current"].as_bool().expect("current is a boolean"),
+                )
+            })
+            .collect()
+    };
+
+    // Each device finds itself, and only itself, marked as the one in hand.
+    for (secret, mine) in [(&phone_secret, &phone_id), (&first_secret, &first_id)] {
+        let listed = current_of(secret);
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        for (id, _, current) in &listed {
+            assert_eq!(*current, id == mine, "{listed:?}");
+        }
+    }
+
+    // The old one is renamed from the phone; the name holds on every device.
+    let (status, renamed) = app.post_op(
+        "rename_session",
+        Some(&phone_secret),
+        &json!({ "session_id": first_id, "name": "  Kitchen laptop " }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+    assert_eq!(
+        renamed["result"],
+        json!({ "id": first_id, "name": "Kitchen laptop" })
+    );
+    assert!(
+        current_of(&first_secret)
+            .iter()
+            .any(|(id, name, _)| id == &first_id && name == "Kitchen laptop")
+    );
+
+    // A name is required.
+    let (status, _) = app.post_op(
+        "rename_session",
+        Some(&phone_secret),
+        &json!({ "session_id": first_id, "name": "   " }).to_string(),
+    );
+    assert_eq!(status, 400);
+
+    // An Access Key is no Session, so nothing it lists is the one in hand.
+    let (status, minted) = app.post_op(
+        "mint_access_key",
+        Some(&phone_secret),
+        r#"{"name":"agent"}"#,
+    );
+    assert_eq!(status, 200, "{minted}");
+    let key = minted["result"]["secret"].as_str().expect("secret");
+    assert!(current_of(key).iter().all(|(_, _, current)| !current));
+
+    // Another Person cannot rename it, and is told only that it is not theirs.
+    let (_, stranger_key, _) = person_with_kitchen(&app, "Camille");
+    let (status, _) = app.post_op(
+        "rename_session",
+        Some(&stranger_key),
+        &json!({ "session_id": phone_id, "name": "mine now" }).to_string(),
+    );
+    assert_eq!(status, 404);
+    assert!(
+        current_of(&phone_secret)
+            .iter()
+            .any(|(id, name, _)| id == &phone_id && name == "Safari · iPhone")
+    );
+
+    // Renaming never revives: an ended Session is not renamed.
+    let (status, _) = app.post_op(
+        "revoke_session",
+        Some(&phone_secret),
+        &json!({ "session_id": first_id }).to_string(),
+    );
+    assert_eq!(status, 200);
+    let (status, _) = app.post_op(
+        "rename_session",
+        Some(&phone_secret),
+        &json!({ "session_id": first_id, "name": "back again" }).to_string(),
+    );
+    assert_eq!(status, 404);
+    assert_eq!(app.post_op("list_jobs", Some(&first_secret), "{}").0, 401);
+}
+
 /// Every `Set-Cookie` on one answer.
 fn set_cookies(headers: &[(String, String)]) -> Vec<&str> {
     headers

@@ -282,8 +282,14 @@ impl Core {
     }
 
     /// Sessions remain knowable by their device name and last use until their
-    /// owner revokes them; their Secret never appears in this record.
-    pub fn sessions_of(&self, person_id: &str) -> Result<Vec<Value>, OpError> {
+    /// owner revokes them; their Secret never appears in this record. The one
+    /// asking is marked `current`, so a Person signed in on three devices can
+    /// tell which row is in their hand before they end one (#114).
+    pub fn sessions_of(
+        &self,
+        person_id: &str,
+        current: Option<&str>,
+    ) -> Result<Vec<Value>, OpError> {
         self.db().with_conn(|conn| {
             let mut statement = conn.prepare(
                 "SELECT id, name, created_at, last_used_at, revoked FROM sessions WHERE person_id = ?1 ORDER BY created_at DESC",
@@ -292,10 +298,37 @@ impl Core {
                 "id": row.get::<_, String>(0)?, "name": row.get::<_, String>(1)?,
                 "created_at": row.get::<_, String>(2)?, "last_used_at": row.get::<_, Option<String>>(3)?,
                 "revoked": row.get::<_, i64>(4)? != 0,
+                "current": current == Some(row.get::<_, String>(0)?.as_str()),
             }))).map_err(|e| OpError::internal(format!("cannot read Sessions: {e}")))?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| OpError::internal(format!("cannot read Sessions: {e}")))
         })
+    }
+
+    /// A Session is named for its device when it is minted, from what the
+    /// browser says about itself; this corrects a wrong guess, or names one
+    /// minted before that, still called "this browser" (#114). An ended
+    /// Session is not renamed: it is gone, not merely unnamed.
+    pub fn rename_session(
+        &self,
+        person_id: &str,
+        session_id: &str,
+        name: &str,
+    ) -> Result<String, OpError> {
+        let name = required_text(name, "name")?;
+        let changed = self.db().with_conn(|conn| {
+            conn.execute(
+                "UPDATE sessions SET name = ?1 WHERE id = ?2 AND person_id = ?3 AND revoked = 0",
+                params![name, session_id, person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot rename Session: {e}")))
+        })?;
+        if changed == 0 {
+            return Err(OpError::not_found(
+                "no live Session with that id belongs to this Person",
+            ));
+        }
+        Ok(name.to_string())
     }
 
     pub fn revoke_session(&self, person_id: &str, session_id: &str) -> Result<(), OpError> {

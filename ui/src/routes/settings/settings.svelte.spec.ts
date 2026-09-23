@@ -13,6 +13,7 @@ import { screen, fireEvent, within } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
+import { went } from '../../testing/navigation';
 import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
 
 /**
@@ -179,6 +180,7 @@ describe('the settings screen', () => {
 						created_at: '2026-01-01T00:00:00Z',
 						last_used_at: null,
 						revoked: false,
+						current: false,
 					},
 				],
 			},
@@ -1054,5 +1056,159 @@ describe('your own name (#113)', () => {
 		await screen.findByText(/Version 0\.1\.0/);
 		expect(screen.queryByRole('heading', { name: 'You' })).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Change your name' })).not.toBeInTheDocument();
+	});
+});
+
+describe('telling your Sessions apart (#114)', () => {
+	/** You are on the iPhone; also signed in on a laptop, and on something
+	 * from before Sessions were named for their device. */
+	const session = (id: string, name: string, current = false) => ({
+		id,
+		name,
+		created_at: '2026-09-12T09:00:00Z',
+		last_used_at: '2026-09-20T18:28:00Z',
+		revoked: false,
+		current,
+	});
+	const three = [
+		session('s_laptop', 'Firefox · Linux'),
+		session('s_phone', 'Safari · iPhone', true),
+		session('s_old', 'this browser'),
+	];
+
+	const signedIn = (over: Answers = {}): Answers => ({
+		instance_status: { version: '0.1.0', setup_complete: true },
+		list_sessions: { sessions: three },
+		list_access_keys: { access_keys: [] },
+		...readsInAmerican,
+		list_tags: { tags: [] },
+		list_kitchens: { kitchens: [] },
+		...over,
+	});
+
+	const rows = async () => {
+		const heading = await screen.findByRole('heading', { name: 'Sessions' });
+		const list = heading.nextElementSibling as HTMLElement;
+		return within(list).getAllByRole('listitem');
+	};
+
+	it('puts the device in your hand first and marks it, and names every other one', async () => {
+		renderScreen(Settings, signedIn());
+
+		const [first, second, third] = await rows();
+		expect(within(first).getByText('Safari · iPhone')).toBeInTheDocument();
+		expect(within(first).getByText('This device')).toBeInTheDocument();
+		expect(within(first).getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+		expect(within(first).queryByRole('button', { name: 'End' })).not.toBeInTheDocument();
+
+		expect(within(second).getByText('Firefox · Linux')).toBeInTheDocument();
+		expect(within(second).queryByText('This device')).not.toBeInTheDocument();
+		expect(within(second).getByRole('button', { name: 'End' })).toBeInTheDocument();
+
+		// A Session from before names says what it is, rather than "this browser",
+		// which would be a lie on every device but one.
+		expect(within(third).getByText('An older sign-in, not named')).toBeInTheDocument();
+		expect(within(third).queryByText('this browser')).not.toBeInTheDocument();
+		expect(within(third).getByText(/^Signed in .* · Last used /)).toBeInTheDocument();
+		expect(screen.getAllByText('This device')).toHaveLength(1);
+	});
+
+	it('ends an older Session on its own, and stays here', async () => {
+		let ended = false;
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({
+				list_sessions: () => ({ sessions: ended ? three.slice(0, 2) : three }),
+				revoke_session: () => {
+					ended = true;
+					return { revoked: true };
+				},
+			}),
+		);
+
+		const old = (await rows())[2];
+		await fireEvent.click(within(old).getByRole('button', { name: 'End' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'revoke_session',
+			input: { session_id: 's_old' },
+		});
+		await vi.waitFor(async () => expect(await rows()).toHaveLength(2));
+		expect(went).not.toHaveBeenCalled();
+	});
+
+	it('signs you out when the Session ended is the one in your hand', async () => {
+		const { kamosu } = renderScreen(Settings, signedIn({ revoke_session: { revoked: true } }));
+
+		await fireEvent.click(within((await rows())[0]).getByRole('button', { name: 'Sign out' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'revoke_session',
+			input: { session_id: 's_phone' },
+		});
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/'));
+	});
+
+	it('renames an older Session in place, starting from an empty name', async () => {
+		let renamed = false;
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({
+				list_sessions: () => ({
+					sessions: renamed ? [three[0], three[1], session('s_old', 'Kitchen laptop')] : three,
+				}),
+				rename_session: () => {
+					renamed = true;
+					return { id: 's_old', name: 'Kitchen laptop' };
+				},
+			}),
+		);
+
+		await fireEvent.click(within((await rows())[2]).getByRole('button', { name: 'Rename' }));
+		const field = screen.getByLabelText('Call it');
+		expect(field).toHaveValue('');
+		await fireEvent.input(field, { target: { value: 'Kitchen laptop' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'rename_session',
+			input: { session_id: 's_old', name: 'Kitchen laptop' },
+		});
+		expect(await screen.findByText('Kitchen laptop')).toBeInTheDocument();
+		expect(screen.queryByText('An older sign-in, not named')).not.toBeInTheDocument();
+		expect(screen.queryByLabelText('Call it')).not.toBeInTheDocument();
+	});
+
+	it('starts renaming a named Session from its name, and Keep it changes nothing', async () => {
+		const { kamosu } = renderScreen(Settings, signedIn());
+
+		await fireEvent.click(within((await rows())[0]).getByRole('button', { name: 'Rename' }));
+		expect(screen.getByLabelText('Call it')).toHaveValue('Safari · iPhone');
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+
+		expect(screen.queryByLabelText('Call it')).not.toBeInTheDocument();
+		expect(screen.getByText('Safari · iPhone')).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_session');
+	});
+
+	it('says why a rename was refused, and keeps the field open', async () => {
+		renderScreen(
+			Settings,
+			signedIn({
+				rename_session: {
+					refuse: 'not_found',
+					message: 'no live Session with that id belongs to this Person',
+				},
+			}),
+		);
+
+		await fireEvent.click(within((await rows())[1]).getByRole('button', { name: 'Rename' }));
+		await fireEvent.input(screen.getByLabelText('Call it'), { target: { value: 'Work' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'no live Session with that id belongs to this Person',
+		);
+		expect(screen.getByLabelText('Call it')).toHaveValue('Work');
 	});
 });

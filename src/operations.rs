@@ -180,7 +180,27 @@ pub fn list_sessions(
     _input: Value,
 ) -> Result<Value, OpError> {
     let caller = caller_of(invocation)?;
-    Ok(json!({ "sessions": core.sessions_of(&caller.person_id)? }))
+    Ok(json!({
+        "sessions": core.sessions_of(&caller.person_id, caller.session_id.as_deref())?
+    }))
+}
+
+pub fn rename_session(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let (Some(session_id), Some(name)) = (
+        input.get("session_id").and_then(Value::as_str),
+        input.get("name").and_then(Value::as_str),
+    ) else {
+        return Err(OpError::bad_request(
+            "rename_session takes { session_id, name }",
+        ));
+    };
+    let caller = caller_of(invocation)?;
+    let name = core.rename_session(&caller.person_id, session_id, name)?;
+    Ok(json!({ "id": session_id, "name": name }))
 }
 
 pub fn revoke_session(

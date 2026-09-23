@@ -148,17 +148,29 @@ export type ListBackupsOutput = {
 	}[];
 };
 
-/** List this Person's browser Sessions by device and last use. */
+/** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 export type ListSessionsInput = Record<string, never>;
 /** What list_sessions answers. */
 export type ListSessionsOutput = {
 	sessions: {
 		created_at: string;
+		current: boolean;
 		id: string;
 		last_used_at: string | null;
 		name: string;
 		revoked: boolean;
 	}[];
+};
+
+/** Rename one of your browser Sessions. A Session is named for its device when it signs in; this corrects the guess or names an older one. An ended Session is not renamed. */
+export type RenameSessionInput = {
+	name: string;
+	session_id: string;
+};
+/** What rename_session answers. */
+export type RenameSessionOutput = {
+	id: string;
+	name: string;
 };
 
 /** End one of your browser Sessions. */
@@ -3682,6 +3694,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	rename_session: {
+		input: RenameSessionInput;
+		output: RenameSessionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	revoke_session: {
 		input: RevokeSessionInput;
 		output: RevokeSessionOutput;
@@ -4762,7 +4780,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_sessions",
-		"summary": "List this Person's browser Sessions by device and last use.",
+		"summary": "List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -4779,6 +4797,9 @@ export const CATALOGUE = [
 						"properties": {
 							"created_at": {
 								"type": "string"
+							},
+							"current": {
+								"type": "boolean"
 							},
 							"id": {
 								"type": "string"
@@ -4801,7 +4822,8 @@ export const CATALOGUE = [
 							"name",
 							"created_at",
 							"last_used_at",
-							"revoked"
+							"revoked",
+							"current"
 						],
 						"type": "object"
 					},
@@ -4810,6 +4832,44 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"sessions"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_session",
+		"summary": "Rename one of your browser Sessions. A Session is named for its device when it signs in; this corrects the guess or names an older one. An ended Session is not renamed.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"session_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"session_id",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"type": "string"
+				},
+				"name": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"id",
+				"name"
 			],
 			"type": "object"
 		}
@@ -22338,6 +22398,7 @@ export const METHOD_NAMES = {
 	take_backup: 'takeBackup',
 	list_backups: 'listBackups',
 	list_sessions: 'listSessions',
+	rename_session: 'renameSession',
 	revoke_session: 'revokeSession',
 	mint_access_key: 'mintAccessKey',
 	list_access_keys: 'listAccessKeys',
@@ -22459,8 +22520,10 @@ export interface KamosuClient {
 	takeBackup(input?: TakeBackupInput): Promise<Answer<'take_backup'>>;
 	/** The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation. */
 	listBackups(input?: ListBackupsInput): Promise<Answer<'list_backups'>>;
-	/** List this Person's browser Sessions by device and last use. */
+	/** List this Person's browser Sessions by device and last use. `current` marks the Session asking, so it is never set when an Access Key asks. */
 	listSessions(input?: ListSessionsInput): Promise<Answer<'list_sessions'>>;
+	/** Rename one of your browser Sessions. A Session is named for its device when it signs in; this corrects the guess or names an older one. An ended Session is not renamed. */
+	renameSession(input: RenameSessionInput): Promise<Answer<'rename_session'>>;
 	/** End one of your browser Sessions. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
 	/** Mint an Access Key for an agent to act as you, optionally read-only. */

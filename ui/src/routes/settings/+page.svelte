@@ -8,6 +8,7 @@
 	card that opens into its page later is this same pair, with a different name.
 -->
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
@@ -325,8 +326,56 @@
 			: m.access_never_used();
 	}
 
-	async function endSession(sessionId: string) {
-		await kamosu.revokeSession({ session_id: sessionId });
+	/**
+	 * The Sessions as the list shows them: the one in your hand first, the
+	 * rest newest first as the Core answers them. Ending the one in your hand
+	 * signs you out here, so it is marked and its button says so (#114).
+	 */
+	const sessionsShown = $derived(
+		[...sessions].sort((a, b) => Number(b.current) - Number(a.current)),
+	);
+
+	/**
+	 * What every Session was called before a Session was named for its device.
+	 * Kamosu cannot name such a row after the fact, so it says plainly what it
+	 * is until its owner renames it.
+	 */
+	const UNNAMED_SESSION = 'this browser';
+
+	let editingSession = $state<string | undefined>(undefined);
+	let draftSessionName = $state('');
+	let renamingSession = $state(false);
+	let sessionRenameError = $state<string | undefined>(undefined);
+
+	function startRenamingSession(session: Session) {
+		editingSession = session.id;
+		draftSessionName = session.name === UNNAMED_SESSION ? '' : session.name;
+		sessionRenameError = undefined;
+	}
+
+	async function renameSession(sessionId: string) {
+		renamingSession = true;
+		sessionRenameError = undefined;
+		try {
+			await kamosu.renameSession({ session_id: sessionId, name: draftSessionName });
+			editingSession = undefined;
+			await loadAccess();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			sessionRenameError = error.message;
+		} finally {
+			renamingSession = false;
+		}
+	}
+
+	async function endSession(session: Session) {
+		await kamosu.revokeSession({ session_id: session.id });
+		// Ending the Session in your hand is signing out: Home is the sign-in
+		// form to somebody who is not signed in.
+		if (session.current) {
+			await goto('/');
+			return;
+		}
 		await loadAccess();
 	}
 
@@ -683,21 +732,88 @@
 				<p class="mb-6 text-body text-ink-2">{m.access_sessions_empty()}</p>
 			{:else}
 				<ul class="mb-6 grid gap-2">
-					{#each sessions as session (session.id)}
+					{#each sessionsShown as session (session.id)}
 						<li
-							class="flex items-center justify-between gap-3 rounded-sm border border-rule bg-card px-3 py-2"
+							class={[
+								'rounded-sm border bg-card px-3 py-2',
+								session.current ? 'border-accent' : 'border-rule',
+							]}
 						>
-							<div>
-								<p class="text-body text-ink">{session.name}</p>
-								<p class="text-read text-ink-2">{whenLastUsed(session.last_used_at)}</p>
-							</div>
-							<button
-								type="button"
-								class="shrink-0 text-label text-accent underline"
-								onclick={() => endSession(session.id)}
-							>
-								{m.access_end()}
-							</button>
+							{#if editingSession === session.id}
+								<form
+									class="grid gap-2"
+									onsubmit={(event) => {
+										event.preventDefault();
+										renameSession(session.id);
+									}}
+								>
+									<label class="grid gap-1 text-read text-ink-2">
+										{m.sessions_name_label()}
+										<input
+											class="min-h-12 min-w-0 rounded-sm border border-rule bg-ground px-3 text-body text-ink"
+											bind:value={draftSessionName}
+											required
+											{@attach (node) => node.focus()}
+										/>
+									</label>
+									{#if sessionRenameError}
+										<p class="text-body text-accent" role="alert">{sessionRenameError}</p>
+									{/if}
+									<div class="flex flex-wrap items-center gap-4">
+										<button
+											class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+											disabled={renamingSession}
+										>
+											{m.sessions_name_save()}
+										</button>
+										<button
+											type="button"
+											class="text-read text-accent underline"
+											onclick={() => (editingSession = undefined)}
+										>
+											{m.you_name_keep()}
+										</button>
+									</div>
+								</form>
+							{:else}
+								<div class="flex items-center justify-between gap-3">
+									<div class="min-w-0">
+										<p class="text-body break-words text-ink">
+											{#if session.name === UNNAMED_SESSION}
+												<span class="text-ink-2 italic">{m.sessions_unnamed()}</span>
+											{:else}
+												{session.name}
+											{/if}
+											{#if session.current}
+												<span class="ml-1 text-label font-semibold text-accent uppercase"
+													>{m.sessions_this_device()}</span
+												>
+											{/if}
+										</p>
+										<p class="text-read text-ink-2">
+											{m.sessions_signed_in({
+												when: new Date(session.created_at).toLocaleDateString(),
+											})} · {whenLastUsed(session.last_used_at)}
+										</p>
+									</div>
+									<div class="flex shrink-0 flex-col items-end gap-2">
+										<button
+											type="button"
+											class="text-label text-accent underline"
+											onclick={() => endSession(session)}
+										>
+											{session.current ? m.sessions_sign_out() : m.access_end()}
+										</button>
+										<button
+											type="button"
+											class="text-label text-accent underline"
+											onclick={() => startRenamingSession(session)}
+										>
+											{m.sessions_rename()}
+										</button>
+									</div>
+								</div>
+							{/if}
 						</li>
 					{/each}
 				</ul>

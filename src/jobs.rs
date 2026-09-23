@@ -306,6 +306,8 @@ impl crate::core::Core {
                         // that one did (`via_access_key`) — nothing built on a Job
                         // needs the specific Key today.
                         access_key_id: None,
+                        // Nor which Session: a Job lists no Sessions.
+                        session_id: None,
                     });
                     let invocation = Invocation {
                         caller,

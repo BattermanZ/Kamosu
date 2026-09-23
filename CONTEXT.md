@@ -79,7 +79,7 @@ A long random string where holding it *is* the permission — a **Share Link** t
 _Avoid_: Token, key, credential, nonce, bearer token
 
 **Session**:
-The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time — a Person sees their own beside their Access Keys, each named for the device and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
+The Secret a browser holds after a Person logs in, so they stay logged in. Ends when it is revoked and at no other time — a Person sees their own beside their Access Keys, each named for the device it signed in on (and renamable), marking the one in hand and showing when it was last used, and ends any of them from any device. It carries a Person's full powers, which is what keeps it distinct from an Access Key despite the shared shape.
 _Avoid_: Cookie, login, token, sign-in
 
 **Immediate Operation**:

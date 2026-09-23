@@ -33,6 +33,7 @@ fn arguments_for(name: &str) -> Value {
         "set_reading_preferences" => json!({ "reading_language": "en", "reading_measures": "us" }),
         "rename_person" => json!({ "name": "Parity" }),
         "revoke_session" => json!({ "session_id": "s_parity" }),
+        "rename_session" => json!({ "session_id": "s_parity", "name": "Parity" }),
         "mint_access_key" => json!({ "name": "parity key" }),
         "revoke_access_key" => json!({ "access_key_id": "ak_parity" }),
         "create_kitchen" => json!({ "name": "Parity Kitchen" }),
@@ -105,6 +106,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "get_person"
             | "rename_person"
             | "revoke_session"
+            | "rename_session"
             | "mint_access_key"
             | "list_access_keys"
             | "revoke_access_key"
@@ -283,6 +285,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "get_person"
                 | "rename_person"
                 | "revoke_session"
+                | "rename_session"
                 | "mint_access_key"
                 | "list_access_keys"
                 | "revoke_access_key"

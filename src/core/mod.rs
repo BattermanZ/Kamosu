@@ -193,6 +193,10 @@ pub struct Caller {
     /// so it never travels in a Bundle. No Operation surfaces it back yet —
     /// that is for whichever future ticket reads a Version's full detail.
     pub access_key_id: Option<String>,
+    /// The login Session that resolved this Credential, if any — never set
+    /// for an Access Key. What lets the Sessions list say which one is in
+    /// your hand (#114).
+    pub session_id: Option<String>,
 }
 
 /// One asking of an Operation: who is acting, and (when the Operation runs as a
@@ -204,8 +208,8 @@ struct Session {
 }
 
 /// One row `lookup_credential` can find: `(person_id, read_only, is_session,
-/// is_operator, access_key_id)`.
-type CredentialLookup = (String, bool, bool, bool, Option<String>);
+/// is_operator, access_key_id, session_id)`.
+type CredentialLookup = (String, bool, bool, bool, Option<String>, Option<String>);
 
 pub struct Invocation {
     pub caller: Option<Caller>,
@@ -403,16 +407,25 @@ impl Core {
     fn lookup_credential(&self, hash: &str) -> Result<Option<CredentialLookup>, OpError> {
         self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator, access_keys.id
+                "SELECT access_keys.person_id, access_keys.read_only, 0, people.is_operator, access_keys.id, NULL
                    FROM access_keys JOIN people ON people.id = access_keys.person_id
                    WHERE access_keys.secret_hash = ?1 AND access_keys.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  UNION ALL
-                 SELECT sessions.person_id, 0, 1, people.is_operator, NULL
+                 SELECT sessions.person_id, 0, 1, people.is_operator, NULL, sessions.id
                    FROM sessions JOIN people ON people.id = sessions.person_id
                    WHERE sessions.secret_hash = ?1 AND sessions.revoked = 0 AND people.disabled = 0 AND people.deleted = 0
                  LIMIT 1",
                 params![hash],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
             )
             .optional()
             .map_err(|e| OpError::internal(format!("cannot resolve Credential: {e}")))
@@ -424,7 +437,7 @@ impl Core {
     fn resolve_credential(&self, secret: &str) -> Result<Caller, OpError> {
         let hash = hash_secret(secret);
         match self.lookup_credential(&hash)? {
-            Some((person_id, read_only, is_session, is_operator, access_key_id)) => {
+            Some((person_id, read_only, is_session, is_operator, access_key_id, session_id)) => {
                 let _ = self.db().with_conn(|conn| {
                     let table = if is_session { "sessions" } else { "access_keys" };
                     conn.execute(
@@ -440,6 +453,7 @@ impl Core {
                     via_access_key: !is_session,
                     is_operator,
                     access_key_id,
+                    session_id,
                 })
             }
             // Unknown or already-revoked: the same answer either way, saying nothing
@@ -459,7 +473,7 @@ impl Core {
         self.lookup_credential(&hash)
             .ok()
             .flatten()
-            .map(|(_, read_only, _, _, _)| read_only)
+            .map(|(_, read_only, _, _, _, _)| read_only)
             .unwrap_or(false)
     }
 

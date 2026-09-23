@@ -350,15 +350,31 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "list_sessions",
-            summary: "List this Person's browser Sessions by device and last use.",
+            summary: "List this Person's browser Sessions by device and last use. \
+                      `current` marks the Session asking, so it is never set \
+                      when an Access Key asks.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
             job_lane: JobLane::ByCaller,
             input_schema: empty_input(),
-            output_schema: json!({ "type": "object", "properties": { "sessions": { "type": "array", "items": { "type": "object", "properties": { "id": {"type":"string"}, "name": {"type":"string"}, "created_at": {"type":"string"}, "last_used_at": {"type":["string","null"]}, "revoked": {"type":"boolean"} }, "required":["id","name","created_at","last_used_at","revoked"], "additionalProperties": false } } }, "required":["sessions"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "sessions": { "type": "array", "items": { "type": "object", "properties": { "id": {"type":"string"}, "name": {"type":"string"}, "created_at": {"type":"string"}, "last_used_at": {"type":["string","null"]}, "revoked": {"type":"boolean"}, "current": {"type":"boolean"} }, "required":["id","name","created_at","last_used_at","revoked","current"], "additionalProperties": false } } }, "required":["sessions"], "additionalProperties": false }),
             handler: crate::operations::list_sessions,
+        },
+        Operation {
+            name: "rename_session",
+            summary: "Rename one of your browser Sessions. A Session is named \
+                      for its device when it signs in; this corrects the guess \
+                      or names an older one. An ended Session is not renamed.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "session_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["session_id", "name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } }, "required": ["id", "name"], "additionalProperties": false }),
+            handler: crate::operations::rename_session,
         },
         Operation {
             name: "revoke_session",

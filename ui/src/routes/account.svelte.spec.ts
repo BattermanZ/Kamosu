@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import Account from './Account.svelte';
 import { renderScreen } from '../testing/render';
+import Harness from '../testing/Harness.svelte';
+import { standIn } from '$lib/api/stand-in';
+import type { AuthClient } from '$lib/auth';
 
 describe('the account screen', () => {
 	const user = userEvent.setup();
@@ -97,5 +100,39 @@ describe('the account screen', () => {
 		expect(
 			await screen.findByRole('heading', { name: 'Kamosu could not be reached.' }),
 		).toBeInTheDocument();
+	});
+
+	describe('naming the Session it signs in (#114)', () => {
+		afterEach(() => vi.unstubAllGlobals());
+
+		/** Sign in on a browser that describes itself as `userAgent`. */
+		async function signInAs(userAgent: string, maxTouchPoints: number) {
+			vi.stubGlobal('navigator', { ...navigator, userAgent, maxTouchPoints });
+			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+			render(Harness, {
+				props: {
+					component: Account,
+					client: standIn({ instance_status: { version: '0.1.0', setup_complete: true } }).client,
+					auth: { authenticate },
+				},
+			});
+			await user.type(await screen.findByLabelText('Name'), 'Aurélien');
+			await user.type(screen.getByLabelText('Password'), 'a password');
+			await user.click(screen.getByRole('button', { name: 'Log in' }));
+			return authenticate.mock.calls[0][1].session_name;
+		}
+
+		it('names it for the browser and device it is on', async () => {
+			expect(
+				await signInAs(
+					'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1',
+					5,
+				),
+			).toBe('Safari · iPhone');
+		});
+
+		it('still names it something when the browser says nothing useful', async () => {
+			expect(await signInAs('curl/8.5.0', 0)).toBe('A browser');
+		});
 	});
 });
