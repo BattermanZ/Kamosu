@@ -2,7 +2,9 @@
 	The Thread (issue #53): a recipe's whole life on one screen, forking at the
 	Branch Point, Attempts hanging off it. Reading, never editing (CONTEXT.md,
 	"Thread") — a past Version opens here to be read in full and cooked from,
-	never changed.
+	never changed. The one thing written here is a Version's name, by the cook
+	who saved it (#115, ADR 0015): it is outside the fingerprint, so naming
+	moves no id and mints no Version.
 
 	Takes `branchId` as an ordinary prop — rather than reading `$app/state`
 	itself — so the screen-seam test can drive it directly, the same way every
@@ -15,8 +17,8 @@
 	import { ratingLabel } from '$lib/rating';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
-	import ThreadGroup from './ThreadGroup.svelte';
-	import { buildGroup, chainsByBranch, languageSaidAt, type ThreadVersion } from './tree';
+	import ThreadGraph from './ThreadGraph.svelte';
+	import { languageSaidAt, type ThreadVersion } from './tree';
 	import type { GetThreadOutput, GetRecipeOutput } from '$lib/api/catalogue';
 
 	type Attempt = GetThreadOutput['attempts'][number];
@@ -32,6 +34,12 @@
 
 	let thread = $state<GetThreadOutput | undefined>(undefined);
 	let failed = $state(false);
+	/**
+	 * The reader's own Hand, which is their Person id (#115): the Versions it
+	 * saved are the ones the screen offers to rename. Until it is known, or
+	 * if it cannot be, nothing is offered — the Thread still reads.
+	 */
+	let me = $state<string | undefined>(undefined);
 
 	$effect(() => {
 		let current = true;
@@ -51,9 +59,24 @@
 		};
 	});
 
-	const branchesById = $derived(
-		new Map(thread?.branches.map((branch) => [branch.branch_id, branch]) ?? []),
-	);
+	$effect(() => {
+		kamosu
+			.getPerson()
+			.then((person) => (me = person.person_id))
+			.catch((error: unknown) => {
+				if (!(error instanceof OperationError)) throw error;
+			});
+	});
+
+	/**
+	 * Read the Thread again after a rename, in place: the screen stays drawn
+	 * while it is asked, so the sentence saying what the rename did stays too.
+	 */
+	async function reread() {
+		const asked = branchId;
+		const answer = await kamosu.getThread({ branch_id: asked });
+		if (asked === branchId) thread = answer;
+	}
 
 	/**
 	 * Which entries said what Language this recipe is in (#106, ADR 0006).
@@ -70,16 +93,6 @@
 			map.set(attempt.version_id, list);
 		}
 		return map;
-	});
-
-	const rootGroup = $derived.by(() => {
-		if (!thread) return undefined;
-		const chains = chainsByBranch(thread.versions);
-		return buildGroup(
-			thread.branches.map((branch) => branch.branch_id),
-			chains,
-			0,
-		);
 	});
 
 	// ---- reading a past Version in full, and cooking from it -----------------
@@ -123,16 +136,17 @@
 <Screen title={m.thread_title()} blurb={m.thread_blurb()}>
 	{#if failed}
 		<p class="text-body text-accent" role="alert">{m.thread_failed()}</p>
-	{:else if !thread || !rootGroup}
+	{:else if !thread}
 		<p class="text-body text-ink-2">{m.loading()}</p>
 	{:else}
-		<ThreadGroup
-			group={rootGroup}
-			branches={branchesById}
+		<ThreadGraph
+			{thread}
+			{me}
 			{attemptsByVersion}
 			{languageSaid}
 			onOpenVersion={openVersionDetail}
 			onOpenAttempt={(attempt) => (openAttempt = attempt)}
+			onRenamed={reread}
 		/>
 	{/if}
 </Screen>

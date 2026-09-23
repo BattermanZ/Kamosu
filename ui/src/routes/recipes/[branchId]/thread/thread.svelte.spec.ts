@@ -4,13 +4,16 @@
  * field renamed in `src/catalogue.rs` fails this test in the same commit.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import ThreadTestHarness from './ThreadTestHarness.svelte';
 
+/** Who is reading. Nobody in these fixtures unless a test says otherwise. */
+const NOBODY = { person_id: 'p_nobody', name: 'Nobody' };
+
 function renderThread(branchId: string, answers: Answers) {
-	const kamosu = standIn(answers);
+	const kamosu = standIn({ get_person: NOBODY, ...answers });
 	render(ThreadTestHarness, { props: { client: kamosu.client, branchId } });
 	return { kamosu };
 }
@@ -89,7 +92,7 @@ describe('the Thread screen', () => {
 		expect(kamosu.calls.map((call) => call.operation)).toContain('get_thread');
 	});
 
-	it('forks into a column per Branch and names the Branch Point', async () => {
+	it('splits into a line per Branch at the Branch Point, and names each Branch', async () => {
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
@@ -180,10 +183,10 @@ describe('the Thread screen', () => {
 		expect(screen.getByText('Air fryer')).toBeInTheDocument();
 	});
 
-	it('drops a second-level fork out of the grid — a Branch forking off another Branch, not the trunk', async () => {
-		// b_camille forks off b_marc's m1, not off the shared trunk v1 — the
-		// exact case #53's decision comment calls out as the one that cannot
-		// become a third column, and must render full width below instead.
+	it('splits again where a Branch forks off another Branch, not the trunk', async () => {
+		// b_camille forks off b_marc's m1, not off the shared trunk v1: the
+		// case #53's side-by-side lanes could not draw as a third column. As a
+		// graph it is one more split, drawn where it happened (#115).
 		renderThread('b_mine', {
 			get_thread: {
 				lineage_id: 'l_1',
@@ -332,9 +335,8 @@ describe('the Thread screen', () => {
 		const forkMarkers = await screen.findAllByText('Splits into 2 Branches here.');
 		expect(forkMarkers).toHaveLength(2);
 
-		// "Air fryer" (m_1's change note) must appear exactly once — it was
-		// shown inside the marc/camille rail's own trunk, and must not be
-		// redrawn when that rail's further fork renders below.
+		// "Air fryer" (m_1's change note) must appear exactly once: Marc and
+		// Camille share it, so it is one row, not one per Branch.
 		expect(screen.getAllByText('Air fryer')).toHaveLength(1);
 
 		expect(screen.getByText(/Kid-friendly/)).toBeInTheDocument();
@@ -610,5 +612,219 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 		expect(await screen.findAllByText('Aurélien Dupont')).toHaveLength(2);
 		expect(screen.getByText('Someone Kamosu has no name for')).toBeInTheDocument();
 		expect(screen.queryByText(/p_stranger|p_aurelien/)).not.toBeInTheDocument();
+	});
+});
+
+describe('naming a Version from the Thread (#115)', () => {
+	const ME = { person_id: 'p_aurelien', name: 'Aurélien' };
+	const branch = (branch_id: string, hand_name: string) => ({
+		branch_id,
+		kitchen_id: `k_${branch_id}`,
+		hand_id: `k_${branch_id}`,
+		hand_name,
+		language: 'en',
+		head_version_id: 'v_3',
+		translation: null,
+	});
+	const saved = (
+		branch_id: string,
+		sequence: number,
+		hand_id: string,
+		extra: Record<string, unknown> = {},
+	) => ({
+		branch_id,
+		sequence,
+		version_id: `v_${sequence}`,
+		parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
+		hand_id,
+		hand_name: hand_id === 'p_aurelien' ? 'Aurélien' : 'Camille',
+		name: null,
+		change_note: null,
+		created_at: `2026-09-0${sequence}T00:00:00Z`,
+		translates_version_id: null,
+		language: 'en',
+		...extra,
+	});
+
+	/**
+	 * A Thread the stand-in keeps names for, the way the server does: a
+	 * rename lands in it, and the next `get_thread` reads it back.
+	 */
+	function threadKeepingNames(
+		versions: ReturnType<typeof saved>[],
+		branches = [branch('b_mine', 'Chez nous')],
+	) {
+		const names = new Map<string, string | null>(
+			versions.map((v) => [`${v.branch_id}:${v.sequence}`, v.name as string | null]),
+		);
+		return {
+			get_person: ME,
+			get_thread: () => ({
+				lineage_id: 'l_1',
+				branches,
+				versions: versions.map((v) => ({
+					...v,
+					name: names.get(`${v.branch_id}:${v.sequence}`) ?? null,
+				})),
+				attempts: [],
+			}),
+			rename_version: () => ({ name: null }),
+			names,
+		};
+	}
+
+	/** The Versions drawn, in order: every list item but a split's. */
+	const rows = () =>
+		screen.getAllByRole('listitem').filter((item) => !item.textContent?.includes('Splits into'));
+
+	it('names your quiet save in place, and offers nothing on a Version another cook saved', async () => {
+		const world = threadKeepingNames([
+			saved('b_mine', 1, 'p_camille', { change_note: 'Mamie’s way' }),
+			saved('b_mine', 2, 'p_aurelien'),
+		]);
+		const { kamosu } = renderThread('b_mine', {
+			...world,
+			rename_version: () => {
+				world.names.set('b_mine:2', 'Weeknight');
+				return { name: 'Weeknight' };
+			},
+		});
+
+		await screen.findByText('Mamie’s way');
+		// Camille's row: readable, nothing to rename.
+		expect(within(rows()[0]).queryByRole('button', { name: /Name it|Rename/ })).toBeNull();
+
+		await fireEvent.click(await within(rows()[1]).findByRole('button', { name: 'Name it' }));
+		const field = screen.getByRole('textbox', { name: 'Name for this Version' });
+		await fireEvent.input(field, { target: { value: 'Weeknight' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Named. Nothing else about this Version changed.',
+		);
+		// The name sits after its writer with a space either side of the dot.
+		expect(rows()[1]).toHaveTextContent('Aurélien · “Weeknight”');
+		const renames = kamosu.calls.filter((call) => call.operation === 'rename_version');
+		expect(renames.map((call) => call.input)).toEqual([
+			{ branch_id: 'b_mine', sequence: 2, name: 'Weeknight' },
+		]);
+		// Naming is not saving: no Version was minted (ADR 0015).
+		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
+	});
+
+	it('clears a name as an ordinary answer, never as a mistake', async () => {
+		const world = threadKeepingNames([
+			saved('b_mine', 1, 'p_aurelien', { name: 'Sunday gratin', change_note: 'Gruyère on top' }),
+		]);
+		const { kamosu } = renderThread('b_mine', {
+			...world,
+			rename_version: () => {
+				world.names.set('b_mine:1', null);
+				return { name: null };
+			},
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Rename' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Remove the name' }));
+
+		expect(await screen.findByRole('status')).toHaveTextContent(
+			'Name removed. Nothing else about this Version changed.',
+		);
+		expect(screen.queryByRole('alert')).toBeNull();
+		expect(screen.queryByText(/Sunday gratin/)).toBeNull();
+		expect(kamosu.calls.find((call) => call.operation === 'rename_version')?.input).toEqual({
+			branch_id: 'b_mine',
+			sequence: 1,
+			name: null,
+		});
+		// With no name left, the row offers to name it again.
+		expect(screen.getByRole('button', { name: 'Name it' })).toBeInTheDocument();
+	});
+
+	it('shows what changed beside the name, and never as something to edit', async () => {
+		renderThread(
+			'b_mine',
+			threadKeepingNames([saved('b_mine', 1, 'p_aurelien', { change_note: 'Gruyère on top' })]),
+		);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Name it' }));
+		// The name is the only field; the note is read, with the reason it stays.
+		expect(screen.getAllByRole('textbox')).toHaveLength(1);
+		expect(screen.getByText('What changed')).toBeInTheDocument();
+		expect(screen.getAllByText('Gruyère on top').length).toBeGreaterThan(0);
+		expect(
+			screen.getByText('Written when it was saved. It stays as it was written.'),
+		).toBeInTheDocument();
+	});
+
+	it('names a Version several Branches share on each of them, since it is drawn once', async () => {
+		const world = threadKeepingNames(
+			[
+				saved('b_mine', 1, 'p_aurelien', { change_note: 'Written down' }),
+				saved('b_chalet', 1, 'p_aurelien', { change_note: 'Written down' }),
+				saved('b_mine', 2, 'p_aurelien', { version_id: 'v_mine', change_note: 'Less salt' }),
+				saved('b_chalet', 2, 'p_camille', { version_id: 'v_chalet', change_note: 'More salt' }),
+			],
+			[branch('b_mine', 'Chez nous'), branch('b_chalet', 'Le Chalet')],
+		);
+		const { kamosu } = renderThread('b_mine', world);
+
+		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
+		await fireEvent.click(within(rows()[0]).getByRole('button', { name: 'Name it' }));
+		await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'The first' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await screen.findByRole('status');
+		expect(
+			kamosu.calls.filter((call) => call.operation === 'rename_version').map((call) => call.input),
+		).toEqual([
+			{ branch_id: 'b_mine', sequence: 1, name: 'The first' },
+			{ branch_id: 'b_chalet', sequence: 1, name: 'The first' },
+		]);
+		// Camille's own Version on the Chalet's line is hers alone to name.
+		expect(within(rows()[2]).queryByRole('button', { name: /Name it|Rename/ })).toBeNull();
+	});
+
+	it('offers no rename on a shared Version another cook saved on one of its Branches', async () => {
+		// Naming a shared row names every Branch's occurrence, and the server
+		// refuses the one that is not yours, so the screen must not offer it.
+		renderThread(
+			'b_mine',
+			threadKeepingNames(
+				[
+					saved('b_mine', 1, 'p_aurelien', { change_note: 'Written down' }),
+					saved('b_chalet', 1, 'p_camille', { change_note: 'Written down' }),
+					saved('b_mine', 2, 'p_aurelien', { version_id: 'v_mine', change_note: 'Less salt' }),
+					saved('b_chalet', 2, 'p_camille', { version_id: 'v_chalet', change_note: 'More salt' }),
+				],
+				[branch('b_mine', 'Chez nous'), branch('b_chalet', 'Le Chalet')],
+			),
+		);
+
+		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
+		expect(within(rows()[0]).queryByRole('button', { name: /Name it|Rename/ })).toBeNull();
+		expect(within(rows()[1]).getByRole('button', { name: 'Name it' })).toBeInTheDocument();
+	});
+
+	it('says a failed rename failed, and reads the Thread again to show what did land', async () => {
+		const world = threadKeepingNames([
+			saved('b_mine', 1, 'p_aurelien', { change_note: 'Gruyère' }),
+		]);
+		const { kamosu } = renderThread('b_mine', {
+			...world,
+			rename_version: { refuse: 'internal' },
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Name it' }));
+		await fireEvent.input(screen.getByRole('textbox'), { target: { value: 'Sunday' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			'The name could not be saved. Try again.',
+		);
+		expect(screen.queryByRole('status')).toBeNull();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.filter((call) => call.operation === 'get_thread')).toHaveLength(2),
+		);
 	});
 });

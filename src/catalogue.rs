@@ -1110,7 +1110,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       change later. An absent or empty name clears it. \
                       Targeted by the Branch's own sequence number, since \
                       the same content can recur more than once on one \
-                      Branch, each occurrence named on its own.",
+                      Branch, each occurrence named on its own. Only the \
+                      Person who saved that Version may rename it.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,

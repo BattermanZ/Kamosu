@@ -360,6 +360,7 @@ impl Core {
     /// text), and each occurrence carries its own independent name — the
     /// content hash alone cannot tell them apart, but `sequence` always can.
     /// Returns the name as it was actually stored, trimmed and cleared.
+    /// Only the Hand that saved that occurrence may rename it (#115).
     pub fn rename_version(
         &self,
         person_id: &str,
@@ -379,17 +380,27 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
             ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
-            let changed = conn
-                .execute(
-                    "UPDATE branch_versions SET name = ?1 WHERE branch_id = ?2 AND sequence = ?3",
-                    params![name, branch_id, sequence],
+            let hand_id: String = conn
+                .query_row(
+                    "SELECT hand_id FROM branch_versions WHERE branch_id = ?1 AND sequence = ?2",
+                    params![branch_id, sequence],
+                    |row| row.get(0),
                 )
-                .map_err(|e| OpError::internal(format!("cannot rename Version: {e}")))?;
-            if changed == 0 {
-                return Err(OpError::not_found(
-                    "that sequence does not occur on this Branch",
+                .optional()
+                .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?
+                .ok_or_else(|| OpError::not_found("that sequence does not occur on this Branch"))?;
+            // A name is its writer's to give (#115). Everyone in the Kitchen
+            // reads it; only the Hand that saved the Version changes it.
+            if hand_id != person_id {
+                return Err(OpError::unauthorized(
+                    "only the cook who saved a Version may rename it",
                 ));
             }
+            conn.execute(
+                "UPDATE branch_versions SET name = ?1 WHERE branch_id = ?2 AND sequence = ?3",
+                params![name, branch_id, sequence],
+            )
+            .map_err(|e| OpError::internal(format!("cannot rename Version: {e}")))?;
             Ok(name.map(str::to_string))
         })
     }

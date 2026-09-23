@@ -1091,6 +1091,68 @@ async fn renaming_a_version_never_changes_its_identity_hand_or_parent() {
     assert_eq!(cleared["result"]["name"], json!(null));
 }
 
+/// #115. A Version's name is its writer's to give. Two cooks share a Kitchen
+/// and both may read the Thread, but only the Hand that saved a Version may
+/// rename it — the other is refused, and the name stays as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_the_hand_that_wrote_a_version_may_rename_it() {
+    let app = support::spawn_app();
+    let (alice, alice_key, kitchen_id) = person_with_kitchen(&app, "Alice");
+    let (_, bob_key, _) = person_with_kitchen(&app, "Bob");
+    let invite = app.core.invite_to_kitchen(&alice, &kitchen_id).unwrap().1;
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": invite }).to_string(),
+    );
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&alice_key),
+        &json!({ "kitchen_id": kitchen_id, "title": "Gratin" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &branch_id);
+    let (_, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&bob_key),
+        &json!({ "branch_id": branch_id, "title": "Gratin dauphinois" }).to_string(),
+    );
+    let bobs_sequence = saved["result"]["sequence"].as_i64().unwrap();
+    assert_eq!(bobs_sequence, 2);
+
+    let rename = |key: &str, sequence: i64, name: &str| {
+        app.post_op(
+            "rename_version",
+            Some(key),
+            &json!({ "branch_id": branch_id, "sequence": sequence, "name": name }).to_string(),
+        )
+    };
+    let (status, _) = rename(&alice_key, 1, "Mine");
+    assert_eq!(status, 200, "Alice names her own Version");
+
+    let (status, refused) = rename(&bob_key, 1, "Not his");
+    assert_eq!(status, 401, "{refused}");
+    let (status, refused) = rename(&alice_key, bobs_sequence, "Not hers");
+    assert_eq!(status, 401, "{refused}");
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&alice_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let names: Vec<&Value> = thread["result"]["versions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| &v["name"])
+        .collect();
+    assert_eq!(
+        names,
+        [&json!("Mine"), &json!(null)],
+        "a refusal renames nothing"
+    );
+}
+
 /// Spec item 22, ADR 0015 (#113). A Hand is named live, so renaming yourself
 /// reaches every Version you ever wrote, and it moves nothing: no Version id,
 /// no fingerprint, no Hand. The name is also what you sign in with, so the

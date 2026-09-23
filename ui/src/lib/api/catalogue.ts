@@ -1131,7 +1131,7 @@ export type ImportWebLinkOutput = {
 	}[];
 };
 
-/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
+/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 export type RenameVersionInput = {
 	branch_id: string;
 	name: string | null;
@@ -9636,7 +9636,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "rename_version",
-		"summary": "Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own.",
+		"summary": "Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -22584,7 +22584,7 @@ export interface KamosuClient {
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
 	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
-	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. */
+	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
 	/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
 	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;

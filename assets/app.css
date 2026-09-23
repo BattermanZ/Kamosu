@@ -350,6 +350,9 @@
   .mt-auto {
     margin-top: auto;
   }
+  .mr-1 {
+    margin-right: var(--spacing-1);
+  }
   .-mb-px {
     margin-bottom: -1px;
   }
@@ -373,9 +376,6 @@
   }
   .ml-3 {
     margin-left: var(--spacing-3);
-  }
-  .ml-6 {
-    margin-left: var(--spacing-6);
   }
   .line-clamp-2 {
     overflow: hidden;
@@ -649,9 +649,6 @@
   .justify-end {
     justify-content: flex-end;
   }
-  .gap-0 {
-    gap: var(--spacing-0);
-  }
   .gap-1 {
     gap: var(--spacing-1);
   }
@@ -683,6 +680,9 @@
   }
   .self-start {
     align-self: flex-start;
+  }
+  .self-stretch {
+    align-self: stretch;
   }
   .truncate {
     overflow: hidden;
@@ -717,10 +717,6 @@
     border-top-style: var(--tw-border-style);
     border-top-width: 1px;
   }
-  .border-t-2 {
-    border-top-style: var(--tw-border-style);
-    border-top-width: 2px;
-  }
   .border-t-3 {
     border-top-style: var(--tw-border-style);
     border-top-width: 3px;
@@ -744,10 +740,6 @@
   .border-l-3 {
     border-left-style: var(--tw-border-style);
     border-left-width: 3px;
-  }
-  .border-l-4 {
-    border-left-style: var(--tw-border-style);
-    border-left-width: 4px;
   }
   .border-l-\[3px\] {
     border-left-style: var(--tw-border-style);
@@ -846,9 +838,6 @@
   }
   .bg-on-accent {
     background-color: var(--color-on-accent);
-  }
-  .bg-rule {
-    background-color: var(--color-rule);
   }
   .bg-support {
     background-color: var(--color-support);
