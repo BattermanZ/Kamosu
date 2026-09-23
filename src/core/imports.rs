@@ -29,6 +29,7 @@ impl Core {
                             reason,
                         }),
                         left_out: Vec::new(),
+                        tags: Vec::new(),
                     };
                 }
             };
@@ -61,6 +62,7 @@ impl Core {
             Incoming {
                 candidate: Ok(candidate),
                 left_out,
+                tags: crumb.tags,
             }
         });
         self.import_each(caller, "crouton", total, incoming, progress)
@@ -452,6 +454,7 @@ impl Core {
                 &import_id,
                 &foreign_id,
                 &candidate,
+                &item.tags,
             ) {
                 Ok(ImportOutcome::Landed {
                     lineage_id,
@@ -527,6 +530,13 @@ impl Core {
     /// or moves anything already on the Branch — and answers `Offered`
     /// without touching `head_version_id`: the offer is never written over
     /// the Branch on its own.
+    ///
+    /// Whatever the fate, the Branch is then filed under `tags`, English words
+    /// in the Kitchen's own list (#128). Filing only adds, so a recipe matched
+    /// again gains the tags it lacked and keeps every one given it here; and
+    /// since a Tag is no part of a Version (ADR 0035), filing moves no id and
+    /// leaves `unchanged` unchanged.
+    #[allow(clippy::too_many_arguments)]
     fn import_one(
         &self,
         caller: &Caller,
@@ -535,6 +545,7 @@ impl Core {
         import_id: &str,
         foreign_id: &str,
         candidate: &Value,
+        tags: &[String],
     ) -> Result<ImportOutcome, OpError> {
         let content = parse_recipe_content(candidate)?;
         let title = content["title"].as_str().unwrap_or_default().to_string();
@@ -552,7 +563,7 @@ impl Core {
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Import ledger: {e}")))?;
 
-            match existing {
+            let outcome = match existing {
                 None => {
                     let lineage_id = format!("l_{}", hex::encode(random_bytes(8)));
                     let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
@@ -617,7 +628,16 @@ impl Core {
                         })
                     }
                 }
+            }?;
+
+            let (ImportOutcome::Landed { branch_id, .. }
+            | ImportOutcome::Offered { branch_id, .. }) = &outcome;
+            for name in tags {
+                if let Some(tag_id) = arriving_tag(conn, kitchen_id, &[("en", name)])? {
+                    file_branch_under(conn, branch_id, &tag_id)?;
+                }
             }
+            Ok(outcome)
         })
     }
 }
@@ -628,6 +648,10 @@ impl Core {
 pub struct Incoming {
     pub candidate: Result<Value, Unread>,
     pub left_out: Vec<LeftOut>,
+    /// English words to file the recipe under in the Kitchen's own list: a
+    /// Crouton library's tags (#128). Beside the candidate, not in it,
+    /// because a Tag is filing, not content (ADR 0035).
+    pub tags: Vec<String>,
 }
 
 /// Something an importer read and chose not to bring in (#69).
@@ -713,6 +737,7 @@ impl Incoming {
         Incoming {
             candidate: Ok(candidate),
             left_out: Vec::new(),
+            tags: Vec::new(),
         }
     }
 }

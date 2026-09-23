@@ -18,8 +18,14 @@
 //!   photograph of the dish (ADR 0017); the Report says it was left out.
 //! - **`neutritionalInfo` is dropped.** It is unparsed scrape debris, and a
 //!   plausible wrong number is worse than an empty field (ADR 0025).
-//! - **`defaultScale`, `tags` and `folderIDs` are dropped**: Kamosu keeps no
-//!   stored scaling factor, and the export never populates the other two.
+//! - **A tag is kept by its name alone** (#128). The 20 August 2026 export
+//!   carried no tags; the 23 September one tags 64 of the 86 recipes. Each is
+//!   `{uuid, name, color}`, and only the name comes in: Kamosu Tags have no
+//!   colour, and a Kitchen's own list is keyed on the word, not Crouton's id.
+//!   The names are handed over beside the candidate, never inside it, because
+//!   a Tag is filing, not content (ADR 0035).
+//! - **`defaultScale` and `folderIDs` are dropped**: Kamosu keeps no stored
+//!   scaling factor, and no export yet has populated a folder.
 //! - **Text is decoded** of the HTML entities Crouton scraped and kept.
 
 use std::io::{Read, Seek};
@@ -52,6 +58,10 @@ pub struct Crumb {
     /// The recipe's `sourceImage` — the source site's favicon, never stored as
     /// a Photograph, handed over only so the Report can show what was left out.
     pub site_icon: Option<Vec<u8>>,
+    /// The names of the tags Crouton filed the recipe under, trimmed, each
+    /// once, in Crouton's order. They are English words whatever the recipe's
+    /// Language, and are filed as such (#128).
+    pub tags: Vec<String>,
 }
 
 /// A readable Crouton export: one `.crumb`, or a zip of them. Entries are read
@@ -275,6 +285,20 @@ pub fn read_crumb(crumb: &Value) -> Result<Crumb, String> {
                 .unwrap_or_default()
         });
 
+    let mut tags: Vec<String> = Vec::new();
+    for tag in crumb
+        .get("tags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(name) = text(tag, "name")
+            && !tags.contains(&name)
+        {
+            tags.push(name);
+        }
+    }
+
     Ok(Crumb {
         foreign_id,
         title,
@@ -282,6 +306,7 @@ pub fn read_crumb(crumb: &Value) -> Result<Crumb, String> {
         photos,
         unreadable_photos,
         site_icon,
+        tags,
     })
 }
 
@@ -555,6 +580,12 @@ mod tests {
             "sourceImage": "/9j/AAAA",
             "neutritionalInfo": "Calories: 610 kcal",
             "defaultScale": 1,
+            "tags": [
+                { "uuid": "A9179A12-0000", "name": "Vegan", "color": "#FFCC00" },
+                { "uuid": "B0000000-0000", "name": " Weeknight dinner ", "color": "#00FF00" },
+                { "uuid": "C0000000-0000", "name": "  ", "color": "#000000" },
+                { "uuid": "A9179A12-0000", "name": "Vegan", "color": "#FFCC00" },
+            ],
             "images": ["aGVsbG8=", "d29ybGQ=", "not base64!"],
             "ingredients": [
                 { "order": 2, "ingredient": { "name": "Sauce" }, "quantity": { "quantityType": "SECTION" } },
@@ -615,6 +646,24 @@ mod tests {
         );
         assert_eq!(crumb.photos, vec![b"hello".to_vec(), b"world".to_vec()]);
         assert_eq!(crumb.unreadable_photos, 1);
+    }
+
+    #[test]
+    fn a_tag_is_kept_by_its_name_alone() {
+        let crumb = read_crumb(&crumb()).expect("readable");
+        // The colour and Crouton's uuid go; a blank name is no tag; a name
+        // written twice is one tag.
+        assert_eq!(crumb.tags, vec!["Vegan", "Weeknight dinner"]);
+        assert!(
+            crumb.candidate.get("tags").is_none(),
+            "tags are not content"
+        );
+        assert_eq!(
+            read_crumb(&json!({ "uuid": "x", "name": "y" }))
+                .unwrap()
+                .tags,
+            Vec::<String>::new()
+        );
     }
 
     #[test]

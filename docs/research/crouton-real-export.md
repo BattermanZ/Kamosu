@@ -1,7 +1,9 @@
 # Crouton: what a real 86-recipe library actually contains
 
 Source: `Crouton Recipes - 20 Aug 2026.zip`, Aurélien's own library, exported 2026-08-20.
-Files live at `samples/crouton/` (gitignored — 110 MB, mostly photos, and personal).
+Files lived at `samples/crouton/` (gitignored — 110 MB, mostly photos, and personal);
+since #128 this export sits in `samples/crouton-2026-08-20/` and the 23 September 2026
+one is the corpus. See *Update, 23 September 2026* at the end.
 Resolves issue [#5](https://github.com/BattermanZ/Kamosu/issues/5).
 
 This is the real-data counterpart to `recipe-app-formats.md`, which read the format from
@@ -38,6 +40,9 @@ you get**, and duplicate names get a `-1` suffix.
 **`tags` and `folderIDs` are empty in all 86 recipes.** Whatever organisation Aurélien has
 in Crouton, the export does not carry it — worth confirming with him before assuming he
 has none.
+
+> **Update, 23 September 2026 (#128):** a new export populates `tags` — 64 of the 86
+> recipes, 21 distinct tags. `folderIDs` is still empty. See the note at the end.
 
 ## What this tells us about the domain model
 
@@ -196,3 +201,25 @@ someday-nice-to-have — and note the unit of language may be smaller than the r
 no folders, no tags, no favourites, no cook counts, no dates. There is no `dateAdded`, no
 `lastCooked`, no rating field anywhere in the schema. If Kamosu wants recipe history, it
 starts from zero on import; nothing carries over.
+
+> **Update, 23 September 2026 (#128):** tags now do carry over. See below.
+
+## Update, 23 September 2026: the export carries tags
+
+Source: `Crouton Recipes - 23 Sep 2026.zip`, the same library exported again. It is now the
+corpus at `samples/crouton/`; the 20 August file moved to `samples/crouton-2026-08-20/`.
+The measurement above is left as it was taken.
+
+- **Same format, same recipes.** The same top-level keys and the same 86 UUIDs. Beyond tags,
+  one recipe changed: *Korean Fried Chicken* has a different `sourceImage` and a
+  `defaultScale` of `0.5` where it had `1`.
+- **`tags` is populated: 64 of 86 recipes, 21 distinct tags.** Each tag is
+  `{ "uuid", "name", "color" }`, e.g. `{"uuid": "A9179A12-…", "name": "Vegan", "color":
+  "#FFCC00"}`. A name has exactly one uuid and one colour across the export.
+- **By recipe count:** Hearty 36, Vegetarian 33, Asian 22, Meat 18, Dessert 13, Japanese 9,
+  French 9, Beef 8, Chicken 8, American 7, Weeknight dinner 7, Vegan 6, Fish 5, Chocolate 5,
+  Stew 4, South American 3, Salads 3, Italian 2, Colombian 1, Middle Eastern 1, Bread 1.
+- **`folderIDs` is still empty everywhere.**
+
+Kamosu imports each tag by its name into the Kitchen's own tag list, as an English (`en`)
+word, and drops the colour. Re-importing adds tags and never removes one (#128).

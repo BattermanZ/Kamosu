@@ -9,6 +9,8 @@
 //! shows up as a number that moved.
 //!
 //! The export lives at `samples/crouton/` and is gitignored — personal, 110 MB.
+//! Since #128 it is the 23 September 2026 export, the first to carry tags; the
+//! 20 August one it replaced sits in `samples/crouton-2026-08-20/`.
 //! Run deliberately: `cargo test --test crouton_corpus -- --ignored`.
 
 mod support;
@@ -259,6 +261,7 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
     let mut imperial_read = 0;
     let mut steps = 0;
     let mut decoded = false;
+    let mut tagged = 0;
     for row in arrived {
         let (status, recipe) = app.post_op(
             "get_recipe",
@@ -274,6 +277,25 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
         );
 
         let crumb = by_uuid[row["foreign_id"].as_str().unwrap()];
+
+        // Filed under exactly the tags its `.crumb` names, by name (#128).
+        let mut filed: Vec<&str> = recipe["result"]["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        let mut named: Vec<&str> = crumb["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap())
+            .collect();
+        filed.sort();
+        named.sort();
+        assert_eq!(filed, named, "{}", row["title"]);
+        tagged += usize::from(!named.is_empty());
+
         let mut crouton_rows: Vec<&Value> =
             crumb["ingredients"].as_array().unwrap().iter().collect();
         crouton_rows.sort_by_key(|r| r["order"].as_i64());
@@ -339,6 +361,58 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
     );
     assert_eq!(steps, 599);
     assert!(decoded, "Dan Dan Noodles' section arrived decoded");
+    assert_eq!(tagged, 64, "64 of the 86 recipes are tagged");
+
+    // --- The Kitchen's tag list: 21 English words, no colour -----------------
+    let kitchen_tags = |app: &support::TestApp| -> Vec<Value> {
+        let (status, listed) = app.post_op(
+            "list_tags",
+            Some(&key),
+            &json!({ "kitchen_id": report["kitchen_id"] }).to_string(),
+        );
+        assert_eq!(status, 200, "{listed}");
+        listed["result"]["tags"].as_array().unwrap().clone()
+    };
+    let tags = kitchen_tags(&app);
+    let mut by_count: Vec<(String, u64)> = tags
+        .iter()
+        .map(|tag| {
+            assert_eq!(tag["language"], json!("en"), "{tag}");
+            (
+                tag["name"].as_str().unwrap().to_string(),
+                tag["recipes"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    by_count.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let expected = [
+        ("Hearty", 36),
+        ("Vegetarian", 33),
+        ("Asian", 22),
+        ("Meat", 18),
+        ("Dessert", 13),
+        ("French", 9),
+        ("Japanese", 9),
+        ("Beef", 8),
+        ("Chicken", 8),
+        ("American", 7),
+        ("Weeknight dinner", 7),
+        ("Vegan", 6),
+        ("Chocolate", 5),
+        ("Fish", 5),
+        ("Stew", 4),
+        ("Salads", 3),
+        ("South American", 3),
+        ("Italian", 2),
+        ("Bread", 1),
+        ("Colombian", 1),
+        ("Middle Eastern", 1),
+    ]
+    .map(|(name, count)| (name.to_string(), count));
+    assert_eq!(
+        by_count, expected,
+        "21 tags, each on the recipes Crouton put it on"
+    );
 
     // --- Again, through the ledger --------------------------------------------
     let again = import(&app, &key, &zip);
@@ -352,6 +426,21 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
     assert_eq!(
         unchanged, 86,
         "a re-run matched rather than doubling the library"
+    );
+    assert_eq!(kitchen_tags(&app).len(), 21, "no new Tag");
+    let filings: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            Ok(conn
+                .query_row("SELECT COUNT(*) FROM branch_tags", [], |row| row.get(0))
+                .unwrap())
+        })
+        .unwrap();
+    assert_eq!(
+        filings,
+        expected.iter().map(|(_, count)| *count as i64).sum::<i64>(),
+        "no recipe filed twice"
     );
 
     // --- And the ledger, deleted whole ----------------------------------------

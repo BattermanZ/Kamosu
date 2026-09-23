@@ -2014,9 +2014,7 @@ fn remember_arrived_hands(conn: &Connection, record: &Value) -> Result<(), OpErr
 }
 
 /// File a newly arrived Branch under the Tags it carried, in the receiving
-/// Kitchen's own list (CONTEXT.md, "Tag"): a word this Kitchen already files
-/// by, in that Language, is that Tag; anything else becomes one, named in every
-/// Language it arrived in.
+/// Kitchen's own list ([`arriving_tag`]).
 fn file_carried_tags(
     conn: &Connection,
     kitchen_id: &str,
@@ -2034,39 +2032,9 @@ fn file_carried_tags(
                     .then_some((language.as_str(), name))
             })
             .collect();
-        let mut tag_id = None;
-        for (language, name) in &names {
-            if let Some(found) = tag_id_for_word(conn, kitchen_id, language, name)? {
-                tag_id = Some(found);
-                break;
-            }
+        if let Some(tag_id) = arriving_tag(conn, kitchen_id, &names)? {
+            file_branch_under(conn, branch_id, &tag_id)?;
         }
-        let tag_id = match tag_id {
-            Some(found) => found,
-            None if names.is_empty() => continue,
-            None => {
-                let tag_id = format!("t_{}", hex::encode(random_bytes(8)));
-                conn.execute(
-                    "INSERT INTO tags (id, kitchen_id) VALUES (?1, ?2)",
-                    params![tag_id, kitchen_id],
-                )
-                .map_err(|e| OpError::internal(format!("cannot create Tag: {e}")))?;
-                for (language, name) in &names {
-                    conn.execute(
-                        "INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) \
-                         VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![tag_id, kitchen_id, language, name, folded_word(name)],
-                    )
-                    .map_err(|e| OpError::internal(format!("cannot name Tag: {e}")))?;
-                }
-                tag_id
-            }
-        };
-        conn.execute(
-            "INSERT OR IGNORE INTO branch_tags (branch_id, tag_id) VALUES (?1, ?2)",
-            params![branch_id, tag_id],
-        )
-        .map_err(|e| OpError::internal(format!("cannot file recipe under Tag: {e}")))?;
     }
     Ok(())
 }

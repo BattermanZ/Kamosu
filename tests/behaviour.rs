@@ -20069,7 +20069,10 @@ mod crouton {
         let job_id = ask["result"]["job_id"].as_str().expect("a job id");
         let finished = support::wait_terminal(app, Some(key), job_id);
         assert_eq!(finished["status"], json!("completed"), "{finished}");
-        assert_eq!(finished["progress"]["done"], json!(4), "{finished}");
+        assert_eq!(
+            finished["progress"]["done"], finished["progress"]["total"],
+            "{finished}"
+        );
         finished["result"].clone()
     }
 
@@ -20226,6 +20229,218 @@ mod crouton {
         {
             assert_eq!(a["branch_id"], b["branch_id"], "the library doubled");
         }
+    }
+
+    /// Three recipes as the 23 September 2026 export writes them (#128): two
+    /// tagged, one not. `tagged: false` is the same three as the 20 August
+    /// export had them, every `tags` list empty.
+    fn a_tagged_library(tagged: bool) -> Vec<u8> {
+        a_tagged_library_where_dal_says(tagged, "Simmer.")
+    }
+
+    /// The same, with Dal's one Step reading `step`: a different Step is
+    /// the recipe changed in Crouton since it was last imported.
+    fn a_tagged_library_where_dal_says(tagged: bool, step: &str) -> Vec<u8> {
+        let vegan = json!({ "uuid": "A9179A12-0001", "name": "Vegan", "color": "#FFCC00" });
+        let hearty = json!({ "uuid": "A9179A12-0002", "name": "Hearty", "color": "#FF0000" });
+        let (dal_tags, boeuf_tags) = if tagged {
+            (json!([vegan, hearty.clone()]), json!([hearty]))
+        } else {
+            (json!([]), json!([]))
+        };
+        an_export(&[
+            (
+                "Dal.crumb",
+                crumb(json!({
+                    "uuid": "DAL", "name": "Dal",
+                    "ingredients": [{ "order": 0, "ingredient": { "name": "red lentils" } }],
+                    "steps": [{ "order": 0, "isSection": false, "step": step }],
+                    "tags": dal_tags,
+                })),
+            ),
+            (
+                // A French recipe's tags are still English words (#128).
+                "Bourguignon.crumb",
+                crumb(json!({
+                    "uuid": "BOEUF", "name": "Bœuf bourguignon",
+                    "ingredients": [{ "order": 0, "ingredient": { "name": "boeuf coupé en morceaux et du vin rouge" } }],
+                    "steps": [{ "order": 0, "isSection": false, "step": "Faire mijoter le boeuf dans le vin rouge pendant trois heures." }],
+                    "tags": boeuf_tags,
+                })),
+            ),
+            (
+                "Toast.crumb",
+                crumb(json!({ "uuid": "TOAST", "name": "Toast", "tags": [] })),
+            ),
+        ])
+    }
+
+    /// The names a recipe is filed under, sorted.
+    fn tag_names(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<String> {
+        let mut names: Vec<String> = recipe(app, key, branch_id)["tags"]
+            .as_array()
+            .expect("a tag list")
+            .iter()
+            .map(|tag| tag["name"].as_str().unwrap().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn kitchen_tags(app: &support::TestApp, key: &str, kitchen_id: &Value) -> Vec<Value> {
+        let (status, listed) = app.post_op(
+            "list_tags",
+            Some(key),
+            &json!({ "kitchen_id": kitchen_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{listed}");
+        listed["result"]["tags"].as_array().unwrap().clone()
+    }
+
+    fn branch_of(report: &Value, foreign_id: &str) -> String {
+        arrived_titled(report, foreign_id)["branch_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_librarys_tags_land_in_the_kitchens_own_list_as_english_words() {
+        let app = support::spawn_app();
+        let (person, key) = a_person(&app);
+        // The Kitchen already files by "hearty": that Tag is reused, compared
+        // on the fold, and keeps the spelling it was made with.
+        let kitchen = home_kitchen_of(&app, &person);
+        let hearty = tag_in(&app, &key, &kitchen, "en", "hearty");
+
+        let report = import_crouton(&app, &key, &a_tagged_library(true));
+        assert_eq!(report["kitchen_id"], json!(kitchen));
+
+        let tags = kitchen_tags(&app, &key, &report["kitchen_id"]);
+        let mut listed: Vec<(&str, &str)> = tags
+            .iter()
+            .map(|tag| {
+                (
+                    tag["name"].as_str().unwrap(),
+                    tag["language"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        listed.sort();
+        assert_eq!(listed, vec![("Vegan", "en"), ("hearty", "en")], "{tags:?}");
+        assert!(
+            tags.iter().any(|tag| tag["id"] == json!(hearty)),
+            "the Kitchen's own Tag was reused, not doubled: {tags:?}"
+        );
+        assert!(
+            tags.iter().all(|tag| tag.get("color").is_none()),
+            "the colour is dropped: {tags:?}"
+        );
+
+        assert_eq!(
+            tag_names(&app, &key, &branch_of(&report, "DAL")),
+            ["Vegan", "hearty"]
+        );
+        assert_eq!(
+            tag_names(&app, &key, &branch_of(&report, "BOEUF")),
+            ["hearty"]
+        );
+        assert!(tag_names(&app, &key, &branch_of(&report, "TOAST")).is_empty());
+
+        // The Report is the one it always was: tags are not in it.
+        assert!(
+            arrived_titled(&report, "DAL").get("tags").is_none(),
+            "{report}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn importing_again_adds_the_tags_and_never_takes_one_away() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+
+        // The library as the 20 August export had it: nothing tagged.
+        let untagged = import_crouton(&app, &key, &a_tagged_library(false));
+        let kitchen = untagged["kitchen_id"].clone();
+        assert!(kitchen_tags(&app, &key, &kitchen).is_empty());
+        let dal = branch_of(&untagged, "DAL");
+        let heads = |report: &Value| -> Vec<Value> {
+            ["DAL", "BOEUF", "TOAST"]
+                .iter()
+                .map(|id| recipe(&app, &key, &branch_of(report, id))["head_version_id"].clone())
+                .collect()
+        };
+        let heads_before = heads(&untagged);
+
+        // Filing done in Kamosu, which the export knows nothing about.
+        let weekend = tag_in(&app, &key, kitchen.as_str().unwrap(), "en", "weekend");
+        file_under(&app, &key, &dal, &weekend, true);
+
+        // The same recipes, now tagged in Crouton: matched through the ledger,
+        // unchanged, and filed under what they carry.
+        let tagged = import_crouton(&app, &key, &a_tagged_library(true));
+        for row in tagged["arrived"].as_array().unwrap() {
+            assert_eq!(row["status"], json!("unchanged"), "{tagged}");
+        }
+        assert_eq!(branch_of(&tagged, "DAL"), dal, "the library doubled");
+        assert_eq!(tag_names(&app, &key, &dal), ["Hearty", "Vegan", "weekend"]);
+        assert_eq!(
+            tag_names(&app, &key, &branch_of(&tagged, "BOEUF")),
+            ["Hearty"]
+        );
+        assert_eq!(kitchen_tags(&app, &key, &kitchen).len(), 3);
+
+        // Once more: no new Tag, no second filing.
+        import_crouton(&app, &key, &a_tagged_library(true));
+        assert_eq!(kitchen_tags(&app, &key, &kitchen).len(), 3);
+        assert_eq!(tag_names(&app, &key, &dal), ["Hearty", "Vegan", "weekend"]);
+
+        // And back to the untagged export: nothing is taken away.
+        import_crouton(&app, &key, &a_tagged_library(false));
+        assert_eq!(tag_names(&app, &key, &dal), ["Hearty", "Vegan", "weekend"]);
+
+        // No Version id moved: tags stay outside the fingerprint (ADR 0035).
+        assert_eq!(heads(&tagged), heads_before);
+        let unmatched: i64 = app
+            .core
+            .db()
+            .with_conn(|conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap())
+            })
+            .unwrap();
+        assert_eq!(unmatched, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_changed_in_crouton_is_offered_and_still_gains_its_tags() {
+        let app = support::spawn_app();
+        let (_, key) = a_person(&app);
+        let untagged = import_crouton(&app, &key, &a_tagged_library(false));
+        let dal = branch_of(&untagged, "DAL");
+        let head = recipe(&app, &key, &dal)["head_version_id"].clone();
+
+        // Dal changed in Crouton and was tagged there: the change waits for a
+        // tap, but the tags are filing, not the change, so they land now.
+        let changed = import_crouton(
+            &app,
+            &key,
+            &a_tagged_library_where_dal_says(true, "Simmer for twenty minutes."),
+        );
+        let offered = changed["offered"].as_array().unwrap();
+        assert_eq!(offered.len(), 1, "{changed}");
+        assert_eq!(offered[0]["branch_id"], json!(dal));
+        assert_eq!(tag_names(&app, &key, &dal), ["Hearty", "Vegan"]);
+        assert_eq!(
+            recipe(&app, &key, &dal)["head_version_id"],
+            head,
+            "the offer was not written over the recipe"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

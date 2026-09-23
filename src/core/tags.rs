@@ -296,6 +296,56 @@ pub(super) fn tag_id_for_word(
     .map_err(|e| OpError::internal(format!("cannot look up Tag: {e}")))
 }
 
+/// The Tag a recipe arriving from elsewhere is filed under, in the receiving
+/// Kitchen's own list (CONTEXT.md, "Tag"): a word this Kitchen already files
+/// by, in that Language, is that Tag; otherwise one is made, named in every
+/// Language it arrived in. `None` when there is no name to file by. A Bundle's
+/// tags and a Crouton library's (#128) both land through here.
+pub(super) fn arriving_tag(
+    conn: &rusqlite::Connection,
+    kitchen_id: &str,
+    names: &[(&str, &str)],
+) -> Result<Option<String>, OpError> {
+    for (language, name) in names {
+        if let Some(found) = tag_id_for_word(conn, kitchen_id, language, name)? {
+            return Ok(Some(found));
+        }
+    }
+    if names.is_empty() {
+        return Ok(None);
+    }
+    let tag_id = format!("t_{}", hex::encode(random_bytes(8)));
+    conn.execute(
+        "INSERT INTO tags (id, kitchen_id) VALUES (?1, ?2)",
+        params![tag_id, kitchen_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot create Tag: {e}")))?;
+    for (language, name) in names {
+        conn.execute(
+            "INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![tag_id, kitchen_id, language, name, folded_word(name)],
+        )
+        .map_err(|e| OpError::internal(format!("cannot name Tag: {e}")))?;
+    }
+    Ok(Some(tag_id))
+}
+
+/// File a Branch under a Tag, a no-op when it already is. Filing only ever
+/// adds here: nothing that arrives from elsewhere takes a Tag away.
+pub(super) fn file_branch_under(
+    conn: &rusqlite::Connection,
+    branch_id: &str,
+    tag_id: &str,
+) -> Result<(), OpError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO branch_tags (branch_id, tag_id) VALUES (?1, ?2)",
+        params![branch_id, tag_id],
+    )
+    .map_err(|e| OpError::internal(format!("cannot file recipe under Tag: {e}")))?;
+    Ok(())
+}
+
 /// One Tag as a reader sees it: every name it has, and the one to show them —
 /// their Reading Language where the Tag has a name there, and otherwise
 /// whatever name it does have (#51). `language` says which of the two happened,
