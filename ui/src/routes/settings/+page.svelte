@@ -21,6 +21,8 @@
 	import InstallSteps from '$lib/offline/InstallSteps.svelte';
 	import { thisDevice } from '$lib/offline/device.svelte';
 	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
+	import { languageName } from '$lib/language';
+	import type { ReadingLanguage } from '$lib/tags';
 	import type {
 		InstanceStatusOutput,
 		ListSessionsOutput,
@@ -30,6 +32,9 @@
 	} from '$lib/api/catalogue';
 
 	const kamosu = useKamosu();
+
+	/** Where the line saying what moved waits out a reload (#112). */
+	const MOVED_KEY = 'kamosu.reading-language-moved';
 
 	let status = $state<InstanceStatusOutput | undefined>(undefined);
 	let failed = $state(false);
@@ -109,9 +114,8 @@
 	 *
 	 * The Reading Language rides along because `set_reading_preferences` takes
 	 * the two together. What is sent back is the account's OWN language, not the
-	 * interface locale above: the two are separate settings today and quietly
-	 * overwriting one while changing the other would be a lie about what the
-	 * button did.
+	 * interface locale above: changing Measures changes nothing else, and
+	 * quietly overwriting the Language would be a lie about what the button did.
 	 */
 	type Measures = GetReadingPreferencesOutput['reading_measures'];
 
@@ -123,19 +127,113 @@
 
 	let preferences = $state<GetReadingPreferencesOutput | undefined>(undefined);
 
-	async function chooseMeasures(measures: Measures) {
-		if (!preferences || preferences.reading_measures === measures) return;
-		const previous = preferences;
-		preferences = { ...previous, reading_measures: measures };
+	// --- Reading Language (#112) --------------------------------------------
+	//
+	// Two settings, shown as one until somebody wants them apart. That is
+	// Aurélien's choice of 23 September 2026 (option C). The interface locale is
+	// Paraglide's and lives in this browser; the Reading Language is the
+	// account's, and it decides which Language a recipe's title, a Tag and a
+	// Food are shown in at every Door (ADR 0006). Most people want both the
+	// same, so the one control moves both. A French speaker keeping an English
+	// library is ordinary too, so the recipes can split off.
+	//
+	// Whether they are split is read off the facts when the screen opens, and
+	// never stored: a browser whose locale differs from the account's Reading
+	// Language opens split, because showing it folded would claim the recipes
+	// follow a control they do not follow.
+	const locale = getLocale();
+	let split = $state(false);
+	/** The Language the shelf just moved to, said once beneath the picker. */
+	let moved = $state<ReadingLanguage | undefined>(movedBeforeReload());
+	/** A change of Language running, so a second tap cannot race the first. */
+	let changing = $state(false);
+
+	/**
+	 * Choosing a language with the two together reloads the page, which would
+	 * take the line saying what moved with it. So it is left for the next load
+	 * of this screen, in this tab only, and read once.
+	 */
+	function movedBeforeReload(): ReadingLanguage | undefined {
 		try {
-			await kamosu.setReadingPreferences({
-				reading_language: previous.reading_language,
-				reading_measures: measures,
-			});
+			const left = sessionStorage.getItem(MOVED_KEY);
+			sessionStorage.removeItem(MOVED_KEY);
+			return locales.find((known) => known === left);
+		} catch {
+			return undefined;
+		}
+	}
+
+	/** A Language other than the one being read in: the mark a card would carry. */
+	const markedExample = $derived(
+		locales.find((other) => other !== preferences?.reading_language) ?? 'en',
+	);
+
+	/**
+	 * Store part of the reading preferences on the account, sending the rest
+	 * back as they are. False where the account refused, and the screen is put
+	 * back to what the account still holds.
+	 */
+	async function savePreferences(change: Partial<GetReadingPreferencesOutput>): Promise<boolean> {
+		if (!preferences) return false;
+		const previous = preferences;
+		const next = { ...previous, ...change };
+		if (
+			next.reading_language === previous.reading_language &&
+			next.reading_measures === previous.reading_measures
+		) {
+			return true;
+		}
+		preferences = next;
+		try {
+			await kamosu.setReadingPreferences(next);
+			return true;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			preferences = previous;
+			return false;
 		}
+	}
+
+	async function chooseWords(next: Locale) {
+		if (next === locale || changing) return;
+		changing = true;
+		// The account first: `setLocale` reloads the page, and a save still in
+		// flight when it does may never land. A refused save still changes the
+		// words, which is what was asked; the screen then opens split, saying
+		// truthfully that the recipes did not follow.
+		if (preferences && !split) {
+			const before = preferences.reading_language;
+			if ((await savePreferences({ reading_language: next })) && before !== next) {
+				try {
+					sessionStorage.setItem(MOVED_KEY, next);
+				} catch {
+					// Only the line saying what moved is lost; the move is made.
+				}
+			}
+		}
+		setLocale(next);
+	}
+
+	async function chooseReading(next: ReadingLanguage) {
+		if (changing || preferences?.reading_language === next) return;
+		changing = true;
+		if (await savePreferences({ reading_language: next })) moved = next;
+		changing = false;
+	}
+
+	async function rejoin() {
+		if (changing) return;
+		changing = true;
+		const before = preferences?.reading_language;
+		if (await savePreferences({ reading_language: locale })) {
+			split = false;
+			moved = before === locale ? undefined : locale;
+		}
+		changing = false;
+	}
+
+	function chooseMeasures(measures: Measures) {
+		void savePreferences({ reading_measures: measures });
 	}
 
 	// Sessions and Access Keys, listed together and each ending individually
@@ -163,6 +261,7 @@
 			sessions = sessionsAnswer.sessions.filter((session) => !session.revoked);
 			accessKeys = keysAnswer.access_keys.filter((key) => !key.revoked);
 			preferences = preferencesAnswer;
+			split = preferencesAnswer.reading_language !== locale;
 			signedIn = true;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -289,27 +388,69 @@
 	}
 </script>
 
+{#snippet languageButton(label: string, pressed: boolean, choose: () => void)}
+	<li>
+		<button
+			type="button"
+			aria-pressed={pressed}
+			onclick={choose}
+			class="min-h-12 rounded-sm border px-4 text-body
+				{pressed ? 'border-accent bg-accent text-on-accent' : 'border-rule bg-card text-ink'}"
+		>
+			{label}
+		</button>
+	</li>
+{/snippet}
+
 <Screen title={m.settings_title()} expandsFrom="settings">
 	<Section heading={m.settings_language()}>
+		<p class="mb-3 text-read text-ink-2">
+			{preferences && !split ? m.settings_language_together() : m.settings_language_words()}
+		</p>
 		<!-- Paraglide compiles every phrase to a function, so this list can only
 		     offer languages that were actually compiled. -->
-		<ul class="flex flex-wrap gap-2">
-			{#each locales as locale (locale)}
-				<li>
-					<button
-						type="button"
-						aria-pressed={getLocale() === locale}
-						onclick={() => setLocale(locale)}
-						class="min-h-12 rounded-sm border px-4 text-body
-							{getLocale() === locale
-							? 'border-accent bg-accent text-on-accent'
-							: 'border-rule bg-card text-ink'}"
-					>
-						{names[locale]()}
-					</button>
-				</li>
+		<ul class="flex flex-wrap gap-2" aria-label={m.settings_language()}>
+			{#each locales as choice (choice)}
+				{@render languageButton(names[choice](), locale === choice, () => chooseWords(choice))}
 			{/each}
 		</ul>
+
+		{#if preferences && !split}
+			<p class="mt-3 text-read text-ink-2">
+				{m.settings_language_follows()}
+				<button type="button" class="text-accent underline" onclick={() => (split = true)}>
+					{m.settings_language_split()}
+				</button>
+			</p>
+		{:else if preferences}
+			<h3 id="reading-language" class="mt-6 mb-2 text-body font-semibold text-ink">
+				{m.settings_reading_language()}
+			</h3>
+			<p class="mb-3 text-read text-ink-2">
+				{m.settings_reading_language_explained()}
+				<!-- An example of the mark a card carries (Tile.svelte's colours, at
+				     the size of this sentence). The sentence is whole without it, so a
+				     screen reader is not read a code. -->
+				<span aria-hidden="true" class="rounded-sm bg-support px-1 text-label text-ground uppercase"
+					>{markedExample}</span
+				>
+			</p>
+			<ul class="flex flex-wrap gap-2" aria-labelledby="reading-language">
+				{#each locales as choice (choice)}
+					{@render languageButton(names[choice](), preferences.reading_language === choice, () =>
+						chooseReading(choice),
+					)}
+				{/each}
+			</ul>
+			<button type="button" class="mt-3 text-read text-accent underline" onclick={rejoin}>
+				{m.settings_reading_language_rejoin()}
+			</button>
+		{/if}
+		{#if preferences && moved}
+			<p role="status" class="mt-3 border-l-3 border-accent bg-card px-3 py-2 text-read text-ink">
+				{m.settings_reading_language_moved({ language: languageName(moved) })}
+			</p>
+		{/if}
 	</Section>
 
 	<Section heading={m.settings_phone()}>

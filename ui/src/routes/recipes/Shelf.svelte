@@ -295,8 +295,13 @@
 		-->
 		{#if chips.length > 0}
 			<h2 class="mt-4 text-label text-ink-2 uppercase">{m.tags_title()}</h2>
+			<!-- `relative` holds each chip's screen-reader words inside this row.
+			     `.sr-only` is positioned absolutely, and with nothing positioned
+			     above it that means against the page: a chip scrolled off to the
+			     right pushed the whole shelf sideways, 615px wide on a 390px phone,
+			     as soon as a Tag carried a Language mark (#112). -->
 			<div
-				class="-mx-gutter mt-2 flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto px-gutter"
+				class="relative -mx-gutter mt-2 flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto px-gutter"
 			>
 				{#each chips as held (held.id)}
 					{@const word = tagWord(held)}

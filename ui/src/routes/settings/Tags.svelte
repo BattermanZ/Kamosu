@@ -30,6 +30,7 @@
 	import { OperationError } from '$lib/api/client';
 	import Confirm from '$lib/Confirm.svelte';
 	import { byWord, oneOfThree, tagWord, type ReadingLanguage, type Tag } from '$lib/tags';
+	import { languageName } from '$lib/language';
 	import type { ListKitchensOutput } from '$lib/api/catalogue';
 
 	interface Props {
@@ -92,9 +93,18 @@
 	// Read again whenever the Kitchens change, which is how a Kitchen just
 	// joined arrives with its own words rather than with none. `load` reads
 	// `kitchens` before its first await, so the effect tracks it.
+	//
+	// And whenever the Reading Language changes: the Core chose each word and
+	// its mark for the Language asked for when the list was read, so a list
+	// kept across a change shows one Language while renames write another
+	// (#112).
 	$effect(() => {
+		void readingLanguage;
 		void load();
 	});
+
+	/** The field that adds the missing name says which Language it wants, in words. */
+	const addName = $derived(m.settings_tags_add_name({ language: languageName(readingLanguage) }));
 
 	/** In the order a reader can predict: by the word they see. */
 	function listed(kitchenId: string): Tag[] {
@@ -266,12 +276,12 @@
 									}}
 								>
 									<label class="sr-only" for={`tag-add-${tag.id}`}>
-										{m.settings_tags_add_name({ language: readingLanguage })}
+										{addName}
 									</label>
 									<input
 										id={`tag-add-${tag.id}`}
 										name="added"
-										placeholder={m.settings_tags_add_name({ language: readingLanguage })}
+										placeholder={addName}
 										class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 text-body
 										text-ink"
 									/>

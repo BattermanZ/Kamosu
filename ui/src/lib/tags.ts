@@ -17,6 +17,7 @@
  */
 
 import { m } from '$lib/paraglide/messages';
+import { languageName } from '$lib/language';
 import type { GetReadingPreferencesOutput, ListTagsOutput } from '$lib/api/catalogue';
 
 /** The three Languages Kamosu holds a name in, as the Catalogue declares them. */
@@ -72,7 +73,8 @@ export function tagWord(tag: Tag): TagWord {
 	return {
 		name: tag.name,
 		elsewhere: tag.language,
-		said: m.settings_tags_in_language({ language: tag.language }),
+		// The word, never the code: "In en" read aloud is not a sentence (#112).
+		said: m.settings_tags_in_language({ language: languageName(tag.language) }),
 	};
 }
 

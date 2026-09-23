@@ -172,7 +172,7 @@ describe('a recipe’s tags', () => {
 		// anyone listening rather than looking, since "FR" read aloud is not a
 		// fallback anyone would understand (`Tile.svelte`'s rule).
 		expect(screen.getByText('fr')).toHaveAttribute('aria-hidden', 'true');
-		expect(screen.getByText('In fr')).toBeInTheDocument();
+		expect(screen.getByText('In French')).toBeInTheDocument();
 	});
 
 	it('marks nothing on a tag the Core says is in the reader’s own Language', async () => {

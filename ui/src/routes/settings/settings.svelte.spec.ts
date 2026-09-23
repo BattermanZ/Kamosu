@@ -8,12 +8,22 @@
  * longer serves.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
 import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
+
+/**
+ * Paraglide's `setLocale` reloads the page, which jsdom cannot do. What a test
+ * wants to know is whether the interface was asked to change, and to what.
+ */
+const { setLocale } = vi.hoisted(() => ({ setLocale: vi.fn() }));
+vi.mock('$lib/paraglide/runtime', async (original) => ({
+	...(await original<typeof import('$lib/paraglide/runtime')>()),
+	setLocale,
+}));
 
 /** Every screen visit asks for Sessions and Access Keys beside instance_status
  * (ADR 0031). Tests unconcerned with Access answer both as an anonymous
@@ -541,7 +551,7 @@ describe('the settings screen', () => {
 			rename_tag: settingsTag('t_mijote', 'guisado', 7, 'es'),
 		});
 
-		const adding = await screen.findByPlaceholderText('Name it in es');
+		const adding = await screen.findByPlaceholderText('Name it in Spanish');
 		await fireEvent.input(adding, { target: { value: 'guisado' } });
 		await fireEvent.click(within(adding.closest('form') as HTMLElement).getByRole('button'));
 
@@ -563,7 +573,7 @@ describe('the settings screen', () => {
 		expect(await screen.findByDisplayValue('mijoté')).toBeInTheDocument();
 		expect(screen.getByText('fr')).toBeInTheDocument();
 
-		const adding = screen.getByPlaceholderText('Name it in en');
+		const adding = screen.getByPlaceholderText('Name it in English');
 		await fireEvent.input(adding, { target: { value: 'slow-cooked' } });
 		await fireEvent.click(within(adding.closest('form') as HTMLElement).getByRole('button'));
 
@@ -666,5 +676,222 @@ describe('the settings screen', () => {
 		// A Food is instance-wide and all five of its Operations are
 		// Permission::Person, so this door is not the Operator's (#103).
 		expect(screen.queryByRole('link', { name: 'Administer this Kamosu' })).not.toBeInTheDocument();
+	});
+});
+
+describe('the Reading Language (#112)', () => {
+	/**
+	 * Aurélien's choice of 23 September 2026 (option C): one Language control
+	 * that recipes follow, which can split in two for somebody who reads
+	 * Kamosu in one Language and their recipes in another.
+	 */
+	const signedIn = (reading_language: 'en' | 'fr' | 'es'): Answers => ({
+		instance_status: { version: '0.1.0', setup_complete: true },
+		list_sessions: { sessions: [] },
+		list_access_keys: { access_keys: [] },
+		list_kitchens: { kitchens: [] },
+		...readsInAmerican,
+		get_reading_preferences: { reading_language, reading_measures: 'us' },
+	});
+
+	const words = () => screen.getByRole('list', { name: 'Language' });
+	const recipes = () => screen.getByRole('list', { name: 'Recipes in' });
+
+	it('says recipes follow the one control, and moves both when it is changed', async () => {
+		setLocale.mockClear();
+		const { kamosu } = renderScreen(Settings, {
+			...signedIn('en'),
+			set_reading_preferences: { reading_language: 'fr', reading_measures: 'us' },
+		});
+
+		expect(
+			await screen.findByText(
+				"Kamosu's words, and the language recipes are titled in when they have one.",
+			),
+		).toBeInTheDocument();
+		expect(screen.getByText(/Recipes follow it\./)).toBeInTheDocument();
+		expect(screen.queryByRole('list', { name: 'Recipes in' })).not.toBeInTheDocument();
+
+		// The account first, then the interface: `setLocale` reloads the page,
+		// and a save still in flight when it does is a save that may not land.
+		let savedFirst = false;
+		setLocale.mockImplementationOnce(() => {
+			savedFirst = kamosu.calls.some((call) => call.operation === 'set_reading_preferences');
+		});
+
+		await fireEvent.click(within(words()).getByRole('button', { name: 'Français' }));
+
+		await vi.waitFor(() => expect(setLocale).toHaveBeenCalledWith('fr'));
+		expect(savedFirst).toBe(true);
+		expect(kamosu.calls).toContainEqual({
+			operation: 'set_reading_preferences',
+			input: { reading_language: 'fr', reading_measures: 'us' },
+		});
+		// The reload would take the line saying what moved with it, so it is
+		// left for the next load of this screen.
+		expect(sessionStorage.getItem('kamosu.reading-language-moved')).toBe('fr');
+	});
+
+	it('says what moved once the reload that carried both is over', async () => {
+		sessionStorage.setItem('kamosu.reading-language-moved', 'fr');
+		renderScreen(Settings, signedIn('en'));
+
+		expect(
+			await screen.findByText(
+				'Your shelf now shows titles in French where a recipe has one. The others keep their own language and are marked.',
+			),
+		).toBeInTheDocument();
+		// Said once: the next visit is quiet.
+		expect(sessionStorage.getItem('kamosu.reading-language-moved')).toBeNull();
+	});
+
+	it('splits the recipes off on request, and moves only them', async () => {
+		setLocale.mockClear();
+		const { kamosu } = renderScreen(Settings, {
+			...signedIn('en'),
+			set_reading_preferences: { reading_language: 'es', reading_measures: 'us' },
+		});
+
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Read recipes in another language' }),
+		);
+
+		// Split, the first control is only the interface's words, and says so.
+		expect(
+			screen.getByText("The words on Kamosu's own buttons and headings. This browser only."),
+		).toBeInTheDocument();
+		expect(within(recipes()).getByRole('button', { name: 'English' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+
+		await fireEvent.click(within(recipes()).getByRole('button', { name: 'Español' }));
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'set_reading_preferences',
+			input: { reading_language: 'es', reading_measures: 'us' },
+		});
+		// It says what just changed on the shelf, in the reader's words.
+		expect(
+			await screen.findByText(
+				'Your shelf now shows titles in Spanish where a recipe has one. The others keep their own language and are marked.',
+			),
+		).toBeInTheDocument();
+		expect(within(recipes()).getByRole('button', { name: 'Español' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+		// Kamosu's own words did not move.
+		expect(setLocale).not.toHaveBeenCalled();
+	});
+
+	it('opens split when the account reads in a Language this browser does not speak', async () => {
+		// A new phone, or a split made on another device. The screen says what
+		// is true rather than pretending the two are one.
+		setLocale.mockClear();
+		const { kamosu } = renderScreen(Settings, signedIn('fr'));
+
+		await vi.waitFor(() =>
+			expect(within(recipes()).getByRole('button', { name: 'Français' })).toHaveAttribute(
+				'aria-pressed',
+				'true',
+			),
+		);
+		expect(within(words()).getByRole('button', { name: 'English' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+
+		// Changing the words while split leaves the account alone.
+		await fireEvent.click(within(words()).getByRole('button', { name: 'Español' }));
+		expect(setLocale).toHaveBeenCalledWith('es');
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('set_reading_preferences');
+	});
+
+	it('joins them again, reading recipes in the interface Language', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			...signedIn('fr'),
+			set_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
+		});
+
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Recipes in the same language as Kamosu' }),
+		);
+
+		expect(kamosu.calls).toContainEqual({
+			operation: 'set_reading_preferences',
+			input: { reading_language: 'en', reading_measures: 'us' },
+		});
+		expect(await screen.findByText(/Recipes follow it\./)).toBeInTheDocument();
+		expect(screen.queryByRole('list', { name: 'Recipes in' })).not.toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'Your shelf now shows titles in English where a recipe has one. The others keep their own language and are marked.',
+			),
+		).toBeInTheDocument();
+	});
+
+	it('reads the Tags again in the new Language, so they are named in the one renames write', async () => {
+		const { kamosu } = renderScreen(Settings, {
+			...signedIn('en'),
+			list_kitchens: {
+				kitchens: [
+					{
+						id: 'k_home',
+						name: "Aurélien's Home Kitchen",
+						hand_id: 'k_home',
+						is_home: true,
+						nickname: null,
+						members: [{ person_id: 'p_1', name: 'Aurélien' }],
+					},
+				],
+			},
+			list_tags: { tags: [] },
+			set_reading_preferences: { reading_language: 'fr', reading_measures: 'us' },
+		});
+
+		const tagReads = () => kamosu.calls.filter((call) => call.operation === 'list_tags').length;
+		await vi.waitFor(() => expect(tagReads()).toBeGreaterThan(0));
+		const before = tagReads();
+
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Read recipes in another language' }),
+		);
+		await fireEvent.click(within(recipes()).getByRole('button', { name: 'Français' }));
+
+		await vi.waitFor(() => expect(tagReads()).toBeGreaterThan(before));
+	});
+
+	it('puts the Reading Language back when the account refuses it', async () => {
+		renderScreen(Settings, {
+			...signedIn('fr'),
+			set_reading_preferences: { refuse: 'busy' },
+		});
+
+		const spanish = await vi.waitFor(() =>
+			within(recipes()).getByRole('button', { name: 'Español' }),
+		);
+		await fireEvent.click(spanish);
+
+		await vi.waitFor(() =>
+			expect(within(recipes()).getByRole('button', { name: 'Français' })).toHaveAttribute(
+				'aria-pressed',
+				'true',
+			),
+		);
+		expect(screen.queryByText(/Your shelf now shows/)).not.toBeInTheDocument();
+	});
+
+	it('tells a stranger only what the words control does, since there is no account to follow', async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true },
+			...anonymous,
+		});
+
+		await screen.findByText(/Version 0\.1\.0/);
+		expect(
+			screen.getByText("The words on Kamosu's own buttons and headings. This browser only."),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/Recipes follow it/)).not.toBeInTheDocument();
 	});
 });

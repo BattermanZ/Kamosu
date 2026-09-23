@@ -550,6 +550,50 @@ describe('the recipes screen', () => {
 		expect(screen.queryByText('In English')).not.toBeInTheDocument();
 	});
 
+	it('marks the English recipes, and not the French, for somebody reading in French (#112)', async () => {
+		// What the shelf looks like the moment a cook sets their Reading
+		// Language to French: the Core has already chosen each title and said
+		// which fell back, and the screen marks exactly those, recipes and Tags
+		// alike, in words rather than codes.
+		renderScreen(Recipes, {
+			list_tags: {
+				tags: [
+					{
+						id: 't_weeknight',
+						kitchen_id: 'k_home',
+						name: 'weeknight',
+						language: 'en',
+						names: [{ language: 'en', name: 'weeknight' }],
+						recipes: 12,
+						language_fallback: true,
+					},
+				],
+			},
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: {
+				query: null,
+				closest: false,
+				recipes: [
+					entry({ title: 'Poulet frit coréen', language: 'fr' }),
+					entry({
+						lineage_id: 'l_2',
+						branch_id: 'b_2',
+						title: 'Miso Soup',
+						language: 'en',
+						language_fallback: true,
+					}),
+				],
+			},
+		});
+
+		expect(await screen.findByText('Poulet frit coréen')).toBeInTheDocument();
+		expect(screen.queryByText('In French')).not.toBeInTheDocument();
+		// One mark on the card, one on the Tag chip: both say the word.
+		expect(screen.getAllByText('In English')).toHaveLength(2);
+		expect(screen.queryByText('In en')).not.toBeInTheDocument();
+	});
+
 	it('marks nothing on a recipe whose Language is unknown', async () => {
 		renderScreen(Recipes, {
 			list_tags: { tags: [] },
@@ -679,6 +723,7 @@ describe('the recipes screen', () => {
 		// Language that is (ADR 0006).
 		expect(screen.getByRole('button', { name: /mijoté/ })).toBeInTheDocument();
 		expect(screen.getByText('fr')).toBeInTheDocument();
+		expect(screen.getByText('In French')).toBeInTheDocument();
 
 		// Tapping the lit chip again lets it go, which is the only way back to
 		// the whole shelf without leaving the screen.

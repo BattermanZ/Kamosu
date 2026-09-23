@@ -66,6 +66,12 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// and the recipe lands in the Home Kitchen silently, which is the thing
 	// #111 removed; one left is still offered. Found in live acceptance.
 	list_kitchens: 'server-first',
+	// How this Person reads (#112). Settings decides from it whether the
+	// recipes follow the interface's Language or were split off, and every
+	// save sends back whichever half it is not changing. A kept answer from
+	// before a change made on another device shows the two folded when they
+	// are not, and writes the old Measures back over the new ones.
+	get_reading_preferences: 'server-first',
 	// Who can get in. Ending a Session on another device must show at once.
 	list_sessions: 'server-first',
 	list_access_keys: 'server-first',
