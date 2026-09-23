@@ -194,6 +194,9 @@
 
 	const kamosu = useKamosu();
 	const sendPhotograph = usePhotograph();
+	const uid = $props.id();
+	/** Ties the Cook box to the line beneath the strip that says what goes in it (#118). */
+	const cookHintId = `${uid}-cook-hint`;
 
 	/**
 	 * A row carries an id of its own because the list is keyed by it. Keying by
@@ -1133,6 +1136,7 @@
 				bind:value={cook}
 				inputmode="numeric"
 				aria-label={m.write_cook_label()}
+				aria-describedby={cookHintId}
 				class={SMALL}
 			/>
 		</label>
@@ -1146,6 +1150,9 @@
 			<input bind:value={yieldNoun} aria-label={m.write_yield_noun()} class={SMALL} />
 		</div>
 	</div>
+	<!-- An overnight prove is cook time, or the quick tonight shelf suggests the
+	     bread for a Tuesday (#32's item 43). Aurélien's wording, 1B (#118). -->
+	<p id={cookHintId} class="px-gutter pt-2 text-read text-ink-2">{m.write_cook_hint()}</p>
 
 	<!-- Ingredients. -->
 	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">

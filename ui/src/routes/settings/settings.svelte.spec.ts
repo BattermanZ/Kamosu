@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { screen, fireEvent, within } from '@testing-library/svelte';
+import { screen, fireEvent, within, waitFor } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
@@ -310,6 +310,128 @@ describe('the settings screen', () => {
 		expect(kamosu.calls).toContainEqual({
 			operation: 'remove_kitchen_member',
 			input: { kitchen_id: 'k_shared', person_id: 'p_2' },
+		});
+	});
+
+	// #118 and #32's story 20: the same Operation removes someone or, on your
+	// own row, leaves. The two must not read alike.
+	describe('leaving a Kitchen', () => {
+		const kitchen = (id: string, members: [string, string][]) => ({
+			id,
+			name: id,
+			hand_id: id,
+			is_home: id === 'k_home',
+			nickname: null,
+			members: members.map(([person_id, name]) => ({ person_id, name })),
+		});
+		const signedIn = (kitchens: ReturnType<typeof kitchen>[]): Answers => ({
+			instance_status: { version: '0.1.0', setup_complete: true },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens },
+			remove_kitchen_member: { removed: true },
+		});
+		const rowOf = (name: string) => screen.getByText(name).closest('li') as HTMLElement;
+		const keeps = /Leaving deletes nothing/;
+
+		it("says Leave on your own row and Remove on everyone else's", async () => {
+			const { kamosu } = renderScreen(
+				Settings,
+				signedIn([
+					kitchen('k_home', [['p_1', 'Aurélien']]),
+					kitchen('k_shared', [
+						['p_1', 'Aurélien'],
+						['p_2', 'Marie'],
+					]),
+				]),
+			);
+			await screen.findByDisplayValue('k_shared');
+
+			expect(within(rowOf('Marie')).getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+			const shared = screen.getByDisplayValue('k_shared').closest('li') as HTMLElement;
+			const mine = within(within(shared).getByText('Aurélien').closest('li') as HTMLElement);
+			expect(mine.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+			expect(within(shared).getByText(keeps)).toBeInTheDocument();
+
+			await fireEvent.click(mine.getByRole('button', { name: 'Leave' }));
+			expect(kamosu.calls).toContainEqual({
+				operation: 'remove_kitchen_member',
+				input: { kitchen_id: 'k_shared', person_id: 'p_1' },
+			});
+		});
+
+		it('says why, instead of offering Leave, in the only Kitchen you cook in', async () => {
+			renderScreen(
+				Settings,
+				signedIn([
+					kitchen('k_home', [
+						['p_1', 'Aurélien'],
+						['p_2', 'Marie'],
+					]),
+				]),
+			);
+			const home = (await screen.findByDisplayValue('k_home')).closest('li') as HTMLElement;
+
+			const mine = within(within(home).getByText('Aurélien').closest('li') as HTMLElement);
+			expect(mine.getByText('Your only Kitchen')).toBeInTheDocument();
+			expect(mine.queryByRole('button')).not.toBeInTheDocument();
+			expect(within(rowOf('Marie')).getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+		});
+
+		it('says why, instead of offering Leave, in a Kitchen where you are the only member', async () => {
+			renderScreen(
+				Settings,
+				signedIn([
+					kitchen('k_home', [['p_1', 'Aurélien']]),
+					kitchen('k_shared', [
+						['p_1', 'Aurélien'],
+						['p_2', 'Marie'],
+					]),
+				]),
+			);
+			const home = (await screen.findByDisplayValue('k_home')).closest('li') as HTMLElement;
+
+			const mine = within(within(home).getByText('Aurélien').closest('li') as HTMLElement);
+			expect(mine.getByText("You're the only one here")).toBeInTheDocument();
+			expect(mine.queryByRole('button')).not.toBeInTheDocument();
+			expect(within(home).queryByText(keeps)).not.toBeInTheDocument();
+		});
+
+		it('says so once the last other member is removed while the screen is open', async () => {
+			let marieLeft = false;
+			renderScreen(Settings, {
+				...signedIn([]),
+				list_kitchens: () => ({
+					kitchens: [
+						kitchen('k_home', [['p_1', 'Aurélien']]),
+						kitchen(
+							'k_shared',
+							marieLeft
+								? [['p_1', 'Aurélien']]
+								: [
+										['p_1', 'Aurélien'],
+										['p_2', 'Marie'],
+									],
+						),
+					],
+				}),
+				remove_kitchen_member: () => {
+					marieLeft = true;
+					return { removed: true };
+				},
+			});
+			await screen.findByText('Marie');
+
+			await fireEvent.click(within(rowOf('Marie')).getByRole('button', { name: 'Remove' }));
+			await waitFor(() => expect(screen.queryByText('Marie')).not.toBeInTheDocument());
+
+			const shared = screen.getByDisplayValue('k_shared').closest('li') as HTMLElement;
+			const mine = within(within(shared).getByText('Aurélien').closest('li') as HTMLElement);
+			expect(mine.getByText("You're the only one here")).toBeInTheDocument();
+			expect(mine.queryByRole('button')).not.toBeInTheDocument();
+			expect(within(shared).queryByText(keeps)).not.toBeInTheDocument();
 		});
 	});
 

@@ -956,27 +956,45 @@
 						</form>
 
 						<h3 class="mt-3 mb-1 text-label text-ink-2 uppercase">{m.kitchen_members()}</h3>
+						<!-- The same Operation removes someone or, on your own row,
+						     leaves, so the two are worded apart (#118). Where the Core
+						     would refuse the leave, the row says why instead: these are
+						     remove_kitchen_member's two refusals, in its order. Declaration
+						     tags, since {@const} cannot sit here, and $derived, since a plain
+						     one is worked out once and a keyed row outlives a reload. -->
+						{const alone = $derived(kitchen.members.length <= 1)}
+						{const last = $derived(kitchens.length <= 1)}
 						<ul class="grid gap-1">
 							{#each kitchen.members as member (member.person_id)}
+								{const mine = $derived(member.person_id === me?.person_id)}
 								<li class="flex items-center justify-between gap-3 text-body text-ink">
 									<span>
 										{member.name}
-										{#if member.person_id === me?.person_id}
+										{#if mine}
 											<span class="ml-1 text-label text-ink-2 uppercase"
 												>{m.kitchen_member_you()}</span
 											>
 										{/if}
 									</span>
-									<button
-										type="button"
-										class="shrink-0 text-label text-accent underline"
-										onclick={() => removeMember(kitchen.id, member.person_id)}
-									>
-										{m.kitchen_remove()}
-									</button>
+									{#if mine && alone}
+										<span class="shrink-0 text-label text-ink-2">{m.kitchen_leave_alone()}</span>
+									{:else if mine && last}
+										<span class="shrink-0 text-label text-ink-2">{m.kitchen_leave_last()}</span>
+									{:else}
+										<button
+											type="button"
+											class="shrink-0 text-label text-accent underline"
+											onclick={() => removeMember(kitchen.id, member.person_id)}
+										>
+											{mine ? m.kitchen_leave() : m.kitchen_remove()}
+										</button>
+									{/if}
 								</li>
 							{/each}
 						</ul>
+						{#if !alone}
+							<p class="mt-2 text-read text-ink-2">{m.kitchen_leave_keeps()}</p>
+						{/if}
 
 						{#if mintedInvite?.kitchenId === kitchen.id}
 							<div class="mt-3 rounded-sm border border-accent bg-ground p-3" role="alert">

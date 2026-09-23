@@ -510,6 +510,20 @@ describe('writing a recipe', () => {
 		}
 	});
 
+	// #118 and #32's item 43: an overnight prove is cook time, and the quick
+	// tonight shelf is only as right as that number.
+	it('says that resting, proving, marinating and chilling belong in Cook', async () => {
+		renderWriting();
+
+		const cook = await screen.findByRole('textbox', { name: 'Cook, in whole minutes' });
+		expect(cook).toHaveAccessibleDescription(
+			'Include time spent resting, proving, marinating or chilling.',
+		);
+		expect(
+			screen.getByText('Include time spent resting, proving, marinating or chilling.'),
+		).toBeVisible();
+	});
+
 	it('lets every fact be emptied, and sends nothing rather than a blank', async () => {
 		const { kamosu } = renderWriting();
 
