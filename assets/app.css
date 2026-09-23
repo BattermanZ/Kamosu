@@ -68,6 +68,7 @@
     --rule-w: 1px;
     --noren-h: 3px;
     --photo-thumb: 72px;
+    --step-photo: 96px;
   }
 }
 @layer base {
@@ -370,8 +371,17 @@
   .ml-1 {
     margin-left: var(--spacing-1);
   }
+  .ml-3 {
+    margin-left: var(--spacing-3);
+  }
   .ml-6 {
     margin-left: var(--spacing-6);
+  }
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
   .line-clamp-3 {
     overflow: hidden;
@@ -454,8 +464,17 @@
   .h-\[260px\] {
     height: 260px;
   }
+  .h-\[var\(--photo-thumb\)\] {
+    height: var(--photo-thumb);
+  }
+  .h-\[var\(--step-photo\)\] {
+    height: var(--step-photo);
+  }
   .h-full {
     height: 100%;
+  }
+  .max-h-\[28vh\] {
+    max-height: 28vh;
   }
   .max-h-\[45\%\] {
     max-height: 45%;
@@ -468,6 +487,9 @@
   }
   .max-h-\[85vh\] {
     max-height: 85vh;
+  }
+  .max-h-\[88vh\] {
+    max-height: 88vh;
   }
   .max-h-full {
     max-height: 100%;
@@ -502,6 +524,12 @@
   .w-\[calc\(100\%-2\*var\(--spacing-gutter\)\)\] {
     width: calc(100% - 2 * var(--spacing-gutter));
   }
+  .w-\[var\(--photo-thumb\)\] {
+    width: var(--photo-thumb);
+  }
+  .w-\[var\(--step-photo\)\] {
+    width: var(--step-photo);
+  }
   .w-full {
     width: 100%;
   }
@@ -513,6 +541,9 @@
   }
   .max-w-\[58\%\] {
     max-width: 58%;
+  }
+  .max-w-full {
+    max-width: 100%;
   }
   .min-w-0 {
     min-width: var(--spacing-0);
@@ -614,6 +645,9 @@
   }
   .justify-center {
     justify-content: center;
+  }
+  .justify-end {
+    justify-content: flex-end;
   }
   .gap-0 {
     gap: var(--spacing-0);
@@ -786,6 +820,12 @@
   .bg-cook-ground {
     background-color: var(--color-cook-ground);
   }
+  .bg-cook-ground\/95 {
+    background-color: color-mix(in srgb, #131c33 95%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-cook-ground) 95%, transparent);
+    }
+  }
   .bg-cook-panel {
     background-color: var(--color-cook-panel);
   }
@@ -821,6 +861,9 @@
   }
   .mask-repeat {
     mask-repeat: repeat;
+  }
+  .object-contain {
+    object-fit: contain;
   }
   .object-cover {
     object-fit: cover;

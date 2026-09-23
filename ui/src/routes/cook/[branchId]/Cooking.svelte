@@ -82,6 +82,7 @@
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
 	import HowMuch from '$lib/HowMuch.svelte';
+	import StepPhoto from '$lib/StepPhoto.svelte';
 	import { fresh } from './fresh';
 	import { caughtUp, fromSearch, said, same, type Wanted } from '$lib/how-much';
 
@@ -352,6 +353,12 @@
 		here?.row.from === null || here === undefined
 			? null
 			: (version?.cooking.steps[here.row.from] ?? null),
+	);
+	/** The recipe's photograph of this Step, if it has one (#110). */
+	const stepPhoto = $derived(
+		here?.row.from === null || here === undefined
+			? null
+			: (content?.steps[here.row.from]?.photo ?? null),
 	);
 	/** The subordinate line under the Step — the oven temperature in this cook's measures. */
 	const beneathStep = $derived(
@@ -1270,14 +1277,34 @@
 					26 August asked for exactly this: scrolling a Step has to feel
 					intended rather than be pretended away.
 				-->
+					<!--
+					The Step's photograph, where the recipe gives it one (#110): a
+					small square at the top right that the words wrap around, and a
+					tap shows it across the screen. Aurélien's choice (K3) over a
+					picture under the Step, which cut a long Step's words off to make
+					room, and over a button that hid it. A `div` rather than a `p`
+					because the picture's full-screen view cannot sit inside a
+					paragraph.
+
+					By where the step CAME FROM, like everything else read off the
+					Version: a step the cook wrote has no photograph, and a rewritten
+					one keeps the recipe's.
+				-->
 					<div class="relative min-h-0 w-full">
-						<p
+						<div
 							bind:this={stepEl}
 							class="max-h-full overflow-y-auto font-display text-step font-semibold
 							{wroteStep(here.row) ? 'border-l-[3px] border-cook-accent pl-3' : ''}"
 						>
+							{#if stepPhoto}
+								<StepPhoto
+									photograph={stepPhoto}
+									number={position + 1}
+									shapeClass="float-right mt-1 mb-2 ml-3 h-[var(--step-photo)] w-[var(--step-photo)]"
+								/>
+							{/if}
 							{here.row.text}
-						</p>
+						</div>
 						{#if stepScrolls}
 							<div
 								class="pointer-events-none absolute inset-x-0 bottom-0 step-fade"

@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import StepPhoto from '$lib/StepPhoto.svelte';
 	import {
 		see,
 		caption,
@@ -49,6 +50,11 @@
 		 * line, so there is no Reading of yours to correct.
 		 */
 		onFixReading?: (() => void) | undefined;
+		/**
+		 * This Step's photograph in YOUR recipe, where it has one (#110). Beside
+		 * the row rather than inside it, because the row is already a button.
+		 */
+		photo?: string | null;
 	}
 
 	let {
@@ -62,6 +68,7 @@
 		onToggle,
 		onCarry,
 		onFixReading = undefined,
+		photo = null,
 	}: Props = $props();
 
 	const seen = $derived(see(row, side));
@@ -78,41 +85,50 @@
 </script>
 
 <li class="border-b border-rule py-3 pl-3 {struck ? 'mark-ghost' : 'mark-diff'}">
-	<button type="button" class="flex w-full gap-3 text-left" onclick={onToggle}>
-		{#if isStep}
-			<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
-				{number ?? '·'}
-			</span>
-		{:else}
-			<!--
+	<div class="flex gap-3">
+		<button type="button" class="flex min-w-0 flex-1 gap-3 text-left" onclick={onToggle}>
+			{#if isStep}
+				<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
+					{number ?? '·'}
+				</span>
+			{:else}
+				<!--
 				The same marker an unmarked Ingredient Line carries (#81), so the
 				two kinds of row keep one rhythm and their text sits on one
 				left edge. A Ghost keeps it too: it is still a line of a list,
 				and the strike and the caption are what say whose.
 			-->
-			<span class="ingredient-marker shrink-0" aria-hidden="true"></span>
-		{/if}
-		<span class="min-w-0 flex-1">
-			<span class="block {isStep ? 'text-body' : 'text-line'} {struck ? 'ghost-text' : ''}">
-				{shown}
-			</span>
-			{#if beneath && !struck && !carried}
-				<span class="block text-read text-ink-2">{beneath}</span>
+				<span class="ingredient-marker shrink-0" aria-hidden="true"></span>
 			{/if}
-			{#if carried?.replaced}
-				<span class="block text-read text-ink-2 line-through">
-					{m.divergence_replacing({ text: carried.replaced })}
+			<span class="min-w-0 flex-1">
+				<span class="block {isStep ? 'text-body' : 'text-line'} {struck ? 'ghost-text' : ''}">
+					{shown}
 				</span>
-			{/if}
-			<span class="mt-1 block text-label uppercase {struck ? 'text-support' : 'text-accent'}">
-				{#if carried}
-					{carried.leaving ? m.divergence_leaving() : m.divergence_carried()}
-				{:else}
-					{caption(seen, side, otherKitchen)}
+				{#if beneath && !struck && !carried}
+					<span class="block text-read text-ink-2">{beneath}</span>
 				{/if}
+				{#if carried?.replaced}
+					<span class="block text-read text-ink-2 line-through">
+						{m.divergence_replacing({ text: carried.replaced })}
+					</span>
+				{/if}
+				<span class="mt-1 block text-label uppercase {struck ? 'text-support' : 'text-accent'}">
+					{#if carried}
+						{carried.leaving ? m.divergence_leaving() : m.divergence_carried()}
+					{:else}
+						{caption(seen, side, otherKitchen)}
+					{/if}
+				</span>
 			</span>
-		</span>
-	</button>
+		</button>
+		{#if isStep && photo && number && !struck}
+			<StepPhoto
+				photograph={photo}
+				{number}
+				shapeClass="h-[var(--photo-thumb)] w-[var(--photo-thumb)]"
+			/>
+		{/if}
+	</div>
 
 	{#if open}
 		<div class="mt-2 border border-rule bg-card p-3">

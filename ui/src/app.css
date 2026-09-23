@@ -183,6 +183,11 @@
      #77 (option A, the diary's Photographs row): big enough to tell one plate
      from another, small enough that a row of them is a glance. */
   --photo-thumb: 72px;
+  /* A Step's photograph at the stove, square, at the top right of the Step's
+     words, which wrap around it. 96px is the size Aurélien saw and chose on
+     #110 (K3): larger than --photo-thumb because it sits in the largest type
+     in the app. The recipe page's Step photograph is --photo-thumb (R2). */
+  --step-photo: 96px;
 }
 
 /* ── Fonts, served by the binary at /assets/fonts/ ─────────────────────────── */

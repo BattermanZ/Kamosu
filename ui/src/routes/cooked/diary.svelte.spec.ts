@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, fireEvent, within } from '@testing-library/svelte';
 import Cooked from './+page.svelte';
 import { keepingForTests, renderScreen } from '../../testing/render';
+import { MY_KITCHENS, PROMOTED, recipeAnswer } from '../../testing/recipes';
 
 /**
  * One Attempt as `edit_attempt` answers it — with everything the Catalogue
@@ -326,5 +327,164 @@ describe('the cooking diary', () => {
 
 		const said = await screen.findByRole('alert');
 		expect(within(said).getByText(/diary could not be read/)).toBeInTheDocument();
+	});
+});
+
+/**
+ * A cooking's picture made the recipe's (#110, option A): tap it in the diary,
+ * say where on the recipe, and read what that does before it is done.
+ */
+describe('putting a cooking’s picture on the recipe', () => {
+	const open = async (answers: Parameters<typeof renderScreen>[1] = {}) => {
+		const rendered = renderScreen(
+			Cooked,
+			{
+				list_attempts: { attempts: [entry({ photographs: ['p_plate', 'p_pot'] })] },
+				get_recipe: recipeAnswer(),
+				list_kitchens: MY_KITCHENS,
+				promote_attempt_photograph: PROMOTED,
+				...answers,
+			},
+			keepingForTests(),
+		);
+		await fireEvent.click(await screen.findByRole('button', { name: /Miso Soup/ }));
+		return rendered;
+	};
+	const sheet = () => screen.findByRole('dialog', { name: 'Use a cooking photo on the recipe' });
+
+	it('makes a tapped photograph the Main Photo, saying first what that does', async () => {
+		const { kamosu } = await open();
+		expect(screen.getByText('Tap a photo to put it on the recipe.')).toBeInTheDocument();
+
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: 'Put this photo on the recipe' })[1],
+		);
+		const on = within(await sheet());
+		// Nothing is said, and nothing can be pressed, until a place is picked.
+		expect(
+			await on.findByRole('button', {
+				name: "The recipe's photo Instead of the Cover it wears now",
+			}),
+		).toBeInTheDocument();
+		expect(on.queryByText(/stops being private/)).not.toBeInTheDocument();
+		expect(on.getByRole('button', { name: 'Use this photo' })).toBeDisabled();
+
+		await fireEvent.click(on.getByRole('button', { name: /The recipe's photo/ }));
+		// A Version, and a picture that stops being private: both, beside the button.
+		expect(on.getByText('This will save')).toBeInTheDocument();
+		expect(
+			on.getByText(
+				'Saving writes a new Version onto your Miso Soup, in Home. It shows in the Thread like any edit.',
+			),
+		).toBeInTheDocument();
+		expect(on.getByText(/The photo stops being private/)).toBeInTheDocument();
+
+		await fireEvent.click(on.getByRole('button', { name: 'Use this photo' }));
+		await vi.waitFor(() =>
+			expect(
+				kamosu.calls.find((call) => call.operation === 'promote_attempt_photograph')?.input,
+			).toEqual({
+				attempt_id: 'at_1',
+				photograph_id: 'p_pot',
+				branch_id: 'b_1',
+				step_index: null,
+			}),
+		);
+		expect(await screen.findByText('It is on the recipe now.')).toBeInTheDocument();
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		// Promoting is not moving: the cooking still holds both pictures.
+		expect(screen.getAllByAltText('A photograph of this cooking')).toHaveLength(2);
+	});
+
+	it('puts it on a named Step, by that Step’s place in the recipe', async () => {
+		const { kamosu } = await open();
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: 'Put this photo on the recipe' })[0],
+		);
+		const on = within(await sheet());
+		await fireEvent.click(await on.findByText("A step's photo…"));
+		// Steps are numbered as the recipe numbers them — the section heading
+		// takes no number — and a Step that already has a picture says so.
+		const whisk = on.getByRole('button', { name: /Whisk in the miso/ });
+		expect(within(whisk).getByText('2')).toBeInTheDocument();
+		expect(within(whisk).getByText('has one')).toBeInTheDocument();
+		await fireEvent.click(whisk);
+		await fireEvent.click(on.getByRole('button', { name: 'Use this photo' }));
+
+		await vi.waitFor(() =>
+			expect(
+				kamosu.calls.find((call) => call.operation === 'promote_attempt_photograph')?.input,
+			).toMatchObject({ photograph_id: 'p_plate', step_index: 2 }),
+		);
+	});
+
+	it('says it will start your own copy on a recipe another Kitchen holds', async () => {
+		const { kamosu } = await open({
+			get_recipe: recipeAnswer({ kitchen_id: 'k_marc' }),
+			promote_attempt_photograph: { ...PROMOTED, branch_id: 'b_copy', copied: true },
+		});
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: 'Put this photo on the recipe' })[0],
+		);
+		const on = within(await sheet());
+		await fireEvent.click(await on.findByRole('button', { name: /The recipe's photo/ }));
+		expect(on.getByText('This will start your own copy')).toBeInTheDocument();
+		expect(on.getByText(/Saving does not change it/)).toBeInTheDocument();
+		await fireEvent.click(on.getByRole('button', { name: 'Start my own copy' }));
+
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'promote_attempt_photograph')).toBe(
+				true,
+			),
+		);
+		expect(
+			await screen.findByText('It is on your own copy of the recipe now.'),
+		).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Open your copy' })).toHaveAttribute(
+			'href',
+			'/recipes/b_copy',
+		);
+	});
+
+	it('says why, and keeps the sheet open, when the Core refuses', async () => {
+		await open({
+			promote_attempt_photograph: {
+				refuse: 'bad_request',
+				message: 'that Photograph is not one of this Attempt’s',
+			},
+		});
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: 'Put this photo on the recipe' })[0],
+		);
+		const on = within(await sheet());
+		await fireEvent.click(await on.findByRole('button', { name: /The recipe's photo/ }));
+		await fireEvent.click(on.getByRole('button', { name: 'Use this photo' }));
+		expect(await on.findByRole('alert')).toHaveTextContent(/not one of this Attempt/);
+		expect(screen.queryByText('It is on the recipe now.')).not.toBeInTheDocument();
+	});
+
+	it('offers nothing on a cooking with no photographs, the ordinary case', async () => {
+		await open({ list_attempts: { attempts: [entry()] } });
+		expect(screen.queryByText('Tap a photo to put it on the recipe.')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Put this photo on the recipe' })).toBeNull();
+	});
+
+	it('offers nothing while a picture is still only on this phone, or the recipe has gone', async () => {
+		await open({
+			list_attempts: {
+				attempts: [
+					entry({ id: 'at_1', photographs: ['local:0000000000000001'] }),
+					entry({
+						id: 'at_2',
+						photographs: ['p_plate'],
+						recipe: { branch_id: null, title: 'Gone Soup', written_yield: null },
+					}),
+				],
+			},
+		});
+		expect(screen.queryByRole('button', { name: 'Put this photo on the recipe' })).toBeNull();
+		await fireEvent.click(screen.getByRole('button', { name: /Gone Soup/ }));
+		expect(screen.queryByRole('button', { name: 'Put this photo on the recipe' })).toBeNull();
+		expect(screen.queryByText('Tap a photo to put it on the recipe.')).not.toBeInTheDocument();
 	});
 });

@@ -118,6 +118,7 @@
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
+	import { cookingDay } from '$lib/cooking-day';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { waitForJob } from '$lib/api/job';
@@ -142,6 +143,10 @@
 	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
 	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
+	import { onlyOnThisPhone } from '$lib/offline/outbox';
+	import PhotoToRecipe, { type Offered } from '$lib/PhotoToRecipe.svelte';
+	import StepPhoto from '$lib/StepPhoto.svelte';
 	import { Online, refreshed } from '$lib/offline/device.svelte';
 	import HowMuch from '$lib/HowMuch.svelte';
 	import { said, same, toSearch, type Wanted } from '$lib/how-much';
@@ -178,6 +183,17 @@
 	 * the recipe screen is where Promotion is offered.
 	 */
 	let attempts = $state<GetThreadOutput['attempts']>([]);
+
+	/**
+	 * Your own pictures of this dish, from every time you cooked it (#110,
+	 * option B) — newest cooking first, as the diary has them. Read from
+	 * `list_attempts`, which the Core scopes to the caller, and never from the
+	 * Thread's `attempts`, which carries the household's: a picture somebody
+	 * else took is theirs to promote, not yours. One still only on this phone
+	 * waits until it has been sent.
+	 */
+	let myPictures = $state<Offered[]>([]);
+	let promotingPhoto = $state(false);
 	/**
 	 * Every Branch of this Lineage the reader can reach, which the Thread
 	 * already answers and which this screen used to read for one fact and
@@ -361,6 +377,79 @@
 		void goto(`/recipes/${landedOn}`);
 		return true;
 	}
+
+	/**
+	 * **What a save that edited this recipe leaves behind** — the writing
+	 * screen's, and a cooking's picture promoted onto it (#110), which is an
+	 * ordinary edit making a Version and so ends the same two ways.
+	 */
+	function afterSave(landed: {
+		branch_id: string;
+		collapsed: boolean;
+		copied: boolean;
+		named: boolean;
+		language_offer: string | null;
+	}) {
+		// A save moves the head Version, and both of these are keyed by a
+		// line's index into the list that just changed underneath them.
+		correcting = null;
+		fixed = new Map();
+		// A Copy put the Version on a NEW Branch. Staying here would leave
+		// the cook reading the recipe they deliberately did not change, so
+		// the page follows the one they now hold.
+		if (landed.copied && landed.branch_id !== branchId) {
+			// Said on the page it lands on rather than this one, which is
+			// about to be left. `copied` is remembered across the
+			// navigation because a Copy is the one save whose outcome is
+			// not obvious from what is on screen afterwards: the recipe
+			// looks the same, and only the Kitchen it now sits in changed.
+			// The Language offer rides along for the same reason (#106).
+			copiedInto = {
+				branchId: landed.branch_id,
+				named: landed.named,
+				languageOffer: landed.language_offer,
+			};
+			follow(landed.branch_id);
+			return;
+		}
+		wrote = landed;
+		reread += 1;
+	}
+
+	/**
+	 * The dish, as a string, so the read below runs again when the page moves
+	 * to another dish and not every time this one is read again — at another
+	 * amount, say, or after a save.
+	 */
+	const lineage = $derived(recipe?.lineage_id);
+	$effect(() => {
+		if (!lineage) return;
+		let current = true;
+		kamosu
+			.listAttempts({})
+			.then((diary) => {
+				if (!current) return;
+				myPictures = diary.attempts
+					.filter((attempt) => attempt.lineage_id === lineage)
+					.flatMap((attempt) =>
+						attempt.photographs
+							.filter((photograph) => !onlyOnThisPhone(photograph))
+							.map((photograph) => ({
+								photograph,
+								attempt: attempt.id,
+								taken: cookingDay(attempt.created_at),
+							})),
+					);
+			})
+			.catch((error: unknown) => {
+				// The row is an offer, not the recipe: a diary that cannot be
+				// read leaves it out rather than failing the page.
+				if (!(error instanceof OperationError)) throw error;
+			});
+		return () => {
+			current = false;
+		};
+	});
 
 	const offeredLanguage = $derived.by(() => {
 		const offered =
@@ -1012,36 +1101,19 @@
 			writing = false;
 			const wasTranslating = translatingInto !== undefined;
 			translatingInto = undefined;
-			// A save moves the head Version, and both of these are keyed by a
-			// line's index into the list that just changed underneath them.
-			correcting = null;
-			fixed = new Map();
 			// A Translation is a Branch of its own, and the cook has just
 			// written it — so the page goes there, the way it follows a Copy.
 			// Staying here would leave them reading the recipe they translated
 			// with no sign the translation exists. It answers no offer: it
 			// declared the Language it is written in.
-			if (wasTranslating && follow(landed.branch_id)) return;
-			// A Copy put the Version on a NEW Branch. Staying here would leave
-			// the cook reading the recipe they deliberately did not change, so
-			// the page follows the one they now hold.
-			if (landed.copied && landed.branch_id !== branchId) {
-				// Said on the page it lands on rather than this one, which is
-				// about to be left. `copied` is remembered across the
-				// navigation because a Copy is the one save whose outcome is
-				// not obvious from what is on screen afterwards: the recipe
-				// looks the same, and only the Kitchen it now sits in changed.
-				// The Language offer rides along for the same reason (#106).
-				copiedInto = {
-					branchId: landed.branch_id,
-					named: landed.named,
-					languageOffer: landed.language_offer,
-				};
+			if (wasTranslating && landed.branch_id !== branchId) {
+				// Leaving: nothing keyed by this recipe's lines may follow.
+				correcting = null;
+				fixed = new Map();
 				follow(landed.branch_id);
 				return;
 			}
-			wrote = landed;
-			reread += 1;
+			afterSave(landed);
 		}}
 	/>
 {:else}
@@ -1314,6 +1386,22 @@
 			{/snippet}
 
 			<!--
+			A Step's photograph, where it has one (#110): a small square at the end
+			of the row, which opens the picture across the screen. Aurélien's
+			choice (R2) over a full-width picture beneath the words, which pulled
+			the Method apart; `StepPhoto` holds the rest.
+		-->
+			{#snippet stepPhoto(photo: string | null | undefined, n: number | null)}
+				{#if photo && n !== null}
+					<StepPhoto
+						photograph={photo}
+						number={n}
+						shapeClass="h-[var(--photo-thumb)] w-[var(--photo-thumb)]"
+					/>
+				{/if}
+			{/snippet}
+
+			<!--
 			A COMPONENT UNFOLDED: the inner recipe's own Ingredient Lines, indented
 			under the row that names them behind a matcha rule, on the recessed
 			ground — visibly another recipe's inside without being a card.
@@ -1575,6 +1663,7 @@
 									<p class="text-body">{own?.text}</p>
 									{@render beside(own?.index ?? -1)}
 								</div>
+								{@render stepPhoto(own ? (content.steps[own.index]?.photo ?? null) : null, n)}
 							</li>
 						{:else}
 							<MarkedRow
@@ -1583,6 +1672,7 @@
 								{otherKitchen}
 								number={n}
 								beneath={own ? (measured.steps[own.index] ?? '') : ''}
+								photo={own ? (content.steps[own.index]?.photo ?? null) : null}
 								open={open.has(key)}
 								taken={taken.get(key)}
 								onToggle={() => toggle(key)}
@@ -1598,14 +1688,16 @@
 								<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
 							</li>
 						{:else}
+							{@const n = number(false)}
 							<li class="flex gap-3 border-b border-rule py-3">
 								<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
-									{number(false)}
+									{n}
 								</span>
 								<div class="min-w-0 flex-1">
 									<p class="text-body">{item.text}</p>
 									{@render beside(index)}
 								</div>
+								{@render stepPhoto(item.photo, n)}
 							</li>
 						{/if}
 					{/each}
@@ -1681,7 +1773,50 @@
 							{/each}
 						</ul>
 					{/if}
+					<!--
+						Your own pictures of the dish, and the way to put one on the
+						recipe (#110, option B): here, among how the dish has actually
+						gone, because that is what they are. Nothing at all when you
+						have none, which is nearly always; and only in your own
+						Branch, for the reason the Tags row is.
+					-->
+					{#if side === 'mine' && myPictures.length > 0}
+						<div class="mt-3">
+							<h3 class="mb-2 text-label text-ink-2 uppercase">{m.recipe_my_photos()}</h3>
+							<ul class="flex flex-wrap gap-2">
+								{#each myPictures as picture (picture.attempt + picture.photograph)}
+									<li>
+										<AttemptPhoto
+											id={picture.photograph}
+											alt={m.promote_taken({ date: picture.taken })}
+										/>
+									</li>
+								{/each}
+							</ul>
+							<NeedsServer
+								label={m.recipe_use_photo()}
+								waiting={m.offline_waits_edit()}
+								onclick={() => (promotingPhoto = true)}
+								shapeClass="mt-2 min-h-12 w-full px-4 text-body"
+								lookClass="border border-rule text-accent"
+							/>
+						</div>
+					{/if}
 				</div>
+			{/if}
+
+			{#if promotingPhoto && recipe}
+				<PhotoToRecipe
+					{branchId}
+					pictures={myPictures}
+					onPromoted={(landed) => {
+						promotingPhoto = false;
+						// Nothing to name: a promotion changes a photograph and
+						// no Ingredient Line, so no Component is left behind.
+						afterSave({ ...landed, named: true });
+					}}
+					onClose={() => (promotingPhoto = false)}
+				/>
 			{/if}
 
 			{#if copiedInto?.branchId === branchId}

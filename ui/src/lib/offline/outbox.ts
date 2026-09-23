@@ -89,6 +89,13 @@ const SETTLED_KEPT = 20;
 /** A picture kept on the phone is named this until the server names it by its bytes. */
 const KEPT_PICTURE = 'local:';
 
+/**
+ * Whether a cooking's picture is still only on this phone, under its kept
+ * name. The server knows nothing by that name, so nothing can be done with it
+ * there — promoting it to a recipe included (#110) — until it has been sent.
+ */
+export const onlyOnThisPhone = (photograph: string): boolean => photograph.startsWith(KEPT_PICTURE);
+
 /** One write not yet sent, as it will be sent. */
 interface Pending {
 	/**

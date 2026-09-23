@@ -293,7 +293,9 @@ function forked(extra: Answers = {}) {
 }
 
 function renderRecipe(answers: Answers = forked()) {
-	const kamosu = standIn(answers);
+	// Your own cookings, read for their pictures (#110). Nobody here has
+	// cooked anything unless a test says so.
+	const kamosu = standIn({ list_attempts: { attempts: [] }, ...answers });
 	const { rerender } = render(RecipeTestHarness, {
 		props: { client: kamosu.client, branchId: 'mine' },
 	});
@@ -318,6 +320,22 @@ describe('a Divergence', () => {
 		expect(screen.getByText('Air fry at 200 C for 18 minutes.')).toBeInTheDocument();
 		// Your own Kitchen is now the way back, on the other half of the threshold.
 		expect(screen.getByRole('button', { name: /Cross to Maison Batterman/ })).toBeInTheDocument();
+	});
+
+	it('keeps a photographed Step’s picture beside it where the Step is marked (#110)', async () => {
+		// Your only Step is marked — his recipe has not got it — so it is drawn
+		// by the marked row, not the plain list, and still wears its picture.
+		const fried = divergence();
+		fried.mine.content.steps = [{ ...MY_STEPS[0], photo: 'p_fried' }];
+		renderRecipe(forked({ divergence: fried }));
+		const open = await screen.findByRole('button', { name: 'Show the photograph of step 1' });
+		expect(open.querySelector('img')).toHaveAttribute('src', '/api/photographs/p_fried/card');
+
+		// Crossed into his recipe, your Step is a Ghost there, and a Ghost is
+		// not a Step of the recipe you are reading: no picture.
+		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
+		expect(await screen.findByText('Air fry at 200 C for 18 minutes.')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Show the photograph of step/ })).toBeNull();
 	});
 
 	it('carries your tags in your own Branch and none once you have crossed', async () => {

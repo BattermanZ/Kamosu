@@ -107,6 +107,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
+	import { whereASaveLands } from '$lib/where-a-save-lands';
 	import { usePhotograph } from '$lib/api/upload';
 	import type {
 		GetRecipeOutput,
@@ -473,11 +474,10 @@
 	 * until that answers — the sheet is what states the outcome, and it is not
 	 * opened before the answer is in.
 	 */
-	const forking = $derived(kitchensKnown && !kitchens.some((kitchen) => kitchen.id === kitchenId));
-	const landsIn = $derived(kitchens.find((kitchen) => kitchen.is_home) ?? kitchens[0]);
-	const holding = $derived(kitchens.find((kitchen) => kitchen.id === kitchenId));
+	const lands = $derived(whereASaveLands(kitchens, kitchenId));
+	const forking = $derived(kitchensKnown && lands.forking);
 	/** The Kitchen the save writes into, whichever of the two acts it is. */
-	const savingInto = $derived(forking ? landsIn : (holding ?? landsIn));
+	const savingInto = $derived(lands.into);
 
 	/**
 	 * **What this save is, in words** — the one place the three acts are told

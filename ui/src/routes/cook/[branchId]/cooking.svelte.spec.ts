@@ -707,3 +707,52 @@ describe('photographing the cooking (#77)', () => {
 		expect(screen.queryByText('about 240 g')).not.toBeInTheDocument();
 	});
 });
+
+/**
+ * A Step's photograph at the stove (#110, K3): a small square the words wrap
+ * around, opening across the screen — never a picture that takes the Step's
+ * room, which is the largest type in the app for a reason.
+ */
+describe('a Step’s photograph while cooking', () => {
+	/** The recipe with a photograph on its first Step, the one a cook opens on. */
+	const withPhoto = (): GetRecipeOutput => {
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const version = recipe.versions[0];
+		return {
+			...recipe,
+			versions: [
+				{
+					...version,
+					content: {
+						...version.content,
+						steps: STEPS.map((row, index) => (index === 1 ? { ...row, photo: 'p_coated' } : row)),
+					},
+				},
+			],
+		};
+	};
+
+	it('sits beside the Step and opens across the screen', async () => {
+		await cook({ get_recipe: withPhoto() });
+		const open = await screen.findByRole('button', { name: 'Show the photograph of step 1' });
+		expect(open.querySelector('img')).toHaveAttribute('src', '/api/photographs/p_coated/card');
+		// Inside the Step's own box, so the words wrap around it rather than
+		// giving it their room.
+		expect(open.closest('.text-step')).toHaveTextContent('Coat the chicken in panko.');
+
+		await fireEvent.click(open);
+		const large = await screen.findByRole('dialog', { name: 'A photograph of step 1' });
+		expect(within(large).getByAltText('A photograph of step 1')).toHaveAttribute(
+			'src',
+			'/api/photographs/p_coated/page',
+		);
+		await fireEvent.click(within(large).getByRole('button', { name: 'Close' }));
+		expect(screen.queryByRole('dialog')).toBeNull();
+	});
+
+	it('draws nothing on a Step the recipe gives no photograph', async () => {
+		await cook();
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Show the photograph of step/ })).toBeNull();
+	});
+});

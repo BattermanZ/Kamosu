@@ -28,6 +28,9 @@
 	import { photographCooking, pickedFile } from '$lib/offline/photograph';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 	import { said } from '$lib/how-much';
+	import { cookingDay } from '$lib/cooking-day';
+	import { onlyOnThisPhone } from '$lib/offline/outbox';
+	import PhotoToRecipe from '$lib/PhotoToRecipe.svelte';
 
 	const kamosu = useKamosu();
 	const keeping = useKeeping();
@@ -65,12 +68,6 @@
 			current = false;
 		};
 	});
-
-	const day = (when: string) =>
-		new Date(when).toLocaleDateString(getLocale(), {
-			day: 'numeric',
-			month: 'long',
-		});
 
 	/**
 	 * The months, newest first, each holding its own cookings in the order the
@@ -180,6 +177,26 @@
 		}
 	}
 
+	/**
+	 * A cooking's picture on its way to the recipe (#110, option A): the one
+	 * tapped, and the cooking that holds it. The sheet does the rest.
+	 */
+	let promoting = $state<{ entry: Entry; photograph: string } | null>(null);
+	/**
+	 * What the last promotion did, said on the cooking it came from — the sheet
+	 * that did it has closed. By the Branch it landed on, which after a Copy is
+	 * not the one this cooking was of.
+	 */
+	let promoted = $state<{ entry: Entry['id']; branchId: string; copied: boolean } | null>(null);
+
+	/**
+	 * Whether a picture can go onto the recipe from here: the recipe is still
+	 * on the shelf, and the picture has reached the server. One taken with no
+	 * network waits on the phone under a name the server does not know.
+	 */
+	const promotable = (entry: Entry, photograph: string) =>
+		entry.recipe.branch_id !== null && !onlyOnThisPhone(photograph);
+
 	async function remove(entry: Entry) {
 		deleting = true;
 		writeFailed = undefined;
@@ -243,7 +260,7 @@
 							>
 								<span class="flex items-baseline justify-between gap-3">
 									<span class="min-w-0 font-display text-line">{entry.recipe.title}</span>
-									<span class="shrink-0 text-read text-ink-2">{day(entry.created_at)}</span>
+									<span class="shrink-0 text-read text-ink-2">{cookingDay(entry.created_at)}</span>
 								</span>
 								{#if howMuchCooked(entry)}
 									<span class="mt-1 block text-read text-ink-2">{howMuchCooked(entry)}</span>
@@ -337,7 +354,17 @@
 										</h3>
 										<div class="flex flex-wrap items-center gap-2">
 											{#each entry.photographs as id (id)}
-												<AttemptPhoto {id} alt={m.cooked_photo_alt()} />
+												{#if promotable(entry, id)}
+													<button
+														type="button"
+														aria-label={m.cooked_use_photo()}
+														onclick={() => (promoting = { entry, photograph: id })}
+													>
+														<AttemptPhoto {id} alt={m.cooked_photo_alt()} />
+													</button>
+												{:else}
+													<AttemptPhoto {id} alt={m.cooked_photo_alt()} />
+												{/if}
 											{/each}
 											<label
 												class="flex min-h-12 cursor-pointer items-center rounded-sm border border-rule px-3 text-read text-ink-2
@@ -355,6 +382,24 @@
 												/>
 											</label>
 										</div>
+										{#if promoted?.entry === entry.id}
+											<p class="mt-2 text-read text-accent" role="status">
+												{#if promoted.copied}
+													<!--
+														A Copy is a different recipe from the one this
+														cooking opens, so it gets its own way there.
+													-->
+													{m.cooked_promoted_copy()}
+													<a href={`/recipes/${promoted.branchId}`} class="underline">
+														{m.cooked_open_copy()}
+													</a>
+												{:else}
+													{m.cooked_promoted()}
+												{/if}
+											</p>
+										{:else if entry.photographs.some((id) => promotable(entry, id))}
+											<p class="mt-2 text-read text-ink-2">{m.cooked_tap_photo()}</p>
+										{/if}
 									</div>
 
 									<label class="mt-3 grid gap-1 text-label text-ink-2 uppercase">
@@ -420,5 +465,19 @@
 				</ul>
 			</section>
 		{/each}
+	{/if}
+
+	{#if promoting?.entry.recipe.branch_id}
+		{@const { entry, photograph } = promoting}
+		<PhotoToRecipe
+			branchId={promoting.entry.recipe.branch_id}
+			pictures={[{ photograph, attempt: entry.id, taken: cookingDay(entry.created_at) }]}
+			picked={photograph}
+			onPromoted={(landed) => {
+				promoted = { entry: entry.id, branchId: landed.branch_id, copied: landed.copied };
+				promoting = null;
+			}}
+			onClose={() => (promoting = null)}
+		/>
 	{/if}
 </Screen>
