@@ -10,13 +10,14 @@
  * it, the screen has gone wrong.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
 import CookingTestHarness from './CookingTestHarness.svelte';
 import { fresh } from './fresh';
 import { keepingForTests } from '../../../testing/render';
+import { putMistakeAway } from '$lib/mistake.svelte';
 
 const INGREDIENTS = [
 	{ kind: 'section' as const, text: 'For the cutlets' },
@@ -754,5 +755,120 @@ describe('a Step’s photograph while cooking', () => {
 		await cook();
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /Show the photograph of step/ })).toBeNull();
+	});
+});
+
+/**
+ * When Kamosu itself goes wrong mid-cook (#119, option B — Aurélien, 23
+ * September 2026). Everywhere else #98's card says so at the top of the page;
+ * here it would cost the Step its height and put *Got it* under a wet thumb, so
+ * the cooking screen says it in two words on the row it already has, and the
+ * card is one deliberate tap away.
+ */
+describe('a mistake in Kamosu, mid-cook (#119)', () => {
+	beforeEach(() => {
+		putMistakeAway();
+		// Written where a developer looks, which here is the test's own output.
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+	});
+	afterEach(() => {
+		putMistakeAway();
+		vi.restoreAllMocks();
+	});
+
+	/** A real Error from behind the seam, not a refusal: nothing answered it. */
+	const goWrong = async (kamosu: ReturnType<typeof standIn>) =>
+		expect(kamosu.client.listJobs()).rejects.toThrow(/did not answer/);
+
+	it('says so in the top row, and the Step keeps its place and its size', async () => {
+		const kamosu = await cook();
+		await exactly('Coat the chicken in panko.');
+		expect(screen.queryByRole('button', { name: 'Kamosu went wrong' })).toBeNull();
+
+		await goWrong(kamosu);
+
+		const mark = await screen.findByRole('button', { name: 'Kamosu went wrong' });
+		expect(mark).toHaveTextContent('Went wrong');
+		// On the row with the other ways off the step, not above the Step.
+		expect(mark.closest('header')).toBe(
+			screen.getByRole('button', { name: /not really cooking/i }).closest('header'),
+		);
+		// Said aloud as well as shown: a screen reader hears it without finding it.
+		expect(screen.getByRole('alert')).toHaveTextContent('Kamosu went wrong');
+		// The card is not drawn, so there is nothing new under a thumb that did
+		// not ask for it, and the Step is still the largest type on screen.
+		expect(screen.queryByText(/a mistake in Kamosu, not something you did/)).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Got it' })).toBeNull();
+		expect(await exactly('Coat the chicken in panko.')).toHaveClass('text-step');
+	});
+
+	it('opens the whole card on a tap, and Got it puts it away', async () => {
+		const kamosu = await cook();
+		await goWrong(kamosu);
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Kamosu went wrong' }));
+		const card = await screen.findByRole('dialog', { name: 'Kamosu went wrong' });
+		expect(card).toHaveFocus();
+		expect(
+			within(card).getByText(/a mistake in Kamosu, not something you did/),
+		).toBeInTheDocument();
+
+		await fireEvent.click(within(card).getByRole('button', { name: 'Got it' }));
+		expect(screen.queryByRole('dialog', { name: 'Kamosu went wrong' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Kamosu went wrong' })).toBeNull();
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+	});
+
+	it('never opens the card by itself when the next mistake comes', async () => {
+		const kamosu = await cook();
+		await goWrong(kamosu);
+		await fireEvent.click(await screen.findByRole('button', { name: 'Kamosu went wrong' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Got it' }));
+
+		await expect(kamosu.client.listKitchens()).rejects.toThrow();
+
+		expect(await screen.findByRole('button', { name: 'Kamosu went wrong' })).toBeInTheDocument();
+		expect(screen.queryByRole('dialog', { name: 'Kamosu went wrong' })).toBeNull();
+	});
+
+	it('draws the card where there is no Step, with the way out the screen lacks', async () => {
+		// The cooking could not be started: no Step, no top row for the mark,
+		// and no way back of the screen's own.
+		const kamosu = standIn(answers({ start_attempt: { refuse: 'not_found' } }));
+		render(CookingTestHarness, { props: { client: kamosu.client, branchId: 'b_1' } });
+		await screen.findByText(/could/i);
+
+		await goWrong(kamosu);
+
+		const card = await screen.findByRole('region', { name: 'Kamosu went wrong' });
+		expect(
+			within(card).getByText(/a mistake in Kamosu, not something you did/),
+		).toBeInTheDocument();
+		expect(within(card).getByRole('link', { name: 'Back to the recipe' })).toHaveAttribute(
+			'href',
+			'/recipes/b_1',
+		);
+		expect(within(card).queryByRole('button', { name: 'Got it' })).toBeNull();
+	});
+
+	it('draws the card over a cooking thrown away, beside the way back it has', async () => {
+		const kamosu = await cook();
+		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: /throw it away/i }));
+		await screen.findByRole('status');
+
+		await goWrong(kamosu);
+
+		const card = await screen.findByRole('region', { name: 'Kamosu went wrong' });
+		await fireEvent.click(within(card).getByRole('button', { name: 'Got it' }));
+		expect(screen.queryByRole('region', { name: 'Kamosu went wrong' })).toBeNull();
+		expect(screen.getByRole('link', { name: 'Back to the recipe' })).toBeInTheDocument();
+	});
+
+	it('raises nothing for a refusal the Core meant to send', async () => {
+		const kamosu = await cook({ list_jobs: { refuse: 'not_found' } });
+		await expect(kamosu.client.listJobs()).rejects.toThrow();
+		await Promise.resolve();
+		expect(screen.queryByRole('button', { name: 'Kamosu went wrong' })).toBeNull();
 	});
 });

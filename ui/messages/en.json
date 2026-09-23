@@ -77,6 +77,7 @@
   "cook_false_start_confirm": "Throw this cooking away? Starting counts as a cooking, so this is how a false start is undone.",
   "cook_false_start_no": "Keep cooking",
   "cook_false_start_yes": "Throw it away",
+  "cook_went_wrong": "Went wrong",
   "cook_finish": "Finish cooking",
   "cook_finished": "Cooked. Add a rating or a note in the diary whenever you like.",
   "cook_hours": "{hours} h",

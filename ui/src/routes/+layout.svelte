@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onNavigate } from '$app/navigation';
+	import { afterNavigate, onNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import '../app.css';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -16,6 +16,7 @@
 	import Arrived from '$lib/Arrived.svelte';
 	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
 	import { realOutbox } from '$lib/offline/outbox';
+	import { m } from '$lib/paraglide/messages';
 
 	let { children } = $props();
 
@@ -89,6 +90,24 @@
 	 * screen is not allowed to cost.
 	 */
 	const cooking = $derived(page.url.pathname.startsWith('/cook/'));
+
+	/**
+	 * The boundary below has taken the screen down (#119). A handled boundary
+	 * drops its content and does not draw it again by itself, even for the next
+	 * route, so it is redrawn once the cook has gone somewhere else: without
+	 * that, the way back offered on the cooking screen would lead to a page as
+	 * blank as the one it left.
+	 */
+	let redrawScreen = $state<(() => void) | undefined>(undefined);
+	function screenWentWrong(error: unknown, reset: () => void) {
+		redrawScreen = reset;
+		wentWrong(error);
+	}
+	afterNavigate(() => {
+		const redraw = redrawScreen;
+		redrawScreen = undefined;
+		redraw?.();
+	});
 </script>
 
 <Kamosu {client} {auth} {upload} {photograph} keeping={outbox}>
@@ -106,10 +125,11 @@
 			     here (ADR 0011) — and, drawn there, not even visible: that screen is
 			     `fixed inset-0 z-30`, so a card in ordinary flow is painted
 			     underneath it, unseen by the cook while a screen reader still
-			     announces the alert. The mistake is remembered rather than dropped,
-			     and the card is waiting the moment the cook leaves the step. What a
-			     cook should be told mid-cook is its own decision and its own
-			     ticket — Aurélien, 22 September 2026. -->
+			     announces the alert. The cooking screen says it in two words of its
+			     own instead, on the row it already has, and opens this card only on
+			     a tap (#119, option B — Aurélien, 23 September 2026). The mistake is
+			     remembered either way, and the card is waiting here the moment the
+			     cook leaves the step. -->
 			<WentWrong />
 
 			<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
@@ -120,6 +140,18 @@
 			     because this is where Kamosu says a thing once and it is put
 			     away — the same place, and the same card, as the rest. -->
 			<Arrived pathname={page.url.pathname} />
+		{:else if redrawScreen}
+			<!-- The cooking screen itself went wrong while it was being drawn, and
+			     the boundary took it away (#119). There is no Step left to protect,
+			     so #98's card is drawn after all, on the bare page the boundary
+			     left, with the way back the cooking screen would have offered. -->
+			<WentWrong />
+			<a
+				href="/recipes/{page.params.branchId}"
+				class="mx-gutter block min-h-12 rounded-sm bg-accent px-4 py-3 text-center font-semibold text-on-accent"
+			>
+				{m.cook_back_to_recipe()}
+			</a>
 		{/if}
 
 		<!--
@@ -134,7 +166,7 @@
 			half-drawn screen goes rather than sitting there looking like it is still
 			loading — which is the whole complaint this issue was filed about.
 		-->
-		<svelte:boundary onerror={wentWrong}>
+		<svelte:boundary onerror={screenWentWrong}>
 			{@render children()}
 		</svelte:boundary>
 	</main>

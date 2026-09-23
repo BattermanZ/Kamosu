@@ -84,6 +84,7 @@
 	import HowMuch from '$lib/HowMuch.svelte';
 	import StepPhoto from '$lib/StepPhoto.svelte';
 	import { fresh } from './fresh';
+	import { mistake, putMistakeAway } from '$lib/mistake.svelte';
 	import { caughtUp, fromSearch, said, same, type Wanted } from '$lib/how-much';
 
 	interface Props {
@@ -119,6 +120,10 @@
 	let unsaved = $state(false);
 	let writeFailed = $state(false);
 	let discarding = $state(false);
+	/** The cook tapped *Went wrong* and is reading what it means (#119). */
+	let readingMistake = $state(false);
+	/** Kamosu went wrong and the cook has not put it away yet (#98). */
+	const wentWrong = $derived(mistake.made !== undefined);
 	let discarded = $state(false);
 	/** A photograph that could not be kept, even on the phone. */
 	let photoFailed = $state(false);
@@ -154,6 +159,22 @@
 	$effect(() => {
 		if (discarding) discardDialog?.focus();
 	});
+
+	/** The same, for the card behind *Went wrong* (#119). */
+	let mistakeDialog = $state<HTMLElement | undefined>(undefined);
+	$effect(() => {
+		if (readingMistake) mistakeDialog?.focus();
+	});
+
+	/**
+	 * *Got it*. The card closes with the mistake rather than staying open for
+	 * the next one: a later mistake raises the word again, and never a card over
+	 * the Step that the cook did not tap for.
+	 */
+	function mistakeRead() {
+		readingMistake = false;
+		putMistakeAway();
+	}
 
 	$effect(() => {
 		let current = true;
@@ -327,6 +348,21 @@
 		return found === -1 ? Math.max(0, stops.length - 1) : found;
 	});
 	const here = $derived(stops[position]);
+
+	/**
+	 * A Step is in front of the cook. Only then does the mark stand in for the
+	 * card: loading, a failure, a cooking thrown away or finished have no Step
+	 * to protect and no top row to carry the mark, so there the card is drawn in
+	 * place rather than said only to a screen reader (#119).
+	 */
+	const onStep = $derived(
+		!failed &&
+			content !== undefined &&
+			attempt !== undefined &&
+			here !== undefined &&
+			!discarded &&
+			!finished,
+	);
 	const last = $derived(position >= stops.length - 1);
 
 	/** The Section this step falls under, where the recipe has any. */
@@ -700,6 +736,49 @@
 <div
 	class="fixed inset-0 z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink"
 >
+	<!--
+		Kamosu went wrong, said aloud (#119). The root layout keeps #98's card off
+		this screen, so this is how a screen reader hears it, whatever the screen is
+		showing. It is always here and only its words come and go, because an
+		alert region added along with its words is one a screen reader may miss.
+	-->
+	<p class="sr-only" role="alert">{wentWrong ? m.wrong_title() : ''}</p>
+
+	{#snippet wrongCard()}
+		<h2 class="font-display text-line font-semibold text-cook-ink">{m.wrong_title()}</h2>
+		<p class="pt-1 text-body text-cook-ink">{m.wrong_body()}</p>
+	{/snippet}
+
+	{#if wentWrong && !onStep}
+		<section
+			class="mt-4 shrink-0 border-t-3 border-t-support bg-cook-panel p-4"
+			aria-label={m.wrong_title()}
+		>
+			{@render wrongCard()}
+			<!--
+				Thrown away and finished carry a way back of their own. Loading,
+				failing and a recipe with no steps carry none, and after a mistake
+				the loading may never end, so there the card's one action is the way
+				out rather than *Got it*, which would leave the cook with nothing.
+			-->
+			{#if discarded || finished}
+				<button
+					type="button"
+					class="mt-4 min-h-12 w-full rounded-sm border border-cook-rule text-body text-cook-ink"
+					onclick={mistakeRead}
+				>
+					{m.notice_got_it()}
+				</button>
+			{:else}
+				<a
+					href="/recipes/{branchId}"
+					class="mt-4 block min-h-12 rounded-sm bg-cook-accent px-4 py-3 text-center font-semibold text-cook-on-accent"
+				>
+					{m.cook_back_to_recipe()}
+				</a>
+			{/if}
+		</section>
+	{/if}
 	{#if failed}
 		<p class="pt-8 text-body text-cook-ink-2" role="alert">{m.cook_failed()}</p>
 	{:else if !content || !attempt}
@@ -827,9 +906,42 @@
 			>
 				{awake.held ? m.cook_awake_on() : m.cook_awake_off()}
 			</button>
-			<button type="button" class="min-h-12 shrink-0" onclick={() => (discarding = true)}>
+			<button
+				type="button"
+				class="min-h-12 shrink-0"
+				onclick={() => {
+					readingMistake = false;
+					discarding = true;
+				}}
+			>
 				{m.cook_false_start()}
 			</button>
+			<!--
+				KAMOSU WENT WRONG, in two words (#119, option B — Aurélien, 23
+				September 2026). Everywhere else #98's card says it at the top of the
+				page. Here the card would push the Step down the screen and put *Got
+				it* under a wet thumb, so this row carries a beni mark and two words
+				instead, and the card is one deliberate tap away. It is last on the
+				row, where a wrap puts it beside the quiet controls rather than
+				between Pause and the step count.
+
+				A thumb that lands on it by accident opens a card and nothing else.
+			-->
+			{#if wentWrong}
+				<button
+					type="button"
+					class="flex min-h-12 shrink-0 items-center gap-2 text-cook-ink"
+					aria-label={m.wrong_title()}
+					aria-haspopup="dialog"
+					onclick={() => {
+						discarding = false;
+						readingMistake = true;
+					}}
+				>
+					<i class="h-2 w-2 shrink-0 rounded-sm bg-support" aria-hidden="true"></i>
+					{m.cook_went_wrong()}
+				</button>
+			{/if}
 		</header>
 
 		{#if section}
@@ -1399,6 +1511,31 @@
 					onclick={() => (discarding = false)}
 				>
 					{m.cook_false_start_no()}
+				</button>
+			</div>
+		{/if}
+
+		<!--
+			#98's card, raised from the foot the way the false start's question is,
+			because that is the one sheet a cook already knows here. It opens only
+			on a tap, so it never covers a Step the cook did not ask it to.
+		-->
+		{#if readingMistake && wentWrong}
+			<div
+				bind:this={mistakeDialog}
+				tabindex="-1"
+				class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl border-t-3 border-t-support bg-cook-panel px-gutter pt-6 pb-safe"
+				role="dialog"
+				aria-modal="true"
+				aria-label={m.wrong_title()}
+			>
+				{@render wrongCard()}
+				<button
+					type="button"
+					class="mt-4 min-h-12 w-full rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					onclick={mistakeRead}
+				>
+					{m.notice_got_it()}
 				</button>
 			</div>
 		{/if}
