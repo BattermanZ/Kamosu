@@ -58,13 +58,11 @@ describe('a Cookbook Invite link', () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				'Your 12 recipes join their 87. From then on either of you can change any of the 99, and every Kitchen either of you cooks in sees them.',
+				'Your 12 recipes join their 87. Either of you can then change all 99, and your Kitchens see them.',
 			),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText(
-				'You can leave whenever you like, and you take your own copy of every recipe with you.',
-			),
+			screen.getByText('You can leave any time, with a copy of every recipe.'),
 		).toBeInTheDocument();
 		expect(kamosu.calls).toContainEqual({
 			operation: 'read_cookbook_invite',

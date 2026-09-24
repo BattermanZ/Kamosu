@@ -128,7 +128,7 @@ describe('what a recipe says about its Language', () => {
 		});
 
 		expect(
-			screen.getByText('The English has been changed 2 times since this was translated.'),
+			screen.getByText('The English has changed 2 times since this was translated.'),
 		).toBeInTheDocument();
 	});
 
@@ -140,7 +140,7 @@ describe('what a recipe says about its Language', () => {
 		});
 
 		expect(
-			screen.getByText('The English has been changed once since this was translated.'),
+			screen.getByText('The English has changed once since this was translated.'),
 		).toBeInTheDocument();
 	});
 
@@ -161,9 +161,7 @@ describe('what a recipe says about its Language', () => {
 		});
 
 		expect(
-			screen.getByText(
-				'Translated from another recipe in this family, which is not on your shelf.',
-			),
+			screen.getByText("Translated from a recipe in this family that isn't on your shelf."),
 		).toBeInTheDocument();
 		expect(screen.queryByText(/not on this Kamosu/)).not.toBeInTheDocument();
 		// The count survives, unnamed — this page never learnt the source's
@@ -188,7 +186,7 @@ describe('what a recipe says about its Language', () => {
 
 		expect(
 			screen.getByText(
-				'Translated from a recipe that is not on this Kamosu, so there is no telling whether it has moved on.',
+				"Translated from a recipe not on this Kamosu, so its changes can't be followed.",
 			),
 		).toBeInTheDocument();
 		expect(screen.queryByText(/has been changed/)).not.toBeInTheDocument();
@@ -260,9 +258,7 @@ describe('saying what Language a recipe is in, by hand', () => {
 		draw({ language: 'en', sheet: OPEN });
 
 		expect(
-			await screen.findByText(
-				'What this recipe is written in. Changing it makes a new Version, so it shows up in the history.',
-			),
+			await screen.findByText("The recipe's language. Changing it adds a Version to the history."),
 		).toBeInTheDocument();
 		// The one it already is cannot be tapped: saying a recipe is in the
 		// Language it is already in is not an edit, and the Core answers so.
@@ -294,7 +290,7 @@ describe('saying what Language a recipe is in, by hand', () => {
 
 		expect(
 			await screen.findByText(
-				'For a recipe honestly written in two. Kamosu stops guessing and stops asking, and shows it to every reader.',
+				'For a recipe written in two languages. Kamosu stops guessing, and readers see it marked.',
 			),
 		).toBeInTheDocument();
 
@@ -315,7 +311,7 @@ describe('saying what Language a recipe is in, by hand', () => {
 		expect(row).toBeDisabled();
 		expect(
 			screen.getByText(
-				'Not for this recipe. It belongs to a family that exists in more than one language, and a recipe written in two can neither be a Translation nor have one.',
+				"Not for this recipe. Its family has Translations, and a recipe in two languages can't be part of one.",
 			),
 		).toBeInTheDocument();
 	});
@@ -328,7 +324,7 @@ describe('saying what Language a recipe is in, by hand', () => {
 		// offered a second time; Spanish is.
 		expect(
 			await screen.findByText(
-				'A Translation is an ordinary recipe of its own, in the same family. Cooking from it counts as cooking this dish.',
+				'A Translation is a recipe of its own, in the same family. Cooking it counts as cooking this dish.',
 			),
 		).toBeInTheDocument();
 

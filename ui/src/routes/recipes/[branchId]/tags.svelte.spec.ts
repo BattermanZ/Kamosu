@@ -77,14 +77,15 @@ describe('a recipe’s tags', () => {
 		expect(await screen.findByRole('button', { name: 'Add a tag' })).toBeInTheDocument();
 	});
 
-	it('explains what a tag is where a Cookbook has none, and says it changes no recipe', async () => {
+	it('explains what a tag is where a Cookbook has none, and how to make one', async () => {
 		draw([], { list_tags: { tags: [] } });
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Add a tag' }));
 
-		// The one place ADR 0035's promise is spelt out. Said here rather than on
-		// every recipe forever, which would be a lecture.
-		expect(await screen.findByText(/Tagging never changes the recipe/)).toBeInTheDocument();
+		// Said here rather than on every recipe forever, which would be a lecture.
+		// The line saying tagging changes no recipe was trimmed by #141; ADR 0035's
+		// promise still holds, it is just no longer spelt out on screen.
+		expect(await screen.findByText(/Type one above/)).toBeInTheDocument();
 		expect(screen.getByText(/A tag is your own word for a recipe/)).toBeInTheDocument();
 	});
 

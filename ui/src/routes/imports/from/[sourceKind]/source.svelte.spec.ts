@@ -113,12 +113,10 @@ describe('one source and what has arrived through it', () => {
 		// the sheet — here the reassuring fact rather than the frightening one.
 		expect(sheet).toHaveTextContent('89');
 		expect(sheet).toHaveTextContent('recipes stay exactly as they are');
-		expect(sheet).toHaveTextContent('no recipe is marked as having come from anywhere');
+		expect(sheet).toHaveTextContent('No recipe is deleted, renamed or changed');
 		// And then what it costs, named as the act that will pay it.
 		expect(sheet).toHaveTextContent('The cost comes later.');
-		expect(sheet).toHaveTextContent(
-			'all 89 arrive a second time, as 89 new recipes beside the ones you already have',
-		);
+		expect(sheet).toHaveTextContent('all 89 arrive again, as 89 new recipes beside yours');
 
 		// Nothing has been asked of the Core: the sheet is a question.
 		expect(kamosu.calls.map((call) => call.operation)).toEqual(['list_imports']);
@@ -144,7 +142,7 @@ describe('one source and what has arrived through it', () => {
 		const sheet = await screen.findByRole('dialog');
 		expect(sheet).toHaveTextContent('recipe stays exactly as it is');
 		expect(sheet).toHaveTextContent(
-			'the one recipe it remembers arrives a second time, as a new recipe beside the one you already have',
+			'the one it remembers arrives again, as a new recipe beside yours',
 		);
 		expect(sheet).not.toHaveTextContent('1 new recipes');
 		expect(sheet).not.toHaveTextContent('all 1 arrive');
@@ -179,7 +177,7 @@ describe('one source and what has arrived through it', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Forget' }));
 
 		expect(
-			await screen.findByText(/Forgotten\. Your recipes are where they were/),
+			await screen.findByText(/Forgotten\. Your recipes and this history stay as they were/),
 		).toBeInTheDocument();
 		expect(kamosu.calls.find((call) => call.operation === 'forget_import')?.input).toEqual({
 			import_id: 'imp_crouton',
@@ -225,7 +223,7 @@ describe('one source and what has arrived through it', () => {
 		// in yet" would be a plain lie here: three sources exist, just not this.
 		draw({ list_imports: { imports: [CROUTON] } }, 'notebook');
 
-		expect(await screen.findByText(/Nothing has ever come from here/)).toBeInTheDocument();
-		expect(screen.queryByText(/Nothing has been brought in yet/)).not.toBeInTheDocument();
+		expect(await screen.findByText(/Nothing has come from here/)).toBeInTheDocument();
+		expect(screen.queryByText(/Nothing imported yet/)).not.toBeInTheDocument();
 	});
 });

@@ -161,7 +161,9 @@ describe('the recipes screen', () => {
 		// And says what it looked through, and why it matched only words. An
 		// empty screen would leave a person unable to tell a missing recipe
 		// from a broken search.
-		expect(screen.getByText(/looked through every title, ingredient and step/)).toBeInTheDocument();
+		expect(
+			screen.getByText(/searched every title, ingredient, step and cooking note/),
+		).toBeInTheDocument();
 		expect(screen.getByText(/Meaning search is off/)).toBeInTheDocument();
 
 		expect(

@@ -102,9 +102,7 @@ describe('a Food’s page', () => {
 		expect(await screen.findByRole('heading', { name: 'caster sugar' })).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /^Take off the name in/ })).not.toBeInTheDocument();
 		expect(
-			screen.getByText(
-				'Kamosu keeps at least one name for every Food, so the last one cannot be taken off.',
-			),
+			screen.getByText('A Food needs at least one name, so the last one stays.'),
 		).toBeInTheDocument();
 	});
 
@@ -241,9 +239,7 @@ describe('a Food’s page', () => {
 		// Says so on the page too, because a screen that quietly edits recipes
 		// and one that quietly does not look identical.
 		expect(
-			screen.getByText(
-				'Correcting a Food writes no new version of any recipe, and changes no written line.',
-			),
+			screen.getByText('Correcting a Food changes no recipe and no line.'),
 		).toBeInTheDocument();
 	});
 

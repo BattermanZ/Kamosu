@@ -140,9 +140,7 @@ describe('the list of what has been brought in', () => {
 	it('explains an instance that has never imported anything', async () => {
 		draw({ list_imports: { imports: [] } });
 
-		expect(
-			await screen.findByText(/Nothing has been brought in yet\./, { exact: false }),
-		).toBeInTheDocument();
+		expect(await screen.findByText(/Nothing imported yet\./, { exact: false })).toBeInTheDocument();
 		expect(screen.queryByRole('link', { name: /Crouton/ })).not.toBeInTheDocument();
 	});
 

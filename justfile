@@ -245,7 +245,9 @@ ui-test:
 
 # Check formatting and lints without changing anything. Also verifies the
 # committed design-token stylesheet and icons are fresh against their sources:
-# the build fails if what is committed has drifted from ui/.
+# the build fails if what is committed has drifted from ui/. And it keeps the
+# interface's copy short: no em dash in any message file, no English phrase over
+# the limit in ui/check-messages.mjs (issue #141).
 #
 # The corpus checks need naming one by one. They carry `test = false` so
 # `just test` does not link ten binaries to run nothing (see Cargo.toml), and
@@ -253,7 +255,7 @@ ui-test:
 # they would quietly stop compiling and nobody would find out until someone ran
 # one by hand. Type-checking them costs about two seconds, because clippy reads
 # them without linking; it was the linking that was expensive.
-check: _check-tokens-fresh _check-client-fresh _check-cover-fresh ui-format-check ui-lint ui-check
+check: _check-tokens-fresh _check-client-fresh _check-cover-fresh _check-messages ui-format-check ui-lint ui-check
     cargo fmt --check && cargo clippy --all-targets -- -D warnings
     cargo clippy --features test-jobs {{ CORPUS_TARGETS }} -- -D warnings
 
@@ -278,6 +280,15 @@ ui-format-check:
     set -euo pipefail
     just _npm-deps
     cd ui && npm run --silent format:check
+
+# Internal: fail on an em dash in any message file, or an English phrase longer
+# than the limit set when the copy was trimmed (issue #141). It reads three JSON
+# files with Node's own modules and imports nothing from node_modules, so it
+# skips _npm-deps on purpose.
+_check-messages:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd ui && node ./check-messages.mjs
 
 # ESLint over the interface — the Svelte half of `cargo clippy`, and held to the
 # same standard: `--max-warnings 0`, so a warning fails the build exactly like

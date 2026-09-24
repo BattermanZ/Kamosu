@@ -652,7 +652,7 @@ describe('photographing the cooking (#77)', () => {
 			],
 		};
 		kamosu = await cook({ get_recipe: noYield }, { asked: true });
-		expect(await screen.findByText(/doesn.t say how much it makes/)).toBeInTheDocument();
+		expect(await screen.findByText(/No yield given/)).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'One more' })).not.toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: '×2' }));
 		await vi.waitFor(() => {
@@ -799,7 +799,7 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 		expect(screen.getByRole('alert')).toHaveTextContent('Kamosu went wrong');
 		// The card is not drawn, so there is nothing new under a thumb that did
 		// not ask for it, and the Step is still the largest type on screen.
-		expect(screen.queryByText(/a mistake in Kamosu, not something you did/)).toBeNull();
+		expect(screen.queryByText(/a mistake in Kamosu, not you/)).toBeNull();
 		expect(screen.queryByRole('button', { name: 'Got it' })).toBeNull();
 		expect(await exactly('Coat the chicken in panko.')).toHaveClass('text-step');
 	});
@@ -811,9 +811,7 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 		await fireEvent.click(await screen.findByRole('button', { name: 'Kamosu went wrong' }));
 		const card = await screen.findByRole('dialog', { name: 'Kamosu went wrong' });
 		expect(card).toHaveFocus();
-		expect(
-			within(card).getByText(/a mistake in Kamosu, not something you did/),
-		).toBeInTheDocument();
+		expect(within(card).getByText(/a mistake in Kamosu, not you/)).toBeInTheDocument();
 
 		await fireEvent.click(within(card).getByRole('button', { name: 'Got it' }));
 		expect(screen.queryByRole('dialog', { name: 'Kamosu went wrong' })).toBeNull();
@@ -843,9 +841,7 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 		await goWrong(kamosu);
 
 		const card = await screen.findByRole('region', { name: 'Kamosu went wrong' });
-		expect(
-			within(card).getByText(/a mistake in Kamosu, not something you did/),
-		).toBeInTheDocument();
+		expect(within(card).getByText(/a mistake in Kamosu, not you/)).toBeInTheDocument();
 		expect(within(card).getByRole('link', { name: 'Back to the recipe' })).toHaveAttribute(
 			'href',
 			'/recipes/b_1',

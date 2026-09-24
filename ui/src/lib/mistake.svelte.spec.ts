@@ -59,7 +59,7 @@ describe('a mistake in Kamosu', () => {
 		await expect(kamosu.client.listJobs()).rejects.toThrow(/did not answer/);
 
 		await waitFor(() => expect(card()).toBeInTheDocument());
-		expect(screen.getByText(/a mistake in Kamosu, not something you did/)).toBeInTheDocument();
+		expect(screen.getByText(/a mistake in Kamosu, not you/)).toBeInTheDocument();
 	});
 
 	it('is put away by the cook, and the next one says so again', async () => {

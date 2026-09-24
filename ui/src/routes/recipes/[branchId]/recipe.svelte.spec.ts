@@ -517,7 +517,7 @@ describe('a Divergence', () => {
 		// A struck-through line with no words beside it would read like
 		// something crossed off a shopping list.
 		expect(await screen.findByText('1 Tbsp rice vinegar')).toBeInTheDocument();
-		expect(screen.getAllByText(/yours — Chez Marc hasn’t got it/i).length).toBeGreaterThan(0);
+		expect(screen.getAllByText(/yours, not in Chez Marc’s/i).length).toBeGreaterThan(0);
 
 		// It sits where it sits in yours: after the honey, not at the end.
 		const texts = Array.from(document.querySelectorAll('ul li')).map((li) => li.textContent ?? '');
@@ -757,7 +757,7 @@ describe('a Divergence', () => {
 		// you him, so the name on the mark is still his. Naming whichever
 		// version you were not on once put "Maison Batterman took it out" on
 		// your own line.
-		expect(screen.getAllByText(/yours — Chez Marc took it out/i).length).toBeGreaterThan(0);
+		expect(screen.getAllByText(/yours, Chez Marc took it out/i).length).toBeGreaterThan(0);
 		expect(screen.queryByText(/Maison Batterman took it out/i)).not.toBeInTheDocument();
 		// And his own changed line reads as not yours, not as "not Chez Marc's".
 		expect(screen.getAllByText(/^not yours$/i).length).toBeGreaterThan(0);
@@ -2078,7 +2078,10 @@ describe('a Sheet (#75)', () => {
 			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
 			// Several lines on this screen are statuses, so the sentence is found by
 			// its words and then checked for the role.
-			expect(await screen.findByText(/still being made/)).toHaveAttribute('role', 'status');
+			expect(await screen.findByText(/The sheet is taking a while/)).toHaveAttribute(
+				'role',
+				'status',
+			);
 			expect(screen.queryByText(/could not be made/)).not.toBeInTheDocument();
 			// Still being set, so not offered again: a second press is a second tab.
 			expect(screen.getByRole('button', { name: /Setting the sheet/ })).toBeDisabled();
@@ -2102,7 +2105,7 @@ describe('a Sheet (#75)', () => {
 		});
 		await screen.findByText('This recipe, 2 versions');
 		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
-		await screen.findByText(/still being made/);
+		await screen.findByText(/The sheet is taking a while/);
 		return { tab, ...rendered };
 	}
 
@@ -2114,7 +2117,7 @@ describe('a Sheet (#75)', () => {
 
 			await vi.waitFor(() => expect(tab.close).toHaveBeenCalled());
 			// The sheet was the last recipe's: this one offers its own.
-			expect(screen.queryByText(/still being made/)).not.toBeInTheDocument();
+			expect(screen.queryByText(/The sheet is taking a while/)).not.toBeInTheDocument();
 			expect(screen.getByRole('button', { name: /Print a sheet/ })).toBeEnabled();
 		}));
 
@@ -2248,8 +2251,8 @@ describe('deleting a recipe', () => {
 		const sheet = await screen.findByRole('dialog');
 
 		expect(sheet).toHaveTextContent('Delete Korean Fried Chicken?');
-		expect(sheet).toHaveTextContent(/all 11 times this was cooked keep their ratings/i);
-		expect(sheet).toHaveTextContent(/nothing brings it back/i);
+		expect(sheet).toHaveTextContent(/Its 11 cookings stay, with their ratings/i);
+		expect(sheet).toHaveTextContent(/This cannot be undone/i);
 
 		// **Never "you".** `cooked.count` is the HOUSEHOLD's tally across the
 		// whole Lineage — housemates' cookings and the translation's included —
@@ -2263,7 +2266,7 @@ describe('deleting a recipe', () => {
 		await openTheSheet(forked({ get_share_link: shareLink(false) }));
 		const sheet = await screen.findByRole('dialog');
 
-		expect(sheet).toHaveTextContent(/never been cooked/i);
+		expect(sheet).toHaveTextContent(/Never cooked/i);
 		expect(sheet).not.toHaveTextContent(/0 times/);
 		expect(sheet).not.toHaveTextContent(/you have never/i);
 	});
@@ -2292,7 +2295,7 @@ describe('deleting a recipe', () => {
 
 		const sheet = await screen.findByRole('dialog');
 		expect(
-			await screen.findByText(/could not check whether this recipe is shared/i),
+			await screen.findByText(/Couldn't check whether this recipe is shared/i),
 		).toBeInTheDocument();
 		expect(sheet).not.toHaveTextContent(
 			/^The link you shared for this recipe will stop working\.$/,
@@ -2533,9 +2536,7 @@ describe('naming a version (#134)', () => {
 		const sheet = await openTheSheet('Rename this version');
 		const field = within(sheet).getByLabelText('Name for this version');
 		expect(field).toHaveValue('Vegetarian');
-		expect(sheet).toHaveTextContent(
-			'Nothing in the recipe changes, and nothing is added to its History.',
-		);
+		expect(sheet).toHaveTextContent("The recipe and its History don't change.");
 
 		// What the Core holds after the rename, read back rather than patched in.
 		const after = withAVariation('veg', { mine: null, veg: 'Veggie' });

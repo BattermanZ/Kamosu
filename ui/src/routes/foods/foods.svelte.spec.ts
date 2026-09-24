@@ -129,7 +129,7 @@ describe('the Foods list', () => {
 
 		expect(
 			await screen.findByText(
-				'No Food answers to “gochujang”. It may have been given a different name since this line was written.',
+				'No Food called “gochujang”. It may have been renamed since this line was written.',
 			),
 		).toBeInTheDocument();
 
@@ -141,9 +141,7 @@ describe('the Foods list', () => {
 		draw({ list_foods: { foods: [] } });
 
 		expect(
-			await screen.findByText(
-				'Kamosu has learnt no Foods yet. They arrive by themselves as you write or import recipes.',
-			),
+			await screen.findByText('No Foods yet. They appear as you write or import recipes.'),
 		).toBeInTheDocument();
 	});
 

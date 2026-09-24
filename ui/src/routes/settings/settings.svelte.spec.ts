@@ -387,7 +387,7 @@ describe('the settings screen', () => {
 			const sheet = within(await screen.findByRole('dialog'));
 			expect(sheet.getByRole('heading', { name: 'Leave Family?' })).toBeInTheDocument();
 			expect(
-				sheet.getByText('Your recipes stop showing in Family, and theirs stop showing for you.'),
+				sheet.getByText('Family stops seeing your recipes, and you stop seeing theirs.'),
 			).toBeInTheDocument();
 			expect(sheet.getByText('Hélène and Luc keep')).toBeInTheDocument();
 			expect(
@@ -587,7 +587,7 @@ describe('the settings screen', () => {
 		});
 		// The test browser is not a secure page, so this phone can keep nothing.
 		expect(await screen.findByText('This phone')).toBeInTheDocument();
-		expect(screen.getByText(/reached over http:\/\//)).toBeInTheDocument();
+		expect(screen.getByText(/Kamosu is on http:\/\//)).toBeInTheDocument();
 	});
 
 	// --- Tags (#104) --------------------------------------------------------
@@ -636,8 +636,8 @@ describe('the settings screen', () => {
 		expect(
 			await screen.findByText('No tags yet. Add one to a recipe and it appears here.'),
 		).toBeInTheDocument();
-		// And it says where tags come from, which is the recipe rather than here.
-		expect(screen.getByText(/None of this changes a recipe/)).toBeInTheDocument();
+		// And it says what renaming and deleting a tag reach.
+		expect(screen.getByText(/A deleted one comes off them all/)).toBeInTheDocument();
 	});
 
 	it('renames a tag through the Operation, saying it reaches every recipe at once', async () => {
@@ -652,9 +652,7 @@ describe('the settings screen', () => {
 		expect(await screen.findByDisplayValue('dessert')).toBeInTheDocument();
 		expect(screen.getByText('12 recipes')).toBeInTheDocument();
 		// The promise a rename makes, said once at the top of the section.
-		expect(
-			screen.getByText(/shows on every recipe that has it, straight away/),
-		).toBeInTheDocument();
+		expect(screen.getByText(/shows its new name on every recipe at once/)).toBeInTheDocument();
 
 		const field = screen.getByDisplayValue('dessert');
 		await fireEvent.input(field, { target: { value: 'desserts' } });
@@ -737,7 +735,7 @@ describe('the settings screen', () => {
 		expect(screen.getByText('18')).toBeInTheDocument();
 		expect(screen.getByText('recipes lose this tag')).toBeInTheDocument();
 		// And it says outright that the recipes themselves are untouched.
-		expect(screen.getByText(/The recipes themselves are untouched/)).toBeInTheDocument();
+		expect(screen.getByText(/The recipes are untouched/)).toBeInTheDocument();
 
 		// Not yet done: the sheet is the act, not the button behind it.
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('delete_tag');
@@ -842,7 +840,7 @@ describe('the Reading Language (#112)', () => {
 
 		expect(
 			await screen.findByText(
-				"Kamosu's words, and the language recipes are titled in when they have one.",
+				"Kamosu's words, and recipe titles where there's one in this language.",
 			),
 		).toBeInTheDocument();
 		expect(screen.getByText(/Recipes follow it\./)).toBeInTheDocument();
@@ -873,9 +871,7 @@ describe('the Reading Language (#112)', () => {
 		renderScreen(Settings, signedIn('en'));
 
 		expect(
-			await screen.findByText(
-				'Your shelf now shows titles in French where a recipe has one. The others keep their own language and are marked.',
-			),
+			await screen.findByText("Titles now show in French where there's one. Others are marked."),
 		).toBeInTheDocument();
 		// Said once: the next visit is quiet.
 		expect(sessionStorage.getItem('kamosu.reading-language-moved')).toBeNull();
@@ -894,7 +890,7 @@ describe('the Reading Language (#112)', () => {
 
 		// Split, the first control is only the interface's words, and says so.
 		expect(
-			screen.getByText("The words on Kamosu's own buttons and headings. This browser only."),
+			screen.getByText("Kamosu's buttons and headings. This browser only."),
 		).toBeInTheDocument();
 		expect(within(recipes()).getByRole('button', { name: 'English' })).toHaveAttribute(
 			'aria-pressed',
@@ -909,9 +905,7 @@ describe('the Reading Language (#112)', () => {
 		});
 		// It says what just changed on the shelf, in the reader's words.
 		expect(
-			await screen.findByText(
-				'Your shelf now shows titles in Spanish where a recipe has one. The others keep their own language and are marked.',
-			),
+			await screen.findByText("Titles now show in Spanish where there's one. Others are marked."),
 		).toBeInTheDocument();
 		expect(within(recipes()).getByRole('button', { name: 'Español' })).toHaveAttribute(
 			'aria-pressed',
@@ -961,9 +955,7 @@ describe('the Reading Language (#112)', () => {
 		expect(await screen.findByText(/Recipes follow it\./)).toBeInTheDocument();
 		expect(screen.queryByRole('list', { name: 'Recipes in' })).not.toBeInTheDocument();
 		expect(
-			screen.getByText(
-				'Your shelf now shows titles in English where a recipe has one. The others keep their own language and are marked.',
-			),
+			screen.getByText("Titles now show in English where there's one. Others are marked."),
 		).toBeInTheDocument();
 	});
 
@@ -1025,7 +1017,7 @@ describe('the Reading Language (#112)', () => {
 
 		await screen.findByText(/Version 0\.1\.0/);
 		expect(
-			screen.getByText("The words on Kamosu's own buttons and headings. This browser only."),
+			screen.getByText("Kamosu's buttons and headings. This browser only."),
 		).toBeInTheDocument();
 		expect(screen.queryByText(/Recipes follow it/)).not.toBeInTheDocument();
 	});
@@ -1075,7 +1067,7 @@ describe('your own name (#113)', () => {
 		const you = await youSection();
 		expect(within(you).getByText('Aurélien')).toBeInTheDocument();
 		expect(
-			within(you).getByText('The name on every Version you save, and the one you sign in with.'),
+			within(you).getByText('The name on your Versions, and the one you sign in with.'),
 		).toBeInTheDocument();
 		// It is the first section on the screen.
 		expect(document.querySelector('section h2')?.textContent?.trim()).toBe('You');
@@ -1098,13 +1090,11 @@ describe('your own name (#113)', () => {
 
 		expect(screen.getByLabelText('Your name')).toHaveValue('Aurélien');
 		expect(
-			screen.getByText(
-				'Every Version you have ever saved will show the new name, the old ones too, in every Kitchen. Nothing else about them changes.',
-			),
+			screen.getByText('Every Version you ever saved shows the new name, in every Kitchen.'),
 		).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				'You will sign in with the new name. A recipe you already sent someone as a file keeps the name it left with.',
+				"You'll sign in with the new name. Recipe files already sent keep the old one.",
 			),
 		).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_person');
@@ -1141,7 +1131,7 @@ describe('your own name (#113)', () => {
 
 		expect(
 			await screen.findByText(
-				'Done. Every Version you wrote now says Aurélien Dupont. Sign in with that name from now on.',
+				'Done. Your Versions now say Aurélien Dupont. Sign in with that name from now on.',
 			),
 		).toBeInTheDocument();
 		expect(kamosu.calls).toContainEqual({
@@ -1376,11 +1366,9 @@ describe('your Cookbook (#131)', () => {
 		const name = book.getByLabelText('Your Cookbook’s name');
 		expect(name).toHaveValue('');
 		expect(name).toHaveAttribute('placeholder', 'Aurélien’s');
+		expect(book.getByText('Named after its writer until you rename it.')).toBeInTheDocument();
 		expect(
-			book.getByText('Named after whoever writes it, until you give it a name of your own.'),
-		).toBeInTheDocument();
-		expect(
-			book.getByText(/^87 recipes\. Only the people who write this Cookbook/),
+			book.getByText(/^87 recipes\. Only this Cookbook's writers change them/),
 		).toBeInTheDocument();
 		// A Cookbook of one has nobody to leave.
 		expect(book.queryByRole('button', { name: 'Leave this Cookbook' })).not.toBeInTheDocument();
@@ -1439,7 +1427,7 @@ describe('your Cookbook (#131)', () => {
 		expect(await screen.findByText(link)).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				'Send this to the person. When they open it, their recipes and yours become one Cookbook you both change. Used once.',
+				'Send this to the person. Opening it makes your recipes one Cookbook you both change. Works once.',
 			),
 		).toBeInTheDocument();
 
@@ -1488,9 +1476,7 @@ describe('your Cookbook (#131)', () => {
 		);
 		const book = within(await card());
 		expect(
-			book.getByText(
-				'Named after the people who write it until one of you renames it. Any of you can.',
-			),
+			book.getByText('Named after its writers until one of you renames it.'),
 		).toBeInTheDocument();
 		await fireEvent.click(book.getByRole('button', { name: 'Leave this Cookbook' }));
 
@@ -1498,7 +1484,7 @@ describe('your Cookbook (#131)', () => {
 		expect(sheet.getByRole('heading', { name: 'Leave Aurélien and Camille?' })).toBeInTheDocument();
 		expect(
 			sheet.getByText(
-				'You take your own copy of all 99 recipes, with their whole history. The others keep theirs.',
+				'You take a copy of all 99 recipes, with their history. The others keep theirs.',
 			),
 		).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('leave_cookbook');

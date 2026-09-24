@@ -292,7 +292,7 @@ describe('offline', () => {
 	it('says only what was opened is here before the library has arrived', async () => {
 		setOnline(false);
 		show();
-		expect(await screen.findByText(/only what you've opened is here/)).toBeInTheDocument();
+		expect(await screen.findByText(/only what you've opened/)).toBeInTheDocument();
 	});
 
 	it('says a recipe the Kitchen does not hold is the copy from the day it was opened', async () => {
@@ -313,7 +313,7 @@ describe('offline', () => {
 		standing.keptAt = new Date(2026, 8, 12);
 		setOnline(false);
 		show();
-		expect(await screen.findByText(/only what you've opened is here/)).toBeInTheDocument();
+		expect(await screen.findByText(/only what you've opened/)).toBeInTheDocument();
 		expect(screen.queryByText(/isn't in your Kitchen/)).not.toBeInTheDocument();
 	});
 
@@ -323,7 +323,7 @@ describe('offline', () => {
 		standing.keptAt = new Date(2026, 8, 12);
 		setOnline(false);
 		show();
-		expect(await screen.findByText(/only what you've opened is here/)).toBeInTheDocument();
+		expect(await screen.findByText(/only what you've opened/)).toBeInTheDocument();
 		expect(screen.queryByText(/isn't in your Kitchen/)).not.toBeInTheDocument();
 	});
 

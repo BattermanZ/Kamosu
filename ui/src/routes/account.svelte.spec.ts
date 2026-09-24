@@ -214,7 +214,7 @@ describe('the account screen', () => {
 			await user.click(screen.getByRole('button', { name: 'Log in' }));
 
 			expect(await screen.findByRole('alert')).toHaveTextContent(
-				'Too many wrong passwords for this name. Try again in 2 s.',
+				'Too many wrong passwords. Try again in 2 s.',
 			);
 			// Nothing was checked, so nothing typed is thrown away.
 			expect(screen.getByLabelText('Password')).toHaveValue('a guess');

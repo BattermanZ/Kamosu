@@ -135,7 +135,7 @@ describe("the Operator's screen", () => {
 		renderScreen(Operator, quiet);
 		await openInstance();
 
-		expect(await screen.findByText(/courtesy, not a wall/i)).toBeInTheDocument();
+		expect(await screen.findByText(/Operator boundary is a courtesy/i)).toBeInTheDocument();
 
 		// ADR 0007: no recipe, Attempt or Kitchen of anybody's is reachable here.
 		// Asserted on what the screen actually rendered, with the screen-reader
@@ -152,7 +152,7 @@ describe("the Operator's screen", () => {
 		renderScreen(Operator, quiet);
 
 		expect(await screen.findByText(/nothing to look at/i)).toBeInTheDocument();
-		expect(screen.getByText(/never joins two Foods by itself/i)).toBeInTheDocument();
+		expect(screen.getByText(/never merges Foods by itself/i)).toBeInTheDocument();
 		// Every Food here is in use, so none is offered for deleting.
 		expect(screen.getByText(/is used by a recipe/i)).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
@@ -258,7 +258,7 @@ describe("the Operator's screen", () => {
 
 		const sheet = await screen.findByRole('dialog');
 		expect(within(sheet).getByText('Delete Camille?')).toBeInTheDocument();
-		expect(within(sheet).getByText(/can no longer sign in/i)).toBeInTheDocument();
+		expect(within(sheet).getByText(/can't sign in any more/i)).toBeInTheDocument();
 		expect(within(sheet).getByText(/cannot be undone/i)).toBeInTheDocument();
 		expect(within(sheet).getByRole('button', { name: 'Disable' })).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('delete_account');
@@ -299,7 +299,7 @@ describe("the Operator's screen", () => {
 		expect(
 			await screen.findByText(`${window.location.origin}/invite/8f2c1a94e07b`),
 		).toBeInTheDocument();
-		expect(screen.getByText(/shown once and never again/i)).toBeInTheDocument();
+		expect(screen.getByText(/won't be shown again/i)).toBeInTheDocument();
 	});
 
 	it('keeps a Person\u2019s four acts in their own row, one row open at a time', async () => {
@@ -414,7 +414,7 @@ describe("the Operator's screen", () => {
 		await fireEvent.click(await screen.findByRole('button', { name: 'Sweep now' }));
 		const sheet = await screen.findByRole('dialog');
 		expect(within(sheet).getByText(/cannot be undone/i)).toBeInTheDocument();
-		expect(within(sheet).getByText(/never touched/i)).toBeInTheDocument();
+		expect(within(sheet).getByText(/A picture a recipe shows is kept/i)).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('sweep_photographs');
 
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Sweep now' }));
@@ -452,9 +452,9 @@ describe("the Operator's screen", () => {
 		await openInstance();
 
 		expect(await screen.findByText('https://kamosu.example')).toBeInTheDocument();
-		const warning = screen.getByText(/Links you have already sent/);
-		expect(warning).toHaveTextContent(/keep pointing at the old one/);
-		expect(warning).toHaveTextContent(/cannot reissue them/);
+		const warning = screen.getByText(/Links already sent/);
+		expect(warning).toHaveTextContent(/keep the old one/);
+		expect(warning).toHaveTextContent(/can't be reissued/);
 		// The false promise this ticket corrected must not come back.
 		expect(warning.textContent ?? '').not.toMatch(/follow/i);
 	});

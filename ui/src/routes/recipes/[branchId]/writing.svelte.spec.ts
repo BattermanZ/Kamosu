@@ -649,7 +649,7 @@ describe('writing a recipe', () => {
 		await fireEvent.click(
 			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
 		);
-		expect(screen.getByText(/is not yours to change/)).toBeInTheDocument();
+		expect(screen.getByText(/isn't yours to change/)).toBeInTheDocument();
 		expect(screen.getByText(/the original stays as it is/)).toBeInTheDocument();
 		// Where it goes is not a question: your own Cookbook, always (#131).
 		expect(screen.queryAllByRole('radio')).toHaveLength(0);
@@ -1169,9 +1169,7 @@ describe('pasting a whole recipe', () => {
 
 		// The three ingredients and two steps of Dan Dan Noodles, named before
 		// they go.
-		expect(
-			screen.getByText(/replaces the 3 ingredients and 2 steps already here/),
-		).toBeInTheDocument();
+		expect(screen.getByText(/replaces the 3 ingredients and 2 steps here/)).toBeInTheDocument();
 		expect(reads(kamosu)).toHaveLength(1);
 	});
 
@@ -1184,7 +1182,7 @@ describe('pasting a whole recipe', () => {
 		renderWriting(WITH_HEADINGS, true, [], { ...empty(), title: 'Tuesday supper' });
 		await pasteIn();
 		expect(screen.getByText(/also replaces the title Tuesday supper/)).toBeInTheDocument();
-		expect(screen.queryByText(/ingredients and .* steps already here/)).not.toBeInTheDocument();
+		expect(screen.queryByText(/ingredients and .* steps here/)).not.toBeInTheDocument();
 	});
 
 	it('says nothing about replacing anything when the recipe is empty', async () => {
@@ -1236,7 +1234,7 @@ describe('translating a recipe', () => {
 		);
 		expect(
 			await screen.findByText(
-				'This makes a new recipe in the same family, written in French. The one you are translating is untouched.',
+				'This makes a new recipe in French, in the same family. The original is untouched.',
 			),
 		).toBeInTheDocument();
 	});

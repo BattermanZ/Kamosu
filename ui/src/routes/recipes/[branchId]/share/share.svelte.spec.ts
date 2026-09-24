@@ -98,8 +98,8 @@ describe('the share screen', () => {
 
 		// The standing line is there from the first frame: not a dialog, nothing
 		// to dismiss, and no first-time special case (ADR 0018).
-		expect(await screen.findByText(/It cannot reach a copy already sent\./)).toBeInTheDocument();
-		expect(screen.getByText(/back to its first version/)).toBeInTheDocument();
+		expect(await screen.findByText(/not copies already sent\./)).toBeInTheDocument();
+		expect(screen.getByText(/every version of this recipe/)).toBeInTheDocument();
 		// The standing line is on screen before the link's state has even
 		// arrived, which is the point of it.
 		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
@@ -132,7 +132,7 @@ describe('the share screen', () => {
 		// The link is shown, and the screen says plainly that it is shown once —
 		// Kamosu keeps only its fingerprint (ADR 0031).
 		expect(await screen.findByText('https://kamosu.example/s/abc')).toBeInTheDocument();
-		expect(screen.getByText(/cannot show it to you again/)).toBeInTheDocument();
+		expect(screen.getByText(/It won't be shown again/)).toBeInTheDocument();
 		expect(screen.getByText(/Shared by Aurélien/)).toBeInTheDocument();
 	});
 
@@ -219,7 +219,7 @@ describe('the share screen', () => {
 		});
 
 		expect(await screen.findByText(/Katsu Sauce travels inside it/)).toBeInTheDocument();
-		expect(screen.getByText(/2 photographs are no longer on this instance/)).toBeInTheDocument();
+		expect(screen.getByText(/2 photographs are no longer here/)).toBeInTheDocument();
 	});
 
 	it('saves the file straight from the server, without holding it in memory', async () => {

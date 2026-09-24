@@ -115,7 +115,7 @@ const rowFor = (name: string): HTMLElement => {
 describe('Shopping', () => {
 	it('says what the list is for when there is nothing on it', async () => {
 		renderScreen(Page, { get_shopping_list: { chosen: [], rows: [] } });
-		expect(await screen.findByText(/Choose the recipes you mean to cook/)).toBeInTheDocument();
+		expect(await screen.findByText(/Choose the recipes you'll cook/)).toBeInTheDocument();
 	});
 
 	it('says a multiplier from the recipe page as one (#109)', async () => {
@@ -316,7 +316,7 @@ describe('Shopping', () => {
 		await fireEvent.click(screen.getByRole('button', { name: /Copy the list/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: 'Empty it' }));
 		expect(kamosu.calls.at(-1)).toEqual({ operation: 'empty_shopping_list', input: {} });
-		expect(await screen.findByText(/Choose the recipes you mean to cook/)).toBeInTheDocument();
+		expect(await screen.findByText(/Choose the recipes you'll cook/)).toBeInTheDocument();
 	});
 
 	it('says how much of a recipe is being shopped for, and lets it be changed', async () => {
@@ -367,6 +367,6 @@ describe('Shopping', () => {
 
 	it('says so when the list cannot be read', async () => {
 		renderScreen(Page, { get_shopping_list: { refuse: 'internal' } });
-		expect(await screen.findByRole('alert')).toHaveTextContent(/could not read your list/i);
+		expect(await screen.findByRole('alert')).toHaveTextContent(/Couldn't load your list/i);
 	});
 });

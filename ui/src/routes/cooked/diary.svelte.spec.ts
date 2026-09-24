@@ -374,7 +374,7 @@ describe('putting a cooking’s picture on the recipe', () => {
 		expect(on.getByText('This will save')).toBeInTheDocument();
 		expect(
 			on.getByText(
-				'Saving writes a new Version onto your Miso Soup, in your Cookbook. It shows in the history like any edit.',
+				'Saving adds a Version to your Miso Soup, in your Cookbook. It shows in the history like any edit.',
 			),
 		).toBeInTheDocument();
 		expect(on.getByText(/The photo stops being private/)).toBeInTheDocument();
@@ -429,7 +429,7 @@ describe('putting a cooking’s picture on the recipe', () => {
 		const on = within(await sheet());
 		await fireEvent.click(await on.findByRole('button', { name: /The recipe's photo/ }));
 		expect(on.getByText('This will start your own copy')).toBeInTheDocument();
-		expect(on.getByText(/saving does not change it/)).toBeInTheDocument();
+		expect(on.getByText(/isn't yours to change/)).toBeInTheDocument();
 		await fireEvent.click(on.getByRole('button', { name: 'Start my own copy' }));
 
 		await vi.waitFor(() =>

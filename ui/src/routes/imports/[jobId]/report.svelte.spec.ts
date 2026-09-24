@@ -157,10 +157,10 @@ describe('the Import Report', () => {
 			}),
 		});
 
-		expect(await screen.findByText(/37 of 86 recipes in so far/)).toBeInTheDocument();
+		expect(await screen.findByText(/37 of 86 recipes in\./)).toBeInTheDocument();
 		expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '37');
 		// The pairs need both halves in, so the work is promised, not shown.
-		expect(screen.getByText(/Once everything is in/)).toBeInTheDocument();
+		expect(screen.getByText(/Once all are in/)).toBeInTheDocument();
 
 		kamosu.answer('get_job', job());
 		expect(await screen.findByText(/6 recipes are on your shelf/)).toBeInTheDocument();
@@ -173,7 +173,7 @@ describe('the Import Report', () => {
 			set_related_recipe: { related_recipes: [] },
 		});
 
-		const pairs = await screen.findByText(/Tick the ones that are two takes/);
+		const pairs = await screen.findByText(/Tick the pairs that are the same dish/);
 		const card = pairs.closest('div') as HTMLElement;
 		const relate = within(card).getByRole('button', { name: 'Relate pairs' });
 		expect(relate).toBeDisabled();

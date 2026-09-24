@@ -90,7 +90,7 @@ Everything runs through `just` at the repo root — never a hand-rolled
 `cargo run &`, which leaks a process holding the port.
 
 ```sh
-just check      # fmt + clippy + prettier + eslint + svelte-check + the two freshness gates (below)
+just check      # fmt + clippy + prettier + eslint + svelte-check + the freshness gates (below) + the copy guard
 just test       # the behaviour suite (real Operations, real SQLite) + the screen tests
 just format     # apply Prettier to ui/ — the Svelte half of `cargo fmt`
 just audit      # both dependency trees against their advisory databases (needs network)

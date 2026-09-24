@@ -131,7 +131,7 @@ describe('bringing a recipe file in', () => {
 		expect(said).toHaveTextContent('Soba with walnut miso arrived');
 		// A Passenger travels because the recipe is made of it (ADR 0008), and
 		// saying so is the only way a second recipe appearing is not a surprise.
-		expect(said).toHaveTextContent('Toasted walnut paste travelled inside it');
+		expect(said).toHaveTextContent('Toasted walnut paste came with it');
 		expect(screen.getByRole('button', { name: 'How it went' })).toBeInTheDocument();
 	});
 
@@ -290,7 +290,7 @@ describe('bringing a recipe file in', () => {
 			});
 
 			expect(await screen.findByRole('status')).toHaveTextContent(
-				'still going. The recipe should arrive in your library on its own, and Settings › Brought in will show how it went.',
+				'still going. The recipe will arrive by itself, and Settings › Brought in will show how it went.',
 			);
 			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 			expect(went).not.toHaveBeenCalled();

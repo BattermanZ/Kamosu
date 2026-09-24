@@ -140,8 +140,8 @@ describe('a recipe’s related recipes', () => {
 
 		// The one place ADR 0035's promise is spelt out. Said here rather than on
 		// every recipe forever, which would be a lecture.
-		expect(await screen.findByText(/changes neither recipe/)).toBeInTheDocument();
-		expect(screen.getByText(/Relating two recipes says they go together/)).toBeInTheDocument();
+		expect(await screen.findByText(/Neither recipe changes/)).toBeInTheDocument();
+		expect(screen.getByText(/Relate recipes that go together/)).toBeInTheDocument();
 	});
 
 	it('makes a link by naming the far end’s Branch', async () => {
