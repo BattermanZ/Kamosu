@@ -237,7 +237,7 @@
 				waiting={m.offline_waits_import_link()}
 				disabled={disabled || working !== 'no'}
 				onclick={() => (asking = true)}
-				shapeClass="min-h-12 rounded-sm px-4 py-3 text-left font-display text-body"
+				shapeClass="min-h-12 rounded-sm px-4 py-3 text-center font-display text-body"
 				lookClass="border border-rule bg-card text-accent disabled:opacity-60"
 			/>
 		{:else}
@@ -249,7 +249,7 @@
 			waiting={m.offline_waits_bring_in()}
 			disabled={disabled || working !== 'no'}
 			onclick={() => picker?.click()}
-			shapeClass="min-h-12 rounded-sm px-4 py-3 text-left font-display text-body"
+			shapeClass="min-h-12 rounded-sm px-4 py-3 text-center font-display text-body"
 			lookClass="border border-rule bg-card text-accent disabled:opacity-60"
 		/>
 	</div>
