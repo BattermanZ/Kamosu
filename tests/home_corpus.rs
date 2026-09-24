@@ -104,12 +104,9 @@ async fn quick_tonight_over_the_real_library_never_guesses_at_a_time_it_does_not
         .mint_access_key(&person, "corpus home", false)
         .unwrap()
         .secret;
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     for recipe in &recipes {
-        let mut input = recipe.clone();
-        input["kitchen_id"] = json!(kitchen_id);
+        let input = recipe.clone();
         let (status, created) = app.post_op("create_recipe", Some(&key), &input.to_string());
         assert_eq!(status, 200, "{} — {created}", recipe["title"]);
     }

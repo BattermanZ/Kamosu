@@ -145,9 +145,9 @@ impl Core {
         self.db().with_conn(|conn| {
             // The Branch's OWN Lineage, which is what the cooking scale is read
             // against — not the one this Reading may point at.
-            let (kitchen_id, language, head_version_id, content, of_this_branch): (String, String, String, String, String) = conn
+            let (cookbook_id, language, head_version_id, content, of_this_branch): (String, String, String, String, String) = conn
                 .query_row(
-                    "SELECT branches.kitchen_id, branches.language, branches.head_version_id, versions.content, branches.lineage_id \
+                    "SELECT branches.cookbook_id, branches.language, branches.head_version_id, versions.content, branches.lineage_id \
                        FROM branches JOIN versions ON versions.id = branches.head_version_id \
                       WHERE branches.id = ?1",
                     params![branch_id],
@@ -156,7 +156,7 @@ impl Core {
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_or_absent(conn, &cookbook_id, person_id, no_such_branch)?;
 
             let content: Value = serde_json::from_str(&content)
                 .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;

@@ -41,7 +41,7 @@ const arrived = (branch: string, title: string, over: Record<string, unknown> = 
 
 const report = (over: Partial<ImportCroutonOutput> = {}): ImportCroutonOutput => ({
 	import_id: 'i_1',
-	kitchen_id: 'k_1',
+	cookbook_id: 'c_1',
 	source_kind: 'crouton',
 	arrived: [
 		arrived('beef1', 'Beef Bourguignon'),

@@ -26,7 +26,7 @@ import RelatedTestHarness from './RelatedTestHarness.svelte';
 
 type Related = GetRecipeOutput['related_recipes'][number];
 
-/** A link to a recipe this Kitchen still holds. */
+/** A link to a recipe still on this reader's shelf. */
 const link = (id: string, title: string, main_photo: string | null = null): Related => ({
 	lineage_id: `l_${id}`,
 	branch_id: `b_${id}`,
@@ -161,12 +161,11 @@ describe('a recipe’s related recipes', () => {
 			related_branch_id: 'b_naan',
 			related: true,
 		});
-		// Scoped to this recipe's own shelf: a link is between two Recipes on the
-		// SAME shelf (#52), so offering one from another Kitchen this Person
-		// cooks in would be offering a refusal.
+		// The whole shelf: the Cookbook keeps the link, and its far end may be
+		// any recipe this Person can see, in whichever Kitchen (#131).
 		expect(kamosu.calls.find((call) => call.operation === 'search_recipes')?.input).toEqual({
 			query: null,
-			kitchen_id: 'k_home',
+			kitchen_id: null,
 			mine: false,
 		});
 		// And nothing that would be a change to the recipe.

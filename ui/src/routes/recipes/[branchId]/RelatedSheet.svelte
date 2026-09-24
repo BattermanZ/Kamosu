@@ -76,13 +76,6 @@
 
 	interface Props {
 		branchId: string;
-		/**
-		 * Whose shelf this is. The search is filtered to it rather than asking
-		 * the merged shelf of every Kitchen this Person cooks in: a link is
-		 * between two Recipes on the SAME shelf (#52), so offering one from
-		 * another Kitchen would be offering a refusal.
-		 */
-		kitchenId: string;
 		/** The recipe's links as the page has them, so the ticks are right on open. */
 		carried: Related[];
 		/** The recipe's links after a change, for the strip behind this sheet. */
@@ -90,7 +83,7 @@
 		onClose: () => void;
 	}
 
-	let { branchId, kitchenId, carried, onChanged, onClose }: Props = $props();
+	let { branchId, carried, onChanged, onClose }: Props = $props();
 
 	const kamosu = useKamosu();
 
@@ -118,8 +111,10 @@
 			void (async () => {
 				try {
 					const found = await kamosu.searchRecipes({
+						// The whole shelf: a link may reach any recipe the reader
+						// sees, in whichever Cookbook (#131, question 8).
 						query: query === '' ? null : query,
-						kitchen_id: kitchenId,
+						kitchen_id: null,
 						mine: false,
 					});
 					if (current) {
@@ -158,7 +153,7 @@
 
 	/**
 	 * Put a link on or take it off. The far end is named by its Branch where
-	 * this Kitchen holds one and by its Lineage where it does not, which is the
+	 * the reader can see one and by its Lineage where they cannot, which is the
 	 * case that could not be reached at all before #105.
 	 */
 	async function toggle(entry: Listed) {
@@ -288,7 +283,7 @@
 			else: a sentence on every recipe forever would be a lecture.
 
 			DRAWN ABOVE THE LIST RATHER THAN INSTEAD OF IT. An empty query answers
-			with the whole shelf, so a Kitchen holding any recipes at all never has
+			with the whole shelf, so a shelf holding any recipes at all never has
 			an empty list to put this in — which is exactly the state every real
 			library is in, and is how the first draft of this contrived to say the
 			one required sentence nowhere.

@@ -91,8 +91,6 @@ export class Library {
 
 	#kamosu: KamosuClient;
 	#entries: Entry[] = [];
-	/** The Person's Kitchens, so a second Branch of a Lineage held there is filled too. */
-	#kitchens = new Set<string>();
 	#running: Promise<void> | undefined;
 
 	constructor(kamosu: KamosuClient) {
@@ -143,8 +141,6 @@ export class Library {
 				mine: false,
 			});
 			this.#entries = found.recipes;
-			const kitchens = await this.#kamosu.listKitchens({});
-			this.#kitchens = new Set(kitchens.kitchens.map((kitchen) => kitchen.id));
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			// Signed out, or no server: nothing to fill, and nothing to offer.
@@ -220,12 +216,14 @@ export class Library {
 
 	/**
 	 * One recipe, read as the recipe screen reads it on opening — the recipe,
-	 * its pictures at the two sizes the shelf and the page show, its Thread, and
-	 * the other Branch laid over it when there is exactly one — so that opening
-	 * it with no network finds every answer that screen asks for.
+	 * its pictures at the two sizes the shelf and the page show, its Thread,
+	 * and every other version of it laid over the reader's own, which is what
+	 * the switch compares against (#131) — so that opening any of them with no
+	 * network finds every answer that screen asks for.
 	 *
-	 * Answers the other Branches of its Lineage that the Person's Kitchens
-	 * hold, which the shelf's one-entry-per-Lineage never named.
+	 * Answers the other versions of the recipe the Person may see, which the
+	 * shelf's one-entry-per-Lineage never named. The Thread answers only what
+	 * they may see, so every one it names is theirs to keep.
 	 */
 	async #read(entry: Entry): Promise<Entry[]> {
 		const recipe = await this.#kamosu.getRecipe({ branch_id: entry.branch_id });
@@ -242,12 +240,28 @@ export class Library {
 			page ? picture(`/api/photographs/${page}/page`) : undefined,
 		]);
 		const thread = await this.#kamosu.getThread({ branch_id: entry.branch_id });
+		// The page's own rule for which versions go on the switch: those that
+		// share a Version with this one, which no Translation does.
+		const held = new Map<string, Set<string>>();
+		for (const occurrence of thread.versions) {
+			const seen = held.get(occurrence.branch_id) ?? new Set<string>();
+			seen.add(occurrence.version_id);
+			held.set(occurrence.branch_id, seen);
+		}
+		const own = held.get(entry.branch_id) ?? new Set<string>();
+		const family = thread.branches.filter((each) =>
+			[...(held.get(each.branch_id) ?? [])].some((id) => own.has(id)),
+		);
+		const yours = family.find((each) => each.mine && !each.arrived && each.name === null);
+		// Every version is filled, Translations included: the Thread names only
+		// what this Person may see, and the page's language switch opens those.
 		const others = thread.branches.filter((each) => each.branch_id !== entry.branch_id);
-		if (others.length === 1) {
+		for (const other of family) {
+			if (!yours || other.branch_id === yours.branch_id) continue;
 			try {
 				await this.#kamosu.divergence({
-					branch_id: entry.branch_id,
-					other_branch_id: others[0].branch_id,
+					branch_id: yours.branch_id,
+					other_branch_id: other.branch_id,
 				});
 			} catch (error) {
 				// Refused, the page will be refused the same, and nothing else
@@ -255,12 +269,8 @@ export class Library {
 				if (!(error instanceof OperationError) || unreachable(error)) throw error;
 			}
 		}
-		return (
-			others
-				.filter((each) => this.#kitchens.has(each.kitchen_id))
-				// No card picture: the shelf shows one card per Lineage, and it is this one's.
-				.map((each) => ({ branch_id: each.branch_id, main_photo: null }))
-		);
+		// No card picture: the shelf shows one card per Lineage, and it is this one's.
+		return others.map((each) => ({ branch_id: each.branch_id, main_photo: null }));
 	}
 }
 

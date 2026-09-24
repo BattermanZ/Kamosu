@@ -19,6 +19,14 @@
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import ImportCrouton from './ImportCrouton.svelte';
 	import Tags from './Tags.svelte';
+	import Confirm from '$lib/Confirm.svelte';
+	import {
+		cookbookCalled,
+		cookbookPlainName,
+		cookbookWhose,
+		joinedNames,
+		kitchenName,
+	} from '$lib/cookbook';
 	import InstallSteps from '$lib/offline/InstallSteps.svelte';
 	import { thisDevice } from '$lib/offline/device.svelte';
 	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
@@ -29,6 +37,7 @@
 		ListSessionsOutput,
 		ListAccessKeysOutput,
 		ListKitchensOutput,
+		GetCookbookOutput,
 		GetReadingPreferencesOutput,
 		GetPersonOutput,
 	} from '$lib/api/catalogue';
@@ -271,8 +280,9 @@
 			if (me) me = { ...me, name: answer.name };
 			renamedTo = answer.name;
 			editingName = false;
-			// Your own row in each Kitchen reads the name the server holds.
-			await loadKitchens();
+			// Your own row in each Kitchen, and in your Cookbook, reads the
+			// name the server holds.
+			await Promise.all([loadKitchens(), loadCookbook()]);
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			renameError = error.message;
@@ -480,6 +490,140 @@
 			await loadKitchens();
 		});
 		joining = false;
+	}
+
+	/**
+	 * Leaving a Kitchen, asked first with what each side keeps (#131, screen
+	 * choice 4). The counts come from the Core's own dry run of the leave, so
+	 * the sheet says what the act will do rather than a guess at it.
+	 */
+	let leavingKitchen = $state<{ kitchen: Kitchen; theyKeep: number; youKeep: number } | undefined>(
+		undefined,
+	);
+	let leaveBusy = $state(false);
+	let leaveFailed = $state<string | undefined>(undefined);
+
+	function askToLeaveKitchen(kitchen: Kitchen) {
+		return withKitchenError(async () => {
+			const preview = await kamosu.previewLeavingKitchen({ kitchen_id: kitchen.id });
+			leaveFailed = undefined;
+			leavingKitchen = { kitchen, theyKeep: preview.they_keep, youKeep: preview.you_keep };
+		});
+	}
+
+	async function leaveKitchen() {
+		const asked = leavingKitchen;
+		if (!asked || !me) return;
+		leaveBusy = true;
+		leaveFailed = undefined;
+		try {
+			await kamosu.removeKitchenMember({ kitchen_id: asked.kitchen.id, person_id: me.person_id });
+			leavingKitchen = undefined;
+			await Promise.all([loadKitchens(), loadCookbook()]);
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			leaveFailed = error.message;
+		} finally {
+			leaveBusy = false;
+		}
+	}
+
+	// Your Cookbook (#131, ADR 0041): the circle that CHANGES your recipes,
+	// shown above the Kitchens, which only see them (screen choice 5).
+	let cookbook = $state<GetCookbookOutput | undefined>(undefined);
+	let cookbookError = $state<string | undefined>(undefined);
+	/**
+	 * The link just minted. Held only on this screen: the Core keeps a hash,
+	 * so once this page is left the link cannot be shown again, only ended.
+	 */
+	let cookbookLink = $state<{ inviteId: string; url: string } | undefined>(undefined);
+	let copied = $state(false);
+	let cookbookAsk = $state<
+		{ kind: 'leave' } | { kind: 'remove'; personId: string; name: string } | undefined
+	>(undefined);
+	let cookbookBusy = $state(false);
+	let cookbookFailed = $state<string | undefined>(undefined);
+
+	async function loadCookbook() {
+		try {
+			cookbook = await kamosu.getCookbook();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			cookbook = undefined;
+		}
+	}
+
+	$effect(() => {
+		if (signedIn) loadCookbook();
+	});
+
+	async function withCookbookError(action: () => Promise<void>) {
+		cookbookError = undefined;
+		try {
+			await action();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			cookbookError = error.message;
+		}
+	}
+
+	function renameCookbook(name: string) {
+		return withCookbookError(async () => {
+			cookbook = await kamosu.renameCookbook({ name: name.trim() || null });
+			// Every Kitchen card names the Cookbooks it sees.
+			await loadKitchens();
+		});
+	}
+
+	function inviteToCookbook() {
+		return withCookbookError(async () => {
+			const invite = await kamosu.inviteToCookbook();
+			copied = false;
+			cookbookLink = {
+				inviteId: invite.invite_id,
+				url: `${location.origin}/cookbook-invite/${invite.secret}`,
+			};
+			await loadCookbook();
+		});
+	}
+
+	function cancelCookbookInvite(inviteId: string) {
+		return withCookbookError(async () => {
+			await kamosu.cancelCookbookInvite({ invite_id: inviteId });
+			if (cookbookLink?.inviteId === inviteId) cookbookLink = undefined;
+			await loadCookbook();
+		});
+	}
+
+	async function copyCookbookLink() {
+		if (!cookbookLink) return;
+		try {
+			await navigator.clipboard.writeText(cookbookLink.url);
+			copied = true;
+		} catch {
+			// A browser that will not copy still shows the link to select by hand.
+			copied = false;
+		}
+	}
+
+	async function answerCookbookAsk() {
+		const asked = cookbookAsk;
+		if (!asked) return;
+		cookbookBusy = true;
+		cookbookFailed = undefined;
+		try {
+			cookbook =
+				asked.kind === 'leave'
+					? await kamosu.leaveCookbook()
+					: await kamosu.removeCookbookAuthor({ person_id: asked.personId });
+			cookbookAsk = undefined;
+			await loadKitchens();
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			cookbookFailed = error.message;
+		} finally {
+			cookbookBusy = false;
+		}
 	}
 </script>
 
@@ -882,6 +1026,150 @@
 			</form>
 		</Section>
 
+		<!--
+			Your Cookbook (#131), above the Kitchens because it is what your
+			recipes ARE and the Kitchens are only who sees them (screen choice 5).
+			One card, since a person writes exactly one Cookbook.
+		-->
+		{#if cookbook}
+			{@const book = cookbook}
+			<Section heading={m.settings_cookbook()}>
+				{#if cookbookError}
+					<p class="mb-4 text-body text-accent" role="alert">{cookbookError}</p>
+				{/if}
+				<div class="min-w-0 rounded-sm border border-t-4 border-rule border-t-accent bg-card p-3">
+					<!-- Blank until named: the placeholder is the name it goes by
+					     meanwhile, its Co-authors', so clearing the box is how a
+					     name of its own is given back. -->
+					<form
+						class="flex items-center gap-2"
+						onsubmit={(event) => {
+							event.preventDefault();
+							const input = event.currentTarget.elements.namedItem('name') as HTMLInputElement;
+							renameCookbook(input.value);
+						}}
+					>
+						<label class="sr-only" for="cookbook-name">{m.cookbook_name_label()}</label>
+						<input
+							id="cookbook-name"
+							name="name"
+							class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 font-semibold text-ink"
+							placeholder={cookbookWhose({ ...book, name: null })}
+							value={book.name ?? ''}
+						/>
+						<button class="shrink-0 text-label text-accent underline" type="submit">
+							{m.kitchen_save()}
+						</button>
+					</form>
+					<p class="mt-2 text-read text-ink-2">
+						{book.authors.length > 1 ? m.cookbook_name_note_together() : m.cookbook_name_note()}
+					</p>
+
+					<h3 class="mt-3 mb-1 text-label text-ink-2 uppercase">{m.cookbook_written_by()}</h3>
+					<ul class="grid gap-1">
+						{#each book.authors as author (author.person_id)}
+							<li class="flex items-center justify-between gap-3 text-body text-ink">
+								<span>
+									{author.name}
+									{#if author.person_id === me?.person_id}
+										<span class="ml-1 text-label text-ink-2 uppercase"
+											>{m.kitchen_member_you()}</span
+										>
+									{/if}
+								</span>
+								{#if author.person_id !== me?.person_id}
+									<button
+										type="button"
+										class="shrink-0 text-label text-accent underline"
+										onclick={() => {
+											cookbookFailed = undefined;
+											cookbookAsk = {
+												kind: 'remove',
+												personId: author.person_id,
+												name: author.name,
+											};
+										}}
+									>
+										{m.kitchen_remove()}
+									</button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+					<p class="mt-2 text-read text-ink-2">
+						{book.recipe_count === 1
+							? m.cookbook_count_one()
+							: m.cookbook_count({ count: book.recipe_count })}
+					</p>
+
+					{#if cookbookLink}
+						<div class="mt-3 rounded-sm border border-accent bg-ground p-3" role="status">
+							<p class="text-body text-ink">{m.cookbook_invite_said()}</p>
+							<code
+								class="mt-2 block rounded-sm border border-dashed border-rule bg-card p-2 text-read break-all"
+								>{cookbookLink.url}</code
+							>
+							<div class="mt-2 flex flex-wrap items-center gap-4">
+								<button
+									type="button"
+									class="text-label text-accent underline"
+									onclick={copyCookbookLink}
+								>
+									{copied ? m.cookbook_invite_copied() : m.cookbook_invite_copy()}
+								</button>
+								<button
+									type="button"
+									class="text-label text-support underline"
+									onclick={() => cookbookLink && cancelCookbookInvite(cookbookLink.inviteId)}
+								>
+									{m.cookbook_invite_cancel()}
+								</button>
+							</div>
+						</div>
+					{:else}
+						<!-- A link minted on an earlier visit cannot be shown again,
+						     since only its hash is kept, but it can still be ended. -->
+						{#each book.invites as invite (invite.invite_id)}
+							<div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+								<p class="text-read text-ink-2">{m.cookbook_invite_waiting()}</p>
+								<button
+									type="button"
+									class="shrink-0 text-label text-support underline"
+									onclick={() => cancelCookbookInvite(invite.invite_id)}
+								>
+									{m.cookbook_invite_cancel()}
+								</button>
+							</div>
+						{/each}
+					{/if}
+
+					<div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+						{#if !cookbookLink}
+							<button
+								type="button"
+								class="text-label text-accent underline"
+								onclick={inviteToCookbook}
+							>
+								{m.cookbook_invite()}
+							</button>
+						{/if}
+						{#if book.authors.length > 1}
+							<button
+								type="button"
+								class="text-label text-support underline"
+								onclick={() => {
+									cookbookFailed = undefined;
+									cookbookAsk = { kind: 'leave' };
+								}}
+							>
+								{m.cookbook_leave()}
+							</button>
+						{/if}
+					</div>
+				</div>
+			</Section>
+		{/if}
+
 		<Section heading={m.settings_kitchens()}>
 			{#if kitchensError}
 				<p class="mb-4 text-body text-accent" role="alert">{kitchensError}</p>
@@ -920,11 +1208,6 @@
 								class="min-h-12 min-w-0 flex-1 rounded-sm border border-rule bg-ground px-2 font-semibold text-ink"
 								value={kitchen.name}
 							/>
-							{#if kitchen.is_home}
-								<span class="shrink-0 text-label text-ink-2 uppercase"
-									>{m.kitchen_home_badge()}</span
-								>
-							{/if}
 							<button class="shrink-0 text-label text-accent underline" type="submit">
 								{m.kitchen_save()}
 							</button>
@@ -956,44 +1239,41 @@
 						</form>
 
 						<h3 class="mt-3 mb-1 text-label text-ink-2 uppercase">{m.kitchen_members()}</h3>
-						<!-- The same Operation removes someone or, on your own row,
-						     leaves, so the two are worded apart (#118). Where the Core
-						     would refuse the leave, the row says why instead: these are
-						     remove_kitchen_member's two refusals, in its order. Declaration
-						     tags, since {@const} cannot sit here, and $derived, since a plain
-						     one is worked out once and a keyed row outlives a reload. -->
-						{const alone = $derived(kitchen.members.length <= 1)}
-						{const last = $derived(kitchens.length <= 1)}
+						<!-- Your own row carries no button: leaving is its own act at
+						     the foot of the card, asked first with what each side
+						     keeps (#131, screen choice 4). Since #131 a Kitchen never
+						     refuses a leave, because nobody's recipes live in one. -->
 						<ul class="grid gap-1">
 							{#each kitchen.members as member (member.person_id)}
-								{const mine = $derived(member.person_id === me?.person_id)}
 								<li class="flex items-center justify-between gap-3 text-body text-ink">
 									<span>
 										{member.name}
-										{#if mine}
+										{#if member.person_id === me?.person_id}
 											<span class="ml-1 text-label text-ink-2 uppercase"
 												>{m.kitchen_member_you()}</span
 											>
 										{/if}
 									</span>
-									{#if mine && alone}
-										<span class="shrink-0 text-label text-ink-2">{m.kitchen_leave_alone()}</span>
-									{:else if mine && last}
-										<span class="shrink-0 text-label text-ink-2">{m.kitchen_leave_last()}</span>
-									{:else}
+									{#if member.person_id !== me?.person_id}
 										<button
 											type="button"
 											class="shrink-0 text-label text-accent underline"
 											onclick={() => removeMember(kitchen.id, member.person_id)}
 										>
-											{mine ? m.kitchen_leave() : m.kitchen_remove()}
+											{m.kitchen_remove()}
 										</button>
 									{/if}
 								</li>
 							{/each}
 						</ul>
-						{#if !alone}
-							<p class="mt-2 text-read text-ink-2">{m.kitchen_leave_keeps()}</p>
+						<!-- Whose recipes this Kitchen shows: every member's Cookbook,
+						     your own first, as the Core answers them. -->
+						{#if kitchen.cookbooks.length > 0}
+							<p class="mt-2 text-read text-ink-2">
+								{m.kitchen_recipes_here({
+									cookbooks: joinedNames(kitchen.cookbooks.map(cookbookCalled)),
+								})}
+							</p>
 						{/if}
 
 						{#if mintedInvite?.kitchenId === kitchen.id}
@@ -1019,6 +1299,15 @@
 								{m.kitchen_invite()}
 							</button>
 						{/if}
+						<div class="mt-3">
+							<button
+								type="button"
+								class="text-label text-support underline"
+								onclick={() => askToLeaveKitchen(kitchen)}
+							>
+								{m.kitchen_leave_this()}
+							</button>
+						</div>
 					</li>
 				{/each}
 			</ul>
@@ -1070,9 +1359,8 @@
 		</Section>
 
 		<!--
-			Tags (#104). Beneath Kitchens because a tag belongs to a Kitchen
-			(ADR 0007) and this section is one card per Kitchen, reading as a
-			continuation of the one above it.
+			Tags (#104). One card, your Cookbook's, since #131 put Tags in the
+			Cookbook that writes the recipes they file.
 
 			Renaming and merging are HERE and not on the recipe page, which is
 			Aurélien's choice of 22 September 2026 — `Tags.svelte` beside this
@@ -1090,7 +1378,10 @@
 			offered with above.
 		-->
 		<Section heading={m.settings_tags()}>
-			<Tags {kitchens} readingLanguage={preferences?.reading_language ?? 'en'} />
+			<Tags
+				cookbook={cookbook ? cookbookCalled(cookbook) : m.settings_cookbook()}
+				readingLanguage={preferences?.reading_language ?? 'en'}
+			/>
 		</Section>
 	{/if}
 
@@ -1223,3 +1514,81 @@
 		</ul>
 	</Section>
 </Screen>
+
+{#if leavingKitchen}
+	{@const asked = leavingKitchen}
+	{@const called = kitchenName(asked.kitchen)}
+	{@const others = asked.kitchen.members.filter((member) => member.person_id !== me?.person_id)}
+	<Confirm
+		title={m.kitchen_leave_title({ kitchen: called })}
+		consequence={m.kitchen_leave_said({ kitchen: called })}
+		act={m.kitchen_leave_do({ kitchen: called })}
+		cancelLabel={m.cookbook_stay()}
+		busy={leaveBusy}
+		failed={leaveFailed}
+		run={leaveKitchen}
+		cancel={() => (leavingKitchen = undefined)}
+	>
+		<!-- What each side keeps, counted by the Core's own dry run: a copy
+		     of what they cooked of the other's, and nothing more. -->
+		<ul>
+			{#if others.length > 0}
+				<li class="flex justify-between gap-3 border-b border-rule py-2 text-body text-ink">
+					<span>
+						{others.length === 1
+							? m.kitchen_leave_they_keep_one({ name: others[0]!.name })
+							: m.kitchen_leave_they_keep({ names: joinedNames(others.map((o) => o.name)) })}
+					</span>
+					<span class="text-right text-read text-ink-2"
+						>{asked.theyKeep === 0
+							? m.kitchen_leave_they_keep_what_none()
+							: asked.theyKeep === 1
+								? m.kitchen_leave_they_keep_what_one()
+								: m.kitchen_leave_they_keep_what({ count: asked.theyKeep })}</span
+					>
+				</li>
+			{/if}
+			<li class="flex justify-between gap-3 border-b border-rule py-2 text-body text-ink">
+				<span>{m.kitchen_leave_you_keep()}</span>
+				<span class="text-right text-read text-ink-2"
+					>{asked.youKeep === 0
+						? m.kitchen_leave_you_keep_what_none()
+						: asked.youKeep === 1
+							? m.kitchen_leave_you_keep_what_one()
+							: m.kitchen_leave_you_keep_what({ count: asked.youKeep })}</span
+				>
+			</li>
+		</ul>
+		<p class="mt-3 text-read text-ink-2">{m.kitchen_leave_nothing_else()}</p>
+	</Confirm>
+{/if}
+
+{#if cookbookAsk && cookbook}
+	{@const asked = cookbookAsk}
+	{@const book = cookbook}
+	{#if asked.kind === 'leave'}
+		<Confirm
+			title={m.cookbook_leave_title({ name: cookbookPlainName(book) })}
+			consequence={m.cookbook_leave_said({ count: book.recipe_count })}
+			act={m.cookbook_leave_do()}
+			cancelLabel={m.cookbook_stay()}
+			busy={cookbookBusy}
+			failed={cookbookFailed}
+			run={answerCookbookAsk}
+			cancel={() => (cookbookAsk = undefined)}
+		>
+			<p class="text-read text-ink-2">{m.cookbook_leave_said_links()}</p>
+		</Confirm>
+	{:else}
+		<Confirm
+			title={m.cookbook_remove_title({ name: asked.name })}
+			consequence={m.cookbook_remove_said({ name: asked.name, count: book.recipe_count })}
+			act={m.cookbook_remove_do({ name: asked.name })}
+			cancelLabel={m.cookbook_stay()}
+			busy={cookbookBusy}
+			failed={cookbookFailed}
+			run={answerCookbookAsk}
+			cancel={() => (cookbookAsk = undefined)}
+		/>
+	{/if}
+{/if}

@@ -171,8 +171,6 @@ async fn the_whole_real_library_on_one_list_merges_adds_and_admits_what_it_canno
         Some(&key),
         r#"{"reading_language":"en","reading_measures":"metric"}"#,
     );
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     // **Several corpus recipes chosen at once** — all of them, which is the
     // hardest version of the question and the one that finds real merges.
@@ -186,8 +184,7 @@ async fn the_whole_real_library_on_one_list_merges_adds_and_admits_what_it_canno
         let (status, created) = app.post_op(
             "create_recipe",
             Some(&key),
-            &json!({ "kitchen_id": kitchen_id, "title": title, "ingredients": ingredients })
-                .to_string(),
+            &json!({ "title": title, "ingredients": ingredients }).to_string(),
         );
         assert_eq!(status, 200, "creating {title}: {created}");
         let (status, list) = app.post_op(

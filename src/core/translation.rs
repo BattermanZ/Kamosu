@@ -21,9 +21,14 @@ impl Core {
     /// first line.
     ///
     /// An agent asked to translate calls exactly this, under the Person's own
-    /// Credential: the Hand on the Branch is that Person's Kitchen's, the Hand
+    /// Credential: the Hand on the Branch is that Person's Cookbook's, the Hand
     /// on the Version is the Person's, and the Access Key is recorded locally
     /// and travels nowhere (ADR 0015). A scribe, not an author.
+    ///
+    /// The Translation is always the caller's own, in their own Cookbook
+    /// (ADR 0041): of a recipe they write, it sits beside it there; of anybody
+    /// else's they may see, it is a Branch of their own, as a change to it
+    /// would be.
     #[allow(clippy::too_many_arguments)]
     pub fn start_translation(
         &self,
@@ -33,7 +38,6 @@ impl Core {
         input: &Value,
         name: Option<&str>,
         change_note: Option<&str>,
-        kitchen_id: Option<&str>,
         translates_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let language = supported_branch_language(required_text(language, "language")?)?.to_string();
@@ -42,22 +46,14 @@ impl Core {
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
         self.db().with_conn(|conn| {
-            let (source_kitchen_id, lineage_id, source_language, source_head): (
-                String,
-                String,
-                String,
-                String,
-            ) = conn
+            ensure_sees_branch(conn, source_branch_id, &caller.person_id)?;
+            let (lineage_id, source_language, source_head): (String, String, String) = conn
                 .query_row(
-                    "SELECT kitchen_id, lineage_id, language, head_version_id \
-                       FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, language, head_version_id FROM branches WHERE id = ?1",
                     params![source_branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &source_kitchen_id, &caller.person_id, no_such_branch)?;
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
 
             // Unknown can neither be a Translation nor have one (ADR 0006). A
             // recipe that is honestly two Languages has no single source text
@@ -80,14 +76,15 @@ impl Core {
                 )));
             }
 
-            // Which of the caller's own Kitchens holds the Translation — the
-            // same rule a save follows, so translating a recipe your own
-            // Kitchen holds keeps it on that shelf and never has to be said.
-            let target_kitchen_id = match kitchen_id {
-                Some(id) => id.to_string(),
-                None => source_kitchen_id.clone(),
-            };
-            ensure_member(conn, &target_kitchen_id, &caller.person_id)?;
+            // Always the caller's own Cookbook, the same rule a save follows.
+            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let branch_name = name_on_arrival(
+                conn,
+                &own_cookbook_id,
+                &lineage_id,
+                &language,
+                &whose_branch(conn, source_branch_id)?,
+            )?;
 
             // `branch_id` names a Branch that does not exist yet, so the
             // "on some Branch other than this one" half of the check is
@@ -105,13 +102,7 @@ impl Core {
                 None => source_head,
             };
 
-            let kitchen_hand_id: String = conn
-                .query_row(
-                    "SELECT hand_id FROM kitchens WHERE id = ?1",
-                    params![target_kitchen_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
+            let hand_id = cookbook_hand(conn, &own_cookbook_id)?;
 
             conn.execute(
                 "INSERT OR IGNORE INTO versions (id, content) VALUES (?1, ?2)",
@@ -119,15 +110,17 @@ impl Core {
             )
             .map_err(|e| OpError::internal(format!("cannot record Version: {e}")))?;
             conn.execute(
-                "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     branch_id,
                     lineage_id,
-                    target_kitchen_id,
-                    kitchen_hand_id,
+                    own_cookbook_id,
+                    hand_id,
                     language,
-                    version_id
+                    version_id,
+                    branch_name,
+                    caller.person_id
                 ],
             )
             .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
@@ -176,22 +169,14 @@ impl Core {
     ) -> Result<Value, OpError> {
         let language = supported_branch_language(required_text(language, "language")?)?.to_string();
         self.db().with_conn(|conn| {
-            let (kitchen_id, lineage_id, current, head_version_id): (
-                String,
-                String,
-                String,
-                String,
-            ) = conn
+            ensure_sees_branch(conn, branch_id, &caller.person_id)?;
+            let (lineage_id, current, head_version_id): (String, String, String) = conn
                 .query_row(
-                    "SELECT kitchen_id, lineage_id, language, head_version_id \
-                       FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, language, head_version_id FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, &caller.person_id, no_such_branch)?;
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
 
             if language == current {
                 // Already what it says: nothing changed, so no Version. Saying
@@ -224,17 +209,19 @@ impl Core {
             }
 
             // Saying what Language a recipe is in is a change to it, so on a
-            // Branch another Kitchen writes — one that arrived in a Bundle —
-            // it is a Copy like any other change (ADR 0020), and the new
-            // Language lands on the Copy.
-            let branch_id = if kitchen_writes_branch(conn, &kitchen_id, branch_id)? {
+            // Branch another Cookbook writes — a Kitchen-mate's, or one that
+            // arrived in a Bundle — it is a Copy like any other change (ADR
+            // 0020, ADR 0041), and the new Language lands on the Copy.
+            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let branch_id = if cookbook_writes_branch(conn, &own_cookbook_id, branch_id)? {
                 branch_id.to_string()
             } else {
                 start_copy(
                     conn,
                     branch_id,
                     &lineage_id,
-                    &kitchen_id,
+                    &own_cookbook_id,
+                    &caller.person_id,
                     &current,
                     &head_version_id,
                 )?

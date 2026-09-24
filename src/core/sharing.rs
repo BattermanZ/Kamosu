@@ -38,8 +38,7 @@ impl Core {
         address: Option<&str>,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_branch(conn, branch_id, person_id)?;
 
             if let Some(offered) = address {
                 let offered = normalise_public_address(offered)?;
@@ -89,8 +88,7 @@ impl Core {
     /// sharing back on mints a new one (ADR 0018).
     pub fn end_share_link(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_branch(conn, branch_id, person_id)?;
             conn.execute(
                 "UPDATE share_links SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
                   WHERE branch_id = ?1 AND ended_at IS NULL",
@@ -104,8 +102,7 @@ impl Core {
     /// What the share screen reads: whether this recipe is shared, and where.
     pub fn get_share_link(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_branch(conn, branch_id, person_id)?;
             let live = live_share_link(conn, branch_id)?;
             share_link_summary(conn, live, None)
         })
@@ -242,8 +239,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         let named = wanted.map(parse_named_yield).transpose()?;
         let gathered = self.db().with_conn(|conn| {
-            let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_branch(conn, branch_id, person_id)?;
             let reader = Reader::of(conn, person_id)?;
             let paper = sheet::Paper::for_measures(&reading_measures_of(conn, person_id)?);
             gather_sheet(
@@ -297,12 +293,12 @@ impl Core {
             .as_str()
             .map(|address| format!("{address}/s/{token}"));
         let gathered = self.db().with_conn(|conn| {
-            let kitchen_id = branch_kitchen(conn, &branch_id)?;
+            let cookbook_id = branch_cookbook(conn, &branch_id)?;
             gather_sheet(
                 conn,
                 &branch_id,
                 &SheetReader::Stranger {
-                    kitchen_id: &kitchen_id,
+                    cookbook_id: &cookbook_id,
                 },
                 sheet::Paper::for_locale(locale),
                 share_url,
@@ -625,8 +621,8 @@ impl Core {
             .ok_or_else(|| OpError::internal("a shared recipe carries no Branch"))?
             .to_string();
         let (mut contents, hashes) = self.db().with_conn(|conn| {
-            let kitchen_id = branch_kitchen(conn, &branch_id)?;
-            bundle_contents(conn, &branch_id, &kitchen_id)
+            let cookbook_id = branch_cookbook(conn, &branch_id)?;
+            bundle_contents(conn, &branch_id, &cookbook_id)
         })?;
 
         let data_dir = self.data_dir();
@@ -652,21 +648,21 @@ impl Core {
     }
 
     /// Everything one Bundle carries but the Photographs' bytes, for a Person
-    /// who cooks in the Kitchen holding the Branch — the same circle that may
-    /// read it, and the one `share_recipe` lets mint a link to it.
+    /// who may see the Branch — the same circle that may read it, and the one
+    /// `share_recipe` lets mint a link to it.
     fn gather_bundle(
         &self,
         person_id: &str,
         branch_id: &str,
     ) -> Result<(bundles::Contents, Vec<String>), OpError> {
         self.db().with_conn(|conn| {
-            let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
-            bundle_contents(conn, branch_id, &kitchen_id)
+            let cookbook_id = ensure_sees_branch(conn, branch_id, person_id)?;
+            bundle_contents(conn, branch_id, &cookbook_id)
         })
     }
 
-    /// **Receive a Bundle** into the caller's Home Kitchen (#67, ADR 0020).
+    /// **Receive a Bundle** into the caller's own Cookbook (#67, ADR 0020,
+    /// ADR 0041).
     ///
     /// Every Branch the Bundle carries is placed under the sender's Lineage id
     /// and Hands — held here, written by them — travelling on under the
@@ -679,7 +675,7 @@ impl Core {
     /// a third. Another Kitchen here holding the sender's Branch is no part of
     /// the question: each household receives its own copy. Receiving makes
     /// nothing of your own: changing what arrived is what starts your Branch
-    /// (`kitchen_writes_branch`).
+    /// (`cookbook_writes_branch`).
     ///
     /// A Branch whose history is damaged keeps the dinner and loses where it
     /// came from: its words arrive as a new recipe of the caller's own, with
@@ -697,23 +693,17 @@ impl Core {
         bytes: &[u8],
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
-        let (kitchen_id, import_id) = self.db().with_conn(|conn| {
-            let kitchen_id: String = conn
-                .query_row(
-                    "SELECT home_kitchen_id FROM people WHERE id = ?1",
-                    params![caller.person_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot read Home Kitchen: {e}")))?;
-            let import_id = find_or_create_import(conn, &kitchen_id, "bundle")?;
-            Ok((kitchen_id, import_id))
+        let (cookbook_id, import_id) = self.db().with_conn(|conn| {
+            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let import_id = find_or_create_import(conn, &cookbook_id, "bundle")?;
+            Ok((cookbook_id, import_id))
         })?;
         let mut arrived: Vec<Value> = Vec::new();
         let mut unreadable: Vec<Value> = Vec::new();
         let report = |arrived: Vec<Value>, unreadable: Vec<Value>| {
             json!({
                 "import_id": import_id,
-                "kitchen_id": kitchen_id,
+                "cookbook_id": cookbook_id,
                 "source_kind": "bundle",
                 "arrived": arrived,
                 "offered": [],
@@ -723,32 +713,37 @@ impl Core {
             })
         };
 
-        let opened =
-            match bundles::open(bytes) {
-                Ok(opened) => opened,
-                Err(unopened) if unopened.notes.is_empty() => {
-                    unreadable
-                        .push(json!({ "foreign_id": Value::Null, "reason": unopened.reason }));
-                    return Ok(report(arrived, unreadable));
-                }
-                Err(unopened) => {
-                    for (note, content) in &unopened.notes {
-                        let why = &unopened.reason;
-                        let fate = self.db().with_conn(|conn| {
-                        keep_words_as_new_recipe(conn, caller, &kitchen_id, content, None, |named| {
-                            format!(
-                                "{named} was read from its note alone, because this Bundle's \
+        let opened = match bundles::open(bytes) {
+            Ok(opened) => opened,
+            Err(unopened) if unopened.notes.is_empty() => {
+                unreadable.push(json!({ "foreign_id": Value::Null, "reason": unopened.reason }));
+                return Ok(report(arrived, unreadable));
+            }
+            Err(unopened) => {
+                for (note, content) in &unopened.notes {
+                    let why = &unopened.reason;
+                    let fate = self.db().with_conn(|conn| {
+                        keep_words_as_new_recipe(
+                            conn,
+                            caller,
+                            &cookbook_id,
+                            content,
+                            None,
+                            |named| {
+                                format!(
+                                    "{named} was read from its note alone, because this Bundle's \
                                  machine half could not be used ({why}). Its words were kept as \
                                  a new recipe of your own, with no history, no photographs and \
                                  no link to the recipe it came from."
-                            )
-                        })
+                                )
+                            },
+                        )
                     })?;
-                        unreadable.push(fate.row(&json!(note), false));
-                    }
-                    return Ok(report(arrived, unreadable));
+                    unreadable.push(fate.row(&json!(note), false));
                 }
-            };
+                return Ok(report(arrived, unreadable));
+            }
+        };
 
         // The Photographs first, and off the database lock: each is a file.
         // Stored exactly as they arrived, since a Photograph from another
@@ -847,7 +842,7 @@ impl Core {
                     .unchecked_transaction()
                     .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
                 let fate = match bundles::damage(record) {
-                    None => place_carried_branch(conn, &kitchen_id, record, &held_before)?,
+                    None => place_carried_branch(conn, &cookbook_id, caller, record, &held_before)?,
                     Some(damage) => {
                         let language = record["language"].as_str();
                         let words = bundles::head(record).map(|version| &version["content"]);
@@ -855,7 +850,7 @@ impl Core {
                             Some(content) => keep_words_as_new_recipe(
                                 conn,
                                 caller,
-                                &kitchen_id,
+                                &cookbook_id,
                                 content,
                                 language,
                                 |named| {
@@ -906,8 +901,8 @@ enum SheetReader<'a> {
         wanted: Option<&'a Value>,
     },
     /// A stranger holding a Share Link: cooking nothing, and reading the
-    /// Components the sharing Kitchen holds.
-    Stranger { kitchen_id: &'a str },
+    /// Components the sharing Cookbook holds.
+    Stranger { cookbook_id: &'a str },
 }
 
 /// **Everything one Sheet carries**, read from the Branch's head Version.
@@ -973,10 +968,10 @@ fn gather_sheet(
             ),
             Unfolds::ForReader { person_id, reader },
         ),
-        SheetReader::Stranger { kitchen_id } => (
+        SheetReader::Stranger { cookbook_id } => (
             1.0,
             Unfolds::PrintedPassenger {
-                kitchen_id,
+                cookbook_id,
                 reader: &stranger_reader,
             },
         ),
@@ -1200,7 +1195,7 @@ fn shared_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
     let recipe = shared_version(conn, branch_id, &head_version_id, &language)?;
 
     // Its Translations (ADR 0006, ADR 0018): the other Branches of this
-    // Lineage in this Kitchen written in another Language. They are carried
+    // Lineage in this Cookbook written in another Language. They are carried
     // whole rather than as links, because each is a Branch of its own and a
     // second token per Translation would be a second link to end.
     let mut statement = conn
@@ -1208,7 +1203,7 @@ fn shared_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
             "SELECT branches.id, branches.language, branches.head_version_id \
                FROM branches \
               WHERE branches.lineage_id = ?1 AND branches.id <> ?2 \
-                AND branches.kitchen_id = (SELECT kitchen_id FROM branches WHERE id = ?2) \
+                AND branches.cookbook_id = (SELECT cookbook_id FROM branches WHERE id = ?2) \
               ORDER BY branches.created_at ASC",
         )
         .map_err(|e| OpError::internal(format!("cannot read Translations: {e}")))?;
@@ -1289,12 +1284,12 @@ fn shared_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
 /// The Branch shared and its Translations are the subjects — the same
 /// Translations a Share Link carries, by the same test. Every Component their
 /// head Versions unfold to, at any depth, travels as a Passenger, resolved
-/// against the Kitchen holding the shared Branch exactly as the Share Link
+/// against the Cookbook holding the shared Branch exactly as the Share Link
 /// page resolves one.
 fn bundle_contents(
     conn: &Connection,
     branch_id: &str,
-    kitchen_id: &str,
+    cookbook_id: &str,
 ) -> Result<(bundles::Contents, Vec<String>), OpError> {
     let (lineage_id, language): (String, String) = conn
         .query_row(
@@ -1307,12 +1302,14 @@ fn bundle_contents(
     let mut order: Vec<String> = vec![branch_id.to_string()];
     let mut statement = conn
         .prepare(
-            "SELECT id FROM branches WHERE lineage_id = ?1 AND id <> ?2 AND kitchen_id = ?3 \
+            "SELECT id FROM branches WHERE lineage_id = ?1 AND id <> ?2 AND cookbook_id = ?3 \
               ORDER BY created_at ASC, id ASC",
         )
         .map_err(|e| OpError::internal(format!("cannot read Translations: {e}")))?;
     let siblings: Vec<String> = statement
-        .query_map(params![lineage_id, branch_id, kitchen_id], |row| row.get(0))
+        .query_map(params![lineage_id, branch_id, cookbook_id], |row| {
+            row.get(0)
+        })
         .map_err(|e| OpError::internal(format!("cannot read Translations: {e}")))?
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Translations: {e}")))?;
@@ -1348,7 +1345,7 @@ fn bundle_contents(
         unfold_components(
             conn,
             &Unfolds::AsPassenger {
-                kitchen_id,
+                cookbook_id,
                 language: record["language"].as_str().unwrap_or(&language),
             },
             &head,
@@ -1399,8 +1396,8 @@ fn bundle_contents(
 }
 
 /// One Branch as a Bundle's sidecar records it: its ids, its Language, the
-/// Kitchen's Hand, its origin address, its Tags as names, and its complete
-/// chain of Versions.
+/// Cookbook's Hand, its name where it is a variation (#131, question 10), its
+/// origin address, its Tags as names, and its complete chain of Versions.
 ///
 /// The origin address is carried exactly as stored and never filled in from
 /// this instance's own address (ADR 0020: nothing in v1 writes one). A Branch
@@ -1412,15 +1409,16 @@ fn bundle_contents(
 /// that arrived, the Travelling id is the sender's, so a reshare continues the
 /// sender's Branch at the next instance rather than starting a third.
 fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
-    let (travelling_id, lineage_id, language, hand_id, origin_address): (
+    let (travelling_id, lineage_id, language, hand_id, origin_address, branch_name): (
         String,
         String,
         String,
         String,
         Option<String>,
+        Option<String>,
     ) = conn
         .query_row(
-            "SELECT COALESCE(travelling_id, id), lineage_id, language, hand_id, origin_address \
+            "SELECT COALESCE(travelling_id, id), lineage_id, language, hand_id, origin_address, name \
                FROM branches WHERE id = ?1",
             params![branch_id],
             |row| {
@@ -1430,23 +1428,23 @@ fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
+                    row.get(5)?,
                 ))
             },
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
         .ok_or_else(no_such_branch)?;
-    // A received Branch's Hand is the sender's Kitchen's, named by what
-    // arrived with it (#67): resharing it names them, not this Kitchen.
-    let kitchen_name: Option<String> = conn
+    // A received Branch's Hand is the sender's, named by what arrived with it
+    // (#67): resharing it names them, not this Cookbook. One written here is
+    // named after the Cookbook answering to it now.
+    let hand_name: Option<String> = conn
         .query_row(
-            "SELECT name FROM kitchens WHERE hand_id = ?1 \
-             UNION ALL SELECT name FROM arrived_hands WHERE hand_id = ?1 LIMIT 1",
+            &format!("SELECT {}", hand_name_sql("?1")),
             params![hand_id],
             |row| row.get(0),
         )
-        .optional()
-        .map_err(|e| OpError::internal(format!("cannot read a Kitchen's Hand: {e}")))?;
+        .map_err(|e| OpError::internal(format!("cannot read a Hand's name: {e}")))?;
 
     // Tags travel as names, in every Language each has one in (ADR 0020).
     let mut statement = conn
@@ -1563,7 +1561,11 @@ fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
         "branch_id": travelling_id,
         "lineage_id": lineage_id,
         "language": language,
-        "hand": { "id": hand_id, "name": kitchen_name },
+        "hand": { "id": hand_id, "name": hand_name },
+        // A variation's name travels, outside the fingerprint like a
+        // Version's, so a receiver can tell "Classic" from "Vegetarian"
+        // (#131, question 10). Absent on every other Branch.
+        "name": branch_name,
         "origin_address": origin_address,
         "tags": tags,
         "versions": versions,
@@ -1702,29 +1704,31 @@ impl Fate {
     }
 }
 
-/// Place one sound carried Branch (#67, ADR 0020): new to this Kitchen, it is
-/// held by `kitchen_id` under the sender's Lineage id and Hands, travelling
+/// Place one sound carried Branch (#67, ADR 0020): new to this Cookbook, it is
+/// held by `cookbook_id` under the sender's Lineage id and Hands, travelling
 /// under the sender's Branch id; already here, it is extended by whatever the
 /// Bundle carries past the Version held.
 ///
-/// **The question is always about this Kitchen's copy** (#90). A Branch's
-/// **Travelling id** is unique per Kitchen rather than per instance, so the
-/// lookup is scoped to `kitchen_id` and what another household here holds is
-/// neither consulted nor mentioned. The row itself gets a freshly minted
-/// **Local id**, and that is what the Import Report names it by, since that is
-/// the id every Operation and every URL here takes.
+/// **The question is always about this Cookbook's copy** (#90, ADR 0041). A
+/// Branch's **Travelling id** is unique per Cookbook rather than per instance,
+/// so the lookup is scoped to `cookbook_id` and what another household here
+/// holds is neither consulted nor mentioned. The row itself gets a freshly
+/// minted **Local id**, and that is what the Import Report names it by, since
+/// that is the id every Operation and every URL here takes.
 ///
-/// One consequence worth knowing: a Bundle is always received into the caller's
-/// Home Kitchen, so one exported from a *second* Kitchen they cook in and
-/// imported back arrives as that Home Kitchen's own copy rather than finding
-/// the original. Each Kitchen holds its own, and those are two Kitchens.
+/// A Branch placed here is the sender's writing, and **arrives**: the first
+/// change to it starts a Branch of the receiver's own. The one exception is a
+/// Branch carrying a Hand this Cookbook answers to — its own recipe coming
+/// home — which it goes on writing. A variation's name, where the Bundle
+/// carries one, comes with it (#131, question 10).
 ///
 /// `Fate::Refused` is for a Branch that cannot be placed without undoing or
 /// overwriting something already here — which a well-formed Bundle never asks
-/// for, since only the Kitchen writing a Branch ever adds to it.
+/// for, since only the Cookbook writing a Branch ever adds to it.
 fn place_carried_branch(
     conn: &Connection,
-    kitchen_id: &str,
+    cookbook_id: &str,
+    caller: &Caller,
     record: &Value,
     held_before: &HashSet<String>,
 ) -> Result<Fate, OpError> {
@@ -1751,63 +1755,90 @@ fn place_carried_branch(
         title: title.to_string(),
     };
 
-    // Scoped to the Kitchen receiving it. A Kitchen next door holding the same
-    // sender's Branch is another household's business, and this import neither
-    // reads it nor says it is there.
-    let held: Option<(String, String, String)> = conn
+    // Scoped to the Cookbook receiving it. A Cookbook next door holding the
+    // same sender's Branch is another household's business, and this import
+    // neither reads it nor says it is there.
+    let held: Option<(String, String, String, bool)> = conn
         .query_row(
-            "SELECT id, lineage_id, hand_id FROM branches \
-              WHERE COALESCE(travelling_id, id) = ?1 AND kitchen_id = ?2",
-            params![travelling_id, kitchen_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            "SELECT id, lineage_id, hand_id, arrived FROM branches \
+              WHERE COALESCE(travelling_id, id) = ?1 AND cookbook_id = ?2",
+            params![travelling_id, cookbook_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .optional()
         .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
 
-    let Some((branch_id, held_lineage, held_hand)) = held else {
+    let Some((branch_id, held_lineage, held_hand, held_arrived)) = held else {
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
         conn.execute(
             "INSERT OR IGNORE INTO lineages (id) VALUES (?1)",
             params![lineage_id],
         )
         .map_err(|e| OpError::internal(format!("cannot record Lineage: {e}")))?;
+        let comes_home: bool = conn
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM cookbook_hands WHERE hand_id = ?1 AND cookbook_id = ?2)",
+                params![hand_id, cookbook_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| OpError::internal(format!("cannot read Hands: {e}")))?;
+        let name = record["name"]
+            .as_str()
+            .map(str::trim)
+            .filter(|name| !name.is_empty());
+        // Its own recipe coming home keeps the one-unnamed rule the Cookbook
+        // keeps for everything it writes.
+        let name = match name {
+            Some(name) => Some(name.to_string()),
+            None if comes_home => name_on_arrival(
+                conn,
+                cookbook_id,
+                lineage_id,
+                language,
+                record["hand"]["name"].as_str().unwrap_or_default(),
+            )?,
+            None => None,
+        };
         // The origin address is a hint and stays one: stored as it came, never
         // fetched, and carried on unchanged by every reshare (ADR 0020).
         conn.execute(
             "INSERT INTO branches \
-             (id, travelling_id, lineage_id, kitchen_id, hand_id, language, origin_address, \
-              head_version_id) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (id, travelling_id, lineage_id, cookbook_id, hand_id, language, origin_address, \
+              head_version_id, name, started_by, arrived) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 branch_id,
                 travelling_id,
                 lineage_id,
-                kitchen_id,
+                cookbook_id,
                 hand_id,
                 language,
                 origin_address,
-                head_version_id
+                head_version_id,
+                name,
+                caller.person_id,
+                !comes_home as i64
             ],
         )
         .map_err(|e| OpError::internal(format!("cannot place Branch: {e}")))?;
         write_carried_versions(conn, &branch_id, &versions, held_before)?;
-        file_carried_tags(conn, kitchen_id, &branch_id, record)?;
+        file_carried_tags(conn, cookbook_id, &branch_id, record)?;
         remember_arrived_hands(conn, record)?;
         return Ok(placed("created", &branch_id));
     };
 
     if held_lineage != lineage_id {
         return Ok(Fate::Refused(format!(
-            "«{title}» names a Branch your Kitchen already holds as a different recipe, \
+            "«{title}» names a Branch your Cookbook already holds as a different recipe, \
              so it was left out and nothing here was changed"
         )));
     }
 
     if held_hand != hand_id {
-        // A Branch has one Kitchen writing it (ADR 0020), so a Bundle naming
-        // this Branch under another Kitchen's Hand is not its next chapter.
+        // A Branch has one Cookbook writing it (ADR 0020), so a Bundle naming
+        // this Branch under another Hand is not its next chapter.
         return Ok(Fate::Refused(format!(
-            "«{title}» names a Branch held here under another Kitchen's Hand, \
+            "«{title}» names a Branch held here under another Hand, \
              so it was left out and nothing here was changed"
         )));
     }
@@ -1836,8 +1867,8 @@ fn place_carried_branch(
         // came back, or the same one received twice.
         return Ok(placed("unchanged", &branch_id));
     }
-    if held_hand == kitchen_hand(conn, kitchen_id)? {
-        // Only this Kitchen writes this Branch, so no Bundle can hold more of
+    if !held_arrived {
+        // Only this Cookbook writes this Branch, so no Bundle can hold more of
         // it than this instance does. One that claims to is not believed.
         return Ok(Fate::Refused(format!(
             "«{title}» claims Versions of a recipe written here that were never written \
@@ -2005,6 +2036,7 @@ fn remember_arrived_hands(conn: &Connection, record: &Value) -> Result<(), OpErr
              SELECT ?1, ?2 \
               WHERE NOT EXISTS (SELECT 1 FROM people WHERE id = ?1) \
                 AND NOT EXISTS (SELECT 1 FROM kitchens WHERE hand_id = ?1) \
+                AND NOT EXISTS (SELECT 1 FROM cookbook_hands WHERE hand_id = ?1) \
              ON CONFLICT (hand_id) DO UPDATE SET name = excluded.name",
             params![id, name],
         )
@@ -2014,10 +2046,10 @@ fn remember_arrived_hands(conn: &Connection, record: &Value) -> Result<(), OpErr
 }
 
 /// File a newly arrived Branch under the Tags it carried, in the receiving
-/// Kitchen's own list ([`arriving_tag`]).
+/// Cookbook's own list ([`arriving_tag`]).
 fn file_carried_tags(
     conn: &Connection,
-    kitchen_id: &str,
+    cookbook_id: &str,
     branch_id: &str,
     record: &Value,
 ) -> Result<(), OpError> {
@@ -2032,7 +2064,7 @@ fn file_carried_tags(
                     .then_some((language.as_str(), name))
             })
             .collect();
-        if let Some(tag_id) = arriving_tag(conn, kitchen_id, &names)? {
+        if let Some(tag_id) = arriving_tag(conn, cookbook_id, &names)? {
             file_branch_under(conn, branch_id, &tag_id)?;
         }
     }
@@ -2050,7 +2082,7 @@ fn file_carried_tags(
 fn keep_words_as_new_recipe(
     conn: &Connection,
     caller: &Caller,
-    kitchen_id: &str,
+    cookbook_id: &str,
     words: &Value,
     language: Option<&str>,
     said: impl FnOnce(&str) -> String,
@@ -2080,8 +2112,8 @@ fn keep_words_as_new_recipe(
         conn,
         &lineage_id,
         &branch_id,
-        kitchen_id,
-        &kitchen_hand(conn, kitchen_id)?,
+        cookbook_id,
+        &cookbook_hand(conn, cookbook_id)?,
         &language,
         &version_id,
         &content_text,
@@ -2140,9 +2172,9 @@ fn shared_version(
 
     // The Passengers (ADR 0008): every Component this recipe composes, carried
     // through the link because a recipe that cannot tell you how to make its
-    // own dough is incomplete. Resolved against the Kitchen holding what is
-    // being shared, and changing nothing about the dough's own Visibility.
-    let kitchen_id = branch_kitchen(conn, branch_id)?;
+    // own dough is incomplete. Resolved against the Cookbook holding what is
+    // being shared, and changing nothing about who may see the dough.
+    let cookbook_id = branch_cookbook(conn, branch_id)?;
     let mut walk = Unfolding {
         open: vec![lineage_id.clone()],
         ..Unfolding::default()
@@ -2150,7 +2182,7 @@ fn shared_version(
     unfold_components(
         conn,
         &Unfolds::AsPassenger {
-            kitchen_id: &kitchen_id,
+            cookbook_id: &cookbook_id,
             language,
         },
         version_id,

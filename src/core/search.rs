@@ -311,14 +311,14 @@ impl Core {
             if let Some(kitchen_id) = kitchen_id {
                 ensure_member(conn, kitchen_id, person_id)?;
             }
-            // A Tag of a Kitchen the caller does not cook in is not here at
-            // all, rather than here and refused (ADR 0040) — the same answer
+            // A Tag of a Cookbook the caller may not see is not here at all,
+            // rather than here and refused (ADR 0040) — the same answer
             // `set_recipe_tag` gives for the same id.
             let tagged = match tag_id {
                 Some(tag_id) => {
-                    let of_kitchen = kitchen_of_tag(conn, tag_id)?;
-                    ensure_member_or_absent(conn, &of_kitchen, person_id, no_such_tag)?;
-                    Some(branches_with_tag(conn, tag_id)?)
+                    let of_cookbook = cookbook_of_tag(conn, tag_id)?;
+                    ensure_sees_or_absent(conn, &of_cookbook, person_id, no_such_tag)?;
+                    Some(branches_with_tag(conn, tag_id, person_id)?)
                 }
                 None => None,
             };
@@ -329,7 +329,7 @@ impl Core {
             // Branches the shelf has just decided this reader may see, filters
             // included. Handing that set down rather than asking the permission
             // question again is what keeps one Lineage's other Branch, in a
-            // Kitchen you do not cook in, out of your ranking and off your card
+            // Cookbook you may not see, out of your ranking and off your card
             // (ADR 0026, ADR 0027).
             let visible: HashSet<&str> = branches
                 .values()
@@ -574,15 +574,30 @@ pub(super) fn spawn_meaning_search(core: Arc<Core>) {
 /// Read once before the shelf's loop rather than asked per Lineage: the filter
 /// is a set membership test, and forty recipes would otherwise be forty
 /// queries.
+///
+/// **By its word, across every Cookbook the reader may see** (#131, question
+/// 3). A shelf mixing several Cookbooks shows "Dessert" once however many of
+/// them file by it, so filtering by it finds the recipes each of them filed
+/// there — any Tag sharing one of this one's words, in the same Language.
 fn branches_with_tag(
     conn: &rusqlite::Connection,
     tag_id: &str,
+    person_id: &str,
 ) -> Result<HashSet<String>, OpError> {
     let mut statement = conn
-        .prepare("SELECT branch_id FROM branch_tags WHERE tag_id = ?1")
+        .prepare(
+            "SELECT branch_tags.branch_id FROM branch_tags \
+              WHERE branch_tags.tag_id IN ( \
+                    SELECT alike.tag_id FROM tag_names AS alike \
+                      JOIN tag_names AS this \
+                        ON this.language = alike.language AND this.name_folded = alike.name_folded \
+                     WHERE this.tag_id = ?1 \
+                       AND alike.cookbook_id IN \
+                           (SELECT cookbook_id FROM visible_cookbooks WHERE person_id = ?2))",
+        )
         .map_err(|e| OpError::internal(format!("cannot read a Tag's recipes: {e}")))?;
     statement
-        .query_map(params![tag_id], |row| row.get(0))
+        .query_map(params![tag_id, person_id], |row| row.get(0))
         .map_err(|e| OpError::internal(format!("cannot read a Tag's recipes: {e}")))?
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot read a Tag's recipes: {e}")))

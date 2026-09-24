@@ -27,6 +27,30 @@ pub struct Migration {
     /// The step itself. Runs inside one transaction, together with the
     /// `schema_version` stamp, so a failure leaves nothing half-done.
     pub sql: &'static str,
+    /// Whether the step rebuilds a table other tables point at. SQLite's own
+    /// procedure for that is to switch foreign keys off around the
+    /// transaction and check every one of them before it commits — which is
+    /// what the runner does, so a rebuild that leaves a dangling reference
+    /// fails exactly as any other broken step does.
+    pub foreign_keys_off: bool,
+    /// Work the step does in Rust after its SQL, inside the same transaction:
+    /// for moving data by rules too long to say well in SQL (#131).
+    pub then: Option<RustStep>,
+}
+
+/// A migration step's Rust half: handed the connection mid-transaction, and
+/// answering why it failed in words.
+pub type RustStep = fn(&Connection) -> Result<(), String>;
+
+impl Migration {
+    /// The rest of an ordinary step: SQL alone, foreign keys on.
+    pub const SQL_ONLY: Migration = Migration {
+        version: 0,
+        description: "",
+        sql: "",
+        foreign_keys_off: false,
+        then: None,
+    };
 }
 
 /// Every migration, oldest first. Appending a new tail entry *is* the upgrade;
@@ -55,6 +79,7 @@ pub const MIGRATIONS: &[Migration] = &[
             last_used_at TEXT
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 2,
@@ -82,6 +107,7 @@ pub const MIGRATIONS: &[Migration] = &[
             updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 3,
@@ -121,6 +147,7 @@ pub const MIGRATIONS: &[Migration] = &[
             consecutive_failures INTEGER NOT NULL DEFAULT 0
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 4,
@@ -129,6 +156,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE UNIQUE INDEX people_login_names_unique
             ON people(name) WHERE password_hash IS NOT NULL;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 5,
@@ -138,6 +166,7 @@ pub const MIGRATIONS: &[Migration] = &[
         UPDATE access_keys SET id = 'ak_' || lower(hex(randomblob(8))) WHERE id IS NULL;
         CREATE UNIQUE INDEX access_keys_id_unique ON access_keys(id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 6,
@@ -145,6 +174,7 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: r#"
         ALTER TABLE jobs ADD COLUMN via_access_key INTEGER NOT NULL DEFAULT 0;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 7,
@@ -166,6 +196,7 @@ pub const MIGRATIONS: &[Migration] = &[
             used_by     TEXT REFERENCES people(id)
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 8,
@@ -183,6 +214,7 @@ pub const MIGRATIONS: &[Migration] = &[
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 9,
@@ -244,6 +276,7 @@ pub const MIGRATIONS: &[Migration] = &[
             PRIMARY KEY (branch_id, sequence)
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 10,
@@ -265,6 +298,7 @@ pub const MIGRATIONS: &[Migration] = &[
             PRIMARY KEY (version_id, line_index)
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 11,
@@ -318,6 +352,7 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         CREATE INDEX branch_tags_by_tag ON branch_tags(tag_id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 12,
@@ -340,6 +375,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX related_recipes_by_lineage_a ON related_recipes(kitchen_id, lineage_a_id);
         CREATE INDEX related_recipes_by_lineage_b ON related_recipes(kitchen_id, lineage_b_id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 13,
@@ -355,6 +391,7 @@ pub const MIGRATIONS: &[Migration] = &[
             created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 14,
@@ -400,6 +437,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- rather than re-matching.
         ALTER TABLE readings ADD COLUMN food_id TEXT REFERENCES foods(id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 15,
@@ -447,6 +485,7 @@ pub const MIGRATIONS: &[Migration] = &[
 
         CREATE INDEX attempts_by_person_lineage ON attempts(person_id, lineage_id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 16,
@@ -479,6 +518,7 @@ pub const MIGRATIONS: &[Migration] = &[
             PRIMARY KEY (import_id, foreign_id)
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 17,
@@ -501,6 +541,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- overwrites them from the truth. A count's errors accumulate.
         ALTER TABLE photographs ADD COLUMN unreferenced_since TEXT;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 18,
@@ -535,6 +576,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX branch_versions_by_translated_version
             ON branch_versions(translates_version_id) WHERE translates_version_id IS NOT NULL;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 19,
@@ -566,6 +608,7 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         CREATE INDEX merge_suggestions_by_food_b ON merge_suggestions(food_b_id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 20,
@@ -613,6 +656,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- an ordinary edit making a Version (#59).
         ALTER TABLE attempts ADD COLUMN photographs TEXT NOT NULL DEFAULT '[]';
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 21,
@@ -716,6 +760,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX meaning_vectors_by_branch ON meaning_vectors(branch_id);
         CREATE INDEX meaning_vectors_by_attempt ON meaning_vectors(attempt_id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 22,
@@ -748,6 +793,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- decorative.
         CREATE INDEX recipe_opens_by_person ON recipe_opens(person_id, opened_at DESC);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 23,
@@ -763,6 +809,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- the same condition.
         CREATE INDEX branch_versions_by_version ON branch_versions(version_id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 24,
@@ -814,6 +861,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- link minted under one spelling would render wrongly under the next.
         ALTER TABLE instance_setup ADD COLUMN public_address TEXT;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 25,
@@ -872,6 +920,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX shopping_loose_items_by_person
             ON shopping_loose_items(person_id, added_at);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 26,
@@ -902,6 +951,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX readings_by_lineage ON readings(lineage_id)
             WHERE lineage_id IS NOT NULL;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 27,
@@ -933,6 +983,7 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE attempts ADD COLUMN as_cooked_version_id TEXT
             REFERENCES versions(id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 28,
@@ -953,6 +1004,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- ordinary edit of one's own Attempt (ADR 0005), so this clears.
         ALTER TABLE attempts ADD COLUMN promotion_declined_at TEXT;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 29,
@@ -1161,6 +1213,7 @@ pub const MIGRATIONS: &[Migration] = &[
         DROP TABLE temp.refingerprint_keep;
         DROP TABLE temp.refingerprint;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 30,
@@ -1181,6 +1234,7 @@ pub const MIGRATIONS: &[Migration] = &[
             name    TEXT NOT NULL
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 31,
@@ -1203,6 +1257,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- written since this column arrived.
         ALTER TABLE people ADD COLUMN shopping_written_at TEXT;
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 32,
@@ -1242,6 +1297,7 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE UNIQUE INDEX branches_travelling_id_per_kitchen
             ON branches (COALESCE(travelling_id, id), kitchen_id);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 33,
@@ -1301,6 +1357,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- indexes with it.
         CREATE INDEX shopping_choices_by_person ON shopping_choices(person_id, chosen_at);
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 34,
@@ -1327,6 +1384,7 @@ pub const MIGRATIONS: &[Migration] = &[
             PRIMARY KEY (hash, person_id)
         );
         "#,
+        ..Migration::SQL_ONLY
     },
     Migration {
         version: 35,
@@ -1345,6 +1403,136 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE UNIQUE INDEX people_login_names_unique
             ON people(name) WHERE password_hash IS NOT NULL AND deleted = 0;
         "#,
+        ..Migration::SQL_ONLY
+    },
+    Migration {
+        version: 36,
+        description: "a recipe is written in a Cookbook and seen in a Kitchen (ADR 0041, #131)",
+        sql: r#"
+        -- A Cookbook: where a recipe belongs, and the circle that may change
+        -- it (ADR 0041). `name` is NULL until a Co-author gives it one; until
+        -- then it is named after its Co-authors, which is worked out when it is
+        -- read rather than stored, so renaming a Person reaches it at once.
+        -- Its Hand is what every Branch it starts records (ADR 0015).
+        CREATE TABLE cookbooks (
+            id         TEXT PRIMARY KEY,
+            name       TEXT,
+            hand_id    TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+
+        -- Who writes in which Cookbook. Every Person has exactly one, which
+        -- the index holds rather than the code remembering to.
+        CREATE TABLE cookbook_authors (
+            cookbook_id TEXT NOT NULL REFERENCES cookbooks(id),
+            person_id   TEXT NOT NULL REFERENCES people(id),
+            joined_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (cookbook_id, person_id)
+        );
+        CREATE UNIQUE INDEX cookbook_authors_one_each ON cookbook_authors(person_id);
+
+        -- Every Hand a Cookbook answers to, and whose Cookbook minted it.
+        -- `cookbooks.hand_id` is the one it writes new Branches under; this
+        -- is how a Branch written under another one is still named after the
+        -- Cookbook holding it (ADR 0015). Joining two Cookbooks brings the
+        -- joiner's Hands along, and separating takes each Co-author's back,
+        -- so what somebody wrote before they joined is theirs again after.
+        CREATE TABLE cookbook_hands (
+            hand_id     TEXT PRIMARY KEY,
+            cookbook_id TEXT NOT NULL REFERENCES cookbooks(id),
+            person_id   TEXT REFERENCES people(id)
+        );
+
+        -- A Cookbook Invite: the one-use link a Co-author mints to write one
+        -- Cookbook with somebody (#131, screen choice 2). Spent when opened
+        -- and accepted, or ended when its maker cancels it; stored hashed,
+        -- like every Secret (ADR 0031).
+        CREATE TABLE cookbook_invites (
+            id          TEXT PRIMARY KEY,
+            secret_hash TEXT NOT NULL UNIQUE,
+            cookbook_id TEXT NOT NULL REFERENCES cookbooks(id),
+            created_by  TEXT NOT NULL REFERENCES people(id),
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            used_at     TEXT,
+            used_by     TEXT REFERENCES people(id),
+            ended_at    TEXT
+        );
+
+        -- The Branch, held by a Cookbook instead of a Kitchen. Three new facts:
+        --
+        -- `name` is the name of a Branch started beside your own on purpose
+        -- ("Vegetarian"), and NULL on every other; one Cookbook keeps at most
+        -- one unnamed Branch of a Lineage in each Language, which the code
+        -- holds when it starts one.
+        --
+        -- `started_by` is the Person who brought the Branch into being here:
+        -- who wrote it, copied it, imported it or received it. It decides who
+        -- keeps the Branch itself when Co-authors separate (#131, question 7).
+        --
+        -- `arrived` is 1 on a Branch somebody else wrote that reached this
+        -- Cookbook in a Bundle or from a Share Link. It sits in the Cookbook
+        -- under the sender's Hand, and changing it starts a Branch of your own
+        -- rather than writing on theirs (ADR 0020). Kitchens told these apart
+        -- by comparing Hands; a Cookbook's Hand can be one of several once two
+        -- have been joined, so it is said once, here.
+        --
+        -- `copied_from` names the Branch this one was copied from when two
+        -- people parted: a Co-author leaving a Cookbook, or a Kitchen member
+        -- keeping what they cooked. Should the two write together again, a
+        -- copy nobody has changed since is the same Branch twice, and folds
+        -- back into the one it came from, whatever each has since been named.
+        CREATE TABLE branches_new (
+            id              TEXT PRIMARY KEY,
+            lineage_id      TEXT NOT NULL REFERENCES lineages(id),
+            cookbook_id     TEXT NOT NULL REFERENCES cookbooks(id),
+            hand_id         TEXT NOT NULL,
+            language        TEXT NOT NULL,
+            origin_address  TEXT,
+            signature       TEXT,
+            head_version_id TEXT NOT NULL REFERENCES versions(id),
+            created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            travelling_id   TEXT,
+            name            TEXT,
+            started_by      TEXT REFERENCES people(id),
+            arrived         INTEGER NOT NULL DEFAULT 0,
+            copied_from     TEXT
+        );
+
+        -- Tags, Related Recipes and the import ledger move with the recipes,
+        -- into the Cookbook (#131, question 3; ADR 0041).
+        CREATE TABLE tags_new (
+            id          TEXT PRIMARY KEY,
+            cookbook_id TEXT NOT NULL REFERENCES cookbooks(id),
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        CREATE TABLE tag_names_new (
+            tag_id      TEXT NOT NULL REFERENCES tags(id),
+            cookbook_id TEXT NOT NULL REFERENCES cookbooks(id),
+            language    TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            name_folded TEXT NOT NULL,
+            PRIMARY KEY (tag_id, language)
+        );
+        CREATE TABLE related_recipes_new (
+            cookbook_id    TEXT NOT NULL REFERENCES cookbooks(id),
+            lineage_a_id   TEXT NOT NULL REFERENCES lineages(id),
+            lineage_b_id   TEXT NOT NULL REFERENCES lineages(id),
+            lineage_a_name TEXT NOT NULL,
+            lineage_b_name TEXT NOT NULL,
+            created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (cookbook_id, lineage_a_id, lineage_b_id),
+            CHECK (lineage_a_id < lineage_b_id)
+        );
+        CREATE TABLE imports_new (
+            id          TEXT PRIMARY KEY,
+            cookbook_id TEXT NOT NULL REFERENCES cookbooks(id),
+            source_kind TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            UNIQUE (cookbook_id, source_kind)
+        );
+        "#,
+        foreign_keys_off: true,
+        then: Some(crate::cookbook_migration::move_to_cookbooks),
     },
 ];
 
@@ -1488,12 +1676,7 @@ fn migrate(conn: &Connection, data_dir: &Path, migrations: &[Migration]) -> Resu
     for step in pending {
         // Schema change and version stamp commit together or not at all: SQLite
         // rolls them back as one, so a failed step leaves exactly what was there.
-        let batch = format!(
-            "BEGIN IMMEDIATE;\n{}\nINSERT INTO meta(key, value) VALUES ('schema_version', '{}') \
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value;\nCOMMIT;",
-            step.sql, step.version
-        );
-        if let Err(e) = conn.execute_batch(&batch) {
+        if let Err(e) = run_step(conn, step) {
             return Err(OpError::internal(format!(
                 "migration {} ({}) failed: {}. Kamosu refuses to serve \
                  half-migrated; nothing was changed. To go back, stop Kamosu and \
@@ -1514,6 +1697,62 @@ fn migrate(conn: &Connection, data_dir: &Path, migrations: &[Migration]) -> Resu
         "schema migrated forward; Snapshot kept beside the database"
     );
     Ok(())
+}
+
+/// One step, in one transaction with its `schema_version` stamp.
+///
+/// A step that rebuilds a table others point at runs with foreign keys off,
+/// the order SQLite documents for it: the pragma is a no-op inside a
+/// transaction, so it goes off before `BEGIN`, every reference is checked with
+/// `foreign_key_check` before `COMMIT`, and it comes back on whatever happened.
+fn run_step(conn: &Connection, step: &Migration) -> Result<(), String> {
+    if step.foreign_keys_off {
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")
+            .map_err(|e| e.to_string())?;
+    }
+    let outcome = (|| -> Result<(), String> {
+        conn.execute_batch(&format!("BEGIN IMMEDIATE;\n{}", step.sql))
+            .map_err(|e| e.to_string())?;
+        let body = (|| -> Result<(), String> {
+            if let Some(then) = step.then {
+                then(conn)?;
+            }
+            if step.foreign_keys_off {
+                let dangling: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |r| {
+                        r.get(0)
+                    })
+                    .map_err(|e| e.to_string())?;
+                if dangling > 0 {
+                    return Err(format!(
+                        "{dangling} row(s) would point at nothing afterwards"
+                    ));
+                }
+            }
+            conn.execute(
+                "INSERT INTO meta(key, value) VALUES ('schema_version', ?1) \
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [step.version.to_string()],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        match body {
+            Ok(()) => conn.execute_batch("COMMIT;").map_err(|e| e.to_string()),
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(e)
+            }
+        }
+    })();
+    if outcome.is_err() && !conn.is_autocommit() {
+        let _ = conn.execute_batch("ROLLBACK;");
+    }
+    if step.foreign_keys_off {
+        conn.execute_batch("PRAGMA foreign_keys = ON;")
+            .map_err(|e| e.to_string())?;
+    }
+    outcome
 }
 
 /// Copy the database file aside under `/data`, naming the span of versions it
@@ -1543,6 +1782,58 @@ fn write_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A step run with foreign keys off is still held to them before it
+    /// commits: one that leaves a row pointing at nothing fails whole, and
+    /// the database is exactly as it was — foreign keys on again included.
+    #[test]
+    fn a_step_with_foreign_keys_off_that_leaves_a_dangling_row_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = Migration {
+            version: 1,
+            description: "a parent and a child",
+            sql: "CREATE TABLE parent (id TEXT PRIMARY KEY);
+                  CREATE TABLE child (parent_id TEXT NOT NULL REFERENCES parent(id));
+                  INSERT INTO parent (id) VALUES ('a');
+                  INSERT INTO child (parent_id) VALUES ('a');",
+            ..Migration::SQL_ONLY
+        };
+        Db::open_with_migrations(dir.path(), &[base]).unwrap();
+        let orphaning = Migration {
+            version: 2,
+            description: "a rebuild that loses a parent",
+            sql: "DELETE FROM parent;",
+            foreign_keys_off: true,
+            then: None,
+        };
+        let failure = Db::open_with_migrations(dir.path(), &[base, orphaning])
+            .err()
+            .expect("a dangling row must fail the step");
+        assert!(
+            failure.message.contains("point at nothing"),
+            "{}",
+            failure.message
+        );
+
+        let db = Db::open_with_migrations(dir.path(), &[base]).unwrap();
+        let (parents, version, enforced): (i64, String, i64) = db
+            .with_conn(|c| {
+                Ok((
+                    c.query_row("SELECT COUNT(*) FROM parent", [], |r| r.get(0))
+                        .unwrap(),
+                    c.query_row(
+                        "SELECT value FROM meta WHERE key = 'schema_version'",
+                        [],
+                        |r| r.get(0),
+                    )
+                    .unwrap(),
+                    c.query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+                        .unwrap(),
+                ))
+            })
+            .unwrap();
+        assert_eq!((parents, version.as_str(), enforced), (1, "1", 1));
+    }
 
     #[test]
     fn wal_mode_sticks() {

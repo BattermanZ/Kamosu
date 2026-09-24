@@ -43,16 +43,16 @@ impl Core {
             ));
         }
         self.db().with_conn(|conn| {
-            let (lineage_id, kitchen_id, head_version_id): (String, String, String) = conn
+            let (lineage_id, cookbook_id, head_version_id): (String, String, String) = conn
                 .query_row(
-                    "SELECT lineage_id, kitchen_id, head_version_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, cookbook_id, head_version_id FROM branches WHERE id = ?1",
                     params![branch_id],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_or_absent(conn, &cookbook_id, person_id, no_such_branch)?;
 
             let pinned_version_id = match version_id {
                 None => head_version_id,
@@ -379,16 +379,16 @@ impl Core {
             // turn into a Copy. One held elsewhere answers as absent before
             // its Lineage is compared, or the comparison would say it exists
             // (#100, ADR 0040).
-            let (lineage_id, head_version_id, kitchen_id): (String, String, String) = conn
+            let (lineage_id, head_version_id, cookbook_id): (String, String, String) = conn
                 .query_row(
-                    "SELECT lineage_id, head_version_id, kitchen_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, head_version_id, cookbook_id FROM branches WHERE id = ?1",
                     params![branch_id],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, &caller.person_id, no_such_branch)?;
+            ensure_sees_or_absent(conn, &cookbook_id, &caller.person_id, no_such_branch)?;
             let attempt_lineage: String = conn
                 .query_row(
                     "SELECT lineage_id FROM attempts WHERE id = ?1",
@@ -469,7 +469,6 @@ impl Core {
             &edited,
             head_name.as_deref(),
             change_note,
-            None,
             None,
         )
     }
@@ -671,16 +670,16 @@ impl Core {
             // The recipe promoted into must be the dish that was cooked, on a
             // Branch one of the caller's Kitchens holds, checked in that order
             // for the reason `promote_attempt_photograph` records next door.
-            let (branch_lineage, kitchen_id): (String, String) = conn
+            let (branch_lineage, cookbook_id): (String, String) = conn
                 .query_row(
-                    "SELECT lineage_id, kitchen_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, cookbook_id FROM branches WHERE id = ?1",
                     params![branch_id],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, &caller.person_id, no_such_branch)?;
+            ensure_sees_or_absent(conn, &cookbook_id, &caller.person_id, no_such_branch)?;
             if branch_lineage != lineage_id {
                 return Err(OpError::bad_request(
                     "that Branch is not a Branch of the recipe this Attempt cooked",
@@ -724,7 +723,6 @@ impl Core {
             &content,
             name.or(head_name.as_deref()),
             change_note,
-            None,
             None,
         )
     }
@@ -1170,13 +1168,16 @@ fn diary_recipe(
 ) -> Result<Value, OpError> {
     let on_the_shelf: Option<(String, Option<String>)> = conn
         .query_row(
-            "SELECT branches.id, json_extract(versions.content, '$.title') \
-               FROM branches \
-               JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
-               JOIN versions ON versions.id = branches.head_version_id \
-              WHERE kitchen_members.person_id = ?1 AND branches.lineage_id = ?2 \
-              ORDER BY (branches.language = ?3) DESC, branches.created_at ASC, branches.id ASC \
-              LIMIT 1",
+            &format!(
+                "SELECT branches.id, json_extract(versions.content, '$.title') \
+                   FROM branches \
+                   JOIN versions ON versions.id = branches.head_version_id \
+                  WHERE {} AND branches.lineage_id = ?2 \
+                  ORDER BY (branches.language = ?3) DESC, {} \
+                  LIMIT 1",
+                visible_to("branches", "?1"),
+                own_first("branches", "?1"),
+            ),
             params![person_id, lineage_id, reading_language],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )

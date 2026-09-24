@@ -1,5 +1,5 @@
-//! Kitchens and their members, and the membership checks every Operation on
-//! a Kitchen's recipes leans on.
+//! Kitchens and their members. A Kitchen is a group of People who see and
+//! cook from each other's Cookbooks; it holds no recipe (ADR 0041).
 
 use super::*;
 
@@ -128,9 +128,15 @@ impl Core {
         })
     }
 
-    /// Any member may remove another member, or leave by removing themselves.
-    /// Two invariants stand in the way: a Kitchen never drops to zero members,
-    /// and a Person never drops to zero Kitchens (ADR 0007).
+    /// Any member may remove another member, or leave by removing themselves
+    /// (ADR 0041). A Kitchen holds no recipe, so there is nothing to strand:
+    /// the last member may leave, and a Person may cook in no Kitchen at all.
+    ///
+    /// **Leaving takes the leaver's Cookbook out, and costs nobody a recipe
+    /// they cooked** (#131, question 2). Each member who stays keeps a Branch,
+    /// in their own Cookbook, of every recipe of the leaver's they cooked;
+    /// and the leaver keeps one of every recipe of theirs they cooked. What
+    /// they only read goes with the Cookbook it belongs to.
     pub fn remove_kitchen_member(
         &self,
         caller_person_id: &str,
@@ -138,55 +144,62 @@ impl Core {
         target_person_id: &str,
     ) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
-            ensure_member(conn, kitchen_id, caller_person_id)?;
-            if !is_member(conn, kitchen_id, target_person_id)? {
-                return Err(OpError::not_found(
-                    "that Person does not cook in this Kitchen",
-                ));
-            }
-            let kitchen_members: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM kitchen_members WHERE kitchen_id = ?1",
-                    params![kitchen_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot count Kitchen members: {e}")))?;
-            if kitchen_members <= 1 {
-                return Err(OpError::bad_request(
-                    "the last member of a Kitchen cannot be removed — invite someone else, or delete it",
-                ));
-            }
-            let person_kitchens: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM kitchen_members WHERE person_id = ?1",
-                    params![target_person_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot count that Person's Kitchens: {e}")))?;
-            if person_kitchens <= 1 {
-                return Err(OpError::bad_request(
-                    "a Person cooks in one or more Kitchens and cannot be removed from their last one",
-                ));
-            }
-            conn.execute(
-                "DELETE FROM kitchen_members WHERE kitchen_id = ?1 AND person_id = ?2",
-                params![kitchen_id, target_person_id],
-            )
-            .map_err(|e| OpError::internal(format!("cannot remove Kitchen member: {e}")))?;
-            // Leaving your own Home Kitchen hands the default landing spot to
-            // the oldest Kitchen you still cook in — the one you have been in
-            // longest, rather than an arbitrary remaining one.
-            conn.execute(
-                "UPDATE people SET home_kitchen_id = (
-                    SELECT kitchen_members.kitchen_id FROM kitchen_members
-                    JOIN kitchens ON kitchens.id = kitchen_members.kitchen_id
-                    WHERE kitchen_members.person_id = ?1
-                    ORDER BY kitchens.created_at ASC LIMIT 1
-                 ) WHERE id = ?1 AND home_kitchen_id = ?2",
-                params![target_person_id, kitchen_id],
-            )
-            .map_err(|e| OpError::internal(format!("cannot reassign Home Kitchen: {e}")))?;
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            let kept = leaving(conn, caller_person_id, kitchen_id, target_person_id)?;
+            keep_branches(conn, &kept)?;
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot commit: {e}")))?;
             Ok(())
+        })
+    }
+
+    /// What removing `target_person_id` from a Kitchen would leave each side,
+    /// before anybody does it: how many recipes the members who stay keep, and
+    /// how many the one leaving keeps (#131, screen choice 4). Worked out by
+    /// doing it and undoing it, so it cannot disagree with the real thing.
+    pub fn preview_leaving_kitchen(
+        &self,
+        caller_person_id: &str,
+        kitchen_id: &str,
+        target_person_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            conn.execute_batch("SAVEPOINT preview_leaving")
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            // Counted in recipes, as the sheet words them (#131, screen
+            // choice 4): two members who both cooked one of yours, or one
+            // recipe cooked in two Languages, is still one recipe. Read
+            // before the rollback, while every Branch named still exists.
+            let counted =
+                leaving(conn, caller_person_id, kitchen_id, target_person_id).and_then(|kept| {
+                    let mut theirs = std::collections::BTreeSet::new();
+                    let mut yours = std::collections::BTreeSet::new();
+                    for (person, branch_id) in kept {
+                        let lineage: String = conn
+                            .query_row(
+                                "SELECT lineage_id FROM branches WHERE id = ?1",
+                                params![branch_id],
+                                |row| row.get(0),
+                            )
+                            .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+                        if person == target_person_id {
+                            yours.insert(lineage);
+                        } else {
+                            theirs.insert(lineage);
+                        }
+                    }
+                    Ok((theirs.len(), yours.len()))
+                });
+            conn.execute_batch("ROLLBACK TO preview_leaving; RELEASE preview_leaving")
+                .map_err(|e| OpError::internal(format!("cannot undo the preview: {e}")))?;
+            let (they_keep, you_keep) = counted?;
+            Ok(json!({
+                "they_keep": they_keep,
+                "you_keep": you_keep,
+            }))
         })
     }
 
@@ -236,16 +249,6 @@ impl Core {
             Ok(())
         })
     }
-}
-
-/// The Hand a Kitchen writes under.
-pub(super) fn kitchen_hand(conn: &Connection, kitchen_id: &str) -> Result<String, OpError> {
-    conn.query_row(
-        "SELECT hand_id FROM kitchens WHERE id = ?1",
-        params![kitchen_id],
-        |row| row.get(0),
-    )
-    .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))
 }
 
 pub(super) fn insert_kitchen_with_member(
@@ -302,56 +305,60 @@ pub(super) fn ensure_member(
     }
 }
 
-/// The same membership check, **for a Kitchen Kamosu worked out** from a Branch,
-/// a Tag, an Import or anything else the caller named (ADR 0040).
-///
-/// A non-member is refused with `absent` — the very refusal the caller would
-/// have got had the thing they named not existed here at all. That is what
-/// stops the refusal being an answer: holding an id, nobody can tell whether
-/// another household on this instance holds the thing it names.
-///
-/// `absent` is the same function the not-found path calls, never a sentence
-/// written out a second time. Identical text is the whole mechanism, and one
-/// source for it is what keeps the two identical as either is edited.
-pub(super) fn ensure_member_or_absent(
-    conn: &rusqlite::Connection,
+/// Take `target_person_id` out of a Kitchen, answering what everybody it
+/// touches keeps for it: `(person, branch)`. Only a member may, and only a
+/// member may be taken out.
+fn leaving(
+    conn: &Connection,
+    caller_person_id: &str,
     kitchen_id: &str,
-    person_id: &str,
-    absent: impl FnOnce() -> OpError,
-) -> Result<(), OpError> {
-    if is_member(conn, kitchen_id, person_id)? {
-        Ok(())
-    } else {
-        Err(absent())
+    target_person_id: &str,
+) -> Result<Vec<(String, String)>, OpError> {
+    ensure_member(conn, kitchen_id, caller_person_id)?;
+    if !is_member(conn, kitchen_id, target_person_id)? {
+        return Err(OpError::not_found(
+            "that Person does not cook in this Kitchen",
+        ));
     }
-}
-
-// ── Share Links: the pieces (#65) ────────────────────────────────────────────
-
-/// The Kitchen holding a Branch — the circle allowed to share it (ADR 0007).
-pub(super) fn branch_kitchen(conn: &Connection, branch_id: &str) -> Result<String, OpError> {
-    conn.query_row(
-        "SELECT kitchen_id FROM branches WHERE id = ?1",
-        params![branch_id],
-        |row| row.get(0),
+    let members: Vec<String> = {
+        let mut statement = conn
+            .prepare(
+                "SELECT person_id FROM kitchen_members WHERE kitchen_id = ?1 ORDER BY person_id",
+            )
+            .map_err(|e| OpError::internal(format!("cannot list Kitchen members: {e}")))?;
+        statement
+            .query_map(params![kitchen_id], |row| row.get(0))
+            .map_err(|e| OpError::internal(format!("cannot list Kitchen members: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OpError::internal(format!("cannot list Kitchen members: {e}")))?
+    };
+    keeps_after(
+        conn,
+        &members,
+        |conn| {
+            conn.execute(
+                "DELETE FROM kitchen_members WHERE kitchen_id = ?1 AND person_id = ?2",
+                params![kitchen_id, target_person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot remove Kitchen member: {e}")))?;
+            Ok(())
+        },
+        |_| true,
     )
-    .optional()
-    .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-    .ok_or_else(no_such_branch)
 }
 
 /// One Kitchen, as the Person asking sees it: their own Nickname (never
-/// anyone else's), whether it is their Home Kitchen, and who else is in it.
+/// anyone else's), who else is in it, and whose Cookbooks it sees.
 fn kitchen_summary(
     conn: &rusqlite::Connection,
     kitchen_id: &str,
     viewer_person_id: &str,
 ) -> Result<Value, OpError> {
-    let (name, hand_id): (String, String) = conn
+    let name: String = conn
         .query_row(
-            "SELECT name, hand_id FROM kitchens WHERE id = ?1",
+            "SELECT name FROM kitchens WHERE id = ?1",
             params![kitchen_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| row.get(0),
         )
         .map_err(|e| OpError::internal(format!("cannot read Kitchen: {e}")))?;
     let nickname: Option<String> = conn
@@ -361,13 +368,6 @@ fn kitchen_summary(
             |row| row.get(0),
         )
         .map_err(|e| OpError::internal(format!("cannot read Nickname: {e}")))?;
-    let home_kitchen_id: Option<String> = conn
-        .query_row(
-            "SELECT home_kitchen_id FROM people WHERE id = ?1",
-            params![viewer_person_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| OpError::internal(format!("cannot read Home Kitchen: {e}")))?;
     let mut statement = conn
         .prepare(
             "SELECT people.id, people.name FROM kitchen_members \
@@ -386,12 +386,38 @@ fn kitchen_summary(
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot list Kitchen members: {e}")))?;
 
+    let cookbook_ids: Vec<String> = {
+        let mut statement = conn
+            .prepare(&cookbooks_seen_in("?1"))
+            .map_err(|e| OpError::internal(format!("cannot list Cookbooks: {e}")))?;
+        statement
+            .query_map(params![kitchen_id], |row| row.get(0))
+            .map_err(|e| OpError::internal(format!("cannot list Cookbooks: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OpError::internal(format!("cannot list Cookbooks: {e}")))?
+    };
+    let mut cookbooks: Vec<Value> = cookbook_ids
+        .iter()
+        .map(|cookbook_id| cookbook_label(conn, cookbook_id))
+        .collect::<Result<_, _>>()?;
+    // The viewer's own first, then by who writes it, so the list reads the
+    // same on every visit.
+    let own = cookbook_of_person(conn, viewer_person_id)?;
+    cookbooks.sort_by_key(|cookbook| {
+        (
+            cookbook["id"] != json!(own),
+            cookbook["authors"][0]["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+        )
+    });
+
     Ok(json!({
         "id": kitchen_id,
         "name": name,
-        "hand_id": hand_id,
-        "is_home": home_kitchen_id.as_deref() == Some(kitchen_id),
         "nickname": nickname,
         "members": members,
+        "cookbooks": cookbooks,
     }))
 }

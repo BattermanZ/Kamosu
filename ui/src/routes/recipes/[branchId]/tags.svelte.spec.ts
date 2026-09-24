@@ -21,10 +21,10 @@ import TagsTestHarness from './TagsTestHarness.svelte';
 
 type Tag = GetRecipeOutput['tags'][number];
 
-/** One of the Kitchen's tags, with everything the Catalogue requires present. */
+/** One of the Cookbook's tags, with everything the Catalogue requires present. */
 const tag = (id: string, name: string, recipes = 0, language = 'en'): Tag => ({
 	id,
-	kitchen_id: 'k_home',
+	cookbook_id: 'c_1',
 	name,
 	language,
 	names: [{ language, name }],
@@ -34,10 +34,10 @@ const tag = (id: string, name: string, recipes = 0, language = 'en'): Tag => ({
 	language_fallback: language !== 'en',
 });
 
-/** A tag this Kitchen knows only in French, read by somebody reading English. */
+/** A tag this Cookbook knows only in French, read by somebody reading English. */
 const MIJOTE: Tag = {
 	id: 't_mijote',
-	kitchen_id: 'k_home',
+	cookbook_id: 'c_1',
 	name: 'mijoté',
 	language: 'fr',
 	names: [{ language: 'fr', name: 'mijoté' }],
@@ -45,7 +45,7 @@ const MIJOTE: Tag = {
 	language_fallback: true,
 };
 
-/** A library with a handful of words, as a Kitchen looks after a few months. */
+/** A library with a handful of words, as a Cookbook looks after a few months. */
 const HANDFUL = [
 	tag('t_weeknight', 'weeknight', 21),
 	tag('t_batch', 'batch cook', 9),
@@ -77,7 +77,7 @@ describe('a recipe’s tags', () => {
 		expect(await screen.findByRole('button', { name: 'Add a tag' })).toBeInTheDocument();
 	});
 
-	it('explains what a tag is where a Kitchen has none, and says it changes no recipe', async () => {
+	it('explains what a tag is where a Cookbook has none, and says it changes no recipe', async () => {
 		draw([], { list_tags: { tags: [] } });
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Add a tag' }));
@@ -102,7 +102,7 @@ describe('a recipe’s tags', () => {
 
 		await fireEvent.click(await screen.findByRole('button', { name: /Create the tag/ }));
 
-		// Two Operations, in order: the Kitchen gains the word, and this recipe
+		// Two Operations, in order: the Cookbook gains the word, and this recipe
 		// gains the tag.
 		const asked = kamosu.calls.map((call) => call.operation);
 		expect(asked).toContain('create_tag');
@@ -115,7 +115,6 @@ describe('a recipe’s tags', () => {
 
 		// Named in the Language this Person reads recipes in, off their account.
 		expect(kamosu.calls.find((call) => call.operation === 'create_tag')?.input).toEqual({
-			kitchen_id: 'k_home',
 			language: 'en',
 			name: 'weeknight',
 		});
@@ -124,8 +123,8 @@ describe('a recipe’s tags', () => {
 		expect(asked).not.toContain('save_recipe_version');
 	});
 
-	it('does not offer to make a word the Kitchen already holds in another Language', async () => {
-		// A Kitchen holding *goûter* in French must not be given a second one
+	it('does not offer to make a word the Cookbook already holds in another Language', async () => {
+		// A Cookbook holding *goûter* in French must not be given a second one
 		// when somebody types it while reading English (ADR 0006).
 		draw([], { list_tags: { tags: [MIJOTE] } });
 
@@ -161,7 +160,7 @@ describe('a recipe’s tags', () => {
 	});
 
 	it('reads a tag named in another Language in that Language, and says which', async () => {
-		// A preference may never hide what a Kitchen holds (ADR 0006), so the
+		// A preference may never hide what a Cookbook holds (ADR 0006), so the
 		// French word is shown as the French word and marked, rather than
 		// vanishing or reading as a blank.
 		draw([tag('t_batch', 'batch cook', 9), MIJOTE], { list_tags: { tags: HANDFUL } });

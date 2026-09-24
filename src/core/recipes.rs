@@ -5,14 +5,15 @@
 use super::*;
 
 impl Core {
-    /// Create a Recipe: a Lineage, a Branch of it in the creating Kitchen, and
-    /// a first Version fingerprinted from its content (ADR 0004). A recipe
-    /// needs only a title — every other field of `input` (Yield, Prep/Cook
-    /// Time, Note, Source, Ingredients, Steps) is optional (#43).
+    /// Create a Recipe: a Lineage, a Branch of it in the writer's own
+    /// Cookbook, and a first Version fingerprinted from its content (ADR 0004,
+    /// ADR 0041). A recipe needs only a title — every other field of `input`
+    /// (Yield, Prep/Cook Time, Note, Source, Ingredients, Steps) is optional
+    /// (#43). There is no question of where it goes: always into your own
+    /// Cookbook.
     pub fn create_recipe(
         &self,
         caller: &Caller,
-        kitchen_id: &str,
         input: &Value,
         language: Option<&str>,
     ) -> Result<Value, OpError> {
@@ -22,22 +23,16 @@ impl Core {
         let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
 
         self.db().with_conn(|conn| {
-            ensure_member(conn, kitchen_id, &caller.person_id)?;
-            let kitchen_hand_id: String = conn
-                .query_row(
-                    "SELECT hand_id FROM kitchens WHERE id = ?1",
-                    params![kitchen_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
+            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let hand_id = cookbook_hand(conn, &cookbook_id)?;
             let language = language_for_new_branch(conn, &caller.person_id, language, &content)?;
 
             insert_new_lineage_and_branch(
                 conn,
                 &lineage_id,
                 &branch_id,
-                kitchen_id,
-                &kitchen_hand_id,
+                &cookbook_id,
+                &hand_id,
                 &language,
                 &version_id,
                 &content_text,
@@ -55,22 +50,21 @@ impl Core {
     /// starting a new one (ADR 0004). Saving content identical to what is
     /// already there mints nothing.
     ///
-    /// Changing a recipe your Kitchen did not write is a **Copy**
-    /// (CONTEXT.md, "Copy"): it happens here, at the moment of the change,
-    /// never at the moment of merely reading `branch_id`. `kitchen_id` names
-    /// which of the caller's own Kitchens this save is on behalf of — the one
-    /// holding the Branch unless they say otherwise — and a Copy is made the
-    /// moment that Kitchen turns out not to be the one that wrote this Branch:
-    /// a brand new Branch of the same Lineage, held by that Kitchen, carrying
-    /// the whole chain behind it, starting at the Version being changed. The
-    /// Branch being edited is never touched by a Copy.
+    /// Changing a recipe your Cookbook did not write is a **Copy**
+    /// (CONTEXT.md, "Copy"; ADR 0041): it happens here, at the moment of the
+    /// change, never at the moment of merely reading `branch_id`. Somebody
+    /// who is not one of the Branch's Co-authors — a Kitchen-mate, or anyone
+    /// saving onto a Branch that arrived in their own Cookbook from elsewhere
+    /// — gets a brand new Branch of the same Lineage in their own Cookbook,
+    /// carrying the whole chain behind it, starting at the Version being
+    /// changed. The Branch being edited is never touched by a Copy.
     ///
-    /// **A Copy only starts from a Branch a Kitchen of yours holds** (#100).
-    /// Because a Copy carries the whole chain, a save onto a Branch you could
-    /// not read would hand you its every Version. So a caller who cooks in no
-    /// Kitchen holding `branch_id` is refused exactly as an id naming nothing
-    /// is (ADR 0040). Nothing legitimate is lost: an arrived Bundle and a kept
-    /// Share Link both put the Branch in the receiver's own Kitchen first.
+    /// **A Copy only starts from a Branch you may see** (#100). Because a Copy
+    /// carries the whole chain, a save onto a Branch you could not read would
+    /// hand you its every Version. So a caller who may not see `branch_id` is
+    /// refused exactly as an id naming nothing is (ADR 0040). Nothing
+    /// legitimate is lost: an arrived Bundle and a kept Share Link both put the
+    /// Branch in the receiver's own Cookbook first.
     ///
     /// Two things about Language happen here, and neither of them writes one
     /// (ADR 0006). The save reads the new text and, where it disagrees with
@@ -87,32 +81,25 @@ impl Core {
         input: &Value,
         name: Option<&str>,
         change_note: Option<&str>,
-        kitchen_id: Option<&str>,
         translates_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
         let (version_id, content_text) = stored_version(&content);
 
         self.db().with_conn(|conn| {
-            let (owning_kitchen_id, lineage_id, language): (String, String, String) = conn
-                .query_row(
-                    "SELECT kitchen_id, lineage_id, language FROM branches WHERE id = ?1",
-                    params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
             // Before anything else reads the Branch, the identical-content
             // shortcut below included: it answers with the head's Version id.
-            ensure_member_or_absent(conn, &owning_kitchen_id, &caller.person_id, no_such_branch)?;
-
-            // Which of the caller's own Kitchens this save is on behalf of:
-            // the one holding the Branch, so an ordinary edit never needs to
-            // say so, or another of theirs named explicitly. The caller named
-            // that one, so it keeps the plain refusal (ADR 0040).
-            let target_kitchen_id = kitchen_id.unwrap_or(&owning_kitchen_id).to_string();
-            ensure_member(conn, &target_kitchen_id, &caller.person_id)?;
+            ensure_sees_branch(conn, branch_id, &caller.person_id)?;
+            let (lineage_id, language): (String, String) = conn
+                .query_row(
+                    "SELECT lineage_id, language FROM branches WHERE id = ?1",
+                    params![branch_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+            // A save is always on behalf of the caller's own Cookbook, which is
+            // where a Copy goes when it is not theirs to write.
+            let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
 
             let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content, head_translates): (
                 i64,
@@ -209,15 +196,16 @@ impl Core {
                 Some(&lines_this_save_wrote(&head_content, &content)),
             );
 
-            if !kitchen_writes_branch(conn, &target_kitchen_id, branch_id)? {
-                // Copy: your Kitchen did not write this Branch, so the change
-                // starts a new one of its own — the source Branch is left
+            if !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)? {
+                // Copy: your Cookbook did not write this Branch, so the change
+                // starts a new one of your own — the source Branch is left
                 // exactly as it was.
                 let new_branch_id = start_copy(
                     conn,
                     branch_id,
                     &lineage_id,
-                    &target_kitchen_id,
+                    &own_cookbook_id,
+                    &caller.person_id,
                     &language,
                     &version_id,
                 )?;
@@ -363,16 +351,7 @@ impl Core {
     ) -> Result<Option<String>, OpError> {
         let name = name.map(str::trim).filter(|n| !n.is_empty());
         self.db().with_conn(|conn| {
-            let kitchen_id: String = conn
-                .query_row(
-                    "SELECT kitchen_id FROM branches WHERE id = ?1",
-                    params![branch_id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_branch(conn, branch_id, person_id)?;
             let hand_id: String = conn
                 .query_row(
                     "SELECT hand_id FROM branch_versions WHERE branch_id = ?1 AND sequence = ?2",
@@ -382,8 +361,8 @@ impl Core {
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?
                 .ok_or_else(|| OpError::not_found("that sequence does not occur on this Branch"))?;
-            // A name is its writer's to give (#115). Everyone in the Kitchen
-            // reads it; only the Hand that saved the Version changes it.
+            // A name is its writer's to give (#115). Everyone who sees the
+            // recipe reads it; only the Hand that saved the Version changes it.
             if hand_id != person_id {
                 return Err(OpError::unauthorized(
                     "only the cook who saved a Version may rename it",
@@ -402,8 +381,13 @@ impl Core {
     ///
     /// **A Branch, never a Lineage and never a Version.** A translation is an
     /// ordinary Branch (ADR 0006), so deleting the English one leaves the
-    /// French one whole; another Kitchen's copy of the same Lineage is not
+    /// French one whole; another Cookbook's copy of the same Lineage is not
     /// this Person's to touch and is not touched.
+    ///
+    /// **Only its Co-authors may, and whoever cooked it keeps it** (ADR 0041,
+    /// #131 question 11). Everybody else who could see the recipe and cooked
+    /// from it keeps a Branch of it in their own Cookbook first, exactly as
+    /// they would had its Cookbook left their Kitchen.
     ///
     /// What goes is everything keyed on this Branch and nothing else. What
     /// stays, and why each one has to:
@@ -452,34 +436,42 @@ impl Core {
     /// refusal is a safety net worth keeping.
     pub fn delete_recipe(&self, person_id: &str, branch_id: &str) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
-            // ADR 0040: this Operation works the Kitchen out from a Branch id
-            // rather than being handed one, so a Person who does not cook in
-            // that Kitchen is answered exactly as an id naming nothing is.
-            // Reaching for the plain membership check here would tell a
-            // stranger that somebody's household holds this recipe.
-            let kitchen_id = branch_kitchen(conn, branch_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+            // ADR 0040: a Person who may not see the recipe is answered
+            // exactly as an id naming nothing is; one who sees it and does not
+            // write it is told they may not.
+            let cookbook_id = branch_cookbook(conn, branch_id)?;
+            ensure_writes(conn, &cookbook_id, person_id)?;
 
             let transaction = conn
                 .unchecked_transaction()
                 .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
-            for statement in [
-                "DELETE FROM branch_versions WHERE branch_id = ?1",
-                "DELETE FROM branch_tags WHERE branch_id = ?1",
-                "DELETE FROM share_links WHERE branch_id = ?1",
-                // The ledger belongs to the Import, not to the recipe (ADR
-                // 0025), so re-running the importer that first brought this in
-                // creates it afresh rather than matching what was deleted.
-                "DELETE FROM import_ledger WHERE branch_id = ?1",
-                // Derived, never truth (ADR 0029). Gone from Meaning Search
-                // the moment the Branch is, without waiting for a rebuild.
-                "DELETE FROM meaning_vectors WHERE branch_id = ?1",
-                "DELETE FROM branches WHERE id = ?1",
-            ] {
-                transaction
-                    .execute(statement, params![branch_id])
-                    .map_err(|e| OpError::internal(format!("cannot delete Recipe: {e}")))?;
+            let cooks: Vec<String> = {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT visible_cookbooks.person_id FROM visible_cookbooks \
+                          WHERE visible_cookbooks.cookbook_id = ?1 \
+                            AND visible_cookbooks.person_id NOT IN \
+                                (SELECT person_id FROM cookbook_authors WHERE cookbook_id = ?1) \
+                          ORDER BY visible_cookbooks.person_id",
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot read who cooks this: {e}")))?;
+                statement
+                    .query_map(params![cookbook_id], |row| row.get(0))
+                    .map_err(|e| OpError::internal(format!("cannot read who cooks this: {e}")))?
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| OpError::internal(format!("cannot read who cooks this: {e}")))?
+            };
+            let mut kept: Vec<(String, String)> = Vec::new();
+            for cook in cooks {
+                if cooked_from(conn, &cookbook_id, &cook)?
+                    .iter()
+                    .any(|b| b == branch_id)
+                {
+                    kept.push((cook, branch_id.to_string()));
+                }
             }
+            keep_branches(conn, &kept)?;
+            delete_branch_rows(conn, branch_id)?;
             transaction
                 .commit()
                 .map_err(|e| OpError::internal(format!("cannot delete Recipe: {e}")))?;
@@ -502,16 +494,14 @@ impl Core {
     /// exactly the kind of loss ADR 0027 said this fact may take.
     pub fn note_recipe_opened(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let found: Option<(String, String)> = conn
+            ensure_sees_branch(conn, branch_id, person_id)?;
+            let lineage_id: String = conn
                 .query_row(
-                    "SELECT lineage_id, kitchen_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| row.get(0),
                 )
-                .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
-            let (lineage_id, kitchen_id) = found.ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
 
             conn.execute(
                 "INSERT INTO recipe_opens (person_id, lineage_id) VALUES (?1, ?2) \
@@ -541,16 +531,17 @@ impl Core {
         wanted: Option<&Value>,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let (lineage_id, kitchen_id, hand_id, language, origin_address, head_version_id): (
-                String,
+            let cookbook_id = ensure_sees_branch(conn, branch_id, person_id)?;
+            let (lineage_id, hand_id, language, origin_address, head_version_id, branch_name): (
                 String,
                 String,
                 String,
                 Option<String>,
                 String,
+                Option<String>,
             ) = conn
                 .query_row(
-                    "SELECT lineage_id, kitchen_id, hand_id, language, origin_address, head_version_id \
+                    "SELECT lineage_id, hand_id, language, origin_address, head_version_id, name \
                        FROM branches WHERE id = ?1",
                     params![branch_id],
                     |row| {
@@ -564,10 +555,7 @@ impl Core {
                         ))
                     },
                 )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
 
             let mut statement = conn
                 .prepare(
@@ -671,7 +659,16 @@ impl Core {
             Ok(json!({
                 "branch_id": branch_id,
                 "lineage_id": lineage_id,
-                "kitchen_id": kitchen_id,
+                // Whose recipe this is, and whether the reader writes it: a
+                // save by anybody else starts a Branch of their own (ADR 0041),
+                // which the writing screens say before the tap.
+                "cookbook": cookbook_label(conn, &cookbook_id)?,
+                "name": branch_name,
+                "writes": cookbook_writes_branch(
+                    conn,
+                    &cookbook_of_person(conn, person_id)?,
+                    branch_id,
+                )?,
                 "hand_id": hand_id,
                 "language": language,
                 "origin_address": origin_address,
@@ -684,13 +681,14 @@ impl Core {
                 // the source Branch as it stands right now (ADR 0006).
                 "translation": translation_of_branch(conn, &lineage_id, branch_id)?,
                 // Beside the Versions rather than inside any of them: a Tag is
-                // how this Kitchen files the recipe, not part of what the
+                // how this Cookbook files the recipe, not part of what the
                 // recipe is, so it belongs to the Branch as it stands now and
                 // to no Version's content (ADR 0035).
                 "tags": tags_of_branch(conn, branch_id, person_id)?,
-                // Related Recipes are shelf notes between Lineages. They sit
-                // beside the Thread just as Tags do, never inside a Version.
-                "related_recipes": related_recipes_of_lineage(conn, &kitchen_id, &lineage_id, person_id)?,
+                // Related Recipes are shelf notes between Lineages, kept by the
+                // Cookbook with its recipes (#131, question 3). They sit beside
+                // the Thread just as Tags do, never inside a Version.
+                "related_recipes": related_recipes_of_lineage(conn, &cookbook_id, &lineage_id, person_id)?,
                 // How this dish has been cooked: how many times, when last,
                 // and each Person's most recent rating by name (#59). Beside
                 // the Versions and never inside one — an Attempt is a private
@@ -710,45 +708,61 @@ impl Core {
     /// the two stay independently testable.
     pub fn get_thread(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let (lineage_id, kitchen_id): (String, String) = conn
+            ensure_sees_branch(conn, branch_id, person_id)?;
+            let lineage_id: String = conn
                 .query_row(
-                    "SELECT lineage_id, kitchen_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| row.get(0),
                 )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+            let own_cookbook_id = cookbook_of_person(conn, person_id)?;
 
-            // Every Branch of this Lineage held by a Kitchen this Person
-            // cooks in — never a Branch in a Kitchen they do not belong to,
-            // the same boundary a single `get_recipe` enforces.
+            // Every Branch of this Lineage in a Cookbook this Person may see —
+            // never one they may not, the same boundary a single `get_recipe`
+            // enforces (ADR 0041).
             let mut statement = conn
                 .prepare(&format!(
-                    "SELECT DISTINCT branches.id, branches.kitchen_id, branches.hand_id, \
-                            branches.language, branches.head_version_id, {} \
+                    "SELECT branches.id, branches.cookbook_id, branches.hand_id, \
+                            branches.language, branches.head_version_id, {}, \
+                            branches.name, branches.arrived \
                        FROM branches \
-                       JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
-                      WHERE branches.lineage_id = ?1 AND kitchen_members.person_id = ?2 \
+                      WHERE branches.lineage_id = ?1 AND {} \
                       ORDER BY branches.created_at ASC, branches.id ASC",
                     hand_name_sql("branches.hand_id"),
+                    visible_to("branches", "?2"),
                 ))
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
-            let mut branches: Vec<Value> = statement
+            let rows: Vec<(Value, String)> = statement
                 .query_map(params![lineage_id, person_id], |row| {
-                    Ok(json!({
-                        "branch_id": row.get::<_, String>(0)?,
-                        "kitchen_id": row.get::<_, String>(1)?,
-                        "hand_id": row.get::<_, String>(2)?,
-                        "language": row.get::<_, String>(3)?,
-                        "head_version_id": row.get::<_, String>(4)?,
-                        "hand_name": row.get::<_, Option<String>>(5)?,
-                    }))
+                    let cookbook_id: String = row.get(1)?;
+                    Ok((
+                        json!({
+                            "branch_id": row.get::<_, String>(0)?,
+                            // A variation's own name, null on every other Branch.
+                            "name": row.get::<_, Option<String>>(6)?,
+                            // Whether this Branch is in the reader's own
+                            // Cookbook, and whether it arrived there from
+                            // somebody else (ADR 0020): what the switch labels
+                            // it by.
+                            "mine": cookbook_id == own_cookbook_id,
+                            "arrived": row.get::<_, bool>(7)?,
+                            "hand_id": row.get::<_, String>(2)?,
+                            "language": row.get::<_, String>(3)?,
+                            "head_version_id": row.get::<_, String>(4)?,
+                            "hand_name": row.get::<_, Option<String>>(5)?,
+                        }),
+                        cookbook_id,
+                    ))
                 })
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?
                 .collect::<Result<_, _>>()
                 .map_err(|e| OpError::internal(format!("cannot list Branches: {e}")))?;
+            let mut branches: Vec<Value> = Vec::new();
+            for (mut branch, cookbook_id) in rows {
+                branch["cookbook"] = cookbook_label(conn, &cookbook_id)?;
+                branches.push(branch);
+            }
 
             // Which of these Branches are Translations, and how far behind
             // each has fallen — the Thread is where a divergence and a
@@ -1023,7 +1037,7 @@ fn lines_this_save_wrote(old_content: &Value, new_content: &Value) -> HashSet<us
 /// here, because both sides look right in isolation.
 pub(super) enum Unfolds<'a> {
     /// **A Person reading their own recipe.** A Component resolves against every
-    /// Kitchen they cook in, its sentence is in their Language, and the inner
+    /// Cookbook they may see, its sentence is in their Language, and the inner
     /// recipe carries the scaled, converted subordinate lines their measures ask
     /// for (#49).
     ForReader {
@@ -1032,22 +1046,22 @@ pub(super) enum Unfolds<'a> {
     },
     /// **A Share Link carrying a Passenger** (ADR 0008). There is no reader to
     /// resolve against — a stranger holding the link holds nothing — so the
-    /// dough that travels is the one the sharing **Kitchen** holds, and the
+    /// dough that travels is the one the sharing **Cookbook** holds, and the
     /// sentence is in the recipe's own Language, which is the rule the whole of
     /// that page follows.
     ///
     /// It carries no subordinate line, because that page carries none at all:
     /// Kamosu converts to a kitchen and a stranger has none.
     AsPassenger {
-        kitchen_id: &'a str,
+        cookbook_id: &'a str,
         language: &'a str,
     },
     /// **A Passenger printed on a stranger's Sheet** (ADR 0023). Resolved as a
-    /// Share Link resolves one, against the sharing Kitchen — but a Sheet
+    /// Share Link resolves one, against the sharing Cookbook — but a Sheet
     /// prints every Component already scaled, so it carries the scaled amounts
     /// in the recipe's own measures, converted to nobody's.
     PrintedPassenger {
-        kitchen_id: &'a str,
+        cookbook_id: &'a str,
         reader: &'a Reader,
     },
     /// **A Shopping List unfolding to the bottom** (ADR 0008, #86). Resolved
@@ -1071,9 +1085,9 @@ impl Unfolds<'_> {
             Unfolds::ForReader { person_id, .. } | Unfolds::ForShopping { person_id, .. } => {
                 branch_of_lineage_for(conn, lineage_id, person_id)
             }
-            Unfolds::AsPassenger { kitchen_id, .. }
-            | Unfolds::PrintedPassenger { kitchen_id, .. } => {
-                branch_of_lineage_in_kitchen(conn, lineage_id, kitchen_id)
+            Unfolds::AsPassenger { cookbook_id, .. }
+            | Unfolds::PrintedPassenger { cookbook_id, .. } => {
+                branch_of_lineage_in_cookbook(conn, lineage_id, cookbook_id)
             }
         }
     }
@@ -1285,10 +1299,11 @@ struct Held {
     content: Value,
 }
 
-/// **Which Branch of a Lineage this reader holds.** A Component names a Lineage,
-/// so it resolves to whatever Branch of it the reader has — and where they hold
-/// two, the oldest wins, so a Component reads the same on every screen rather
-/// than following whichever row the database happened to return first.
+/// **Which Branch of a Lineage this reader sees.** A Component names a Lineage,
+/// so it resolves to whatever Branch of it the reader may see — their own
+/// Cookbook's where they have one, and otherwise the oldest, so a Component
+/// reads the same on every screen rather than following whichever row the
+/// database happened to return first.
 fn branch_of_lineage_for(
     conn: &Connection,
     lineage_id: &str,
@@ -1296,39 +1311,42 @@ fn branch_of_lineage_for(
 ) -> Result<Option<Held>, OpError> {
     held_from(
         conn,
-        "SELECT branches.id, branches.head_version_id, versions.content \
-           FROM branches \
-           JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
-           JOIN versions ON versions.id = branches.head_version_id \
-          WHERE branches.lineage_id = ?1 AND kitchen_members.person_id = ?2 \
-          ORDER BY branches.created_at ASC, branches.id ASC LIMIT 1",
+        &format!(
+            "SELECT branches.id, branches.head_version_id, versions.content \
+               FROM branches \
+               JOIN versions ON versions.id = branches.head_version_id \
+              WHERE branches.lineage_id = ?1 AND {} \
+              ORDER BY {} LIMIT 1",
+            visible_to("branches", "?2"),
+            own_first("branches", "?2"),
+        ),
         lineage_id,
         person_id,
     )
 }
 
-/// **Which Branch of a Lineage one Kitchen holds** — how a Passenger is chosen.
+/// **Which Branch of a Lineage one Cookbook holds** — how a Passenger is chosen.
 ///
 /// A Share Link has no reader to resolve against: a stranger holding the link
 /// holds nothing, and the whole point of a Passenger is that they can read the
 /// dough anyway (ADR 0008). So the dough that travels is the one the **sharing
-/// Kitchen** holds, fixed when the page is read, which is also the only answer
+/// Cookbook** holds, fixed when the page is read, which is also the only answer
 /// that does not leak — resolving against the reader would be resolving against
-/// nobody, and resolving against every Kitchen on the instance would carry a
-/// dough its own Kitchen never shared.
-fn branch_of_lineage_in_kitchen(
+/// nobody, and resolving against every Cookbook on the instance would carry a
+/// dough its own Cookbook never shared.
+fn branch_of_lineage_in_cookbook(
     conn: &Connection,
     lineage_id: &str,
-    kitchen_id: &str,
+    cookbook_id: &str,
 ) -> Result<Option<Held>, OpError> {
     held_from(
         conn,
         "SELECT branches.id, branches.head_version_id, versions.content \
            FROM branches JOIN versions ON versions.id = branches.head_version_id \
-          WHERE branches.lineage_id = ?1 AND branches.kitchen_id = ?2 \
-          ORDER BY branches.created_at ASC, branches.id ASC LIMIT 1",
+          WHERE branches.lineage_id = ?1 AND branches.cookbook_id = ?2 \
+          ORDER BY branches.name IS NULL DESC, branches.created_at ASC, branches.id ASC LIMIT 1",
         lineage_id,
-        kitchen_id,
+        cookbook_id,
     )
 }
 
@@ -1755,13 +1773,18 @@ fn attempts_for_lineage(
     viewer_person_id: &str,
     visible_version_ids: &HashSet<String>,
 ) -> Result<Vec<Value>, OpError> {
+    // Only the reader's company's cooking (#131, question 1): a recipe is seen
+    // in Kitchens its cook may never have joined, and a cook's diary does not
+    // follow the recipe there.
     let mut statement = conn
         .prepare(&format!(
-            "SELECT {ATTEMPT_COLUMNS} FROM attempts WHERE lineage_id = ?1 ORDER BY created_at ASC"
+            "SELECT {ATTEMPT_COLUMNS} FROM attempts \
+              WHERE lineage_id = ?1 AND person_id IN ({}) ORDER BY created_at ASC",
+            company_of("?2"),
         ))
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
     let rows: Vec<Value> = statement
-        .query_map(params![lineage_id], attempt_row)
+        .query_map(params![lineage_id, viewer_person_id], attempt_row)
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?
         .collect::<Result<Vec<Value>, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
@@ -1794,11 +1817,12 @@ fn attempts_for_lineage(
 /// because only the newest one each Person gave is carried at all — the older
 /// ones stay in their own diary and reach this not at all.
 ///
-/// **Scoped by the household, not by the Versions a Branch happens to carry
-/// right now.** The boundary is: every Person who shares with this reader a
-/// Kitchen that holds a Branch of this Lineage. Somebody cooking the same dish
-/// in a Kitchen this reader does not belong to is left out rather than leaked
-/// just because it shares a Lineage id.
+/// **Scoped by the reader's company, not by the Versions a Branch happens to
+/// carry right now** (#131, question 1): the reader, everyone who cooks in a
+/// Kitchen with them, and everyone who writes a Cookbook with them. Somebody
+/// cooking the same dish whom this reader does not cook with is left out
+/// rather than leaked just because it shares a Lineage id — a mother's note on
+/// her son's recipe is for the family Kitchen, not his supper club.
 ///
 /// Scoping by *Version* instead — the boundary `attempts_for_lineage` uses for
 /// the Thread — reads correctly and is wrong here. A collapsing save repoints
@@ -1807,25 +1831,19 @@ fn attempts_for_lineage(
 /// Version it replaced stops being reachable that way. The cook count would
 /// then silently fall — the recipe would forget cookings because somebody
 /// edited it — which is exactly the systematic wrongness ADR 0010 refuses.
-/// Membership survives a collapse; a Version id does not.
+/// Company survives a collapse; a Version id does not.
 ///
 /// An unfinished Attempt counts toward both the count and the date (ADR 0010):
 /// a cooking is real from the moment it starts, and the library must not be
 /// systematically wrong because nobody filed paperwork.
 fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Result<Value, OpError> {
-    /// The household: everyone who shares with this reader a Kitchen holding a
-    /// Branch of this Lineage. `?1` is the Lineage, `?2` the reader.
-    const HOUSEHOLD: &str = "SELECT theirs.person_id FROM kitchen_members AS theirs \
-          WHERE theirs.kitchen_id IN ( \
-              SELECT branches.kitchen_id FROM branches \
-                JOIN kitchen_members AS mine ON mine.kitchen_id = branches.kitchen_id \
-               WHERE branches.lineage_id = ?1 AND mine.person_id = ?2)";
+    let household = company_of("?2");
 
     let (count, last_cooked_at): (i64, Option<String>) = conn
         .query_row(
             &format!(
                 "SELECT COUNT(*), MAX(created_at) FROM attempts \
-                  WHERE lineage_id = ?1 AND person_id IN ({HOUSEHOLD})"
+                  WHERE lineage_id = ?1 AND person_id IN ({household})"
             ),
             params![lineage_id, person_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
@@ -1846,7 +1864,7 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
         .prepare(&format!(
             "SELECT attempts.person_id, people.name, attempts.rating, attempts.created_at \
                FROM attempts JOIN people ON people.id = attempts.person_id \
-              WHERE attempts.lineage_id = ?1 AND attempts.person_id IN ({HOUSEHOLD}) \
+              WHERE attempts.lineage_id = ?1 AND attempts.person_id IN ({household}) \
                 AND attempts.id = ( \
                     SELECT newer.id FROM attempts AS newer \
                      WHERE newer.person_id = attempts.person_id \
@@ -1880,6 +1898,22 @@ fn cooking_record(conn: &Connection, lineage_id: &str, person_id: &str) -> Resul
     }))
 }
 
+/// **Whose cooking a reader sees** (#131, question 1), as SQL answering person
+/// ids, `reader` being the placeholder holding theirs: the reader themselves,
+/// everyone who cooks in a Kitchen with them, and everyone who writes a
+/// Cookbook with them.
+pub(super) fn company_of(reader: &str) -> String {
+    format!(
+        "SELECT {reader} \
+         UNION SELECT theirs.person_id FROM kitchen_members AS mine \
+                 JOIN kitchen_members AS theirs ON theirs.kitchen_id = mine.kitchen_id \
+                WHERE mine.person_id = {reader} \
+         UNION SELECT theirs.person_id FROM cookbook_authors AS mine \
+                 JOIN cookbook_authors AS theirs ON theirs.cookbook_id = mine.cookbook_id \
+                WHERE mine.person_id = {reader}"
+    )
+}
+
 /// One Branch's Versions, oldest first, verified contiguous back to a first
 /// Version with no parent. A gap anywhere in that chain — a parent that is
 /// not the previous row's own Version — means the Bundle this Branch arrived
@@ -1889,16 +1923,7 @@ fn ordered_chain(
     branch_id: &str,
     person_id: &str,
 ) -> Result<Vec<String>, OpError> {
-    let kitchen_id: String = conn
-        .query_row(
-            "SELECT kitchen_id FROM branches WHERE id = ?1",
-            params![branch_id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-        .ok_or_else(no_such_branch)?;
-    ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_branch)?;
+    ensure_sees_branch(conn, branch_id, person_id)?;
 
     let mut statement = conn
         .prepare(
@@ -1925,20 +1950,22 @@ fn ordered_chain(
     Ok(rows.into_iter().map(|(version_id, _)| version_id).collect())
 }
 
-/// One Branch as a Divergence needs it: who holds it and where its head is.
+/// One Branch as a Divergence needs it: which Cookbook holds it and where its
+/// head is.
 pub(super) struct BranchHead {
     branch_id: String,
     pub(super) lineage_id: String,
-    pub(super) kitchen_id: String,
-    kitchen_name: String,
+    pub(super) cookbook_id: String,
+    name: Option<String>,
+    arrived: bool,
     hand_id: String,
     language: String,
     pub(super) head_version_id: String,
 }
 
 impl BranchHead {
-    /// The Branch as one side of the switch: enough to name the Kitchen you are
-    /// standing in, and the Readings for the lines it actually has. A Reading
+    /// The Branch as one side of the switch: enough to name whose recipe you
+    /// are standing in, and the Readings for the lines it actually has. A Reading
     /// never sits inside content (ADR 0021), so it is fetched and laid
     /// alongside — one slot per Ingredient Line, null wherever none is recorded.
     fn to_json(
@@ -1971,9 +1998,18 @@ impl BranchHead {
         )?;
         Ok(json!({
             "branch_id": self.branch_id,
-            "kitchen_id": self.kitchen_id,
-            "kitchen_name": self.kitchen_name,
+            "cookbook": cookbook_label(conn, &self.cookbook_id)?,
+            "name": self.name,
+            "mine": self.cookbook_id == cookbook_of_person(conn, person_id)?,
+            "arrived": self.arrived,
             "hand_id": self.hand_id,
+            "hand_name": conn
+                .query_row(
+                    &format!("SELECT {}", hand_name_sql("?1")),
+                    params![self.hand_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .map_err(|e| OpError::internal(format!("cannot name a Hand: {e}")))?,
             "language": self.language,
             "head_version_id": self.head_version_id,
             "content": content.clone(),
@@ -1995,20 +2031,19 @@ impl BranchHead {
 
 pub(super) fn branch_head(conn: &Connection, branch_id: &str) -> Result<BranchHead, OpError> {
     conn.query_row(
-        "SELECT branches.lineage_id, branches.kitchen_id, kitchens.name, \
-                branches.hand_id, branches.language, branches.head_version_id \
-           FROM branches JOIN kitchens ON kitchens.id = branches.kitchen_id \
-          WHERE branches.id = ?1",
+        "SELECT lineage_id, cookbook_id, name, arrived, hand_id, language, head_version_id \
+           FROM branches WHERE id = ?1",
         params![branch_id],
         |row| {
             Ok(BranchHead {
                 branch_id: branch_id.to_string(),
                 lineage_id: row.get(0)?,
-                kitchen_id: row.get(1)?,
-                kitchen_name: row.get(2)?,
-                hand_id: row.get(3)?,
-                language: row.get(4)?,
-                head_version_id: row.get(5)?,
+                cookbook_id: row.get(1)?,
+                name: row.get(2)?,
+                arrived: row.get(3)?,
+                hand_id: row.get(4)?,
+                language: row.get(5)?,
+                head_version_id: row.get(6)?,
             })
         },
     )
@@ -2163,80 +2198,64 @@ fn version_is_held_by_another_branch(
     })
 }
 
-/// Whether `kitchen_id` is the Kitchen that writes a Branch — the only one
-/// that may change it without starting a **Copy** (ADR 0020, "A Branch has one
-/// Kitchen writing it").
+/// Start a **Copy** (CONTEXT.md, "Copy"): a new Branch of the same Lineage in
+/// `cookbook_id`, under that Cookbook's own Hand, carrying the whole chain of
+/// `branch_id` behind it verbatim — same Versions, same Hands, same names and
+/// *what changed* lines, nothing truncated (ADR 0018). The caller appends the
+/// change that made it; the source Branch is never touched.
 ///
-/// Holding a Branch is not writing it. A Branch that arrived in a Bundle is
-/// held here, in the receiving Kitchen, but still carries the sender's
-/// Kitchen's Hand — so the first change to it is a Copy, exactly as a change
-/// made on behalf of another Kitchen of yours is, and the sender's next Bundle
-/// can go on extending the Branch it has always been writing.
-pub(super) fn kitchen_writes_branch(
-    conn: &Connection,
-    kitchen_id: &str,
-    branch_id: &str,
-) -> Result<bool, OpError> {
-    let (holding_kitchen_id, branch_hand_id): (String, String) = conn
-        .query_row(
-            "SELECT kitchen_id, hand_id FROM branches WHERE id = ?1",
-            params![branch_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
-    Ok(kitchen_id == holding_kitchen_id && kitchen_hand(conn, kitchen_id)? == branch_hand_id)
-}
-
-/// Start a **Copy** (CONTEXT.md, "Copy"): a new Branch of the same Lineage,
-/// held by `kitchen_id` under that Kitchen's own Hand, carrying the whole chain
-/// of `branch_id` behind it verbatim — same Versions, same Hands, same names
-/// and *what changed* lines, nothing truncated (ADR 0018). The caller appends
-/// the change that made it; the source Branch is never touched.
+/// Where the Cookbook already holds an unnamed Branch of this recipe in this
+/// Language, the Copy is named after the Cookbook it came from, so the two can
+/// be told apart on the switch (#131, question 6).
 pub(super) fn start_copy(
     conn: &Connection,
     branch_id: &str,
     lineage_id: &str,
-    kitchen_id: &str,
+    cookbook_id: &str,
+    started_by: &str,
     language: &str,
     head_version_id: &str,
 ) -> Result<String, OpError> {
     let new_branch_id = format!("b_{}", hex::encode(random_bytes(8)));
-    let kitchen_hand_id = kitchen_hand(conn, kitchen_id)?;
+    let hand_id = cookbook_hand(conn, cookbook_id)?;
+    let name = name_on_arrival(
+        conn,
+        cookbook_id,
+        lineage_id,
+        language,
+        &whose_branch(conn, branch_id)?,
+    )?;
     conn.execute(
-        "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, name, started_by) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             new_branch_id,
             lineage_id,
-            kitchen_id,
-            kitchen_hand_id,
+            cookbook_id,
+            hand_id,
             language,
-            head_version_id
+            head_version_id,
+            name,
+            started_by
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;
-    conn.execute(
-        "INSERT INTO branch_versions \
-         (branch_id, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language) \
-         SELECT ?1, sequence, version_id, parent_version_id, hand_id, name, change_note, access_key_id, created_at, translates_version_id, language \
-           FROM branch_versions WHERE branch_id = ?2",
-        params![new_branch_id, branch_id],
-    )
-    .map_err(|e| OpError::internal(format!("cannot carry the chain onto the new Branch: {e}")))?;
+    carry_chain(conn, branch_id, &new_branch_id)?;
     Ok(new_branch_id)
 }
 
-/// Mint a brand-new Lineage, a Branch of it in `kitchen_id`, and its first
+/// Mint a brand-new Lineage, a Branch of it in `cookbook_id`, and its first
 /// Version — the one sequence `create_recipe` and a freshly-seen Import
-/// candidate both start from (ADR 0004): the Kitchen's own Hand on the
-/// Branch, the writing Person's Hand on this first Version.
+/// candidate both start from (ADR 0004): the Cookbook's own Hand on the
+/// Branch, the writing Person's Hand on this first Version, and the writer
+/// as the one who started it.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn insert_new_lineage_and_branch(
     conn: &Connection,
     lineage_id: &str,
     branch_id: &str,
-    kitchen_id: &str,
-    kitchen_hand_id: &str,
+    cookbook_id: &str,
+    cookbook_hand_id: &str,
     language: &str,
     version_id: &str,
     content_text: &str,
@@ -2251,15 +2270,16 @@ pub(super) fn insert_new_lineage_and_branch(
     conn.execute("INSERT INTO lineages (id) VALUES (?1)", params![lineage_id])
         .map_err(|e| OpError::internal(format!("cannot mint Lineage: {e}")))?;
     conn.execute(
-        "INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO branches (id, lineage_id, cookbook_id, hand_id, language, head_version_id, started_by) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             branch_id,
             lineage_id,
-            kitchen_id,
-            kitchen_hand_id,
+            cookbook_id,
+            cookbook_hand_id,
             language,
-            version_id
+            version_id,
+            writer_person_id
         ],
     )
     .map_err(|e| OpError::internal(format!("cannot start Branch: {e}")))?;

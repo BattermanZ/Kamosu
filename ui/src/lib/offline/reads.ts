@@ -58,14 +58,21 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// still counted beside the very sentence saying it is gone. Found in live
 	// acceptance, where a new source did not appear until the second load.
 	list_imports: 'server-first',
-	// Which Kitchens you cook in. It decides whether a new recipe asks whose
-	// it is (#111), and a kept answer is wrong at exactly that moment when
-	// the Kitchens changed somewhere else — another device, or another member
-	// removing you. (A change made on this phone already goes past the kept
-	// answer.) A Kitchen joined elsewhere is missing, so the cook is not asked
-	// and the recipe lands in the Home Kitchen silently, which is the thing
-	// #111 removed; one left is still offered. Found in live acceptance.
+	// Which Kitchens you cook in, and whose Cookbooks each sees. Settings shows
+	// it beside the buttons that change it, and a kept answer is wrong at
+	// exactly the moment it matters: a Kitchen joined or left on another
+	// device, or another member removing you. Found in live acceptance (#111).
 	list_kitchens: 'server-first',
+	// Your Cookbook, who writes it and the Invites still waiting (#131). The
+	// same reason: joining, leaving and renaming happen on other devices and
+	// by other Co-authors, and Settings acts on what it shows.
+	get_cookbook: 'server-first',
+	// What an Invite would do, read the moment it is opened. It is spent or
+	// ended elsewhere, and a kept answer would offer a join that then refuses.
+	read_cookbook_invite: 'server-first',
+	// What leaving a Kitchen keeps, counted the moment the sheet opens. Its
+	// whole value is being current: a recipe cooked since changes the count.
+	preview_leaving_kitchen: 'server-first',
 	// How this Person reads (#112). Settings decides from it whether the
 	// recipes follow the interface's Language or were split off, and every
 	// save sends back whichever half it is not changing. A kept answer from

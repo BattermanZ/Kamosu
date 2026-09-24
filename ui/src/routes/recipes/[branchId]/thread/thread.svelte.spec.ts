@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import ThreadTestHarness from './ThreadTestHarness.svelte';
+import { cookbookLabel, threadBranch } from '../../../../testing/recipes';
 
 /** Who is reading. Nobody in these fixtures unless a test says otherwise. */
 const NOBODY = { person_id: 'p_nobody', name: 'Nobody' };
@@ -26,7 +27,10 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						kitchen_id: 'k_1',
+						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						name: null,
+						mine: true,
+						arrived: false,
 						hand_id: 'h_aurelien',
 						hand_name: 'Aurélien',
 						language: 'en',
@@ -99,7 +103,10 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						kitchen_id: 'k_1',
+						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						name: null,
+						mine: true,
+						arrived: false,
 						hand_id: 'h_aurelien',
 						hand_name: 'Aurélien',
 						language: 'en',
@@ -108,7 +115,10 @@ describe('the Thread screen', () => {
 					},
 					{
 						branch_id: 'b_marc',
-						kitchen_id: 'k_2',
+						cookbook: cookbookLabel('c_marc', ['Marc']),
+						name: null,
+						mine: false,
+						arrived: false,
 						hand_id: 'h_marc',
 						hand_name: 'Marc',
 						language: 'en',
@@ -175,6 +185,11 @@ describe('the Thread screen', () => {
 		});
 
 		expect(await screen.findByText('Splits into 2 Branches here.')).toBeInTheDocument();
+		// Each Branch is named as the version switch names it (#131): your own
+		// is Yours, another Cookbook's is whose it is. Each Version still says
+		// who wrote it.
+		expect(screen.getAllByText('Yours').length).toBeGreaterThan(0);
+		expect(screen.getAllByText('Marc’s').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('Aurélien').length).toBeGreaterThan(0);
 		expect(screen.getAllByText('Marc').length).toBeGreaterThan(0);
 		// A Hand is shown by its name, never by the id a person cannot read (#113).
@@ -193,7 +208,10 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						kitchen_id: 'k_1',
+						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						name: null,
+						mine: true,
+						arrived: false,
 						hand_id: 'h_aurelien',
 						hand_name: 'Aurélien',
 						language: 'en',
@@ -202,7 +220,10 @@ describe('the Thread screen', () => {
 					},
 					{
 						branch_id: 'b_marc',
-						kitchen_id: 'k_2',
+						cookbook: cookbookLabel('c_marc', ['Marc']),
+						name: null,
+						mine: false,
+						arrived: false,
 						hand_id: 'h_marc',
 						hand_name: 'Marc',
 						language: 'en',
@@ -211,7 +232,10 @@ describe('the Thread screen', () => {
 					},
 					{
 						branch_id: 'b_camille',
-						kitchen_id: 'k_3',
+						cookbook: cookbookLabel('c_camille', ['Camille']),
+						name: null,
+						mine: false,
+						arrived: false,
 						hand_id: 'h_camille',
 						hand_name: 'Camille',
 						language: 'fr',
@@ -350,7 +374,10 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						kitchen_id: 'k_1',
+						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						name: null,
+						mine: true,
+						arrived: false,
 						hand_id: 'h_aurelien',
 						hand_name: 'Aurélien',
 						language: 'en',
@@ -378,7 +405,9 @@ describe('the Thread screen', () => {
 			get_recipe: {
 				branch_id: 'b_mine',
 				lineage_id: 'l_1',
-				kitchen_id: 'k_1',
+				cookbook: cookbookLabel('c_1', ['Aurélien']),
+				name: null,
+				writes: true,
 				hand_id: 'h_aurelien',
 				language: 'en',
 				origin_address: null,
@@ -471,7 +500,10 @@ describe('the Thread screen', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						kitchen_id: 'k_1',
+						cookbook: cookbookLabel('c_1', ['Aurélien']),
+						name: null,
+						mine: true,
+						arrived: false,
 						hand_id: 'h_aurelien',
 						hand_name: 'Aurélien',
 						language: 'en',
@@ -521,7 +553,10 @@ describe('a Language said, in the Thread', () => {
 			branches: [
 				{
 					branch_id: 'b_mine',
-					kitchen_id: 'k_1',
+					cookbook: cookbookLabel('c_1', ['Aurélien']),
+					name: null,
+					mine: true,
+					arrived: false,
 					hand_id: 'h_aurelien',
 					hand_name: 'Aurélien',
 					language: 'fr',
@@ -594,7 +629,10 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 				branches: [
 					{
 						branch_id: 'b_mine',
-						kitchen_id: 'k_1',
+						cookbook: cookbookLabel('c_1', ['Chez nous']),
+						name: null,
+						mine: true,
+						arrived: false,
 						hand_id: 'k_1',
 						hand_name: 'Chez nous',
 						language: 'en',
@@ -617,15 +655,13 @@ describe('who wrote each Version, in the Thread (#113)', () => {
 
 describe('naming a Version from the Thread (#115)', () => {
 	const ME = { person_id: 'p_aurelien', name: 'Aurélien' };
-	const branch = (branch_id: string, hand_name: string) => ({
-		branch_id,
-		kitchen_id: `k_${branch_id}`,
-		hand_id: `k_${branch_id}`,
-		hand_name,
-		language: 'en',
-		head_version_id: 'v_3',
-		translation: null,
-	});
+	const branch = (branch_id: string, hand_name: string) =>
+		threadBranch(branch_id, {
+			cookbook: cookbookLabel(`c_${branch_id}`, ['Aurélien', 'Camille'], hand_name),
+			hand_id: `c_${branch_id}`,
+			hand_name,
+			head_version_id: 'v_3',
+		});
 	const saved = (
 		branch_id: string,
 		sequence: number,

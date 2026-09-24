@@ -181,15 +181,15 @@ fn library_with_meaning_search() -> Option<Library> {
     let (status, created) = app.post_auth("/auth/first-person", &first.to_string());
     assert_eq!(status, 200, "{created}");
     let operator_id = created["result"]["person"]["id"].as_str().unwrap();
-    let kitchen_id = created["result"]["person"]["home_kitchen_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
     let key = app
         .core
         .mint_access_key(operator_id, "corpus meaning", false)
         .unwrap()
         .secret;
+    // A Kitchen of the Operator's own, for a Kitchen-mate to be asked into:
+    // the library is his Cookbook, and a Kitchen is how it is seen (ADR 0041).
+    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
+    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     let library = Library {
         app,
@@ -197,12 +197,10 @@ fn library_with_meaning_search() -> Option<Library> {
         kitchen_id: kitchen_id.clone(),
     };
     for recipe in &recipes {
-        let mut input = recipe.clone();
-        input["kitchen_id"] = json!(kitchen_id);
         let (status, made) =
             library
                 .app
-                .post_op("create_recipe", Some(&library.key), &input.to_string());
+                .post_op("create_recipe", Some(&library.key), &recipe.to_string());
         assert_eq!(status, 200, "{} — {made}", recipe["title"]);
     }
 

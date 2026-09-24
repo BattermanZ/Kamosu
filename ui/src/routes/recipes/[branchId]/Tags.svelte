@@ -34,12 +34,17 @@
 
 	interface Props {
 		branchId: string;
-		kitchenId: string;
+		/**
+		 * Whether the reader writes this recipe's Cookbook. Tags are filed by
+		 * the Cookbook, with its recipes (#131, question 3), so only its
+		 * Co-authors add one; everybody else reads the row.
+		 */
+		writes: boolean;
 		/** The recipe's tags as the page read them. */
 		tags: Tag[];
 	}
 
-	let { branchId, kitchenId, tags }: Props = $props();
+	let { branchId, writes, tags }: Props = $props();
 
 	/**
 	 * The Tags as they stand, which starts as what the page read and then
@@ -59,53 +64,56 @@
 	same classes, because it is a section of the recipe page and not a widget
 	sitting on one.
 -->
-<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-	{m.tags_title()}
-</h2>
-<div class="flex flex-wrap gap-2 px-gutter">
-	{#each byWord(shown) as tag (tag.id)}
-		{@const named = tagWord(tag)}
-		<a
-			href="/recipes?tag={encodeURIComponent(tag.id)}"
-			class="inline-flex min-h-8 items-baseline gap-2 rounded-sm border border-rule bg-card px-3
+{#if writes || shown.length > 0}
+	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+		{m.tags_title()}
+	</h2>
+	<div class="flex flex-wrap gap-2 px-gutter">
+		{#each byWord(shown) as tag (tag.id)}
+			{@const named = tagWord(tag)}
+			<a
+				href="/recipes?tag={encodeURIComponent(tag.id)}"
+				class="inline-flex min-h-8 items-baseline gap-2 rounded-sm border border-rule bg-card px-3
 			py-1 text-read text-ink"
-		>
-			{named.name}
-			{#if named.elsewhere}
-				<!--
+			>
+				{named.name}
+				{#if named.elsewhere}
+					<!--
 					Beni, the identity's Language-badge colour, and `Tile.svelte`'s
 					rule for what it says: the code is what fits beside a word, and
 					the whole sentence is there for anyone listening rather than
 					looking, since "FR" read aloud is not a fallback anyone would
 					understand.
 				-->
-				<span class="text-label text-support uppercase">
-					<span aria-hidden="true">{named.elsewhere}</span>
-					<span class="sr-only">{named.said}</span>
-				</span>
-			{/if}
-		</a>
-	{/each}
+					<span class="text-label text-support uppercase">
+						<span aria-hidden="true">{named.elsewhere}</span>
+						<span class="sr-only">{named.said}</span>
+					</span>
+				{/if}
+			</a>
+		{/each}
 
-	<!--
+		<!--
 		Dashed rather than filled: it is the one chip in the row that is not a
 		Tag, and on an untagged recipe it is the whole row, where a filled chip
 		would read as a Tag called *Add a Tag*.
 	-->
-	<NeedsServer
-		label={m.tags_add()}
-		waiting={m.offline_waits_tagging()}
-		onclick={() => (picking = true)}
-		shapeClass="inline-flex min-h-8 items-center gap-1 rounded-sm px-3 py-1 text-read"
-		lookClass="border border-dashed border-rule text-accent"
-		idleClass="border border-dashed border-rule text-ink-2 opacity-55"
-	/>
-</div>
+		{#if writes}
+			<NeedsServer
+				label={m.tags_add()}
+				waiting={m.offline_waits_tagging()}
+				onclick={() => (picking = true)}
+				shapeClass="inline-flex min-h-8 items-center gap-1 rounded-sm px-3 py-1 text-read"
+				lookClass="border border-dashed border-rule text-accent"
+				idleClass="border border-dashed border-rule text-ink-2 opacity-55"
+			/>
+		{/if}
+	</div>
+{/if}
 
 {#if picking}
 	<TagSheet
 		{branchId}
-		{kitchenId}
 		carried={shown}
 		onChanged={(next) => (held = next)}
 		onClose={() => (picking = false)}

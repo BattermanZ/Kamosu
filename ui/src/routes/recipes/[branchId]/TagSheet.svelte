@@ -16,7 +16,7 @@
 	both.
 
 	A WORD NOBODY HAS USED YET IS MADE HERE. `create_tag` answers with the Tag
-	the Kitchen already has for that word rather than a second one, so two people
+	the Cookbook already has for that word rather than a second one, so two people
 	reaching for *dessert* have agreed rather than collided (#51) — which means
 	this screen never has to ask whether a word is taken.
 
@@ -34,8 +34,6 @@
 
 	interface Props {
 		branchId: string;
-		/** Whose words these are. A Tag belongs to a Kitchen (ADR 0007). */
-		kitchenId: string;
 		/** The recipe's Tags as the page has them, so the ticks are right on open. */
 		carried: Tag[];
 		/** The recipe's Tags after a change, for the row behind this sheet. */
@@ -43,11 +41,11 @@
 		onClose: () => void;
 	}
 
-	let { branchId, kitchenId, carried, onChanged, onClose }: Props = $props();
+	let { branchId, carried, onChanged, onClose }: Props = $props();
 
 	const kamosu = useKamosu();
 
-	/** Every word this Kitchen files by, or nothing yet. */
+	/** Every word this Cookbook files by, or nothing yet. */
 	let all = $state<Tag[] | undefined>(undefined);
 	let failed = $state(false);
 	/** What is typed, moment to moment. No delay: the list is already here. */
@@ -81,7 +79,7 @@
 		void (async () => {
 			try {
 				const [held, preferences] = await Promise.all([
-					kamosu.listTags({ kitchen_id: kitchenId }),
+					kamosu.listTags({}),
 					kamosu.getReadingPreferences(),
 				]);
 				if (!current) return;
@@ -108,9 +106,9 @@
 	});
 
 	/**
-	 * Whether what is typed is a word this Kitchen has no tag for — the case
+	 * Whether what is typed is a word this Cookbook has no tag for — the case
 	 * that offers to make one. Compared against every tag's every name rather
-	 * than only the shown one: a Kitchen holding *goûter* in French must not
+	 * than only the shown one: a Cookbook holding *goûter* in French must not
 	 * offer to make a second when somebody types it while reading English.
 	 */
 	const newWord = $derived.by(() => {
@@ -139,7 +137,7 @@
 			// The count on every row moved, so the list is read again rather
 			// than patched here: one of these numbers being wrong is worse than
 			// the extra ask, and the ask is a cheap one.
-			all = (await kamosu.listTags({ kitchen_id: kitchenId })).tags;
+			all = (await kamosu.listTags({})).tags;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			refused = error.message;
@@ -151,7 +149,7 @@
 	/**
 	 * Make the typed word and put it on this recipe, in one tap. Two Operations,
 	 * because making a Tag and using it are two facts: a word made here and
-	 * then refused on the recipe is still the Kitchen's word, which is why the
+	 * then refused on the recipe is still the Cookbook's word, which is why the
 	 * failure below does not pretend nothing happened.
 	 */
 	async function create(word: string) {
@@ -160,7 +158,6 @@
 		refused = null;
 		try {
 			const made = await kamosu.createTag({
-				kitchen_id: kitchenId,
 				// Named in the Language this reader reads RECIPES in. Nothing
 				// reads the word itself to guess: a French cook typing an
 				// English word has typed an English word, and Settings is where
@@ -175,7 +172,7 @@
 			});
 			on = new Set(answer.tags.map((held) => held.id));
 			onChanged(answer.tags);
-			all = (await kamosu.listTags({ kitchen_id: kitchenId })).tags;
+			all = (await kamosu.listTags({})).tags;
 			typed = '';
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -243,7 +240,7 @@
 			<ul>
 				<!--
 					The word nobody has used yet, offered as the first row so the
-					thumb is already there: somebody typing a word the Kitchen
+					thumb is already there: somebody typing a word the Cookbook
 					does not have is telling you they want it.
 				-->
 				{#if newWord}
@@ -302,7 +299,7 @@
 
 			{#if all.length === 0 && !newWord}
 				<!--
-					A Kitchen that files nothing yet explains what a Tag is and
+					A Cookbook that files nothing yet explains what a Tag is and
 					says outright that using one does not change the recipe,
 					which is the one thing ADR 0035 asks any of these screens to
 					make plain. It is said here and nowhere else: a sentence on

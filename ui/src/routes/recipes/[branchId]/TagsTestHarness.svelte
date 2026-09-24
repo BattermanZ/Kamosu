@@ -17,5 +17,5 @@
 </script>
 
 <Kamosu {client}>
-	<Tags branchId="b_1" kitchenId="k_home" {tags} />
+	<Tags branchId="b_1" writes {tags} />
 </Kamosu>

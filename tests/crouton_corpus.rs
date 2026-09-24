@@ -364,16 +364,12 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
     assert_eq!(tagged, 64, "64 of the 86 recipes are tagged");
 
     // --- The Kitchen's tag list: 21 English words, no colour -----------------
-    let kitchen_tags = |app: &support::TestApp| -> Vec<Value> {
-        let (status, listed) = app.post_op(
-            "list_tags",
-            Some(&key),
-            &json!({ "kitchen_id": report["kitchen_id"] }).to_string(),
-        );
+    let cookbook_tags = |app: &support::TestApp| -> Vec<Value> {
+        let (status, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
         assert_eq!(status, 200, "{listed}");
         listed["result"]["tags"].as_array().unwrap().clone()
     };
-    let tags = kitchen_tags(&app);
+    let tags = cookbook_tags(&app);
     let mut by_count: Vec<(String, u64)> = tags
         .iter()
         .map(|tag| {
@@ -427,7 +423,7 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
         unchanged, 86,
         "a re-run matched rather than doubling the library"
     );
-    assert_eq!(kitchen_tags(&app).len(), 21, "no new Tag");
+    assert_eq!(cookbook_tags(&app).len(), 21, "no new Tag");
     let filings: i64 = app
         .core
         .db()

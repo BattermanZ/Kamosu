@@ -116,18 +116,6 @@ describe('Home', () => {
 	it('tells a brand-new instance what to do instead of showing four empty rows', async () => {
 		renderScreen(Page, {
 			home_shelves: home([]),
-			list_kitchens: {
-				kitchens: [
-					{
-						id: 'k_1',
-						name: "Aurélien's Kitchen",
-						nickname: null,
-						hand_id: 'h_1',
-						is_home: true,
-						members: [],
-					},
-				],
-			},
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Your shelf is empty' })).toBeInTheDocument();
@@ -145,22 +133,12 @@ describe('Home', () => {
 	it('writes the recipe from the empty state rather than pointing at a screen to write it on', async () => {
 		const { kamosu } = renderScreen(Page, {
 			home_shelves: home([]),
-			list_kitchens: {
-				kitchens: [
-					{
-						id: 'k_home',
-						name: 'Home Kitchen',
-						nickname: null,
-						hand_id: 'h_1',
-						is_home: true,
-						members: [],
-					},
-				],
-			},
 			create_recipe: {
 				branch_id: 'b_new',
 				lineage_id: 'l_new',
-				kitchen_id: 'k_home',
+				cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+				name: null,
+				writes: true,
 				hand_id: 'h_1',
 				language: 'en',
 				origin_address: null,
@@ -177,10 +155,11 @@ describe('Home', () => {
 		await fireEvent.input(field, { target: { value: 'Tarte Tatin' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Write a recipe' }));
 
-		// It lands in the Home Kitchen, under the name that was typed.
+		// It lands in the writer's own Cookbook, the only place a new recipe
+		// can (#131), under the name that was typed: nothing is asked.
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
-			expect(asked?.input).toMatchObject({ kitchen_id: 'k_home', title: 'Tarte Tatin' });
+			expect(asked?.input).toEqual({ title: 'Tarte Tatin' });
 		});
 	});
 

@@ -195,7 +195,11 @@ src/core/           the Core, one file per area, all adding to one `Core`:
                     authorisation check in Kamosu, and Credential resolution
   accounts.rs       people, logins, Sessions, Access Keys, invites, recovery,
                     a Person's Reading Language, Operator
-  kitchens.rs       Kitchens, their members, and the membership checks
+  kitchens.rs       Kitchens, their members, and leaving one: who sees
+                    whose recipes (ADR 0041)
+  cookbooks.rs      Cookbooks: who may change a recipe, joining and
+                    separating two, variations, and the may-see and
+                    may-change checks every area calls (ADR 0041, #131)
   recipes.rs        creating, saving, reading a recipe; threads and divergence;
                     unfolding components; `parse_recipe_content`
   tags.rs           Tags, and putting one on a recipe
@@ -213,6 +217,9 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   keeping_backups.rs
                     taking and listing Backups
   shared.rs         the few helpers several areas call and none owns
+src/cookbook_migration.rs
+                    migration 36's Rust half: every recipe moved from the
+                    Kitchen that held it into a Cookbook (#131)
 src/crouton.rs      reading a Crouton export into import candidates: lines rebuilt
                     from split fields, favicons and nutrition text left out (#69)
 src/db.rs           the SQLite file under /data — WAL on, migrations forward-only

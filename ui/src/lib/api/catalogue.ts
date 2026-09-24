@@ -52,7 +52,7 @@ export type RenamePersonOutput = {
 	name: string;
 };
 
-/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt or Kitchen of theirs is reachable from here. */
+/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
 export type ListAccountsInput = Record<string, never>;
 /** What list_accounts answers. */
 export type ListAccountsOutput = {
@@ -218,15 +218,21 @@ export type RevokeAccessKeyOutput = {
 	revoked: boolean;
 };
 
-/** Create a Kitchen: a new circle, held by its creator until they invite someone else in. */
+/** Create a Kitchen: a group of People who see and cook from each other's Cookbooks. Its creator is its first member. */
 export type CreateKitchenInput = {
 	name: string;
 };
 /** What create_kitchen answers. */
 export type CreateKitchenOutput = {
-	hand_id: string;
+	cookbooks: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	}[];
 	id: string;
-	is_home: boolean;
 	members: {
 		name: string;
 		person_id: string;
@@ -240,9 +246,15 @@ export type ListKitchensInput = Record<string, never>;
 /** What list_kitchens answers. */
 export type ListKitchensOutput = {
 	kitchens: {
-		hand_id: string;
+		cookbooks: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		}[];
 		id: string;
-		is_home: boolean;
 		members: {
 			name: string;
 			person_id: string;
@@ -288,9 +300,15 @@ export type AcceptKitchenInviteInput = {
 };
 /** What accept_kitchen_invite answers. */
 export type AcceptKitchenInviteOutput = {
-	hand_id: string;
+	cookbooks: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	}[];
 	id: string;
-	is_home: boolean;
 	members: {
 		name: string;
 		person_id: string;
@@ -299,7 +317,7 @@ export type AcceptKitchenInviteOutput = {
 	nickname: string | null;
 };
 
-/** Remove a Person from a Kitchen — including yourself, to leave. The last member cannot be removed. */
+/** Remove a Person from a Kitchen — including yourself, to leave. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
 export type RemoveKitchenMemberInput = {
 	kitchen_id: string;
 	person_id: string;
@@ -318,16 +336,184 @@ export type DeleteKitchenOutput = {
 	deleted: boolean;
 };
 
-/** Create a Tag in a Kitchen, named in one Language. A word the Kitchen already files under returns the Tag it already has rather than making a second. */
-export type CreateTagInput = {
+/** What removing a Person from a Kitchen would leave each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you. */
+export type PreviewLeavingKitchenInput = {
 	kitchen_id: string;
+	person_id?: string;
+};
+/** What preview_leaving_kitchen answers. */
+export type PreviewLeavingKitchenOutput = {
+	they_keep: number;
+	you_keep: number;
+};
+
+/** Your own Cookbook: its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
+export type GetCookbookInput = Record<string, never>;
+/** What get_cookbook answers. */
+export type GetCookbookOutput = {
+	authors: {
+		name: string;
+		person_id: string;
+	}[];
+	id: string;
+	invites: {
+		created_at: string;
+		invite_id: string;
+	}[];
+	kitchens: {
+		id: string;
+		name: string;
+	}[];
+	name: string | null;
+	recipe_count: number;
+};
+
+/** Give your Cookbook a name of its own, or clear it back to its Co-authors' names with an empty or null one. Any Co-author may. */
+export type RenameCookbookInput = {
+	name: string | null;
+};
+/** What rename_cookbook answers. */
+export type RenameCookbookOutput = {
+	authors: {
+		name: string;
+		person_id: string;
+	}[];
+	id: string;
+	invites: {
+		created_at: string;
+		invite_id: string;
+	}[];
+	kitchens: {
+		id: string;
+		name: string;
+	}[];
+	name: string | null;
+	recipe_count: number;
+};
+
+/** Mint a one-use Invite for somebody to write your Cookbook with you. When they accept, their recipes and yours become one Cookbook either of you changes. */
+export type InviteToCookbookInput = Record<string, never>;
+/** What invite_to_cookbook answers. */
+export type InviteToCookbookOutput = {
+	invite_id: string;
+	secret: string;
+};
+
+/** End a Cookbook Invite nobody has used yet. */
+export type CancelCookbookInviteInput = {
+	invite_id: string;
+};
+/** What cancel_cookbook_invite answers. */
+export type CancelCookbookInviteOutput = {
+	ended: boolean;
+};
+
+/** What accepting a Cookbook Invite would do, before you say yes: whose Cookbook it is, and how many recipes on each side become one. */
+export type ReadCookbookInviteInput = {
+	secret: string;
+};
+/** What read_cookbook_invite answers. */
+export type ReadCookbookInviteOutput = {
+	already_yours: boolean;
+	cookbook: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		invites: {
+			created_at: string;
+			invite_id: string;
+		}[];
+		kitchens: {
+			id: string;
+			name: string;
+		}[];
+		name: string | null;
+		recipe_count: number;
+	};
+	their_recipes: number;
+	together_recipes: number;
+	your_recipes: number;
+};
+
+/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you both change. Spent on use. */
+export type AcceptCookbookInviteInput = {
+	secret: string;
+};
+/** What accept_cookbook_invite answers. */
+export type AcceptCookbookInviteOutput = {
+	authors: {
+		name: string;
+		person_id: string;
+	}[];
+	id: string;
+	invites: {
+		created_at: string;
+		invite_id: string;
+	}[];
+	kitchens: {
+		id: string;
+		name: string;
+	}[];
+	name: string | null;
+	recipe_count: number;
+};
+
+/** Leave the Cookbook you write with others, taking your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy. */
+export type LeaveCookbookInput = Record<string, never>;
+/** What leave_cookbook answers. */
+export type LeaveCookbookOutput = {
+	authors: {
+		name: string;
+		person_id: string;
+	}[];
+	id: string;
+	invites: {
+		created_at: string;
+		invite_id: string;
+	}[];
+	kitchens: {
+		id: string;
+		name: string;
+	}[];
+	name: string | null;
+	recipe_count: number;
+};
+
+/** Separate another Co-author from your Cookbook. They leave with a Branch of every recipe in it, as though they had left. */
+export type RemoveCookbookAuthorInput = {
+	person_id: string;
+};
+/** What remove_cookbook_author answers. */
+export type RemoveCookbookAuthorOutput = {
+	authors: {
+		name: string;
+		person_id: string;
+	}[];
+	id: string;
+	invites: {
+		created_at: string;
+		invite_id: string;
+	}[];
+	kitchens: {
+		id: string;
+		name: string;
+	}[];
+	name: string | null;
+	recipe_count: number;
+};
+
+/** Create a Tag in your own Cookbook, named in one Language. A word the Cookbook already files under returns the Tag it already has rather than making a second. */
+export type CreateTagInput = {
+	kitchen_id?: string;
 	language: "en" | "fr" | "es";
 	name: string;
 };
 /** What create_tag answers. */
 export type CreateTagOutput = {
+	cookbook_id: string;
 	id: string;
-	kitchen_id: string;
 	language: string | null;
 	language_fallback: boolean;
 	name: string | null;
@@ -338,15 +524,16 @@ export type CreateTagOutput = {
 	recipes: number;
 };
 
-/** List every Tag a Kitchen files by, each shown in the reader's Reading Language where it has a name there. */
+/** List every Tag your own Cookbook files by, each shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
 export type ListTagsInput = {
-	kitchen_id: string;
+	everywhere?: boolean;
+	kitchen_id?: string;
 };
 /** What list_tags answers. */
 export type ListTagsOutput = {
 	tags: {
+		cookbook_id: string;
 		id: string;
-		kitchen_id: string;
 		language: string | null;
 		language_fallback: boolean;
 		name: string | null;
@@ -366,8 +553,8 @@ export type RenameTagInput = {
 };
 /** What rename_tag answers. */
 export type RenameTagOutput = {
+	cookbook_id: string;
 	id: string;
-	kitchen_id: string;
 	language: string | null;
 	language_fallback: boolean;
 	name: string | null;
@@ -385,8 +572,8 @@ export type MergeTagsInput = {
 };
 /** What merge_tags answers. */
 export type MergeTagsOutput = {
+	cookbook_id: string;
 	id: string;
-	kitchen_id: string;
 	language: string | null;
 	language_fallback: boolean;
 	name: string | null;
@@ -415,8 +602,8 @@ export type SetRecipeTagInput = {
 /** What set_recipe_tag answers. */
 export type SetRecipeTagOutput = {
 	tags: {
+		cookbook_id: string;
 		id: string;
-		kitchen_id: string;
 		language: string | null;
 		language_fallback: boolean;
 		name: string | null;
@@ -428,7 +615,7 @@ export type SetRecipeTagOutput = {
 	}[];
 };
 
-/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
+/** Relate one of your Cookbook's Recipes to any Recipe you may see, or take that single two-way, untyped link back off. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 export type SetRelatedRecipeInput = {
 	branch_id: string;
 	related: boolean;
@@ -454,7 +641,7 @@ export type CreateRecipeInput = {
 		kind: "section" | "ingredient";
 		text: string;
 	}[];
-	kitchen_id: string;
+	kitchen_id?: string;
 	language?: "en" | "fr" | "es" | "unknown";
 	main_photo?: string | null;
 	note?: string | null;
@@ -481,6 +668,14 @@ export type CreateRecipeInput = {
 /** What create_recipe answers. */
 export type CreateRecipeOutput = {
 	branch_id: string;
+	cookbook: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	};
 	cooked: {
 		count: number;
 		last_cooked_at: string | null;
@@ -493,9 +688,9 @@ export type CreateRecipeOutput = {
 	};
 	hand_id: string;
 	head_version_id: string;
-	kitchen_id: string;
 	language: string;
 	lineage_id: string;
+	name: string | null;
 	origin_address: string | null;
 	related_recipes: {
 		branch_id: string | null;
@@ -506,8 +701,8 @@ export type CreateRecipeOutput = {
 		title: string;
 	}[];
 	tags: {
+		cookbook_id: string;
 		id: string;
-		kitchen_id: string;
 		language: string | null;
 		language_fallback: boolean;
 		name: string | null;
@@ -629,9 +824,10 @@ export type CreateRecipeOutput = {
 		translates_version_id: string | null;
 		version_id: string;
 	}[];
+	writes: boolean;
 };
 
-/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one a Kitchen of yours holds. */
+/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 export type SaveRecipeVersionInput = {
 	branch_id: string;
 	change_note?: string;
@@ -676,6 +872,184 @@ export type SaveRecipeVersionOutput = {
 	sequence: number;
 	translates_version_id: string | null;
 	version_id: string;
+};
+
+/** Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it ("Vegetarian"). Changing one never changes the other. */
+export type StartVariationInput = {
+	branch_id: string;
+	name: string;
+};
+/** What start_variation answers. */
+export type StartVariationOutput = {
+	branch_id: string;
+	cookbook: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	};
+	cooked: {
+		count: number;
+		last_cooked_at: string | null;
+		ratings: {
+			at: string;
+			name: string;
+			person_id: string;
+			rating: "again" | "tweak" | "no";
+		}[];
+	};
+	hand_id: string;
+	head_version_id: string;
+	language: string;
+	lineage_id: string;
+	name: string | null;
+	origin_address: string | null;
+	related_recipes: {
+		branch_id: string | null;
+		language: string | null;
+		language_fallback: boolean;
+		lineage_id: string;
+		main_photo: string | null;
+		title: string;
+	}[];
+	tags: {
+		cookbook_id: string;
+		id: string;
+		language: string | null;
+		language_fallback: boolean;
+		name: string | null;
+		names: {
+			language: string;
+			name: string;
+		}[];
+		recipes: number;
+	}[];
+	translation: {
+		source_branch_id: string | null;
+		translates_version_id: string;
+		versions_behind: number | null;
+	} | null;
+	versions: {
+		change_note: string | null;
+		components: {
+			branch_id: string | null;
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			} | null;
+			held: boolean;
+			lineage_id: string;
+			measured: {
+				ingredients: (string | null)[];
+				steps: (string | null)[];
+			} | null;
+			path: number[];
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[] | null;
+			said: string;
+			share: number | null;
+			stopped: boolean;
+			title: string | null;
+		}[];
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		cooking: {
+			steps: ({
+				timer_seconds: number | null;
+				uses: number[];
+			} | null)[];
+		};
+		created_at: string;
+		hand_id: string;
+		language: string | null;
+		measured: {
+			ingredients: (string | null)[];
+			steps: (string | null)[];
+		};
+		name: string | null;
+		parent_version_id: string | null;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+		scaled_to: {
+			amount: string;
+			noun: string;
+		} | null;
+		sequence: number;
+		translates_version_id: string | null;
+		version_id: string;
+	}[];
+	writes: boolean;
+};
+
+/** Name one of your Cookbook's Branches of a recipe, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
+export type RenameBranchInput = {
+	branch_id: string;
+	name: string | null;
+};
+/** What rename_branch answers. */
+export type RenameBranchOutput = {
+	branch_id: string;
+	name: string | null;
 };
 
 /** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
@@ -739,6 +1113,14 @@ export type StartTranslationInput = {
 /** What start_translation answers. */
 export type StartTranslationOutput = {
 	branch_id: string;
+	cookbook: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	};
 	cooked: {
 		count: number;
 		last_cooked_at: string | null;
@@ -751,9 +1133,9 @@ export type StartTranslationOutput = {
 	};
 	hand_id: string;
 	head_version_id: string;
-	kitchen_id: string;
 	language: string;
 	lineage_id: string;
+	name: string | null;
 	origin_address: string | null;
 	related_recipes: {
 		branch_id: string | null;
@@ -764,8 +1146,8 @@ export type StartTranslationOutput = {
 		title: string;
 	}[];
 	tags: {
+		cookbook_id: string;
 		id: string;
-		kitchen_id: string;
 		language: string | null;
 		language_fallback: boolean;
 		name: string | null;
@@ -887,6 +1269,7 @@ export type StartTranslationOutput = {
 		translates_version_id: string | null;
 		version_id: string;
 	}[];
+	writes: boolean;
 };
 
 /** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
@@ -901,7 +1284,7 @@ export type SetRecipeLanguageOutput = {
 	sequence: number | null;
 };
 
-/** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
+/** Bring a batch of already-read recipes into your own Cookbook, as a Job. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 export type ImportInput = {
 	candidates: {
 		cook_time_minutes?: number | null;
@@ -947,8 +1330,8 @@ export type ImportOutput = {
 		subject?: boolean;
 		title: string;
 	}[];
+	cookbook_id: string;
 	import_id: string;
-	kitchen_id: string;
 	left_out: {
 		branch_id: string;
 		count: number;
@@ -987,7 +1370,7 @@ export type ImportOutput = {
 	}[];
 };
 
-/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your Home Kitchen through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportCroutonInput = {
 	data?: string;
 	upload_id?: string;
@@ -1004,8 +1387,8 @@ export type ImportCroutonOutput = {
 		subject?: boolean;
 		title: string;
 	}[];
+	cookbook_id: string;
 	import_id: string;
-	kitchen_id: string;
 	left_out: {
 		branch_id: string;
 		count: number;
@@ -1075,7 +1458,7 @@ export type ForgetImportOutput = {
 	import_id: string;
 };
 
-/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 export type ImportWebLinkInput = {
 	url: string;
 };
@@ -1091,8 +1474,8 @@ export type ImportWebLinkOutput = {
 		subject?: boolean;
 		title: string;
 	}[];
+	cookbook_id: string;
 	import_id: string;
-	kitchen_id: string;
 	left_out: {
 		branch_id: string;
 		count: number;
@@ -1289,6 +1672,14 @@ export type GetRecipeInput = {
 /** What get_recipe answers. */
 export type GetRecipeOutput = {
 	branch_id: string;
+	cookbook: {
+		authors: {
+			name: string;
+			person_id: string;
+		}[];
+		id: string;
+		name: string | null;
+	};
 	cooked: {
 		count: number;
 		last_cooked_at: string | null;
@@ -1301,9 +1692,9 @@ export type GetRecipeOutput = {
 	};
 	hand_id: string;
 	head_version_id: string;
-	kitchen_id: string;
 	language: string;
 	lineage_id: string;
+	name: string | null;
 	origin_address: string | null;
 	related_recipes: {
 		branch_id: string | null;
@@ -1314,8 +1705,8 @@ export type GetRecipeOutput = {
 		title: string;
 	}[];
 	tags: {
+		cookbook_id: string;
 		id: string;
-		kitchen_id: string;
 		language: string | null;
 		language_fallback: boolean;
 		name: string | null;
@@ -1437,6 +1828,7 @@ export type GetRecipeOutput = {
 		translates_version_id: string | null;
 		version_id: string;
 	}[];
+	writes: boolean;
 };
 
 /** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
@@ -1529,12 +1921,22 @@ export type GetThreadOutput = {
 		version_id: string;
 	}[];
 	branches: {
+		arrived: boolean;
 		branch_id: string;
+		cookbook: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
 		hand_id: string;
 		hand_name: string | null;
 		head_version_id: string;
-		kitchen_id: string;
 		language: string;
+		mine: boolean;
+		name: string | null;
 		translation: {
 			source_branch_id: string | null;
 			translates_version_id: string;
@@ -1669,7 +2071,7 @@ export type MakeSharedSheetOutput = {
 	paper: "a4" | "us-letter";
 };
 
-/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+/** Receive a Bundle into your own Cookbook, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Cookbook holds it under an id of this instance's own; one your Cookbook already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Cookbook here holding it is no part of the question: each Cookbook receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportBundleInput = {
 	data?: string;
 	upload_id?: string;
@@ -1686,8 +2088,8 @@ export type ImportBundleOutput = {
 		subject?: boolean;
 		title: string;
 	}[];
+	cookbook_id: string;
 	import_id: string;
-	kitchen_id: string;
 	left_out: {
 		branch_id: string;
 		count: number;
@@ -1992,6 +2394,7 @@ export type DivergenceOutput = {
 	}[];
 	lineage_id: string;
 	mine: {
+		arrived: boolean;
 		branch_id: string;
 		components: {
 			branch_id: string | null;
@@ -2069,15 +2472,24 @@ export type DivergenceOutput = {
 				noun: string;
 			} | null;
 		};
+		cookbook: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
 		hand_id: string;
+		hand_name: string | null;
 		head_version_id: string;
-		kitchen_id: string;
-		kitchen_name: string;
 		language: string;
 		measured: {
 			ingredients: (string | null)[];
 			steps: (string | null)[];
 		};
+		mine: boolean;
+		name: string | null;
 		readings: ({
 			amount: string | null;
 			lineage_id: string | null;
@@ -2101,6 +2513,7 @@ export type DivergenceOutput = {
 		} | null;
 	}[];
 	theirs: {
+		arrived: boolean;
 		branch_id: string;
 		components: {
 			branch_id: string | null;
@@ -2178,15 +2591,24 @@ export type DivergenceOutput = {
 				noun: string;
 			} | null;
 		};
+		cookbook: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
 		hand_id: string;
+		hand_name: string | null;
 		head_version_id: string;
-		kitchen_id: string;
-		kitchen_name: string;
 		language: string;
 		measured: {
 			ingredients: (string | null)[];
 			steps: (string | null)[];
 		};
+		mine: boolean;
+		name: string | null;
 		readings: ({
 			amount: string | null;
 			lineage_id: string | null;
@@ -2609,7 +3031,7 @@ export type DeleteAttemptOutput = {
 	deleted: boolean;
 };
 
-/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch was written under another Hand. The Branch must be one a Kitchen of yours holds. The Attempt keeps the picture too; promoting is not moving. */
+/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving. */
 export type PromoteAttemptPhotographInput = {
 	attempt_id: string;
 	branch_id: string;
@@ -2839,7 +3261,7 @@ export type DeclinePromotionOutput = {
 	version_id: string;
 };
 
-/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch written under another Hand becomes a Copy. The Branch must be one a Kitchen of yours holds. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
 export type PromoteAsCookedInput = {
 	attempt_id: string;
 	branch_id: string;
@@ -3772,6 +4194,60 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	preview_leaving_kitchen: {
+		input: PreviewLeavingKitchenInput;
+		output: PreviewLeavingKitchenOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	get_cookbook: {
+		input: GetCookbookInput;
+		output: GetCookbookOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_cookbook: {
+		input: RenameCookbookInput;
+		output: RenameCookbookOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	invite_to_cookbook: {
+		input: InviteToCookbookInput;
+		output: InviteToCookbookOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	cancel_cookbook_invite: {
+		input: CancelCookbookInviteInput;
+		output: CancelCookbookInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	read_cookbook_invite: {
+		input: ReadCookbookInviteInput;
+		output: ReadCookbookInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	accept_cookbook_invite: {
+		input: AcceptCookbookInviteInput;
+		output: AcceptCookbookInviteOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	leave_cookbook: {
+		input: LeaveCookbookInput;
+		output: LeaveCookbookOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	remove_cookbook_author: {
+		input: RemoveCookbookAuthorInput;
+		output: RemoveCookbookAuthorOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	create_tag: {
 		input: CreateTagInput;
 		output: CreateTagOutput;
@@ -3823,6 +4299,18 @@ export interface Operations {
 	save_recipe_version: {
 		input: SaveRecipeVersionInput;
 		output: SaveRecipeVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	start_variation: {
+		input: StartVariationInput;
+		output: StartVariationOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	rename_branch: {
+		input: RenameBranchInput;
+		output: RenameBranchOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -4422,7 +4910,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_accounts",
-		"summary": "Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt or Kitchen of theirs is reachable from here.",
+		"summary": "Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -5040,7 +5528,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "create_kitchen",
-		"summary": "Create a Kitchen: a new circle, held by its creator until they invite someone else in.",
+		"summary": "Create a Kitchen: a group of People who see and cook from each other's Cookbooks. Its creator is its first member.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -5058,14 +5546,50 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
-				"hand_id": {
-					"type": "string"
+				"cookbooks": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"authors": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"authors"
+						],
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"id": {
 					"type": "string"
-				},
-				"is_home": {
-					"type": "boolean"
 				},
 				"members": {
 					"items": {
@@ -5099,10 +5623,9 @@ export const CATALOGUE = [
 			"required": [
 				"id",
 				"name",
-				"hand_id",
-				"is_home",
 				"nickname",
-				"members"
+				"members",
+				"cookbooks"
 			],
 			"type": "object"
 		}
@@ -5124,14 +5647,50 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
-							"hand_id": {
-								"type": "string"
+							"cookbooks": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"authors": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"name": {
+														"type": "string"
+													},
+													"person_id": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"person_id",
+													"name"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"id": {
+											"type": "string"
+										},
+										"name": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"id",
+										"name",
+										"authors"
+									],
+									"type": "object"
+								},
+								"type": "array"
 							},
 							"id": {
 								"type": "string"
-							},
-							"is_home": {
-								"type": "boolean"
 							},
 							"members": {
 								"items": {
@@ -5165,10 +5724,9 @@ export const CATALOGUE = [
 						"required": [
 							"id",
 							"name",
-							"hand_id",
-							"is_home",
 							"nickname",
-							"members"
+							"members",
+							"cookbooks"
 						],
 						"type": "object"
 					},
@@ -5309,14 +5867,50 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
-				"hand_id": {
-					"type": "string"
+				"cookbooks": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"authors": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"id",
+							"name",
+							"authors"
+						],
+						"type": "object"
+					},
+					"type": "array"
 				},
 				"id": {
 					"type": "string"
-				},
-				"is_home": {
-					"type": "boolean"
 				},
 				"members": {
 					"items": {
@@ -5350,17 +5944,16 @@ export const CATALOGUE = [
 			"required": [
 				"id",
 				"name",
-				"hand_id",
-				"is_home",
 				"nickname",
-				"members"
+				"members",
+				"cookbooks"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "remove_kitchen_member",
-		"summary": "Remove a Person from a Kitchen — including yourself, to leave. The last member cannot be removed.",
+		"summary": "Remove a Person from a Kitchen — including yourself, to leave. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -5423,14 +6016,730 @@ export const CATALOGUE = [
 		}
 	},
 	{
-		"name": "create_tag",
-		"summary": "Create a Tag in a Kitchen, named in one Language. A word the Kitchen already files under returns the Tag it already has rather than making a second.",
+		"name": "preview_leaving_kitchen",
+		"summary": "What removing a Person from a Kitchen would leave each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
 				"kitchen_id": {
+					"type": "string"
+				},
+				"person_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"kitchen_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"they_keep": {
+					"type": "integer"
+				},
+				"you_keep": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"they_keep",
+				"you_keep"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "get_cookbook",
+		"summary": "Your own Cookbook: its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"authors": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"id": {
+					"type": "string"
+				},
+				"invites": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"invite_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"invite_id",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchens": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipe_count": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"authors",
+				"recipe_count",
+				"kitchens",
+				"invites"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_cookbook",
+		"summary": "Give your Cookbook a name of its own, or clear it back to its Co-authors' names with an empty or null one. Any Co-author may.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"authors": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"id": {
+					"type": "string"
+				},
+				"invites": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"invite_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"invite_id",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchens": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipe_count": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"authors",
+				"recipe_count",
+				"kitchens",
+				"invites"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "invite_to_cookbook",
+		"summary": "Mint a one-use Invite for somebody to write your Cookbook with you. When they accept, their recipes and yours become one Cookbook either of you changes.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"invite_id": {
+					"type": "string"
+				},
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"invite_id",
+				"secret"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "cancel_cookbook_invite",
+		"summary": "End a Cookbook Invite nobody has used yet.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"invite_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"invite_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"ended": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"ended"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_cookbook_invite",
+		"summary": "What accepting a Cookbook Invite would do, before you say yes: whose Cookbook it is, and how many recipes on each side become one.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"secret"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"already_yours": {
+					"type": "boolean"
+				},
+				"cookbook": {
+					"additionalProperties": false,
+					"properties": {
+						"authors": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"invites": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"created_at": {
+										"type": "string"
+									},
+									"invite_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"invite_id",
+									"created_at"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"kitchens": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"recipe_count": {
+							"type": "integer"
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"authors",
+						"recipe_count",
+						"kitchens",
+						"invites"
+					],
+					"type": "object"
+				},
+				"their_recipes": {
+					"type": "integer"
+				},
+				"together_recipes": {
+					"description": "How many recipes the one Cookbook holds once joined: fewer than the two counts added up wherever both already hold a version of the same recipe.",
+					"type": "integer"
+				},
+				"your_recipes": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"cookbook",
+				"their_recipes",
+				"your_recipes",
+				"together_recipes",
+				"already_yours"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "accept_cookbook_invite",
+		"summary": "Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you both change. Spent on use.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"secret": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"secret"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"authors": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"id": {
+					"type": "string"
+				},
+				"invites": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"invite_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"invite_id",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchens": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipe_count": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"authors",
+				"recipe_count",
+				"kitchens",
+				"invites"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "leave_cookbook",
+		"summary": "Leave the Cookbook you write with others, taking your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"authors": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"id": {
+					"type": "string"
+				},
+				"invites": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"invite_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"invite_id",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchens": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipe_count": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"authors",
+				"recipe_count",
+				"kitchens",
+				"invites"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "remove_cookbook_author",
+		"summary": "Separate another Co-author from your Cookbook. They leave with a Branch of every recipe in it, as though they had left.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"person_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"person_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"authors": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"id": {
+					"type": "string"
+				},
+				"invites": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"invite_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"invite_id",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchens": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipe_count": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"authors",
+				"recipe_count",
+				"kitchens",
+				"invites"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "create_tag",
+		"summary": "Create a Tag in your own Cookbook, named in one Language. A word the Cookbook already files under returns the Tag it already has rather than making a second.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"kitchen_id": {
+					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
 				},
 				"language": {
@@ -5445,7 +6754,6 @@ export const CATALOGUE = [
 				}
 			},
 			"required": [
-				"kitchen_id",
 				"language",
 				"name"
 			],
@@ -5454,10 +6762,10 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
-				"id": {
+				"cookbook_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
+				"id": {
 					"type": "string"
 				},
 				"language": {
@@ -5500,7 +6808,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"id",
-				"kitchen_id",
+				"cookbook_id",
 				"name",
 				"language",
 				"names",
@@ -5512,19 +6820,20 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_tags",
-		"summary": "List every Tag a Kitchen files by, each shown in the reader's Reading Language where it has a name there.",
+		"summary": "List every Tag your own Cookbook files by, each shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"everywhere": {
+					"type": "boolean"
+				},
 				"kitchen_id": {
+					"description": "One of your Kitchens: every word its Cookbooks file by, one entry per word.",
 					"type": "string"
 				}
 			},
-			"required": [
-				"kitchen_id"
-			],
 			"type": "object"
 		},
 		"output_schema": {
@@ -5534,10 +6843,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
-							"id": {
+							"cookbook_id": {
 								"type": "string"
 							},
-							"kitchen_id": {
+							"id": {
 								"type": "string"
 							},
 							"language": {
@@ -5580,7 +6889,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"id",
-							"kitchen_id",
+							"cookbook_id",
 							"name",
 							"language",
 							"names",
@@ -5630,10 +6939,10 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
-				"id": {
+				"cookbook_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
+				"id": {
 					"type": "string"
 				},
 				"language": {
@@ -5676,7 +6985,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"id",
-				"kitchen_id",
+				"cookbook_id",
 				"name",
 				"language",
 				"names",
@@ -5710,10 +7019,10 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
-				"id": {
+				"cookbook_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
+				"id": {
 					"type": "string"
 				},
 				"language": {
@@ -5756,7 +7065,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"id",
-				"kitchen_id",
+				"cookbook_id",
 				"name",
 				"language",
 				"names",
@@ -5828,10 +7137,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
-							"id": {
+							"cookbook_id": {
 								"type": "string"
 							},
-							"kitchen_id": {
+							"id": {
 								"type": "string"
 							},
 							"language": {
@@ -5874,7 +7183,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"id",
-							"kitchen_id",
+							"cookbook_id",
 							"name",
 							"language",
 							"names",
@@ -5894,7 +7203,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_related_recipe",
-		"summary": "Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two.",
+		"summary": "Relate one of your Cookbook's Recipes to any Recipe you may see, or take that single two-way, untyped link back off. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6013,6 +7322,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"kitchen_id": {
+					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
 				},
 				"language": {
@@ -6142,7 +7452,6 @@ export const CATALOGUE = [
 				}
 			},
 			"required": [
-				"kitchen_id",
 				"title"
 			],
 			"type": "object"
@@ -6152,6 +7461,45 @@ export const CATALOGUE = [
 			"properties": {
 				"branch_id": {
 					"type": "string"
+				},
+				"cookbook": {
+					"additionalProperties": false,
+					"properties": {
+						"authors": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"authors"
+					],
+					"type": "object"
 				},
 				"cooked": {
 					"additionalProperties": false,
@@ -6212,14 +7560,17 @@ export const CATALOGUE = [
 				"head_version_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
-					"type": "string"
-				},
 				"language": {
 					"type": "string"
 				},
 				"lineage_id": {
 					"type": "string"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
 				},
 				"origin_address": {
 					"type": [
@@ -6275,10 +7626,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
-							"id": {
+							"cookbook_id": {
 								"type": "string"
 							},
-							"kitchen_id": {
+							"id": {
 								"type": "string"
 							},
 							"language": {
@@ -6321,7 +7672,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"id",
-							"kitchen_id",
+							"cookbook_id",
 							"name",
 							"language",
 							"names",
@@ -7027,12 +8378,17 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"writes": {
+					"type": "boolean"
 				}
 			},
 			"required": [
 				"branch_id",
 				"lineage_id",
-				"kitchen_id",
+				"cookbook",
+				"name",
+				"writes",
 				"hand_id",
 				"language",
 				"origin_address",
@@ -7048,7 +8404,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one a Kitchen of yours holds.",
+		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7090,6 +8446,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"kitchen_id": {
+					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
 				},
 				"main_photo": {
@@ -7281,8 +8638,8 @@ export const CATALOGUE = [
 		}
 	},
 	{
-		"name": "delete_recipe",
-		"summary": "Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working.",
+		"name": "start_variation",
+		"summary": "Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it (\"Vegetarian\"). Changing one never changes the other.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7290,271 +8647,14 @@ export const CATALOGUE = [
 			"properties": {
 				"branch_id": {
 					"type": "string"
-				}
-			},
-			"required": [
-				"branch_id"
-			],
-			"type": "object"
-		},
-		"output_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"deleted": {
-					"type": "boolean"
-				}
-			},
-			"required": [
-				"deleted"
-			],
-			"type": "object"
-		}
-	},
-	{
-		"name": "read_pasted_recipe",
-		"summary": "Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again.",
-		"permission": "person",
-		"kind": "immediate",
-		"input_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"text": {
-					"type": "string"
-				}
-			},
-			"required": [
-				"text"
-			],
-			"type": "object"
-		},
-		"output_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"boundary": {
-					"minimum": 0,
-					"type": "integer"
-				},
-				"lines": {
-					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"kind": {
-								"enum": [
-									"line",
-									"section"
-								]
-							},
-							"text": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"text",
-							"kind"
-						],
-						"type": "object"
-					},
-					"type": "array"
-				},
-				"title": {
-					"type": [
-						"string",
-						"null"
-					]
-				}
-			},
-			"required": [
-				"title",
-				"lines",
-				"boundary"
-			],
-			"type": "object"
-		}
-	},
-	{
-		"name": "start_translation",
-		"summary": "Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author.",
-		"permission": "person",
-		"kind": "immediate",
-		"input_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"branch_id": {
-					"description": "The recipe being translated.",
-					"type": "string"
-				},
-				"change_note": {
-					"type": "string"
-				},
-				"cook_time_minutes": {
-					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
-					"type": [
-						"integer",
-						"null"
-					]
-				},
-				"ingredients": {
-					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"kind": {
-								"enum": [
-									"section",
-									"ingredient"
-								]
-							},
-							"text": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"kind",
-							"text"
-						],
-						"type": "object"
-					},
-					"type": "array"
-				},
-				"kitchen_id": {
-					"description": "Which of your own Kitchens holds the Translation. Defaults to the one holding the recipe translated.",
-					"type": "string"
-				},
-				"language": {
-					"description": "The Language this rendering is written in — necessarily a different one from the recipe it translates. Never `unknown`: a recipe that is honestly more than one Language can neither be a Translation nor have one.",
-					"enum": [
-						"en",
-						"fr",
-						"es"
-					]
-				},
-				"main_photo": {
-					"type": [
-						"string",
-						"null"
-					]
 				},
 				"name": {
 					"type": "string"
-				},
-				"note": {
-					"type": [
-						"string",
-						"null"
-					]
-				},
-				"nutrition": {
-					"additionalProperties": false,
-					"properties": {
-						"basis": {
-							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
-							"enum": [
-								"per_serving",
-								"per_100g"
-							]
-						},
-						"calories": {
-							"description": "Calories, zero or more.",
-							"minimum": 0,
-							"type": "number"
-						}
-					},
-					"required": [
-						"calories",
-						"basis"
-					],
-					"type": [
-						"object",
-						"null"
-					]
-				},
-				"prep_time_minutes": {
-					"description": "Whole minutes of active preparation.",
-					"type": [
-						"integer",
-						"null"
-					]
-				},
-				"source": {
-					"additionalProperties": false,
-					"properties": {
-						"link": {
-							"type": [
-								"string",
-								"null"
-							]
-						},
-						"text": {
-							"type": "string"
-						}
-					},
-					"required": [
-						"text",
-						"link"
-					],
-					"type": [
-						"object",
-						"null"
-					]
-				},
-				"steps": {
-					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"kind": {
-								"enum": [
-									"section",
-									"step"
-								]
-							},
-							"photo": {
-								"type": [
-									"string",
-									"null"
-								]
-							},
-							"text": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"kind",
-							"text"
-						],
-						"type": "object"
-					},
-					"type": "array"
-				},
-				"title": {
-					"type": "string"
-				},
-				"translates_version_id": {
-					"description": "Which Version of the source this renders. Defaults to where the source stands now.",
-					"type": "string"
-				},
-				"yield": {
-					"additionalProperties": false,
-					"properties": {
-						"amount": {
-							"type": "string"
-						},
-						"noun": {
-							"type": "string"
-						}
-					},
-					"required": [
-						"amount",
-						"noun"
-					],
-					"type": [
-						"object",
-						"null"
-					]
 				}
 			},
 			"required": [
 				"branch_id",
-				"language",
-				"title"
+				"name"
 			],
 			"type": "object"
 		},
@@ -7563,6 +8663,45 @@ export const CATALOGUE = [
 			"properties": {
 				"branch_id": {
 					"type": "string"
+				},
+				"cookbook": {
+					"additionalProperties": false,
+					"properties": {
+						"authors": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"authors"
+					],
+					"type": "object"
 				},
 				"cooked": {
 					"additionalProperties": false,
@@ -7623,14 +8762,17 @@ export const CATALOGUE = [
 				"head_version_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
-					"type": "string"
-				},
 				"language": {
 					"type": "string"
 				},
 				"lineage_id": {
 					"type": "string"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
 				},
 				"origin_address": {
 					"type": [
@@ -7686,10 +8828,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
-							"id": {
+							"cookbook_id": {
 								"type": "string"
 							},
-							"kitchen_id": {
+							"id": {
 								"type": "string"
 							},
 							"language": {
@@ -7732,7 +8874,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"id",
-							"kitchen_id",
+							"cookbook_id",
 							"name",
 							"language",
 							"names",
@@ -8438,12 +9580,1285 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"writes": {
+					"type": "boolean"
 				}
 			},
 			"required": [
 				"branch_id",
 				"lineage_id",
-				"kitchen_id",
+				"cookbook",
+				"name",
+				"writes",
+				"hand_id",
+				"language",
+				"origin_address",
+				"head_version_id",
+				"versions",
+				"translation",
+				"tags",
+				"related_recipes",
+				"cooked"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "rename_branch",
+		"summary": "Name one of your Cookbook's Branches of a recipe, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"name"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"name"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "delete_recipe",
+		"summary": "Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"deleted": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"deleted"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_pasted_recipe",
+		"summary": "Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"text": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"text"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"boundary": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"lines": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"line",
+									"section"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"text",
+							"kind"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"title": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"title",
+				"lines",
+				"boundary"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "start_translation",
+		"summary": "Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"description": "The recipe being translated.",
+					"type": "string"
+				},
+				"change_note": {
+					"type": "string"
+				},
+				"cook_time_minutes": {
+					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"ingredient"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchen_id": {
+					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
+					"type": "string"
+				},
+				"language": {
+					"description": "The Language this rendering is written in — necessarily a different one from the recipe it translates. Never `unknown`: a recipe that is honestly more than one Language can neither be a Translation nor have one.",
+					"enum": [
+						"en",
+						"fr",
+						"es"
+					]
+				},
+				"main_photo": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"nutrition": {
+					"additionalProperties": false,
+					"properties": {
+						"basis": {
+							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+							"enum": [
+								"per_serving",
+								"per_100g"
+							]
+						},
+						"calories": {
+							"description": "Calories, zero or more.",
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": [
+						"calories",
+						"basis"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"prep_time_minutes": {
+					"description": "Whole minutes of active preparation.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"step"
+								]
+							},
+							"photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"title": {
+					"type": "string"
+				},
+				"translates_version_id": {
+					"description": "Which Version of the source this renders. Defaults to where the source stands now.",
+					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id",
+				"language",
+				"title"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"cookbook": {
+					"additionalProperties": false,
+					"properties": {
+						"authors": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"authors"
+					],
+					"type": "object"
+				},
+				"cooked": {
+					"additionalProperties": false,
+					"properties": {
+						"count": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"last_cooked_at": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"ratings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"at": {
+										"type": "string"
+									},
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									},
+									"rating": {
+										"enum": [
+											"again",
+											"tweak",
+											"no"
+										],
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name",
+									"rating",
+									"at"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"count",
+						"last_cooked_at",
+						"ratings"
+					],
+					"type": "object"
+				},
+				"hand_id": {
+					"type": "string"
+				},
+				"head_version_id": {
+					"type": "string"
+				},
+				"language": {
+					"type": "string"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"origin_address": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"related_recipes": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"branch_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
+							"lineage_id": {
+								"type": "string"
+							},
+							"main_photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"title": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"lineage_id",
+							"branch_id",
+							"title",
+							"main_photo",
+							"language",
+							"language_fallback"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"tags": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"cookbook_id": {
+								"type": "string"
+							},
+							"id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"language_fallback": {
+								"type": "boolean"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"names": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"language": {
+											"type": "string"
+										},
+										"name": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"language",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"recipes": {
+								"type": "integer"
+							}
+						},
+						"required": [
+							"id",
+							"cookbook_id",
+							"name",
+							"language",
+							"names",
+							"recipes",
+							"language_fallback"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"translation": {
+					"additionalProperties": false,
+					"properties": {
+						"source_branch_id": {
+							"description": "The recipe this one translates. Null where that recipe is not on this instance — a Translation may arrive on its own, and how far behind it has fallen is then unanswerable rather than zero.",
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"translates_version_id": {
+							"description": "The Version of the source this recipe's newest Version renders.",
+							"type": "string"
+						},
+						"versions_behind": {
+							"description": "How many Versions the source has moved on since the one this translates. Zero means up to date.",
+							"type": [
+								"integer",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"translates_version_id",
+						"source_branch_id",
+						"versions_behind"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"versions": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"change_note": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"components": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"branch_id": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"content": {
+											"additionalProperties": false,
+											"properties": {
+												"cook_time_minutes": {
+													"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"ingredients": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"kind": {
+																"enum": [
+																	"section",
+																	"ingredient"
+																]
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"main_photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"note": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"nutrition": {
+													"additionalProperties": false,
+													"properties": {
+														"basis": {
+															"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+															"enum": [
+																"per_serving",
+																"per_100g"
+															]
+														},
+														"calories": {
+															"description": "Calories, zero or more.",
+															"minimum": 0,
+															"type": "number"
+														}
+													},
+													"required": [
+														"calories",
+														"basis"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												},
+												"prep_time_minutes": {
+													"description": "Whole minutes of active preparation.",
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"source": {
+													"additionalProperties": false,
+													"properties": {
+														"link": {
+															"type": [
+																"string",
+																"null"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"text",
+														"link"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												},
+												"steps": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"kind": {
+																"enum": [
+																	"section",
+																	"step"
+																]
+															},
+															"photo": {
+																"type": [
+																	"string",
+																	"null"
+																]
+															},
+															"text": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"kind",
+															"text",
+															"photo"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"title": {
+													"type": "string"
+												},
+												"yield": {
+													"additionalProperties": false,
+													"properties": {
+														"amount": {
+															"type": "string"
+														},
+														"noun": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"amount",
+														"noun"
+													],
+													"type": [
+														"object",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"title",
+												"yield",
+												"prep_time_minutes",
+												"cook_time_minutes",
+												"note",
+												"main_photo",
+												"source",
+												"nutrition",
+												"ingredients",
+												"steps"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"held": {
+											"type": "boolean"
+										},
+										"lineage_id": {
+											"type": "string"
+										},
+										"measured": {
+											"additionalProperties": false,
+											"properties": {
+												"ingredients": {
+													"items": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"type": "array"
+												},
+												"steps": {
+													"items": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"ingredients",
+												"steps"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"path": {
+											"items": {
+												"type": "integer"
+											},
+											"type": "array"
+										},
+										"readings": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"lineage_id": {
+														"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"target": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"unit": {
+														"type": [
+															"string",
+															"null"
+														]
+													}
+												},
+												"required": [
+													"amount",
+													"unit",
+													"target",
+													"lineage_id"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"type": [
+												"array",
+												"null"
+											]
+										},
+										"said": {
+											"type": "string"
+										},
+										"share": {
+											"type": [
+												"number",
+												"null"
+											]
+										},
+										"stopped": {
+											"type": "boolean"
+										},
+										"title": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"path",
+										"lineage_id",
+										"held",
+										"stopped",
+										"branch_id",
+										"title",
+										"share",
+										"said",
+										"content",
+										"readings",
+										"measured"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"content": {
+								"additionalProperties": false,
+								"properties": {
+									"cook_time_minutes": {
+										"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"ingredients": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"ingredient"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"main_photo": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"note": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"nutrition": {
+										"additionalProperties": false,
+										"properties": {
+											"basis": {
+												"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+												"enum": [
+													"per_serving",
+													"per_100g"
+												]
+											},
+											"calories": {
+												"description": "Calories, zero or more.",
+												"minimum": 0,
+												"type": "number"
+											}
+										},
+										"required": [
+											"calories",
+											"basis"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"prep_time_minutes": {
+										"description": "Whole minutes of active preparation.",
+										"type": [
+											"integer",
+											"null"
+										]
+									},
+									"source": {
+										"additionalProperties": false,
+										"properties": {
+											"link": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"text",
+											"link"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"kind": {
+													"enum": [
+														"section",
+														"step"
+													]
+												},
+												"photo": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"text": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"kind",
+												"text",
+												"photo"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"title": {
+										"type": "string"
+									},
+									"yield": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": "string"
+											},
+											"noun": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"amount",
+											"noun"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"title",
+									"yield",
+									"prep_time_minutes",
+									"cook_time_minutes",
+									"note",
+									"main_photo",
+									"source",
+									"nutrition",
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"cooking": {
+								"additionalProperties": false,
+								"properties": {
+									"steps": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"timer_seconds": {
+													"minimum": 1,
+													"type": [
+														"integer",
+														"null"
+													]
+												},
+												"uses": {
+													"items": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"uses",
+												"timer_seconds"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"steps"
+								],
+								"type": "object"
+							},
+							"created_at": {
+								"type": "string"
+							},
+							"hand_id": {
+								"type": "string"
+							},
+							"language": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"measured": {
+								"additionalProperties": false,
+								"properties": {
+									"ingredients": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									},
+									"steps": {
+										"items": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"type": "array"
+									}
+								},
+								"required": [
+									"ingredients",
+									"steps"
+								],
+								"type": "object"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"parent_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"readings": {
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"lineage_id": {
+											"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"target": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"unit": {
+											"type": [
+												"string",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"amount",
+										"unit",
+										"target",
+										"lineage_id"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"type": "array"
+							},
+							"scaled_to": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": "string"
+									},
+									"noun": {
+										"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+										"type": "string"
+									}
+								},
+								"required": [
+									"amount",
+									"noun"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"sequence": {
+								"type": "integer"
+							},
+							"translates_version_id": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"version_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"sequence",
+							"version_id",
+							"parent_version_id",
+							"hand_id",
+							"name",
+							"change_note",
+							"created_at",
+							"content",
+							"readings",
+							"measured",
+							"cooking",
+							"components",
+							"translates_version_id",
+							"language",
+							"scaled_to"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"writes": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"branch_id",
+				"lineage_id",
+				"cookbook",
+				"name",
+				"writes",
 				"hand_id",
 				"language",
 				"origin_address",
@@ -8510,7 +10925,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import",
-		"summary": "Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job.",
+		"summary": "Bring a batch of already-read recipes into your own Cookbook, as a Job. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -8688,7 +11103,7 @@ export const CATALOGUE = [
 					"type": "array"
 				},
 				"source_kind": {
-					"description": "Which outside source these candidates came from. One ledger is kept per Kitchen per source kind.",
+					"description": "Which outside source these candidates came from. One ledger is kept per Cookbook per source kind.",
 					"type": "string"
 				}
 			},
@@ -8753,10 +11168,10 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
-				"import_id": {
+				"cookbook_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
+				"import_id": {
 					"type": "string"
 				},
 				"left_out": {
@@ -8941,7 +11356,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"import_id",
-				"kitchen_id",
+				"cookbook_id",
 				"source_kind",
 				"arrived",
 				"offered",
@@ -8954,7 +11369,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_crouton",
-		"summary": "Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your Home Kitchen through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"summary": "Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -9026,10 +11441,10 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
-				"import_id": {
+				"cookbook_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
+				"import_id": {
 					"type": "string"
 				},
 				"left_out": {
@@ -9214,7 +11629,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"import_id",
-				"kitchen_id",
+				"cookbook_id",
 				"source_kind",
 				"arrived",
 				"offered",
@@ -9364,7 +11779,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_web_link",
-		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
+		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -9435,10 +11850,10 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
-				"import_id": {
+				"cookbook_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
+				"import_id": {
 					"type": "string"
 				},
 				"left_out": {
@@ -9623,7 +12038,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"import_id",
-				"kitchen_id",
+				"cookbook_id",
 				"source_kind",
 				"arrived",
 				"offered",
@@ -10323,6 +12738,45 @@ export const CATALOGUE = [
 				"branch_id": {
 					"type": "string"
 				},
+				"cookbook": {
+					"additionalProperties": false,
+					"properties": {
+						"authors": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"id": {
+							"type": "string"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"id",
+						"name",
+						"authors"
+					],
+					"type": "object"
+				},
 				"cooked": {
 					"additionalProperties": false,
 					"properties": {
@@ -10382,14 +12836,17 @@ export const CATALOGUE = [
 				"head_version_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
-					"type": "string"
-				},
 				"language": {
 					"type": "string"
 				},
 				"lineage_id": {
 					"type": "string"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
 				},
 				"origin_address": {
 					"type": [
@@ -10445,10 +12902,10 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
-							"id": {
+							"cookbook_id": {
 								"type": "string"
 							},
-							"kitchen_id": {
+							"id": {
 								"type": "string"
 							},
 							"language": {
@@ -10491,7 +12948,7 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"id",
-							"kitchen_id",
+							"cookbook_id",
 							"name",
 							"language",
 							"names",
@@ -11197,12 +13654,17 @@ export const CATALOGUE = [
 						"type": "object"
 					},
 					"type": "array"
+				},
+				"writes": {
+					"type": "boolean"
 				}
 			},
 			"required": [
 				"branch_id",
 				"lineage_id",
-				"kitchen_id",
+				"cookbook",
+				"name",
+				"writes",
 				"hand_id",
 				"language",
 				"origin_address",
@@ -11695,8 +14157,50 @@ export const CATALOGUE = [
 					"items": {
 						"additionalProperties": false,
 						"properties": {
+							"arrived": {
+								"type": "boolean"
+							},
 							"branch_id": {
 								"type": "string"
+							},
+							"cookbook": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
 							},
 							"hand_id": {
 								"type": "string"
@@ -11710,11 +14214,17 @@ export const CATALOGUE = [
 							"head_version_id": {
 								"type": "string"
 							},
-							"kitchen_id": {
-								"type": "string"
-							},
 							"language": {
 								"type": "string"
+							},
+							"mine": {
+								"type": "boolean"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
 							},
 							"translation": {
 								"additionalProperties": false,
@@ -11751,7 +14261,10 @@ export const CATALOGUE = [
 						},
 						"required": [
 							"branch_id",
-							"kitchen_id",
+							"cookbook",
+							"name",
+							"mine",
+							"arrived",
 							"hand_id",
 							"hand_name",
 							"language",
@@ -12338,7 +14851,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_bundle",
-		"summary": "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"summary": "Receive a Bundle into your own Cookbook, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Cookbook holds it under an id of this instance's own; one your Cookbook already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Cookbook here holding it is no part of the question: each Cookbook receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -12410,10 +14923,10 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
-				"import_id": {
+				"cookbook_id": {
 					"type": "string"
 				},
-				"kitchen_id": {
+				"import_id": {
 					"type": "string"
 				},
 				"left_out": {
@@ -12598,7 +15111,7 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"import_id",
-				"kitchen_id",
+				"cookbook_id",
 				"source_kind",
 				"arrived",
 				"offered",
@@ -14011,6 +16524,9 @@ export const CATALOGUE = [
 				"mine": {
 					"additionalProperties": false,
 					"properties": {
+						"arrived": {
+							"type": "boolean"
+						},
 						"branch_id": {
 							"type": "string"
 						},
@@ -14480,16 +16996,55 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"cookbook": {
+							"additionalProperties": false,
+							"properties": {
+								"authors": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"type": "string"
+											},
+											"person_id": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"person_id",
+											"name"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"id": {
+									"type": "string"
+								},
+								"name": {
+									"type": [
+										"string",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"id",
+								"name",
+								"authors"
+							],
+							"type": "object"
+						},
 						"hand_id": {
 							"type": "string"
 						},
+						"hand_name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
 						"head_version_id": {
-							"type": "string"
-						},
-						"kitchen_id": {
-							"type": "string"
-						},
-						"kitchen_name": {
 							"type": "string"
 						},
 						"language": {
@@ -14522,6 +17077,15 @@ export const CATALOGUE = [
 								"steps"
 							],
 							"type": "object"
+						},
+						"mine": {
+							"type": "boolean"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"readings": {
 							"items": {
@@ -14569,9 +17133,12 @@ export const CATALOGUE = [
 					},
 					"required": [
 						"branch_id",
-						"kitchen_id",
-						"kitchen_name",
+						"cookbook",
+						"name",
+						"mine",
+						"arrived",
 						"hand_id",
+						"hand_name",
 						"language",
 						"head_version_id",
 						"content",
@@ -14660,6 +17227,9 @@ export const CATALOGUE = [
 				"theirs": {
 					"additionalProperties": false,
 					"properties": {
+						"arrived": {
+							"type": "boolean"
+						},
 						"branch_id": {
 							"type": "string"
 						},
@@ -15129,16 +17699,55 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"cookbook": {
+							"additionalProperties": false,
+							"properties": {
+								"authors": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"type": "string"
+											},
+											"person_id": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"person_id",
+											"name"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"id": {
+									"type": "string"
+								},
+								"name": {
+									"type": [
+										"string",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"id",
+								"name",
+								"authors"
+							],
+							"type": "object"
+						},
 						"hand_id": {
 							"type": "string"
 						},
+						"hand_name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
 						"head_version_id": {
-							"type": "string"
-						},
-						"kitchen_id": {
-							"type": "string"
-						},
-						"kitchen_name": {
 							"type": "string"
 						},
 						"language": {
@@ -15171,6 +17780,15 @@ export const CATALOGUE = [
 								"steps"
 							],
 							"type": "object"
+						},
+						"mine": {
+							"type": "boolean"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
 						},
 						"readings": {
 							"items": {
@@ -15218,9 +17836,12 @@ export const CATALOGUE = [
 					},
 					"required": [
 						"branch_id",
-						"kitchen_id",
-						"kitchen_name",
+						"cookbook",
+						"name",
+						"mine",
+						"arrived",
 						"hand_id",
+						"hand_name",
 						"language",
 						"head_version_id",
 						"content",
@@ -17413,7 +20034,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "promote_attempt_photograph",
-		"summary": "Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch was written under another Hand. The Branch must be one a Kitchen of yours holds. The Attempt keeps the picture too; promoting is not moving.",
+		"summary": "Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -17433,7 +20054,7 @@ export const CATALOGUE = [
 					]
 				},
 				"kitchen_id": {
-					"description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
+					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
 				},
 				"photograph_id": {
@@ -18622,7 +21243,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "promote_as_cooked",
-		"summary": "Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch written under another Hand becomes a Copy. The Branch must be one a Kitchen of yours holds. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked.",
+		"summary": "Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -18642,7 +21263,7 @@ export const CATALOGUE = [
 					]
 				},
 				"kitchen_id": {
-					"description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
+					"description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
 				},
 				"name": {
@@ -22354,6 +24975,9 @@ export const READS: readonly OperationName[] = [
 	'list_sessions',
 	'list_access_keys',
 	'list_kitchens',
+	'preview_leaving_kitchen',
+	'get_cookbook',
+	'read_cookbook_invite',
 	'list_tags',
 	'read_pasted_recipe',
 	'list_imports',
@@ -22411,6 +25035,15 @@ export const METHOD_NAMES = {
 	accept_kitchen_invite: 'acceptKitchenInvite',
 	remove_kitchen_member: 'removeKitchenMember',
 	delete_kitchen: 'deleteKitchen',
+	preview_leaving_kitchen: 'previewLeavingKitchen',
+	get_cookbook: 'getCookbook',
+	rename_cookbook: 'renameCookbook',
+	invite_to_cookbook: 'inviteToCookbook',
+	cancel_cookbook_invite: 'cancelCookbookInvite',
+	read_cookbook_invite: 'readCookbookInvite',
+	accept_cookbook_invite: 'acceptCookbookInvite',
+	leave_cookbook: 'leaveCookbook',
+	remove_cookbook_author: 'removeCookbookAuthor',
 	create_tag: 'createTag',
 	list_tags: 'listTags',
 	rename_tag: 'renameTag',
@@ -22420,6 +25053,8 @@ export const METHOD_NAMES = {
 	set_related_recipe: 'setRelatedRecipe',
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
+	start_variation: 'startVariation',
+	rename_branch: 'renameBranch',
 	delete_recipe: 'deleteRecipe',
 	read_pasted_recipe: 'readPastedRecipe',
 	start_translation: 'startTranslation',
@@ -22502,7 +25137,7 @@ export interface KamosuClient {
 	getPerson(input?: GetPersonInput): Promise<Answer<'get_person'>>;
 	/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
-	/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt or Kitchen of theirs is reachable from here. */
+	/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
 	listAccounts(input?: ListAccountsInput): Promise<Answer<'list_accounts'>>;
 	/** Mint a one-use Invite link for a new Person. */
 	mintInvite(input: MintInviteInput): Promise<Answer<'mint_invite'>>;
@@ -22532,7 +25167,7 @@ export interface KamosuClient {
 	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
 	/** End one of your Access Keys. */
 	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;
-	/** Create a Kitchen: a new circle, held by its creator until they invite someone else in. */
+	/** Create a Kitchen: a group of People who see and cook from each other's Cookbooks. Its creator is its first member. */
 	createKitchen(input: CreateKitchenInput): Promise<Answer<'create_kitchen'>>;
 	/** List every Kitchen this Person cooks in. */
 	listKitchens(input?: ListKitchensInput): Promise<Answer<'list_kitchens'>>;
@@ -22544,13 +25179,31 @@ export interface KamosuClient {
 	inviteToKitchen(input: InviteToKitchenInput): Promise<Answer<'invite_to_kitchen'>>;
 	/** Open a Kitchen Invite: join the Kitchen it names. Spent on use. */
 	acceptKitchenInvite(input: AcceptKitchenInviteInput): Promise<Answer<'accept_kitchen_invite'>>;
-	/** Remove a Person from a Kitchen — including yourself, to leave. The last member cannot be removed. */
+	/** Remove a Person from a Kitchen — including yourself, to leave. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
 	removeKitchenMember(input: RemoveKitchenMemberInput): Promise<Answer<'remove_kitchen_member'>>;
 	/** An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen. */
 	deleteKitchen(input: DeleteKitchenInput): Promise<Answer<'delete_kitchen'>>;
-	/** Create a Tag in a Kitchen, named in one Language. A word the Kitchen already files under returns the Tag it already has rather than making a second. */
+	/** What removing a Person from a Kitchen would leave each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you. */
+	previewLeavingKitchen(input: PreviewLeavingKitchenInput): Promise<Answer<'preview_leaving_kitchen'>>;
+	/** Your own Cookbook: its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
+	getCookbook(input?: GetCookbookInput): Promise<Answer<'get_cookbook'>>;
+	/** Give your Cookbook a name of its own, or clear it back to its Co-authors' names with an empty or null one. Any Co-author may. */
+	renameCookbook(input: RenameCookbookInput): Promise<Answer<'rename_cookbook'>>;
+	/** Mint a one-use Invite for somebody to write your Cookbook with you. When they accept, their recipes and yours become one Cookbook either of you changes. */
+	inviteToCookbook(input?: InviteToCookbookInput): Promise<Answer<'invite_to_cookbook'>>;
+	/** End a Cookbook Invite nobody has used yet. */
+	cancelCookbookInvite(input: CancelCookbookInviteInput): Promise<Answer<'cancel_cookbook_invite'>>;
+	/** What accepting a Cookbook Invite would do, before you say yes: whose Cookbook it is, and how many recipes on each side become one. */
+	readCookbookInvite(input: ReadCookbookInviteInput): Promise<Answer<'read_cookbook_invite'>>;
+	/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you both change. Spent on use. */
+	acceptCookbookInvite(input: AcceptCookbookInviteInput): Promise<Answer<'accept_cookbook_invite'>>;
+	/** Leave the Cookbook you write with others, taking your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy. */
+	leaveCookbook(input?: LeaveCookbookInput): Promise<Answer<'leave_cookbook'>>;
+	/** Separate another Co-author from your Cookbook. They leave with a Branch of every recipe in it, as though they had left. */
+	removeCookbookAuthor(input: RemoveCookbookAuthorInput): Promise<Answer<'remove_cookbook_author'>>;
+	/** Create a Tag in your own Cookbook, named in one Language. A word the Cookbook already files under returns the Tag it already has rather than making a second. */
 	createTag(input: CreateTagInput): Promise<Answer<'create_tag'>>;
-	/** List every Tag a Kitchen files by, each shown in the reader's Reading Language where it has a name there. */
+	/** List every Tag your own Cookbook files by, each shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
 	listTags(input: ListTagsInput): Promise<Answer<'list_tags'>>;
 	/** Name a Tag in one Language, or change the name it has there. Reaches every recipe carrying it at once, and mints no Version. */
 	renameTag(input: RenameTagInput): Promise<Answer<'rename_tag'>>;
@@ -22560,12 +25213,16 @@ export interface KamosuClient {
 	deleteTag(input: DeleteTagInput): Promise<Answer<'delete_tag'>>;
 	/** File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is. */
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
-	/** Relate two Recipes on the same Kitchen shelf, or take that single two-way, untyped link back off. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
+	/** Relate one of your Cookbook's Recipes to any Recipe you may see, or take that single two-way, untyped link back off. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one a Kitchen of yours holds. */
+	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
+	/** Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it ("Vegetarian"). Changing one never changes the other. */
+	startVariation(input: StartVariationInput): Promise<Answer<'start_variation'>>;
+	/** Name one of your Cookbook's Branches of a recipe, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
+	renameBranch(input: RenameBranchInput): Promise<Answer<'rename_branch'>>;
 	/** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
 	deleteRecipe(input: DeleteRecipeInput): Promise<Answer<'delete_recipe'>>;
 	/** Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
@@ -22574,15 +25231,15 @@ export interface KamosuClient {
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
 	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 	setRecipeLanguage(input: SetRecipeLanguageInput): Promise<Answer<'set_recipe_language'>>;
-	/** Bring a batch of already-read recipes into your Home Kitchen, as a Job. Matched by foreign id against this Kitchen's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
+	/** Bring a batch of already-read recipes into your own Cookbook, as a Job. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 	import(input: ImportInput): Promise<Answer<'import'>>;
-	/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your Home Kitchen through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importCrouton(input: ImportCroutonInput): Promise<Answer<'import_crouton'>>;
 	/** What has been brought into your Kitchens from outside, and what happened each time. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
-	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your Home Kitchen through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
@@ -22626,7 +25283,7 @@ export interface KamosuClient {
 	makeSheet(input: MakeSheetInput): Promise<Answer<'make_sheet'>>;
 	/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
 	makeSharedSheet(input: MakeSharedSheetInput): Promise<Answer<'make_shared_sheet'>>;
-	/** Receive a Bundle into your Home Kitchen, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Kitchen holds it under an id of this instance's own; one your Kitchen already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Kitchen here holding it is no part of the question: each Kitchen receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	/** Receive a Bundle into your own Cookbook, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Cookbook holds it under an id of this instance's own; one your Cookbook already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Cookbook here holding it is no part of the question: each Cookbook receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
 	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
@@ -22648,13 +25305,13 @@ export interface KamosuClient {
 	editAttempt(input: EditAttemptInput): Promise<Answer<'edit_attempt'>>;
 	/** Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
 	deleteAttempt(input: DeleteAttemptInput): Promise<Answer<'delete_attempt'>>;
-	/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch was written under another Hand. The Branch must be one a Kitchen of yours holds. The Attempt keeps the picture too; promoting is not moving. */
+	/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving. */
 	promoteAttemptPhotograph(input: PromoteAttemptPhotographInput): Promise<Answer<'promote_attempt_photograph'>>;
 	/** Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
 	setAsCooked(input: SetAsCookedInput): Promise<Answer<'set_as_cooked'>>;
 	/** Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
 	declinePromotion(input: DeclinePromotionInput): Promise<Answer<'decline_promotion'>>;
-	/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch written under another Hand becomes a Copy. The Branch must be one a Kitchen of yours holds. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+	/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
 	promoteAsCooked(input: PromoteAsCookedInput): Promise<Answer<'promote_as_cooked'>>;
 	/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;

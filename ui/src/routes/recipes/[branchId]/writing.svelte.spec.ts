@@ -21,6 +21,7 @@ import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import WritingTestHarness from './WritingTestHarness.svelte';
+import { recipeAnswer } from '../../../testing/recipes';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -49,21 +50,6 @@ const content = (): Content => ({
 	],
 });
 
-const KITCHENS = {
-	list_kitchens: {
-		kitchens: [
-			{
-				id: 'k_mine',
-				name: 'Chez Aurélien',
-				nickname: null,
-				is_home: true,
-				hand_id: 'h_mine',
-				members: [],
-			},
-		],
-	},
-} as Answers;
-
 const SAVED = {
 	save_recipe_version: {
 		branch_id: 'mine',
@@ -82,7 +68,8 @@ type Components = GetRecipeOutput['versions'][number]['components'];
 
 function renderWriting(
 	answers: Answers = {},
-	kitchenId = 'k_mine',
+	/** Whether the reader writes the recipe's Cookbook; a save makes a Copy where not. */
+	writes = true,
 	components: Components = [],
 	/** The recipe underneath, where a test needs one that is not Dan Dan Noodles. */
 	start: Content = content(),
@@ -91,12 +78,12 @@ function renderWriting(
 ) {
 	const onSaved = vi.fn();
 	const onCancel = vi.fn();
-	const kamosu = standIn({ ...KITCHENS, ...SAVED, ...answers });
+	const kamosu = standIn({ ...SAVED, ...answers });
 	render(WritingTestHarness, {
 		props: {
 			client: kamosu.client,
 			content: start,
-			kitchenId,
+			writes,
 			components,
 			translatingInto,
 			onSaved,
@@ -143,7 +130,9 @@ const READ_BACK = {
 	get_recipe: {
 		branch_id: 'mine',
 		lineage_id: 'l_1',
-		kitchen_id: 'k_mine',
+		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+		name: null,
+		writes: true,
 		hand_id: 'h_mine',
 		language: 'en',
 		origin_address: null,
@@ -236,11 +225,9 @@ const rowFields = () =>
 /**
  * Walk the save through the sheet that states the outcome.
  *
- * The control is waited for rather than assumed present: what it says depends
- * on the Kitchens the screen was told about, which arrive from Kamosu. Reading
- * it synchronously happened to work while the answer landed on a particular
- * tick, and broke the moment anything upstream of the client took one more
- * (#98).
+ * The control is waited for rather than assumed present. Reading it
+ * synchronously happened to work while an answer landed on a particular tick,
+ * and broke the moment anything upstream of the client took one more (#98).
  */
 async function saveThrough(name: RegExp) {
 	await fireEvent.click((await screen.findAllByRole('button', { name }))[0] as HTMLElement);
@@ -452,9 +439,9 @@ describe('writing a recipe', () => {
 		// inside a save_recipe_version, so a recipe that took that path would
 		// store a name no server has ever heard of.
 		const photograph = vi.fn(async () => 'p_realname');
-		const kamosu = standIn({ ...KITCHENS, ...SAVED });
+		const kamosu = standIn({ ...SAVED });
 		render(WritingTestHarness, {
-			props: { client: kamosu.client, content: content(), kitchenId: 'k_mine', photograph },
+			props: { client: kamosu.client, content: content(), photograph },
 		});
 
 		const picture = new File([new Uint8Array([1, 2, 3])], 'plate.jpg', { type: 'image/jpeg' });
@@ -471,7 +458,7 @@ describe('writing a recipe', () => {
 	it('opens on a recipe with nothing in it, which is what a new one is', async () => {
 		// A new recipe is the same page, empty (#83's decision). Both lists
 		// say so rather than being absent, and all four controls are there.
-		const kamosu = standIn({ ...KITCHENS, ...SAVED });
+		const kamosu = standIn({ ...SAVED });
 		const bare = content();
 		bare.ingredients = [];
 		bare.steps = [];
@@ -480,7 +467,7 @@ describe('writing a recipe', () => {
 		bare.cook_time_minutes = null;
 		bare.source = null;
 		render(WritingTestHarness, {
-			props: { client: kamosu.client, content: bare, kitchenId: 'k_mine' },
+			props: { client: kamosu.client, content: bare },
 		});
 
 		expect(await screen.findByText('No ingredients yet.')).toBeInTheDocument();
@@ -574,11 +561,11 @@ describe('writing a recipe', () => {
 
 	it('opens on the figure the recipe already carries', async () => {
 		const onSaved = vi.fn();
-		const kamosu = standIn({ ...KITCHENS, ...SAVED });
+		const kamosu = standIn({ ...SAVED });
 		const held = content();
 		held.nutrition = { calories: 308, basis: 'per_serving' };
 		render(WritingTestHarness, {
-			props: { client: kamosu.client, content: held, kitchenId: 'k_mine', onSaved },
+			props: { client: kamosu.client, content: held, onSaved },
 		});
 
 		expect(await screen.findByRole('textbox', { name: 'Nutrition, in kcal' })).toHaveValue('308');
@@ -602,11 +589,11 @@ describe('writing a recipe', () => {
 
 	it('empties a figure the recipe carried when it is cleared', async () => {
 		const onSaved = vi.fn();
-		const kamosu = standIn({ ...KITCHENS, ...SAVED });
+		const kamosu = standIn({ ...SAVED });
 		const held = content();
 		held.nutrition = { calories: 308, basis: 'per_serving' };
 		render(WritingTestHarness, {
-			props: { client: kamosu.client, content: held, kitchenId: 'k_mine', onSaved },
+			props: { client: kamosu.client, content: held, onSaved },
 		});
 
 		await fireEvent.input(await screen.findByRole('textbox', { name: 'Nutrition, in kcal' }), {
@@ -632,11 +619,11 @@ describe('writing a recipe', () => {
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
 
 		await fireEvent.click((await screen.findAllByRole('button', { name: /Save onto mine/ }))[0]!);
-		// The outcome is stated before it happens, naming the recipe and the
-		// Kitchen — "Save" and "Save" are the same word for two different acts.
-		expect(
-			screen.getByText(/writes a new Version onto your Dan Dan Noodles, in Chez Aurélien/),
-		).toBeInTheDocument();
+		// The outcome is stated before it happens, naming the recipe — "Save"
+		// and "Save" are the same word for two different acts. Onto the recipe
+		// is where it starts; beside it is the other choice (#131).
+		expect(screen.getByRole('radio', { name: /Onto your Dan Dan Noodles/ })).toBeChecked();
+		expect(screen.getByText('A new Version of it, in your Cookbook.')).toBeInTheDocument();
 
 		await fireEvent.input(screen.getByRole('textbox', { name: /Name this version/ }), {
 			target: { value: 'Less chilli' },
@@ -652,8 +639,8 @@ describe('writing a recipe', () => {
 		expect(input?.change_note).toBe('Moved the vinegar into the sauce');
 	});
 
-	it('says a save onto a Kitchen you do not cook in will fork, and is not the same control', async () => {
-		renderWriting({}, 'k_someone_else');
+	it('says a save onto a recipe somebody else writes will fork, and is not the same control', async () => {
+		renderWriting({}, false);
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
 
 		// The forking save wears its own words. Finding *Save onto mine* here
@@ -662,8 +649,10 @@ describe('writing a recipe', () => {
 		await fireEvent.click(
 			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
 		);
-		expect(screen.getByText(/is not in one of your Kitchens/)).toBeInTheDocument();
-		expect(screen.getByText(/the original stays where it is/)).toBeInTheDocument();
+		expect(screen.getByText(/is not yours to change/)).toBeInTheDocument();
+		expect(screen.getByText(/the original stays as it is/)).toBeInTheDocument();
+		// Where it goes is not a question: your own Cookbook, always (#131).
+		expect(screen.queryAllByRole('radio')).toHaveLength(0);
 	});
 
 	it('hands a collapse up to the page, which is what is still on screen afterwards', async () => {
@@ -716,7 +705,7 @@ describe('writing a recipe', () => {
 					translates_version_id: null,
 				},
 			} as Answers,
-			'k_someone_else',
+			false,
 		);
 
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
@@ -769,17 +758,36 @@ describe('writing a recipe', () => {
 		expect(sent(kamosu)).toBeUndefined();
 	});
 
-	it('holds the save until it knows which of the two it would be', async () => {
-		// `forking` is read off the caller's Kitchens. Unknown, the sheet would
-		// name no Kitchen and the server would fork anyway, so the screen says
-		// nothing rather than guessing.
-		renderWriting({ list_kitchens: { refuse: 'internal' } } as Answers);
+	it('starts a variation beside the recipe, under the name it is given', async () => {
+		// Screen choice 3 of 24 September 2026: a variation is chosen inside
+		// the save sheet, and the draft lands on it rather than on the recipe.
+		const { kamosu, onSaved } = renderWriting({
+			start_variation: recipeAnswer({ branch_id: 'b_veg' }),
+		} as Answers);
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
-		expect(
-			await screen.findByRole('button', { name: /could not tell whose Kitchen/ }),
-		).toBeDisabled();
-		expect(screen.queryByRole('button', { name: /Save onto mine/ })).not.toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /Start my own copy/ })).not.toBeInTheDocument();
+		await fireEvent.click((await screen.findAllByRole('button', { name: /Save onto mine/ }))[0]!);
+		const sheet = within(await screen.findByRole('dialog'));
+		await fireEvent.click(sheet.getByRole('radio', { name: /As a variation beside it/ }));
+		expect(sheet.getByText(/A second Dan Dan Noodles/)).toBeInTheDocument();
+
+		// Nothing tells two unnamed recipes apart, so the button waits for a name.
+		const start = sheet.getByRole('button', { name: 'Start the variation' });
+		expect(start).toBeDisabled();
+		await fireEvent.input(sheet.getByRole('textbox', { name: /Call the variation/ }), {
+			target: { value: 'Vegetarian' },
+		});
+		await fireEvent.click(start);
+
+		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+		expect(kamosu.calls.find((call) => call.operation === 'start_variation')?.input).toEqual({
+			branch_id: 'mine',
+			name: 'Vegetarian',
+		});
+		// The draft goes onto the variation, never onto the recipe it came from.
+		expect(sent(kamosu)?.branch_id).toBe('b_veg');
+		expect(onSaved).toHaveBeenCalledWith(
+			expect.objectContaining({ branch_id: 'b_veg', varied: 'Vegetarian' }),
+		);
 	});
 });
 
@@ -791,33 +799,9 @@ describe('writing a recipe', () => {
  * checks that the recipe was CHOSEN. Nothing on this screen may ever arrive at
  * a pointer by matching words.
  */
-/**
- * Kitchens as a cook in several has them (#111): the Home Kitchen, and others
- * each shared with somebody.
- */
-const kitchenOf = (id: string, name: string, is_home = false) => ({
-	id,
-	name,
-	nickname: null,
-	is_home,
-	hand_id: `h_${id}`,
-	members: [
-		{ person_id: 'p_1', name: 'Aurélien' },
-		{ person_id: `p_${id}`, name: 'Marie' },
-	],
-});
-const TWO = [kitchenOf('k_mine', 'Chez Aurélien', true), kitchenOf('k_marc', 'Chez Marc')];
-const SIX = [
-	...TWO,
-	kitchenOf('k_elodie', 'Chez Élodie'),
-	kitchenOf('k_chalet', 'Le Chalet'),
-	kitchenOf('k_papi', 'Chez Papi'),
-	kitchenOf('k_marie', 'Chez Marie'),
-];
-
-describe('which Kitchen keeps a Copy (#111)', () => {
-	it('never asks a cook in one Kitchen, and names it', async () => {
-		const { kamosu } = renderWriting({}, 'k_someone_else');
+describe('where a Copy goes (#111, #131)', () => {
+	it('never asks: a Copy is started in your own Cookbook', async () => {
+		const { kamosu } = renderWriting({}, false);
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
 		await fireEvent.click(
 			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
@@ -826,77 +810,26 @@ describe('which Kitchen keeps a Copy (#111)', () => {
 		const sheet = await screen.findByRole('dialog');
 		expect(within(sheet).queryAllByRole('radio')).toHaveLength(0);
 		expect(
-			within(sheet).getByText(/your own Dan Dan Noodles in Chez Aurélien/),
+			within(sheet).getByText(/your own Dan Dan Noodles in your Cookbook/),
 		).toBeInTheDocument();
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Start my own copy' }));
-		expect(sent(kamosu)?.kitchen_id).toBe('k_mine');
+		await waitFor(() => expect(sent(kamosu)).toBeDefined());
+		expect(sent(kamosu)).not.toHaveProperty('kitchen_id');
 	});
 
-	for (const [count, kitchens] of [
-		['two', TWO],
-		['six', SIX],
-	] as const) {
-		it(`asks a cook in ${count}, picks nothing, and forks into the one chosen`, async () => {
-			const { kamosu } = renderWriting(
-				{ list_kitchens: { kitchens: [...kitchens] } } as Answers,
-				'k_someone_else',
-			);
-			await screen.findByRole('textbox', { name: 'Ingredient line 1' });
-			await fireEvent.click(
-				(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
-			);
-
-			const sheet = await screen.findByRole('dialog');
-			// No Kitchen is named in the sentence: that is the question below it.
-			expect(
-				within(sheet).getByText(/your own Dan Dan Noodles, from this point/),
-			).toBeInTheDocument();
-			const choices = within(sheet).getAllByRole('radio');
-			expect(choices).toHaveLength(kitchens.length);
-			expect(choices.some((choice) => (choice as HTMLInputElement).checked)).toBe(false);
-			const go = within(sheet).getByRole('button', { name: 'Choose a Kitchen first' });
-			expect(go).toBeDisabled();
-
-			await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
-			await fireEvent.click(
-				within(sheet).getByRole('button', { name: 'Start my own copy in Chez Marc' }),
-			);
-			await waitFor(() => expect(sent(kamosu)?.kitchen_id).toBe('k_marc'));
-		});
-	}
-
-	it('asks nothing of a cook whose own Kitchen holds the recipe, however many they have', async () => {
-		const { kamosu } = renderWriting({ list_kitchens: { kitchens: SIX } } as Answers, 'k_marc');
-		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
-		await fireEvent.click((await screen.findAllByRole('button', { name: /Save onto mine/ }))[0]!);
-		const sheet = await screen.findByRole('dialog');
-		expect(within(sheet).queryAllByRole('radio')).toHaveLength(0);
-		expect(within(sheet).getByText(/onto your Dan Dan Noodles, in Chez Marc/)).toBeInTheDocument();
-		await fireEvent.click(within(sheet).getByRole('button', { name: 'Save onto mine' }));
-		expect(sent(kamosu)?.kitchen_id).toBe('k_marc');
-	});
-
-	it('asks where a Translation of a recipe none of their Kitchens holds goes', async () => {
-		// A Translation is a new Branch too, and it has to be held somewhere.
-		const { kamosu } = renderWriting(
-			{ ...TRANSLATED, list_kitchens: { kitchens: TWO } } as Answers,
-			'k_someone_else',
-			[],
-			content(),
-			'fr',
-		);
+	it('asks nothing about where a Translation goes either', async () => {
+		const { kamosu } = renderWriting({ ...TRANSLATED } as Answers, false, [], content(), 'fr');
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
 		await fireEvent.click(
 			(await screen.findAllByRole('button', { name: /Save the translation/ }))[0] as HTMLElement,
 		);
 		const sheet = await screen.findByRole('dialog');
-		expect(within(sheet).getByRole('button', { name: 'Choose a Kitchen first' })).toBeDisabled();
-		await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
+		expect(within(sheet).queryAllByRole('radio')).toHaveLength(0);
 		await fireEvent.click(within(sheet).getByRole('button', { name: /Save the translation/ }));
 		await waitFor(() => {
-			const input = kamosu.calls.find((call) => call.operation === 'start_translation')?.input as
-				Record<string, unknown> | undefined;
-			expect(input?.kitchen_id).toBe('k_marc');
+			const input = kamosu.calls.find((call) => call.operation === 'start_translation')?.input;
+			expect(input).toBeDefined();
+			expect(input).not.toHaveProperty('kitchen_id');
 		});
 	});
 });
@@ -980,7 +913,7 @@ describe('naming another recipe from a line', () => {
 				],
 			},
 		} as Answers;
-		const { kamosu } = renderWriting({ ...SHELF, ...READ_BACK, ...carried }, 'k_mine', [
+		const { kamosu } = renderWriting({ ...SHELF, ...READ_BACK, ...carried }, true, [
 			{
 				path: [1],
 				lineage_id: 'l_chilli',
@@ -1127,7 +1060,7 @@ const reads = (kamosu: ReturnType<typeof standIn>) =>
 
 describe('pasting a whole recipe', () => {
 	it('becomes a title, an ingredient list and a method, headings kept as Sections', async () => {
-		renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		renderWriting(WITH_HEADINGS, true, [], empty());
 		await pasteIn();
 		await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
 
@@ -1155,7 +1088,7 @@ describe('pasting a whole recipe', () => {
 	});
 
 	it('takes a paste with no headings at all, exactly as it was pasted', async () => {
-		renderWriting(NO_HEADINGS, 'k_mine', [], empty());
+		renderWriting(NO_HEADINGS, true, [], empty());
 		await pasteIn();
 		await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
 
@@ -1170,7 +1103,7 @@ describe('pasting a whole recipe', () => {
 	});
 
 	it('says what it made of the paste before anything lands', async () => {
-		renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		renderWriting(WITH_HEADINGS, true, [], empty());
 		await pasteIn();
 
 		// The counts and the title are on screen, and the page underneath is
@@ -1181,7 +1114,7 @@ describe('pasting a whole recipe', () => {
 	});
 
 	it('re-splits when the boundary is moved, without reading a line again', async () => {
-		const { kamosu } = renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		const { kamosu } = renderWriting(WITH_HEADINGS, true, [], empty());
 		await pasteIn();
 		expect(reads(kamosu)).toHaveLength(1);
 
@@ -1248,21 +1181,21 @@ describe('pasting a whole recipe', () => {
 		// is still in the open — but a paste carrying its own title would
 		// replace one somebody typed a moment ago, and that is a loss of its
 		// own rather than part of the lists'.
-		renderWriting(WITH_HEADINGS, 'k_mine', [], { ...empty(), title: 'Tuesday supper' });
+		renderWriting(WITH_HEADINGS, true, [], { ...empty(), title: 'Tuesday supper' });
 		await pasteIn();
 		expect(screen.getByText(/also replaces the title Tuesday supper/)).toBeInTheDocument();
 		expect(screen.queryByText(/ingredients and .* steps already here/)).not.toBeInTheDocument();
 	});
 
 	it('says nothing about replacing anything when the recipe is empty', async () => {
-		renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		renderWriting(WITH_HEADINGS, true, [], empty());
 		await pasteIn();
 		expect(screen.queryByText(/replaces/)).not.toBeInTheDocument();
 		expect(screen.getByText('Nothing is saved until you save.')).toBeInTheDocument();
 	});
 
 	it('saves nothing by itself — the paste fills the page and stops', async () => {
-		const { kamosu } = renderWriting(WITH_HEADINGS, 'k_mine', [], empty());
+		const { kamosu } = renderWriting(WITH_HEADINGS, true, [], empty());
 		await pasteIn();
 		await fireEvent.click(screen.getByRole('button', { name: 'Use it' }));
 		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
@@ -1272,7 +1205,7 @@ describe('pasting a whole recipe', () => {
 	it('says so when the paste could not be read', async () => {
 		renderWriting(
 			{ read_pasted_recipe: { refuse: 'bad_request', message: 'too long' } } as Answers,
-			'k_mine',
+			true,
 			[],
 			empty(),
 		);
@@ -1295,7 +1228,7 @@ describe('translating a recipe', () => {
 		// replaces — so without the screen saying so, the only difference from
 		// an ordinary edit would be the button, by which point they have
 		// retyped the recipe.
-		renderWriting({ ...TRANSLATED }, 'k_mine', [], content(), 'fr');
+		renderWriting({ ...TRANSLATED }, true, [], content(), 'fr');
 
 		expect(await screen.findByText('Translating into French')).toBeInTheDocument();
 		await fireEvent.click(
@@ -1309,7 +1242,7 @@ describe('translating a recipe', () => {
 	});
 
 	it('calls start_translation with the Language, and never save_recipe_version', async () => {
-		const { kamosu, onSaved } = renderWriting({ ...TRANSLATED }, 'k_mine', [], content(), 'fr');
+		const { kamosu, onSaved } = renderWriting({ ...TRANSLATED }, true, [], content(), 'fr');
 
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
 		await saveThrough(/Save the translation/);
@@ -1336,11 +1269,11 @@ describe('translating a recipe', () => {
 		});
 	});
 
-	it('is never dressed as a fork, whoever holds the recipe being translated', async () => {
-		// `start_translation` makes a Branch of the same Lineage whatever
-		// Kitchen holds the source, so #54's two sentences — save onto this
-		// one, start my own copy — are both wrong here.
-		renderWriting({ ...TRANSLATED }, 'k_someone_else', [], content(), 'fr');
+	it('is never dressed as a fork, whoever writes the recipe being translated', async () => {
+		// `start_translation` makes a Branch of the same Lineage in your own
+		// Cookbook whoever writes the source, so #54's two sentences — save
+		// onto this one, start my own copy — are both wrong here.
+		renderWriting({ ...TRANSLATED }, false, [], content(), 'fr');
 
 		expect(await screen.findByText('Translating into French')).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /Start my own copy/ })).not.toBeInTheDocument();

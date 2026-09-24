@@ -357,18 +357,11 @@ async fn the_main_photo_and_a_steps_photo_are_part_of_the_versions_fingerprint()
         .unwrap()
         .secret;
 
-    let (_, kitchen) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        r#"{"name":"Aurélien's Kitchen"}"#,
-    );
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap();
-
     let picture = make_jpeg(20, 20);
     let (_, uploaded) = app.post_bytes("/api/photographs", Some(&key), "image/jpeg", &picture);
     let photo_id = uploaded["result"]["photograph_id"].as_str().unwrap();
 
-    let without_photo = json!({ "kitchen_id": kitchen_id, "title": "Tomato Soup" });
+    let without_photo = json!({ "title": "Tomato Soup" });
     let (_, created) = app.post_op("create_recipe", Some(&key), &without_photo.to_string());
     let branch_id = created["result"]["branch_id"].as_str().unwrap();
     let version_without: &Value = &created["result"]["versions"][0]["version_id"];
@@ -473,13 +466,6 @@ fn backdate_branch_head(app: &support::TestApp, branch_id: &str) {
 /// Upload a picture and attach it to a fresh recipe as its Main Photo.
 /// Answers the Photograph's id and the Branch it now hangs off.
 fn recipe_with_a_photo(app: &support::TestApp, key: &str, title: &str) -> (String, String) {
-    let (_, kitchen) = app.post_op(
-        "create_kitchen",
-        Some(key),
-        &json!({ "name": format!("{title} Kitchen") }).to_string(),
-    );
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
-
     // A picture of its own size, so each test's Photograph is its own hash and
     // two tests cannot collide on one identity.
     let picture = make_jpeg(20 + (title.len() as u32 % 17), 20);
@@ -492,7 +478,7 @@ fn recipe_with_a_photo(app: &support::TestApp, key: &str, title: &str) -> (Strin
     let (_, created) = app.post_op(
         "create_recipe",
         Some(key),
-        &json!({ "kitchen_id": kitchen_id, "title": title }).to_string(),
+        &json!({ "title": title }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -683,17 +669,10 @@ async fn the_sweep_never_takes_a_photograph_an_attempt_still_holds() {
     let app = support::spawn_app();
     let (_, key) = operator(&app);
 
-    let (_, kitchen) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        r#"{"name":"Aurélien's Kitchen"}"#,
-    );
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Katsu Curry",
             "steps": [{ "kind": "step", "text": "Frire." }],
         })
@@ -795,16 +774,10 @@ async fn deleting_a_recipe_frees_its_pictures_and_leaves_a_cookings_own_alone() 
     let app = support::spawn_app();
     let (_, key) = operator(&app);
 
-    let (_, kitchen) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        &json!({ "name": "Soba Kitchen" }).to_string(),
-    );
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soba with walnut miso" }).to_string(),
+        &json!({ "title": "Soba with walnut miso" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 

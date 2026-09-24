@@ -16,7 +16,7 @@
 
 	No name is shown, and none can be: Kamosu has no Operation answering *who is
 	signed in* — `rename_person` writes a name and nothing reads one back, and a
-	home Kitchen may hold more than one member. *You* needs none.
+	Kitchen may hold more than one member. *You* needs none.
 
 	The mark is a plain wordmark and taps nothing, so the header holds exactly
 	one control. The middle stays empty rather than inventing work for itself.

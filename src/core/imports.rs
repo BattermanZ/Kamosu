@@ -82,25 +82,20 @@ impl Core {
     /// end. So a source is listed while it has *either* a ledger or an
     /// arrival, and `import_id` is null once the ledger is gone.
     ///
-    /// **Scoped to the Home Kitchen, and that is what an Import is.** Every
-    /// importer lands its recipes in the Home Kitchen of whoever asked
-    /// (`import_each`, and the Bundle path alike), which CONTEXT.md states as
-    /// the definition rather than as an implementation detail. Reading every
-    /// Kitchen a Person cooks in instead would break the grouping outright:
-    /// `imports` is unique per `(kitchen_id, source_kind)`, so a Kitchen-mate
-    /// who imported a Crouton library into their own Home Kitchen and then
-    /// invited this Person in would put a second `crouton` row in the answer,
-    /// and this Person's arrivals would attach to whichever sorted first.
-    /// Nothing is lost by leaving it out: that channel's arrivals are that
-    /// Person's Jobs, which `get_job` refuses this caller anyway.
+    /// **Scoped to the caller's own Cookbook, and that is what an Import is.**
+    /// Every importer lands its recipes in the Cookbook of whoever asked
+    /// (`import_each`, and the Bundle path alike; ADR 0041), which CONTEXT.md
+    /// states as the definition rather than as an implementation detail.
+    /// `imports` is unique per `(cookbook_id, source_kind)`, so one Cookbook
+    /// has one channel of each kind, however many Co-authors run it.
     ///
     /// Arrivals are the caller's own Jobs, matching `list_jobs` and the reader
-    /// check `get_job` makes: listing a Kitchen-mate's Job would offer a link
-    /// that then refuses. `remembered` is the Kitchen's, because a ledger
-    /// belongs to the Kitchen and not to whoever happened to run the importer.
+    /// check `get_job` makes: listing a Co-author's Job would offer a link that
+    /// then refuses. `remembered` is the Cookbook's, because a ledger belongs
+    /// to the Cookbook and not to whoever happened to run the importer.
     pub fn list_imports(&self, person_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            // The ledgers this Person's Home Kitchen holds, newest channel first.
+            // The ledgers this Person's Cookbook holds, newest channel first.
             let ledgers: Vec<(String, String, String, i64)> = {
                 let mut statement = conn
                     .prepare(
@@ -108,8 +103,8 @@ impl Core {
                                 (SELECT COUNT(*) FROM import_ledger
                                   WHERE import_ledger.import_id = imports.id)
                            FROM imports
-                           JOIN people ON people.home_kitchen_id = imports.kitchen_id
-                          WHERE people.id = ?1
+                           JOIN cookbook_authors ON cookbook_authors.cookbook_id = imports.cookbook_id
+                          WHERE cookbook_authors.person_id = ?1
                           ORDER BY imports.created_at DESC",
                     )
                     .map_err(|e| OpError::internal(format!("cannot list Imports: {e}")))?;
@@ -225,16 +220,16 @@ impl Core {
     /// recipe in again.
     pub fn forget_import(&self, person_id: &str, import_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let kitchen_id: String = conn
+            let cookbook_id: String = conn
                 .query_row(
-                    "SELECT kitchen_id FROM imports WHERE id = ?1",
+                    "SELECT cookbook_id FROM imports WHERE id = ?1",
                     params![import_id],
                     |row| row.get(0),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Import: {e}")))?
                 .ok_or_else(no_such_import)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_import)?;
+            ensure_writes_or_absent(conn, &cookbook_id, person_id, no_such_import)?;
             let transaction = conn
                 .unchecked_transaction()
                 .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
@@ -337,7 +332,7 @@ impl Core {
     }
 
     /// Import: land a batch of candidates already read from an outside
-    /// source into the caller's Home Kitchen, matched through that
+    /// source into the caller's own Cookbook, matched through that
     /// Kitchen's ledger for this source kind rather than doubled on every
     /// re-run (ADR 0025). Reading the source itself — a `.crumb`, a web
     /// page, a Bundle — is each importer's own job; this is the shared
@@ -385,27 +380,17 @@ impl Core {
         progress: Option<&JobProgress>,
     ) -> Result<Value, OpError> {
         let source_kind = required_text(source_kind, "source_kind")?.to_string();
-        let (kitchen_id, kitchen_hand_id) = self.db().with_conn(|conn| {
-            let kitchen_id: String = conn
-                .query_row(
-                    "SELECT home_kitchen_id FROM people WHERE id = ?1",
-                    params![caller.person_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot read Home Kitchen: {e}")))?;
-            let hand_id: String = conn
-                .query_row(
-                    "SELECT hand_id FROM kitchens WHERE id = ?1",
-                    params![kitchen_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot read Kitchen's Hand: {e}")))?;
-            Ok((kitchen_id, hand_id))
+        // Always into the caller's own Cookbook (ADR 0041): there is no
+        // question of where an imported recipe goes.
+        let (cookbook_id, cookbook_hand_id) = self.db().with_conn(|conn| {
+            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            let hand_id = cookbook_hand(conn, &cookbook_id)?;
+            Ok((cookbook_id, hand_id))
         })?;
 
         let import_id = self
             .db()
-            .with_conn(|conn| find_or_create_import(conn, &kitchen_id, &source_kind))?;
+            .with_conn(|conn| find_or_create_import(conn, &cookbook_id, &source_kind))?;
 
         let total = total as u64;
         let mut arrived = Vec::new();
@@ -449,8 +434,8 @@ impl Core {
 
             let (lineage_id, branch_id, title) = match self.import_one(
                 caller,
-                &kitchen_id,
-                &kitchen_hand_id,
+                &cookbook_id,
+                &cookbook_hand_id,
                 &import_id,
                 &foreign_id,
                 &candidate,
@@ -508,11 +493,11 @@ impl Core {
 
         let related_candidates = self
             .db()
-            .with_conn(|conn| related_candidates(conn, &kitchen_id, &landed))?;
+            .with_conn(|conn| related_candidates(conn, &cookbook_id, &landed))?;
 
         Ok(json!({
             "import_id": import_id,
-            "kitchen_id": kitchen_id,
+            "cookbook_id": cookbook_id,
             "source_kind": source_kind,
             "arrived": arrived,
             "offered": offered,
@@ -532,7 +517,7 @@ impl Core {
     /// the Branch on its own.
     ///
     /// Whatever the fate, the Branch is then filed under `tags`, English words
-    /// in the Kitchen's own list (#128). Filing only adds, so a recipe matched
+    /// in the Cookbook's own list (#128). Filing only adds, so a recipe matched
     /// again gains the tags it lacked and keeps every one given it here; and
     /// since a Tag is no part of a Version (ADR 0035), filing moves no id and
     /// leaves `unchanged` unchanged.
@@ -540,8 +525,8 @@ impl Core {
     fn import_one(
         &self,
         caller: &Caller,
-        kitchen_id: &str,
-        kitchen_hand_id: &str,
+        cookbook_id: &str,
+        cookbook_hand_id: &str,
         import_id: &str,
         foreign_id: &str,
         candidate: &Value,
@@ -581,8 +566,8 @@ impl Core {
                         conn,
                         &lineage_id,
                         &branch_id,
-                        kitchen_id,
-                        kitchen_hand_id,
+                        cookbook_id,
+                        cookbook_hand_id,
                         &language,
                         &version_id,
                         &content_text,
@@ -633,7 +618,7 @@ impl Core {
             let (ImportOutcome::Landed { branch_id, .. }
             | ImportOutcome::Offered { branch_id, .. }) = &outcome;
             for name in tags {
-                if let Some(tag_id) = arriving_tag(conn, kitchen_id, &[("en", name)])? {
+                if let Some(tag_id) = arriving_tag(conn, cookbook_id, &[("en", name)])? {
                     file_branch_under(conn, branch_id, &tag_id)?;
                 }
             }
@@ -811,7 +796,7 @@ fn relating_name(title: &str) -> String {
 /// nothing to do with each other. A pair already related is not offered again.
 fn related_candidates(
     conn: &Connection,
-    kitchen_id: &str,
+    cookbook_id: &str,
     landed: &[Relatable],
 ) -> Result<Vec<Value>, OpError> {
     let mut pairs: Vec<((usize, usize), Vec<&'static str>)> = Vec::new();
@@ -852,8 +837,8 @@ fn related_candidates(
         let already: bool = conn
             .query_row(
                 "SELECT EXISTS (SELECT 1 FROM related_recipes \
-                  WHERE kitchen_id = ?1 AND lineage_a_id = ?2 AND lineage_b_id = ?3)",
-                params![kitchen_id, low, high],
+                  WHERE cookbook_id = ?1 AND lineage_a_id = ?2 AND lineage_b_id = ?3)",
+                params![cookbook_id, low, high],
                 |row| row.get(0),
             )
             .map_err(|e| OpError::internal(format!("cannot read Related Recipes: {e}")))?;
@@ -872,8 +857,6 @@ fn related_candidates(
     Ok(offered)
 }
 
-/// Create a Kitchen and seat its first member in one place — the shape a
-/// Person's Home Kitchen and any Kitchen they later create both share.
 /// What became of one Import candidate against the ledger.
 enum ImportOutcome {
     /// Newly made (`status: "created"`) or matched and found unchanged
@@ -975,35 +958,8 @@ fn arrival_summary(job_id: &str, status: &str, created_at: &str, result: Option<
     })
 }
 
-/// The Import a Kitchen runs candidates of one source kind through — the one
-/// already open for a re-run, or a fresh one on the first run (ADR 0025).
-pub(super) fn find_or_create_import(
-    conn: &Connection,
-    kitchen_id: &str,
-    source_kind: &str,
-) -> Result<String, OpError> {
-    if let Some(id) = conn
-        .query_row(
-            "SELECT id FROM imports WHERE kitchen_id = ?1 AND source_kind = ?2",
-            params![kitchen_id, source_kind],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|e| OpError::internal(format!("cannot read Import: {e}")))?
-    {
-        return Ok(id);
-    }
-    let id = format!("imp_{}", hex::encode(random_bytes(8)));
-    conn.execute(
-        "INSERT INTO imports (id, kitchen_id, source_kind) VALUES (?1, ?2, ?3)",
-        params![id, kitchen_id, source_kind],
-    )
-    .map_err(|e| OpError::internal(format!("cannot start Import: {e}")))?;
-    Ok(id)
-}
-
 /// An Import id that names nothing here — and, by ADR 0040, an Import of a
-/// Kitchen the caller does not cook in.
+/// Cookbook the caller may not see.
 fn no_such_import() -> OpError {
     OpError::not_found("no such Import")
 }

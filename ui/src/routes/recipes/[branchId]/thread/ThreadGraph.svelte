@@ -16,6 +16,7 @@
 	import { isUnknown, languageName } from '$lib/language';
 	import { OperationError } from '$lib/api/client';
 	import { useKamosu } from '$lib/kamosu';
+	import { branchLabel } from '$lib/cookbook';
 	import {
 		foldedLines,
 		graphOf,
@@ -131,19 +132,22 @@
 	}
 
 	/**
-	 * What names a Branch, or a line several still share: whose it is, and —
-	 * where it is worth saying — the Language it stands in. Never a Language
-	 * code, and never a mark on a Branch whose Language is Unknown (#106,
-	 * ADR 0006); English is unmarked, as on the shelf.
+	 * What names a Branch, or a line several still share: the name the
+	 * version switch gives it (#131), so *Yours*, a variation's own name, or
+	 * whose Cookbook it is, and where it is worth saying the Language it
+	 * stands in. Not the Hand: every version in one Cookbook shares one, so a
+	 * variation and the recipe it came from would read as the same line.
+	 * Never a Language code, and never a mark on a Branch whose Language is
+	 * Unknown (#106, ADR 0006); English is unmarked, as on the shelf.
 	 */
-	function branchLabel(branchIds: string[]): string {
+	function branchesNamed(branchIds: string[]): string {
 		return branchIds
 			.map((id) => branches.get(id))
 			.filter((branch): branch is ThreadBranch => !!branch)
 			.map((branch) =>
 				branch.language === 'en' || isUnknown(branch.language)
-					? handName(branch)
-					: `${handName(branch)} (${languageName(branch.language)})`,
+					? branchLabel(branch).name
+					: `${branchLabel(branch).name} (${languageName(branch.language)})`,
 			)
 			.join(', ');
 	}
@@ -229,7 +233,7 @@
 {#snippet when(row: VersionRow)}
 	<!-- After the first split, a row says which Branch it is on, in its colour. -->
 	{#if row.labelled}
-		<span style={`color:${colour(row.tone)}`}>{branchLabel(row.branchIds)}</span> ·
+		<span style={`color:${colour(row.tone)}`}>{branchesNamed(row.branchIds)}</span> ·
 	{/if}
 	{row.version.created_at.slice(0, 10)}
 {/snippet}
@@ -414,7 +418,7 @@
 								<span
 									class="mr-1 inline-block h-2 w-2"
 									style={`border-radius:50%;background:${colour(child.tone)}`}
-								></span>{branchLabel(child.branchIds)}
+								></span>{branchesNamed(child.branchIds)}
 							</span>
 						{/each}
 					</p>

@@ -354,6 +354,19 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         table: "kitchen_invites",
     });
 
+    // A Cookbook Invite: the one-use link to write one Cookbook together
+    // (#131).
+    let (status, invited) = app.post_op("invite_to_cookbook", Some(key), "{}");
+    assert_eq!(status, 200, "{invited}");
+    secrets.push(Secret {
+        what: "a Cookbook Invite",
+        raw: invited["result"]["secret"]
+            .as_str()
+            .expect("a Secret")
+            .to_string(),
+        table: "cookbook_invites",
+    });
+
     // A Share Link's token.
     let (token, _branch_id) = a_shared_recipe(app, key);
     secrets.push(Secret {
@@ -365,21 +378,13 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
     secrets
 }
 
-/// A recipe in a Kitchen, shared, as a stranger would meet it. Answers the
-/// Share Link's token and the Branch it names.
+/// A recipe in its writer's Cookbook, shared, as a stranger would meet it.
+/// Answers the Share Link's token and the Branch it names.
 fn a_shared_recipe(app: &support::TestApp, key: &str) -> (String, String) {
-    let (status, kitchen) = app.post_op(
-        "create_kitchen",
-        Some(key),
-        &json!({ "name": "Sunday Kitchen" }).to_string(),
-    );
-    assert_eq!(status, 200, "{kitchen}");
-    let kitchen_id = kitchen["result"]["id"].as_str().expect("a Kitchen");
-
     let (status, created) = app.post_op(
         "create_recipe",
         Some(key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Tarte aux pommes" }).to_string(),
+        &json!({ "title": "Tarte aux pommes" }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     let branch_id = created["result"]["branch_id"]
@@ -501,6 +506,28 @@ async fn a_secret_still_works_a_year_after_it_was_made() {
         }
     }
 
+    // A year-old Cookbook Invite is still one somebody may open.
+    let cookbook_invite = &secrets
+        .iter()
+        .find(|s| s.what == "a Cookbook Invite")
+        .expect("a Cookbook Invite")
+        .raw;
+    let invitee = app.core.create_person("Camille").expect("person");
+    let invitee_key = app
+        .core
+        .mint_access_key(&invitee, "browser", false)
+        .unwrap()
+        .secret;
+    let (status, read) = app.post_op(
+        "read_cookbook_invite",
+        Some(&invitee_key),
+        &json!({ "secret": cookbook_invite }).to_string(),
+    );
+    assert_eq!(
+        status, 200,
+        "a year-old Cookbook Invite stopped working: {read}"
+    );
+
     // The two that are Credentials in their own right still open the door.
     for secret in &secrets {
         match secret.what {
@@ -540,6 +567,7 @@ async fn a_secret_is_answered_once_and_never_read_back() {
     for (operation, input) in [
         ("list_access_keys", json!({})),
         ("list_sessions", json!({})),
+        ("get_cookbook", json!({})),
     ] {
         let (status, listed) = app.post_op(operation, Some(&key), &input.to_string());
         assert_eq!(status, 200, "{listed}");
@@ -1065,7 +1093,6 @@ fn a_recipe(app: &support::TestApp, who: &Household, title: &str) -> String {
         "create_recipe",
         Some(&who.key),
         &json!({
-            "kitchen_id": who.kitchen,
             "title": title,
             "ingredients": [{ "kind": "ingredient", "text": "200 g flour" }],
         })
@@ -1083,7 +1110,7 @@ fn a_tag(app: &support::TestApp, who: &Household, word: &str) -> String {
     let (status, made) = app.post_op(
         "create_tag",
         Some(&who.key),
-        &json!({ "kitchen_id": who.kitchen, "language": "en", "name": word }).to_string(),
+        &json!({ "language": "en", "name": word }).to_string(),
     );
     assert_eq!(status, 200, "{made}");
     made["result"]["id"].as_str().expect("a Tag").to_string()
@@ -1151,6 +1178,14 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     let his_recipe = a_recipe(&app, &marc, "Pizza");
     let his_tag = a_tag(&app, &marc, "sunday");
     let his_import = an_import(&app, &marc);
+    let his_cookbook_invite = {
+        let (status, minted) = app.post_op("invite_to_cookbook", Some(&marc.key), "{}");
+        assert_eq!(status, 200, "{minted}");
+        minted["result"]["invite_id"]
+            .as_str()
+            .expect("an Invite")
+            .to_string()
+    };
     let no_recipe = "b_ffffffffffffffff";
     let no_tag = "t_ffffffffffffffff";
     let no_import = "imp_ffffffffffffffff";
@@ -1162,34 +1197,17 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     let her_other_recipe = a_recipe(&app, &nadia, "Tarte");
     let her_tag = a_tag(&app, &nadia, "weeknight");
     // A second Branch of the *same* Lineage, which is what `divergence` reads
-    // between: saving a recipe into another Kitchen you cook in is a Copy (#54).
-    let her_second_kitchen = {
-        let (status, made) = app.post_op(
-            "create_kitchen",
-            Some(&nadia.key),
-            &json!({ "name": "Nadia's other Kitchen" }).to_string(),
-        );
-        assert_eq!(status, 200, "{made}");
-        made["result"]["id"]
-            .as_str()
-            .expect("a Kitchen")
-            .to_string()
-    };
+    // between: a variation of her own recipe (ADR 0041).
     let her_copy = {
-        let (status, saved) = app.post_op(
-            "save_recipe_version",
+        let (status, varied) = app.post_op(
+            "start_variation",
             Some(&nadia.key),
-            &json!({
-                "branch_id": her_recipe,
-                "kitchen_id": her_second_kitchen,
-                "title": "Soupe, copied",
-            })
-            .to_string(),
+            &json!({ "branch_id": her_recipe, "name": "Copied" }).to_string(),
         );
-        assert_eq!(status, 200, "{saved}");
-        saved["result"]["branch_id"]
+        assert_eq!(status, 200, "{varied}");
+        varied["result"]["branch_id"]
             .as_str()
-            .expect("a Copy's Branch")
+            .expect("a variation's Branch")
             .to_string()
     };
 
@@ -1259,6 +1277,8 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
         ("shopping_basis", json!({})),
         ("add_to_shopping_list", json!({})),
         ("set_shopping_yield", json!({})),
+        ("start_variation", json!({ "name": "a name" })),
+        ("rename_branch", json!({ "name": "a name" })),
         ("delete_recipe", json!({})),
     ];
     for (operation, rest) in &by_branch {
@@ -1408,6 +1428,15 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             his: his_import.clone(),
             absent: no_import,
         },
+        // A Cookbook Invite of Marc's, still waiting: ending it is his to do,
+        // and whether one exists is nothing Nadia may learn (#131).
+        Probe {
+            operation: "cancel_cookbook_invite",
+            rest: json!({}),
+            field: "invite_id",
+            his: his_cookbook_invite.clone(),
+            absent: "ci_ffffffffffffffff",
+        },
     ];
     for probe in &probes {
         let mut held = probe.rest.clone();
@@ -1515,9 +1544,9 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     // told you do not cook in a Kitchen whose id you just supplied says nothing
     // you did not already know.
     let (status, refused) = app.post_op(
-        "create_recipe",
+        "rename_kitchen",
         Some(&nadia.key),
-        &json!({ "kitchen_id": marc.kitchen, "title": "Not hers" }).to_string(),
+        &json!({ "kitchen_id": marc.kitchen, "name": "Not hers" }).to_string(),
     );
     assert_eq!(status, 401, "{refused}");
     assert_eq!(
@@ -1546,6 +1575,131 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             "{operation} refused its own Kitchen: {answered}"
         );
     }
+}
+
+// --- May see is not may change (ADR 0041, #131) ----------------------------
+
+/// **A Kitchen-mate sees a recipe and may not change it** (ADR 0041). Nadia
+/// cooks in Marc's Kitchen, so his Cookbook is hers to read, cook and share —
+/// and nothing of it is hers to change, delete or file. Every Operation that
+/// needs a Co-author refuses her in words, as unauthorised, and changes
+/// nothing; a save is not refused but starts her own Branch instead. What she
+/// may do still answers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_mate_may_see_and_cook_a_recipe_and_change_none_of_it() {
+    let app = support::spawn_app();
+    let marc = a_household(&app, "Marc");
+    let nadia = a_household(&app, "Nadia");
+    let his_recipe = a_recipe(&app, &marc, "Pizza");
+    let his_other = a_recipe(&app, &marc, "Focaccia");
+    let his_tag = a_tag(&app, &marc, "sunday");
+    let his_import = an_import(&app, &marc);
+    let her_recipe = a_recipe(&app, &nadia, "Soupe");
+    let her_tag = a_tag(&app, &nadia, "weeknight");
+
+    let (status, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(&marc.key),
+        &json!({ "kitchen_id": marc.kitchen }).to_string(),
+    );
+    assert_eq!(status, 200, "{invite}");
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&nadia.key),
+        &json!({ "secret": invite["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+
+    let before = recipe_rows(&app);
+    let refused_as_not_hers: Vec<(&str, serde_json::Value)> = vec![
+        ("delete_recipe", json!({ "branch_id": his_recipe })),
+        (
+            "rename_branch",
+            json!({ "branch_id": his_recipe, "name": "Hers" }),
+        ),
+        (
+            "set_recipe_tag",
+            json!({ "branch_id": his_recipe, "tag_id": his_tag, "carried": true }),
+        ),
+        (
+            "set_related_recipe",
+            json!({ "branch_id": his_recipe, "related_branch_id": his_other, "related": true }),
+        ),
+        (
+            "rename_tag",
+            json!({ "tag_id": his_tag, "language": "en", "name": "monday" }),
+        ),
+        ("delete_tag", json!({ "tag_id": his_tag })),
+        (
+            "merge_tags",
+            json!({ "keep_tag_id": his_tag, "merge_tag_id": her_tag }),
+        ),
+        ("forget_import", json!({ "import_id": his_import })),
+        // A variation is your own recipe branched on purpose; reading his
+        // never starts one (ADR 0041). A save starts her own copy instead.
+        (
+            "start_variation",
+            json!({ "branch_id": his_recipe, "name": "Hers" }),
+        ),
+    ];
+    for (operation, input) in &refused_as_not_hers {
+        let (status, refused) = app.post_op(operation, Some(&nadia.key), &input.to_string());
+        assert_eq!(
+            status, 401,
+            "{operation} let a reader change Marc's Cookbook: {refused}"
+        );
+        assert_eq!(refused["error"]["kind"], json!("unauthorized"), "{refused}");
+    }
+    assert_eq!(recipe_rows(&app), before, "and nothing was written");
+
+    // Her own recipe filed under his word is a request for a Tag her Cookbook
+    // does not have — which she may be told, since she sees it.
+    let (status, refused) = app.post_op(
+        "set_recipe_tag",
+        Some(&nadia.key),
+        &json!({ "branch_id": her_recipe, "tag_id": his_tag, "carried": true }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+
+    // What seeing allows still answers: reading, cooking, sharing, shopping
+    // and translating, the last of them, and a save, into her own Cookbook.
+    let allowed: Vec<(&str, serde_json::Value)> = vec![
+        ("get_recipe", json!({ "branch_id": his_recipe })),
+        ("get_thread", json!({ "branch_id": his_recipe })),
+        ("start_attempt", json!({ "branch_id": his_recipe })),
+        (
+            "share_recipe",
+            json!({ "branch_id": his_recipe, "public_address": "https://kamosu.example" }),
+        ),
+        ("add_to_shopping_list", json!({ "branch_id": his_recipe })),
+        ("export_bundle", json!({ "branch_id": his_recipe })),
+        (
+            "set_reading",
+            json!({ "branch_id": his_recipe, "line_index": 0 }),
+        ),
+        (
+            "start_translation",
+            json!({ "branch_id": his_recipe, "language": "fr", "title": "Pizza" }),
+        ),
+        (
+            "save_recipe_version",
+            json!({ "branch_id": his_recipe, "title": "Pizza, hers" }),
+        ),
+    ];
+    for (operation, input) in &allowed {
+        let (status, answered) = app.post_op(operation, Some(&nadia.key), &input.to_string());
+        assert_eq!(status, 200, "{operation} refused a reader: {answered}");
+    }
+    let (_, his) = app.post_op(
+        "get_recipe",
+        Some(&marc.key),
+        &json!({ "branch_id": his_recipe }).to_string(),
+    );
+    assert_eq!(
+        his["result"]["versions"].as_array().unwrap().len(),
+        1,
+        "untouched"
+    );
 }
 
 // --- A Copy starts only from a Branch a Kitchen of yours holds (#100) --------

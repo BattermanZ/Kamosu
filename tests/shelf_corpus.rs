@@ -112,12 +112,9 @@ async fn the_real_library_reads_as_one_alphabetical_shelf_and_every_result_says_
         .mint_access_key(&person, "corpus shelf", false)
         .unwrap()
         .secret;
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     for recipe in &recipes {
-        let mut input = recipe.clone();
-        input["kitchen_id"] = json!(kitchen_id);
+        let input = recipe.clone();
         let (status, created) = app.post_op("create_recipe", Some(&key), &input.to_string());
         assert_eq!(status, 200, "{} — {created}", recipe["title"]);
     }

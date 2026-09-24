@@ -42,20 +42,24 @@ pub(super) fn written_moment(
 
 /// The name a Hand is shown by, as a SQL expression over the column holding
 /// it (CONTEXT.md, "Hand"; ADR 0015). A Hand this instance minted is named
-/// live, a Person's from `people` and a Kitchen's from `kitchens`, so renaming
-/// either reaches every Version and Branch at once. A Hand that arrived in a
-/// Bundle is named by what arrived with it (#67). NULL for a Hand nothing
-/// here names, which the screen says in words rather than printing an id.
+/// live — a Person's from `people`, a Cookbook's from the Cookbook answering
+/// to it now (ADR 0041) — so renaming either reaches every Version and Branch
+/// at once. A Kitchen's is what a Branch a Kitchen wrote before Cookbooks
+/// carries. A Hand that arrived in a Bundle is named by what arrived with it
+/// (#67). NULL for a Hand nothing here names, which the screen says in words
+/// rather than printing an id.
 pub(super) fn hand_name_sql(column: &str) -> String {
     format!(
         "COALESCE((SELECT name FROM people WHERE id = {column}), \
+                  (SELECT {} FROM cookbook_hands WHERE cookbook_hands.hand_id = {column}), \
                   (SELECT name FROM kitchens WHERE hand_id = {column}), \
-                  (SELECT name FROM arrived_hands WHERE hand_id = {column}))"
+                  (SELECT name FROM arrived_hands WHERE hand_id = {column}))",
+        cookbook_name_sql("cookbook_hands.cookbook_id"),
     )
 }
 
-/// A Branch id that names nothing here — and, by ADR 0040, a Branch held by a
-/// Kitchen the caller does not cook in.
+/// A Branch id that names nothing here — and, by ADR 0040, a Branch in a
+/// Cookbook the caller may not see.
 pub(super) fn no_such_branch() -> OpError {
     OpError::not_found("no such Branch")
 }

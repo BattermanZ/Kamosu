@@ -197,7 +197,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       whether they administer it, and whether the account is \
                       disabled. Nothing about what they cook — the Operator \
                       administers and does not read (ADR 0007), so no recipe, \
-                      Attempt or Kitchen of theirs is reachable from here.",
+                      Attempt, Cookbook or Kitchen of theirs is reachable \
+                      from here.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: false,
@@ -469,8 +470,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "create_kitchen",
-            summary: "Create a Kitchen: a new circle, held by its creator until \
-                      they invite someone else in.",
+            summary: "Create a Kitchen: a group of People who see and cook from \
+                      each other's Cookbooks. Its creator is its first member.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -551,7 +552,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "remove_kitchen_member",
             summary: "Remove a Person from a Kitchen — including yourself, to \
-                      leave. The last member cannot be removed.",
+                      leave. Their Cookbook leaves with them; each member who \
+                      stays keeps a Branch of every recipe of theirs they \
+                      cooked, and they keep one of every recipe they cooked \
+                      from the others.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -575,29 +579,173 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::delete_kitchen,
         },
         Operation {
-            name: "create_tag",
-            summary: "Create a Tag in a Kitchen, named in one Language. A word \
-                      the Kitchen already files under returns the Tag it \
-                      already has rather than making a second.",
-            permission: Permission::Person,
-            kind: Kind::Immediate,
-            write: true,
-            session_only: false,
-            job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["kitchen_id", "language", "name"], "additionalProperties": false }),
-            output_schema: tag_schema(),
-            handler: crate::operations::create_tag,
-        },
-        Operation {
-            name: "list_tags",
-            summary: "List every Tag a Kitchen files by, each shown in the \
-                      reader's Reading Language where it has a name there.",
+            name: "preview_leaving_kitchen",
+            summary: "What removing a Person from a Kitchen would leave each \
+                      side, before anybody does it: how many recipes the \
+                      members who stay keep, and how many the one leaving \
+                      keeps. `person_id` defaults to you.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
             session_only: false,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
+            input_schema: json!({ "type": "object", "properties": { "kitchen_id": { "type": "string" }, "person_id": { "type": "string" } }, "required": ["kitchen_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "they_keep": { "type": "integer" }, "you_keep": { "type": "integer" } }, "required": ["they_keep", "you_keep"], "additionalProperties": false }),
+            handler: crate::operations::preview_leaving_kitchen,
+        },
+        Operation {
+            name: "get_cookbook",
+            summary: "Your own Cookbook: its name, who writes it, how many \
+                      recipes it holds, the Kitchens that see it and the \
+                      Invites still waiting.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: cookbook_schema(),
+            handler: crate::operations::get_cookbook,
+        },
+        Operation {
+            name: "rename_cookbook",
+            summary: "Give your Cookbook a name of its own, or clear it back to \
+                      its Co-authors' names with an empty or null one. Any \
+                      Co-author may.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "name": { "type": ["string", "null"] } }, "required": ["name"], "additionalProperties": false }),
+            output_schema: cookbook_schema(),
+            handler: crate::operations::rename_cookbook,
+        },
+        Operation {
+            name: "invite_to_cookbook",
+            summary: "Mint a one-use Invite for somebody to write your Cookbook \
+                      with you. When they accept, their recipes and yours become \
+                      one Cookbook either of you changes.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" }, "secret": { "type": "string" } }, "required": ["invite_id", "secret"], "additionalProperties": false }),
+            handler: crate::operations::invite_to_cookbook,
+        },
+        Operation {
+            name: "cancel_cookbook_invite",
+            summary: "End a Cookbook Invite nobody has used yet.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "invite_id": { "type": "string" } }, "required": ["invite_id"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "ended": { "type": "boolean" } }, "required": ["ended"], "additionalProperties": false }),
+            handler: crate::operations::cancel_cookbook_invite,
+        },
+        Operation {
+            name: "read_cookbook_invite",
+            summary: "What accepting a Cookbook Invite would do, before you say \
+                      yes: whose Cookbook it is, and how many recipes on each \
+                      side become one.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "cookbook": cookbook_schema(),
+                    "their_recipes": { "type": "integer" },
+                    "your_recipes": { "type": "integer" },
+                    "together_recipes": {
+                        "type": "integer",
+                        "description": "How many recipes the one Cookbook holds once joined: fewer than the two counts added up wherever both already hold a version of the same recipe.",
+                    },
+                    "already_yours": { "type": "boolean" },
+                },
+                "required": ["cookbook", "their_recipes", "your_recipes", "together_recipes", "already_yours"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::read_cookbook_invite,
+        },
+        Operation {
+            name: "accept_cookbook_invite",
+            summary: "Open a Cookbook Invite: your Cookbook joins the one it \
+                      names, and every recipe in either becomes one Cookbook \
+                      you both change. Spent on use.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
+            output_schema: cookbook_schema(),
+            handler: crate::operations::accept_cookbook_invite,
+        },
+        Operation {
+            name: "leave_cookbook",
+            summary: "Leave the Cookbook you write with others, taking your own \
+                      Branch of every recipe in it with its whole history. \
+                      Whoever started a recipe keeps the original; everyone \
+                      else a copy.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: cookbook_schema(),
+            handler: crate::operations::leave_cookbook,
+        },
+        Operation {
+            name: "remove_cookbook_author",
+            summary: "Separate another Co-author from your Cookbook. They leave \
+                      with a Branch of every recipe in it, as though they had \
+                      left.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "person_id": { "type": "string" } }, "required": ["person_id"], "additionalProperties": false }),
+            output_schema: cookbook_schema(),
+            handler: crate::operations::remove_cookbook_author,
+        },
+        Operation {
+            name: "create_tag",
+            summary: "Create a Tag in your own Cookbook, named in one Language. \
+                      A word the Cookbook already files under returns the Tag \
+                      it already has rather than making a second.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" }, "kitchen_id": ignored_kitchen_id() }, "required": ["language", "name"], "additionalProperties": false }),
+            output_schema: tag_schema(),
+            handler: crate::operations::create_tag,
+        },
+        Operation {
+            name: "list_tags",
+            summary: "List every Tag your own Cookbook files by, each shown in \
+                      the reader's Reading Language where it has a name there. \
+                      With `everywhere`, every word any Cookbook you may see \
+                      files by, one entry per word — what a shelf filters by. \
+                      With a `kitchen_id`, the same for the Cookbooks seen in \
+                      that one Kitchen of yours.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "everywhere": { "type": "boolean" }, "kitchen_id": { "type": "string", "description": "One of your Kitchens: every word its Cookbooks file by, one entry per word." } }, "additionalProperties": false }),
             output_schema: json!({
                 "type": "object",
                 "properties": { "tags": { "type": "array", "items": tag_schema() } },
@@ -668,8 +816,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_related_recipe",
-            summary: "Relate two Recipes on the same Kitchen shelf, or take \
-                      that single two-way, untyped link back off. It never \
+            summary: "Relate one of your Cookbook's Recipes to any Recipe you \
+                      may see, or take that single two-way, untyped link back \
+                      off. Your Cookbook keeps the link. It never \
                       changes either Recipe or travels in a Bundle or Share. \
                       Name the far end with `related_branch_id`, or with \
                       `related_lineage_id` where the Recipe there has since \
@@ -732,12 +881,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       recipe as written, replacing what was there. A rapid \
                       re-save by the same Hand collapses into the Version \
                       already being shaped rather than starting a new one. \
-                      Changing a recipe your Kitchen did not write is a \
-                      Copy: it starts a new Branch of the same Lineage, held \
-                      by your Kitchen, starting at the Version you changed and \
+                      Changing a recipe your Cookbook did not write — a \
+                      Kitchen-mate's, or one that arrived — is a Copy: it \
+                      starts a new Branch of the same Lineage in your own \
+                      Cookbook, starting at the Version you changed and \
                       carrying the whole chain behind it — the Branch you \
-                      changed is left untouched. The Branch must be one a \
-                      Kitchen of yours holds.",
+                      changed is left untouched. The Branch must be one you \
+                      may see.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -746,6 +896,34 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: save_recipe_version_input_schema(),
             output_schema: saved_version_schema(),
             handler: crate::operations::save_recipe_version,
+        },
+        Operation {
+            name: "start_variation",
+            summary: "Start a variation of a recipe: a Branch of it, unchanged, \
+                      in your own Cookbook, under a name you give it \
+                      (\"Vegetarian\"). Changing one never changes the other.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": "string" } }, "required": ["branch_id", "name"], "additionalProperties": false }),
+            output_schema: recipe_schema(),
+            handler: crate::operations::start_variation,
+        },
+        Operation {
+            name: "rename_branch",
+            summary: "Name one of your Cookbook's Branches of a recipe, or clear \
+                      its name. A Cookbook keeps one unnamed Branch of a recipe \
+                      in each Language, so a second one needs a name.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": ["string", "null"] } }, "required": ["branch_id", "name"], "additionalProperties": false }),
+            output_schema: json!({ "type": "object", "properties": { "branch_id": { "type": "string" }, "name": { "type": ["string", "null"] } }, "required": ["branch_id", "name"], "additionalProperties": false }),
+            handler: crate::operations::rename_branch,
         },
         Operation {
             name: "delete_recipe",
@@ -905,9 +1083,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "import",
-            summary: "Bring a batch of already-read recipes into your Home \
-                      Kitchen, as a Job. Matched by foreign id against this \
-                      Kitchen's ledger for the source kind, so re-running \
+            summary: "Bring a batch of already-read recipes into your own \
+                      Cookbook, as a Job. Matched by foreign id against this \
+                      Cookbook's ledger for the source kind, so re-running \
                       finds what it already made instead of doubling it; a \
                       recipe found changed is offered for review, never \
                       written over. Reading the outside source itself — a \
@@ -925,7 +1103,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "import_crouton",
             summary: "Bring in a Crouton library, as a Job: the whole export \
                       (a zip of .crumb files) or one .crumb. Each recipe lands \
-                      in your Home Kitchen through the same ledger `import` \
+                      in your own Cookbook through the same ledger `import` \
                       uses, keyed by its Crouton id, so running it again \
                       matches instead of doubling the library. Ingredient \
                       Lines are rebuilt from Crouton's split fields; the \
@@ -1079,8 +1257,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "import_web_link",
             summary: "Bring in a recipe straight from a URL, as a Job. Reads \
                       the page's schema.org JSON-LD (#70) — no per-site \
-                      scraping, no LLM fallback — and lands it in your Home \
-                      Kitchen through the same ledger `import` uses, keyed by \
+                      scraping, no LLM fallback — and lands it in your own \
+                      Cookbook through the same ledger `import` uses, keyed by \
                       the page's own address. Fetching is bound to public \
                       addresses at the dialled address and at every redirect \
                       (ADR 0033), and — because a page's own text can tell an \
@@ -1193,6 +1371,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     // The two filters, passed on every request and remembered
                     // nowhere. A filter that persists is a mode, and a mode you
                     // forgot you set is the Kitchen switcher wearing a hat.
+                    // A Kitchen narrows to the Cookbooks seen in it.
                     "kitchen_id": { "type": ["string", "null"] },
                     // Created, branched or cooked by this Person — a history,
                     // not an ownership, and one that needs no curating ever.
@@ -1720,14 +1899,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "import_bundle",
-            summary: "Receive a Bundle into your Home Kitchen, as a Job. Every recipe it \
+            summary: "Receive a Bundle into your own Cookbook, as a Job. Every recipe it \
                       carries is placed under the sender's Hands and travels on under the \
                       sender's ids, its Versions, Readings and Photographs exactly as they \
-                      were sent, while your Kitchen holds it under an id of this instance's \
-                      own; one your Kitchen already holds is extended by whatever the Bundle \
+                      were sent, while your Cookbook holds it under an id of this instance's \
+                      own; one your Cookbook already holds is extended by whatever the Bundle \
                       carries past it, so the same friend's next Bundle continues their \
-                      recipe. Another Kitchen here holding it is no part of the question: \
-                      each Kitchen receives its own copy. Receiving makes nothing of your \
+                      recipe. Another Cookbook here holding it is no part of the question: \
+                      each Cookbook receives its own copy. Receiving makes nothing of your \
                       own — changing what arrived does. A recipe whose history is damaged \
                       arrives as a new recipe of your own with no history, and the Import \
                       Report says so. Send the file to POST /api/uploads and pass the \
@@ -2088,9 +2267,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       took becomes the recipe's picture. This is an ordinary \
                       edit making a Version, with everything that follows \
                       from it: a rapid re-save folding into the Version \
-                      already being shaped, and a Copy where the Branch \
-                      was written under another Hand. The Branch must be \
-                      one a Kitchen of yours holds. The Attempt keeps the \
+                      already being shaped, and a Copy in your own \
+                      Cookbook where you do not write the Branch's. The \
+                      Branch must be one you may see. The Attempt keeps the \
                       picture too; promoting is not moving.",
             permission: Permission::Person,
             kind: Kind::Immediate,
@@ -2115,10 +2294,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "description": "The Step whose photo this becomes. Left out or null, the picture becomes the Main Photo.",
                     },
                     "change_note": { "type": ["string", "null"] },
-                    "kitchen_id": {
-                        "type": "string",
-                        "description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
-                    },
+                    "kitchen_id": ignored_kitchen_id(),
                 },
                 "required": ["attempt_id", "photograph_id", "branch_id"],
                 "additionalProperties": false,
@@ -2177,9 +2353,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       whole recipe, so nothing is retyped and nothing is \
                       reconciled. It is an ordinary edit and inherits all of \
                       one: a rapid re-save folds into the Version being \
-                      shaped, and a Branch written under another Hand \
-                      becomes a Copy. The Branch must be one a Kitchen of \
-                      yours holds. Promoting a cooking of an older Version \
+                      shaped, and a Branch whose Cookbook you do not write \
+                      becomes a Copy in your own. The Branch must be one \
+                      you may see. Promoting a cooking of an older Version \
                       appends onto wherever the Branch stands now — a \
                       Version, never a merge. The Attempt is left exactly as \
                       it was, still saying which Version it cooked.",
@@ -2198,10 +2374,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     },
                     "name": { "type": ["string", "null"] },
                     "change_note": { "type": ["string", "null"] },
-                    "kitchen_id": {
-                        "type": "string",
-                        "description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
-                    },
+                    "kitchen_id": ignored_kitchen_id(),
                 },
                 "required": ["attempt_id", "branch_id"],
                 "additionalProperties": false,
@@ -2812,18 +2985,20 @@ fn job_record_schema() -> Value {
     })
 }
 
-/// The shape a Kitchen is served in: its shared Name and Hand, whether it is
-/// the asking Person's Home Kitchen, their own Nickname for it (nobody
-/// else's), and who else cooks in it.
+/// The shape a Kitchen is served in: its shared Name, the asking Person's own
+/// Nickname for it (nobody else's), who cooks in it, and whose Cookbooks it
+/// sees (ADR 0041).
 fn kitchen_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
             "id": { "type": "string" },
             "name": { "type": "string" },
-            "hand_id": { "type": "string" },
-            "is_home": { "type": "boolean" },
             "nickname": { "type": ["string", "null"] },
+            // Whose Cookbooks this Kitchen sees: one per member, or fewer
+            // where members write one together (ADR 0041). The reader's own
+            // first.
+            "cookbooks": { "type": "array", "items": cookbook_label_schema() },
             "members": {
                 "type": "array",
                 "items": {
@@ -2837,9 +3012,80 @@ fn kitchen_schema() -> Value {
                 },
             },
         },
-        "required": ["id", "name", "hand_id", "is_home", "nickname", "members"],
+        "required": ["id", "name", "nickname", "members", "cookbooks"],
         "additionalProperties": false,
     })
+}
+
+/// A Cookbook as a screen labels a recipe by it (ADR 0041): its id, the name
+/// its Co-authors gave it — null until they give one, when a screen names it
+/// after `authors` in the reader's own Language — and who writes it.
+fn cookbook_label_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string" },
+            "name": { "type": ["string", "null"] },
+            "authors": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "person_id": { "type": "string" },
+                        "name": { "type": "string" },
+                    },
+                    "required": ["person_id", "name"],
+                    "additionalProperties": false,
+                },
+            },
+        },
+        "required": ["id", "name", "authors"],
+        "additionalProperties": false,
+    })
+}
+
+/// A Cookbook's settings card: its label, how many recipes it holds, the
+/// Kitchens that see it, and the Invites still waiting to be opened.
+fn cookbook_schema() -> Value {
+    let mut schema = cookbook_label_schema();
+    let properties = schema["properties"].as_object_mut().expect("object schema");
+    properties.insert("recipe_count".to_string(), json!({ "type": "integer" }));
+    properties.insert(
+        "kitchens".to_string(),
+        json!({
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": { "id": { "type": "string" }, "name": { "type": "string" } },
+                "required": ["id", "name"],
+                "additionalProperties": false,
+            },
+        }),
+    );
+    properties.insert(
+        "invites".to_string(),
+        json!({
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "invite_id": { "type": "string" },
+                    "created_at": { "type": "string" },
+                },
+                "required": ["invite_id", "created_at"],
+                "additionalProperties": false,
+            },
+        }),
+    );
+    schema["required"] = json!([
+        "id",
+        "name",
+        "authors",
+        "recipe_count",
+        "kitchens",
+        "invites"
+    ]);
+    schema
 }
 
 /// The shape a Tag is served in: the word to show this reader, the Language
@@ -2853,7 +3099,7 @@ fn tag_schema() -> Value {
         "type": "object",
         "properties": {
             "id": { "type": "string" },
-            "kitchen_id": { "type": "string" },
+            "cookbook_id": { "type": "string" },
             "name": { "type": ["string", "null"] },
             "language": { "type": ["string", "null"] },
             "names": {
@@ -2881,7 +3127,7 @@ fn tag_schema() -> Value {
             "language_fallback": { "type": "boolean" },
         },
         "required": [
-            "id", "kitchen_id", "name", "language", "names", "recipes", "language_fallback"
+            "id", "cookbook_id", "name", "language", "names", "recipes", "language_fallback"
         ],
         "additionalProperties": false,
     })
@@ -3103,7 +3349,14 @@ fn recipe_schema() -> Value {
         "properties": {
             "branch_id": { "type": "string" },
             "lineage_id": { "type": "string" },
-            "kitchen_id": { "type": "string" },
+            // Whose recipe this is (ADR 0041).
+            "cookbook": cookbook_label_schema(),
+            // A variation's name ("Vegetarian"), null on every other Branch.
+            "name": { "type": ["string", "null"] },
+            // Whether a save by the reader lands on this Branch. False on
+            // anybody else's recipe and on one that arrived from elsewhere,
+            // where a save starts a Branch of the reader's own instead.
+            "writes": { "type": "boolean" },
             "hand_id": { "type": "string" },
             "language": { "type": "string" },
             "origin_address": { "type": ["string", "null"] },
@@ -3161,7 +3414,7 @@ fn recipe_schema() -> Value {
             "cooked": cooking_record_schema(),
         },
         "required": [
-            "branch_id", "lineage_id", "kitchen_id", "hand_id", "language",
+            "branch_id", "lineage_id", "cookbook", "name", "writes", "hand_id", "language",
             "origin_address", "head_version_id", "versions", "translation",
             "tags", "related_recipes", "cooked"
         ],
@@ -3309,17 +3562,25 @@ fn thread_branch_schema() -> Value {
         "type": "object",
         "properties": {
             "branch_id": { "type": "string" },
-            "kitchen_id": { "type": "string" },
+            // Whose Cookbook holds it (ADR 0041).
+            "cookbook": cookbook_label_schema(),
+            // A variation's name, null on every other Branch.
+            "name": { "type": ["string", "null"] },
+            // In the reader's own Cookbook.
+            "mine": { "type": "boolean" },
+            // Somebody else's writing that reached its Cookbook in a Bundle or
+            // from a Share Link, labelled by its sender's Hand.
+            "arrived": { "type": "boolean" },
             "hand_id": { "type": "string" },
-            // The Kitchen's name, the same way a Version's writer is named.
+            // The Hand's name, the same way a Version's writer is named.
             "hand_name": { "type": ["string", "null"] },
             "language": { "type": "string" },
             "head_version_id": { "type": "string" },
             "translation": translation_schema(),
         },
         "required": [
-            "branch_id", "kitchen_id", "hand_id", "hand_name", "language", "head_version_id",
-            "translation"
+            "branch_id", "cookbook", "name", "mine", "arrived", "hand_id", "hand_name",
+            "language", "head_version_id", "translation"
         ],
         "additionalProperties": false,
     })
@@ -3510,9 +3771,12 @@ fn divergence_branch_schema() -> Value {
         "type": "object",
         "properties": {
             "branch_id": { "type": "string" },
-            "kitchen_id": { "type": "string" },
-            "kitchen_name": { "type": "string" },
+            "cookbook": cookbook_label_schema(),
+            "name": { "type": ["string", "null"] },
+            "mine": { "type": "boolean" },
+            "arrived": { "type": "boolean" },
             "hand_id": { "type": "string" },
+            "hand_name": { "type": ["string", "null"] },
             "language": { "type": "string" },
             "head_version_id": { "type": "string" },
             "content": recipe_content_schema(),
@@ -3525,8 +3789,8 @@ fn divergence_branch_schema() -> Value {
             "components": { "type": "array", "items": component_schema() },
         },
         "required": [
-            "branch_id", "kitchen_id", "kitchen_name", "hand_id", "language",
-            "head_version_id", "content", "readings", "measured", "components",
+            "branch_id", "cookbook", "name", "mine", "arrived", "hand_id", "hand_name",
+            "language", "head_version_id", "content", "readings", "measured", "components",
         ],
         "additionalProperties": false,
     })
@@ -3620,12 +3884,24 @@ fn recipe_content_input_properties() -> Value {
     properties
 }
 
+/// `kitchen_id`, accepted and ignored since #131 (ADR 0041): a recipe is
+/// written in a Cookbook, and a new recipe, a save, a Copy, a Translation or
+/// a Tag always lands in the caller's own. Kept so a client that still sends
+/// it, a phone running the interface it cached before the upgrade among
+/// them, is not refused: the precedent #100 set for the two promotions.
+fn ignored_kitchen_id() -> Value {
+    json!({
+        "type": "string",
+        "description": "Ignored. Everything you write lands in your own Cookbook (ADR 0041), so there is no Kitchen to name. Accepted so that a client which still sends it is not refused.",
+    })
+}
+
 /// `create_recipe`'s input: a Kitchen and a title are all a Recipe ever
 /// needs — every other field of the recipe's content is optional here.
 fn create_recipe_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
-    map.insert("kitchen_id".to_string(), json!({ "type": "string" }));
+    map.insert("kitchen_id".to_string(), ignored_kitchen_id());
     map.insert(
         "language".to_string(),
         json!({
@@ -3640,25 +3916,23 @@ fn create_recipe_input_schema() -> Value {
     json!({
         "type": "object",
         "properties": properties,
-        "required": ["kitchen_id", "title"],
+        "required": ["title"],
         "additionalProperties": false,
     })
 }
 
 /// `save_recipe_version`'s input: the whole recipe as it now reads, replacing
-/// what was on the Branch — a title is the one field that must be there.
-/// `kitchen_id` names which of the caller's own Kitchens this save is on
-/// behalf of, for when a Copy is about to start (CONTEXT.md, "Copy"). Left
-/// out, it is the Kitchen holding the Branch, which is always one of the
-/// caller's (#100). Naming another is a question only ever put to someone who
-/// cooks in more than one.
+/// what was on the Branch — a title is the one field that must be there. A
+/// save by anybody who does not write the Branch's Cookbook starts a Copy in
+/// their own (CONTEXT.md, "Copy"; ADR 0041), so there is never a place to
+/// name.
 fn save_recipe_version_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
+    map.insert("kitchen_id".to_string(), ignored_kitchen_id());
     map.insert("branch_id".to_string(), json!({ "type": "string" }));
     map.insert("name".to_string(), json!({ "type": "string" }));
     map.insert("change_note".to_string(), json!({ "type": "string" }));
-    map.insert("kitchen_id".to_string(), json!({ "type": "string" }));
     map.insert(
         "translates_version_id".to_string(),
         json!({
@@ -3684,6 +3958,7 @@ fn save_recipe_version_input_schema() -> Value {
 fn start_translation_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");
+    map.insert("kitchen_id".to_string(), ignored_kitchen_id());
     map.insert(
         "branch_id".to_string(),
         json!({
@@ -3711,14 +3986,6 @@ fn start_translation_input_schema() -> Value {
     );
     map.insert("name".to_string(), json!({ "type": "string" }));
     map.insert("change_note".to_string(), json!({ "type": "string" }));
-    map.insert(
-        "kitchen_id".to_string(),
-        json!({
-            "type": "string",
-            "description": "Which of your own Kitchens holds the Translation. \
-                             Defaults to the one holding the recipe translated.",
-        }),
-    );
     json!({
         "type": "object",
         "properties": properties,
@@ -3763,7 +4030,7 @@ fn import_input_schema() -> Value {
             "source_kind": {
                 "type": "string",
                 "description": "Which outside source these candidates came \
-                                 from. One ledger is kept per Kitchen per \
+                                 from. One ledger is kept per Cookbook per \
                                  source kind.",
             },
             "candidates": {
@@ -3797,7 +4064,8 @@ fn import_report_schema() -> Value {
         "type": "object",
         "properties": {
             "import_id": { "type": "string" },
-            "kitchen_id": { "type": "string" },
+            // Always the importing Person's own Cookbook (ADR 0041).
+            "cookbook_id": { "type": "string" },
             "source_kind": { "type": "string" },
             "arrived": {
                 "type": "array",
@@ -3955,7 +4223,7 @@ fn import_report_schema() -> Value {
             },
         },
         "required": [
-            "import_id", "kitchen_id", "source_kind", "arrived", "offered", "unreadable",
+            "import_id", "cookbook_id", "source_kind", "arrived", "offered", "unreadable",
             "left_out", "related_candidates"
         ],
         "additionalProperties": false,
@@ -4665,8 +4933,8 @@ fn shopping_list_schema() -> Value {
                         // otherwise the name it was known by when it was
                         // chosen (ADR 0024).
                         "title": { "type": "string" },
-                        // Whether it can no longer be read — deleted, or a
-                        // Kitchen this Person no longer cooks in. The entry
+                        // Whether it can no longer be read — deleted, or in a
+                        // Cookbook this Person may no longer see. The entry
                         // stays and contributes nothing, because a thing that
                         // quietly disappears from a shopping list is a thing
                         // that does not get bought.

@@ -431,12 +431,149 @@ pub fn delete_kitchen(
     Ok(json!({ "deleted": true }))
 }
 
-pub fn create_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    let takes = "create_tag takes { kitchen_id, language, name }";
+/// What removing a Person from a Kitchen would leave each side, before
+/// anybody does it (#131, screen choice 4). `person_id` defaults to the
+/// caller, which is leaving.
+pub fn preview_leaving_kitchen(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
     let kitchen_id = input
         .get("kitchen_id")
         .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request("preview_leaving_kitchen takes { kitchen_id, person_id? }")
+        })?;
+    let caller = caller_of(invocation)?;
+    let person_id = input
+        .get("person_id")
+        .and_then(Value::as_str)
+        .unwrap_or(&caller.person_id);
+    core.preview_leaving_kitchen(&caller.person_id, kitchen_id, person_id)
+}
+
+pub fn get_cookbook(core: &Core, invocation: &Invocation, _input: Value) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.get_cookbook(&caller.person_id)
+}
+
+pub fn rename_cookbook(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.rename_cookbook(&caller.person_id, input.get("name").and_then(Value::as_str))
+}
+
+pub fn invite_to_cookbook(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    let (id, secret) = core.invite_to_cookbook(&caller.person_id)?;
+    Ok(json!({ "invite_id": id, "secret": secret }))
+}
+
+pub fn cancel_cookbook_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let invite_id = input
+        .get("invite_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("cancel_cookbook_invite takes { invite_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.cancel_cookbook_invite(&caller.person_id, invite_id)?;
+    Ok(json!({ "ended": true }))
+}
+
+pub fn read_cookbook_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let secret = input
+        .get("secret")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("read_cookbook_invite takes { secret }"))?;
+    let caller = caller_of(invocation)?;
+    core.read_cookbook_invite(&caller.person_id, secret)
+}
+
+pub fn accept_cookbook_invite(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let secret = input
+        .get("secret")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("accept_cookbook_invite takes { secret }"))?;
+    let caller = caller_of(invocation)?;
+    core.accept_cookbook_invite(&caller.person_id, secret)
+}
+
+pub fn leave_cookbook(
+    core: &Core,
+    invocation: &Invocation,
+    _input: Value,
+) -> Result<Value, OpError> {
+    let caller = caller_of(invocation)?;
+    core.leave_cookbook(&caller.person_id)
+}
+
+pub fn remove_cookbook_author(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let person_id = input
+        .get("person_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("remove_cookbook_author takes { person_id }"))?;
+    let caller = caller_of(invocation)?;
+    core.remove_cookbook_author(&caller.person_id, person_id)
+}
+
+/// Start a Branch of a recipe, unchanged, in the caller's own Cookbook, under
+/// a name they give it (ADR 0041).
+pub fn start_variation(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "start_variation takes { branch_id, name }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.start_variation(&caller.person_id, branch_id, name)
+}
+
+pub fn rename_branch(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("rename_branch takes { branch_id, name }"))?;
+    let caller = caller_of(invocation)?;
+    core.rename_branch(
+        &caller.person_id,
+        branch_id,
+        input.get("name").and_then(Value::as_str),
+    )
+}
+
+pub fn create_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "create_tag takes { language, name }";
     let language = input
         .get("language")
         .and_then(Value::as_str)
@@ -446,16 +583,17 @@ pub fn create_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
     let caller = caller_of(invocation)?;
-    core.create_tag(&caller.person_id, kitchen_id, language, name)
+    core.create_tag(&caller.person_id, language, name)
 }
 
 pub fn list_tags(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    let kitchen_id = input
-        .get("kitchen_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request("list_tags takes { kitchen_id }"))?;
+    let everywhere = input
+        .get("everywhere")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    Ok(json!({ "tags": core.list_tags(&caller.person_id, kitchen_id)? }))
+    Ok(json!({ "tags": core.list_tags(&caller.person_id, everywhere, kitchen_id)? }))
 }
 
 pub fn rename_tag(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -558,18 +696,9 @@ pub fn set_related_recipe(
 }
 
 pub fn create_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    let kitchen_id = input
-        .get("kitchen_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            OpError::bad_request(
-                "create_recipe takes { kitchen_id, title, language?, yield?, prep_time_minutes?, \
-             cook_time_minutes?, note?, source?, ingredients?, steps? }",
-            )
-        })?;
     let language = input.get("language").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
-    core.create_recipe(caller, kitchen_id, &input, language)
+    core.create_recipe(caller, &input, language)
 }
 
 pub fn save_recipe_version(
@@ -583,13 +712,12 @@ pub fn save_recipe_version(
         .ok_or_else(|| {
             OpError::bad_request(
                 "save_recipe_version takes { branch_id, title, name?, change_note?, \
-             kitchen_id?, translates_version_id?, yield?, prep_time_minutes?, \
+             translates_version_id?, yield?, prep_time_minutes?, \
              cook_time_minutes?, note?, source?, ingredients?, steps? }",
             )
         })?;
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
-    let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.save_recipe_version(
@@ -598,7 +726,6 @@ pub fn save_recipe_version(
         &input,
         name,
         change_note,
-        kitchen_id,
         translates_version_id,
     )
 }
@@ -668,7 +795,7 @@ pub fn start_translation(
     input: Value,
 ) -> Result<Value, OpError> {
     let takes = "start_translation takes { branch_id, language, title, \
-                 translates_version_id?, name?, change_note?, kitchen_id?, yield?, \
+                 translates_version_id?, name?, change_note?, yield?, \
                  prep_time_minutes?, cook_time_minutes?, note?, source?, ingredients?, steps? }";
     let branch_id = input
         .get("branch_id")
@@ -680,7 +807,6 @@ pub fn start_translation(
         .ok_or_else(|| OpError::bad_request(takes))?;
     let name = input.get("name").and_then(Value::as_str);
     let change_note = input.get("change_note").and_then(Value::as_str);
-    let kitchen_id = input.get("kitchen_id").and_then(Value::as_str);
     let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
     let caller = caller_of(invocation)?;
     core.start_translation(
@@ -690,7 +816,6 @@ pub fn start_translation(
         &input,
         name,
         change_note,
-        kitchen_id,
         translates_version_id,
     )
 }
@@ -716,7 +841,7 @@ pub fn set_recipe_language(
 }
 
 /// Import: land a batch of candidates already read from an outside source
-/// into the caller's Home Kitchen. Reading the source itself is each
+/// into the caller's own Cookbook. Reading the source itself is each
 /// importer's own job (#69, #70); this Operation is the shared machinery
 /// they land through (#68, ADR 0025).
 pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
@@ -946,7 +1071,7 @@ pub fn get_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<
     core.get_recipe(&caller.person_id, branch_id, input.get("wanted_yield"))
 }
 
-/// Receive a Bundle (#67), landed in the caller's Home Kitchen as a Job
+/// Receive a Bundle (#67), landed in the caller's own Cookbook as a Job
 /// answering the Import Report.
 ///
 /// The file arrives one of two ways, both carrying the same bytes to the same
@@ -1352,7 +1477,7 @@ pub fn promote_attempt_photograph(
     input: Value,
 ) -> Result<Value, OpError> {
     let takes = "promote_attempt_photograph takes { attempt_id, photograph_id, \
-                 branch_id, step_index?, change_note?, kitchen_id? }";
+                 branch_id, step_index?, change_note? }";
     let attempt_id = input
         .get("attempt_id")
         .and_then(Value::as_str)
@@ -1424,8 +1549,7 @@ pub fn promote_as_cooked(
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes =
-        "promote_as_cooked takes { attempt_id, branch_id, name?, change_note?, kitchen_id? }";
+    let takes = "promote_as_cooked takes { attempt_id, branch_id, name?, change_note? }";
     let attempt_id = input
         .get("attempt_id")
         .and_then(Value::as_str)

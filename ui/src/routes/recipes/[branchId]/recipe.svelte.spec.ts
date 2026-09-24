@@ -4,9 +4,11 @@
  * sees it — a field renamed in `src/catalogue.rs` fails this test in the same
  * commit.
  *
- * What is being tested is ADR 0014's shape: two whole recipes with a switch
- * between them, never a difference. If any assertion here starts describing a
- * comparison view, the screen has gone wrong.
+ * What is being tested is ADR 0014's shape: whole recipes with a switch
+ * between them, never a difference. Since #131 the switch is a strip of every
+ * version, and the marks on any version compare it against your own. If any
+ * assertion here starts describing a comparison view, the screen has gone
+ * wrong.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +19,7 @@ import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
+import { cookbookLabel, threadBranch } from '../../../testing/recipes';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
 // stand on. Where that goes is the router's business, not this screen's, so
@@ -35,16 +38,24 @@ const line = (text: string, index: number) => ({
 });
 const step = (text: string, index: number) => ({ kind: 'step', text, index });
 
+/** Aurélien's own Cookbook, under the name he gave it. */
+const MY_COOKBOOK = cookbookLabel('c_mine', ['Aurélien'], 'Maison Batterman');
+/** Marc's, which Aurélien sees because they share a Kitchen and never writes. */
+const MARCS_COOKBOOK = cookbookLabel('c_marc', ['Marc'], 'Chez Marc');
+
 const branch = (
 	branch_id: string,
-	kitchen_name: string,
+	cookbook: typeof MY_COOKBOOK,
 	ingredients: { kind: 'section' | 'ingredient'; text: string }[],
 	steps: { kind: 'section' | 'step'; text: string; photo: string | null }[],
 ) => ({
 	branch_id,
-	kitchen_id: `k_${branch_id}`,
-	kitchen_name,
+	cookbook,
+	name: null,
+	mine: cookbook.id === MY_COOKBOOK.id,
+	arrived: false,
 	hand_id: `h_${branch_id}`,
+	hand_name: null,
 	language: 'en',
 	head_version_id: `v_${branch_id}`,
 	content: {
@@ -110,8 +121,8 @@ function divergence() {
 	return {
 		lineage_id: 'l_1',
 		branch_point_version_id: 'v_base',
-		mine: branch('mine', 'Maison Batterman', MY_INGREDIENTS, MY_STEPS),
-		theirs: branch('theirs', 'Chez Marc', THEIR_INGREDIENTS, THEIR_STEPS),
+		mine: branch('mine', MY_COOKBOOK, MY_INGREDIENTS, MY_STEPS),
+		theirs: branch('theirs', MARCS_COOKBOOK, THEIR_INGREDIENTS, THEIR_STEPS),
 		ingredients: [
 			{
 				kind: 'ingredient',
@@ -216,12 +227,28 @@ const occurrenceOf = (
 	language: 'en',
 });
 
+/** Your own version, as the Thread names it. */
+const MINE_IN_THREAD = threadBranch('mine', {
+	cookbook: MY_COOKBOOK,
+	hand_id: 'h_mine',
+	head_version_id: 'v_mine',
+});
+/** Marc's version of the same recipe, in his own Cookbook. */
+const THEIRS_IN_THREAD = threadBranch('theirs', {
+	cookbook: MARCS_COOKBOOK,
+	mine: false,
+	hand_id: 'h_theirs',
+	head_version_id: 'v_theirs',
+});
+
 function forked(extra: Answers = {}) {
 	return {
 		get_recipe: {
 			branch_id: 'mine',
 			lineage_id: 'l_1',
-			kitchen_id: 'k_mine',
+			cookbook: MY_COOKBOOK,
+			name: null,
+			writes: true,
 			hand_id: 'h_mine',
 			language: 'en',
 			origin_address: null,
@@ -256,26 +283,7 @@ function forked(extra: Answers = {}) {
 		},
 		get_thread: {
 			lineage_id: 'l_1',
-			branches: [
-				{
-					branch_id: 'mine',
-					kitchen_id: 'k_mine',
-					hand_id: 'h_mine',
-					hand_name: 'h_mine',
-					language: 'en',
-					head_version_id: 'v_mine',
-					translation: null,
-				},
-				{
-					branch_id: 'theirs',
-					kitchen_id: 'k_theirs',
-					hand_id: 'h_theirs',
-					hand_name: 'h_theirs',
-					language: 'en',
-					head_version_id: 'v_theirs',
-					translation: null,
-				},
-			],
+			branches: [MINE_IN_THREAD, THEIRS_IN_THREAD],
 			// **A real Divergence shares a Version.** Two Branches that parted
 			// have a root in common and their own heads after it, and the page
 			// reads exactly that to decide whether a pair can be laid over each
@@ -296,60 +304,186 @@ function forked(extra: Answers = {}) {
 	} as Answers;
 }
 
-function renderRecipe(answers: Answers = forked()) {
+/**
+ * Marc's version as `get_recipe` answers it, opened from the strip: his words,
+ * in his Cookbook, which Aurélien may read and cook and not change.
+ */
+function marcsRecipe(): GetRecipeOutput {
+	const mine = forked().get_recipe as GetRecipeOutput;
+	const his = divergence().theirs;
+	return {
+		...mine,
+		branch_id: 'theirs',
+		cookbook: MARCS_COOKBOOK,
+		writes: false,
+		hand_id: 'h_theirs',
+		head_version_id: 'v_theirs',
+		versions: [
+			{
+				...mine.versions[0]!,
+				version_id: 'v_theirs',
+				hand_id: 'h_theirs',
+				content: his.content,
+				readings: THEIR_INGREDIENTS.map(() => null),
+				measured: {
+					ingredients: THEIR_INGREDIENTS.map(() => null),
+					steps: THEIR_STEPS.map(() => null),
+				},
+				cooking: { steps: THEIR_STEPS.map(() => ({ uses: [], timer_seconds: null })) },
+			},
+		],
+	};
+}
+
+/**
+ * Wait for the comparison with yours, which lands after his recipe does: his
+ * words are on the page a moment before any mark is.
+ */
+const compared = () => screen.findByText(/you and Chez Marc don’t share/);
+
+/** The page open on Marc's version: every mark compares it against yours. */
+function onTheirs(extra: Answers = {}) {
+	return forked({ get_recipe: marcsRecipe(), ...extra });
+}
+
+function renderRecipe(answers: Answers = forked(), branchId = 'mine') {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
 	const kamosu = standIn({ list_attempts: { attempts: [] }, ...answers });
 	const { rerender } = render(RecipeTestHarness, {
-		props: { client: kamosu.client, branchId: 'mine' },
+		props: { client: kamosu.client, branchId },
 	});
 	/** Walk to another recipe, the way tapping through to one does. */
 	const goTo = (branchId: string) => rerender({ client: kamosu.client, branchId });
 	return { kamosu, goTo };
 }
 
+/** A save that landed on your own version, as `save_recipe_version` answers it. */
+const SAVED_ONTO_MINE = {
+	save_recipe_version: {
+		branch_id: 'mine',
+		version_id: 'v_new',
+		parent_version_id: 'v_mine',
+		sequence: 2,
+		copied: false,
+		collapsed: false,
+		language: 'en',
+		language_offer: null,
+		translates_version_id: null,
+	},
+} as Answers;
+
 describe('a Divergence', () => {
-	it('is two whole recipes with a switch between them, never a difference view', async () => {
+	it('wears the other colour on his version and your own on your variation (#131)', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
+		expect(document.querySelector('[data-whose]')).toHaveAttribute('data-whose', 'theirs');
+		cleanup();
+
+		// Your own variation, read against your main one: still yours.
+		const yoursVaried = {
+			...marcsRecipe(),
+			cookbook: cookbookLabel(),
+			writes: true,
+			name: 'Spicy',
+		};
+		renderRecipe(onTheirs({ get_recipe: yoursVaried }), 'theirs');
+		await compared();
+		expect(document.querySelector('[data-whose]')).toHaveAttribute('data-whose', 'mine');
+	});
+
+	it('says every line is the same, and offers nothing to hide, on a version that matches yours', async () => {
+		const same = divergence();
+		same.ingredients = same.ingredients.filter((row) => row.state === 'same');
+		same.steps = [];
+		renderRecipe(onTheirs({ divergence: same }), 'theirs');
+		expect(await screen.findByText('Every line is the same as in yours.')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Hide them/ })).toBeNull();
+	});
+
+	it('is a strip of whole recipes, each its own page, never a difference view', async () => {
 		renderRecipe();
 
-		// You are standing in your own Kitchen, reading your own whole recipe.
-		expect(await screen.findByText('Maison Batterman')).toBeInTheDocument();
+		// Your own, whole: nothing marked, and the strip says how to see the others.
+		expect(await screen.findByText('This recipe, 2 versions')).toBeInTheDocument();
 		expect(screen.getByText('1 cup potato starch (or corn starch)')).toBeInTheDocument();
 		expect(screen.getByText('¼ cup honey')).toBeInTheDocument();
+		expect(screen.getByText(/Tap another version to read it/)).toBeInTheDocument();
+		expect(screen.queryByText('1 tsp gochugaru')).not.toBeInTheDocument();
 
-		// Crossing the threshold puts you in his recipe, whole and cookable —
-		// not a comparison, not a column beside yours.
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
+		// Each version is a link to its own page, so the page is always the
+		// recipe it says it is. Yours is the one you are on.
+		const yours = screen.getByRole('link', { name: /Yours/ });
+		expect(yours).toHaveAttribute('href', '/recipes/mine');
+		expect(yours).toHaveAttribute('aria-current', 'page');
+		const his = screen.getByRole('link', { name: /Chez Marc/ });
+		expect(his).toHaveAttribute('href', '/recipes/theirs');
+		expect(his).not.toHaveAttribute('aria-current');
+	});
+
+	it('reads Marc’s version whole and cookable, marked against yours', async () => {
+		const { kamosu } = renderRecipe(onTheirs(), 'theirs');
+		await compared();
+
 		expect(await screen.findByText('¾ cup potato starch')).toBeInTheDocument();
 		expect(screen.getByText('Air fry at 200 C for 18 minutes.')).toBeInTheDocument();
-		// Your own Kitchen is now the way back, on the other half of the threshold.
-		expect(screen.getByRole('button', { name: /Cross to Maison Batterman/ })).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: /Chez Marc/ })).toHaveAttribute('aria-current', 'page');
+		// Compared with yours, whichever version is open (#131, screen choice 1).
+		expect(kamosu.calls.find((call) => call.operation === 'divergence')?.input).toEqual({
+			branch_id: 'mine',
+			other_branch_id: 'theirs',
+		});
+		expect(screen.getByText(/lines you and Chez Marc don’t share/)).toBeInTheDocument();
+	});
+
+	it('asks for no comparison on your own version, where there is nothing to mark', async () => {
+		const { kamosu } = renderRecipe();
+		await screen.findByText('This recipe, 2 versions');
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('divergence');
+	});
+
+	it('marks nothing where you have no version of your own to compare with', async () => {
+		// Two of other people's versions and none of yours: there is no "how
+		// is theirs different from mine" to answer.
+		const { kamosu } = renderRecipe(
+			onTheirs({
+				get_thread: {
+					...(forked().get_thread as Record<string, unknown>),
+					branches: [
+						{ ...MINE_IN_THREAD, cookbook: cookbookLabel('c_luc', ['Luc']), mine: false },
+						THEIRS_IN_THREAD,
+					],
+				} as Answers['get_thread'],
+			}),
+			'theirs',
+		);
+		expect(await screen.findByText('This recipe, 2 versions')).toBeInTheDocument();
+		expect(screen.getByText('¾ cup potato starch')).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('divergence');
+		expect(screen.queryByText(/yours — Chez Marc/)).not.toBeInTheDocument();
 	});
 
 	it('keeps a photographed Step’s picture beside it where the Step is marked (#110)', async () => {
-		// Your only Step is marked — his recipe has not got it — so it is drawn
-		// by the marked row, not the plain list, and still wears its picture.
+		// Marc's first Step is marked, since yours has not got it, so it is
+		// drawn by the marked row and not the plain list, and still wears its picture.
 		const fried = divergence();
-		fried.mine.content.steps = [{ ...MY_STEPS[0], photo: 'p_fried' }];
-		renderRecipe(forked({ divergence: fried }));
+		fried.theirs.content.steps = [{ ...THEIR_STEPS[0], photo: 'p_air' }, THEIR_STEPS[1]];
+		renderRecipe(onTheirs({ divergence: fried }), 'theirs');
+		await compared();
 		const open = await screen.findByRole('button', { name: 'Show the photograph of step 1' });
-		expect(open.querySelector('img')).toHaveAttribute('src', '/api/photographs/p_fried/card');
-
-		// Crossed into his recipe, your Step is a Ghost there, and a Ghost is
-		// not a Step of the recipe you are reading: no picture.
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
-		expect(await screen.findByText('Air fry at 200 C for 18 minutes.')).toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /Show the photograph of step/ })).toBeNull();
+		expect(open.querySelector('img')).toHaveAttribute('src', '/api/photographs/p_air/card');
+		// Your deep-frying Step is a Ghost on his page, and a Ghost is not a
+		// Step of the recipe being read: one picture, not two.
+		expect(screen.getAllByRole('button', { name: /Show the photograph of step/ })).toHaveLength(1);
 	});
 
-	it('carries your tags in your own Branch and none once you have crossed', async () => {
-		// A Divergence does not mark Tags (ADR 0019), and the `divergence`
-		// Operation therefore carries none — so there is nothing of his to show,
-		// and showing yours beside his recipe would say something false about
-		// whose filing it is (#104).
+	it('shows the Tags only where you write the recipe, never your filing on his', async () => {
+		// Tags belong to the Cookbook that writes the recipe (#131, question
+		// 3). Marc's version is read with his Cookbook's tags, which here are
+		// none, and nobody who does not write it is offered a way to add one.
 		const spicy = {
 			id: 't_spicy',
-			kitchen_id: 'k_mine',
+			cookbook_id: MY_COOKBOOK.id,
 			name: 'spicy',
 			language: 'en',
 			names: [{ language: 'en', name: 'spicy' }],
@@ -363,41 +497,39 @@ describe('a Divergence', () => {
 				get_recipe: { ...(forked().get_recipe as GetRecipeOutput), tags: [spicy] },
 			}),
 		);
-
 		expect(await screen.findByRole('link', { name: /spicy/ })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Add a tag' })).toBeInTheDocument();
+		cleanup();
 
-		// The Threshold arrives with the `divergence` answer, which lands after
-		// the recipe does — so it is waited for rather than assumed.
-		await fireEvent.click(await screen.findByRole('button', { name: /Cross to Chez Marc/ }));
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
 		await screen.findByText('¾ cup potato starch');
-
-		// His recipe, so no Tags row at all — not yours, and not an empty one.
 		expect(screen.queryByRole('link', { name: /spicy/ })).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Add a tag' })).not.toBeInTheDocument();
 	});
 
-	it('shows a line only one side has as a Ghost, named, in its own position', async () => {
-		renderRecipe();
+	it('shows a line of yours his has not got as a Ghost, named, in its own position', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
 
-		// Marc's gochugaru is a Ghost on my recipe, and it says whose it is —
-		// a struck-through line with no words beside it would read like
+		// Your rice vinegar is a Ghost on his recipe, and it says whose it is.
+		// A struck-through line with no words beside it would read like
 		// something crossed off a shopping list.
-		const ghost = await screen.findByText('1 tsp gochugaru');
-		expect(ghost).toBeInTheDocument();
-		expect(screen.getAllByText(/Chez Marc’s — you haven’t got it/i).length).toBeGreaterThan(0);
+		expect(await screen.findByText('1 Tbsp rice vinegar')).toBeInTheDocument();
+		expect(screen.getAllByText(/yours — Chez Marc hasn’t got it/i).length).toBeGreaterThan(0);
 
-		// It sits where it sits over there: after the honey, not at the end.
+		// It sits where it sits in yours: after the honey, not at the end.
 		const texts = Array.from(document.querySelectorAll('ul li')).map((li) => li.textContent ?? '');
 		const honey = texts.findIndex((t) => t.includes('¼ cup honey'));
-		const gochugaru = texts.findIndex((t) => t.includes('1 tsp gochugaru'));
-		expect(gochugaru).toBeGreaterThan(honey);
+		const vinegar = texts.findIndex((t) => t.includes('1 Tbsp rice vinegar'));
+		expect(vinegar).toBeGreaterThan(honey);
 	});
 
 	it('shows an uncertain Pairing as both lines, unjoined, with nothing labelled a guess', async () => {
-		renderRecipe();
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
 
-		// My rice vinegar and his gochugaru both arrived after we parted and
+		// Your rice vinegar and his gochugaru both arrived after you parted and
 		// land in the same part of the sauce. Both are on the page, separately.
 		expect(await screen.findByText('1 tsp gochugaru')).toBeInTheDocument();
 		expect(screen.getByText('1 Tbsp rice vinegar')).toBeInTheDocument();
@@ -409,48 +541,33 @@ describe('a Divergence', () => {
 		}
 	});
 
-	it('puts the marking away and leaves simply the recipe', async () => {
-		renderRecipe();
-		await screen.findByText('Maison Batterman');
+	it('puts the marking away and leaves simply his recipe', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
+		await screen.findByText('1 Tbsp rice vinegar');
 
 		await fireEvent.click(screen.getByRole('button', { name: /Hide them/i }));
 
-		// Every Ghost goes: a Ghost is a line of the OTHER recipe, and with the
-		// marking away it has no business on the page at all.
-		expect(screen.queryByText('1 tsp gochugaru')).not.toBeInTheDocument();
-		expect(screen.queryByText(/you haven’t got it/i)).not.toBeInTheDocument();
-		// What is left is the list you would shop from.
-		expect(screen.getByText('1 cup potato starch (or corn starch)')).toBeInTheDocument();
-		expect(screen.getByText('¼ cup brown sugar')).toBeInTheDocument();
+		// Every Ghost goes: a Ghost is a line of YOUR recipe, and with the
+		// marking away it has no business on his page at all.
+		expect(screen.queryByText('1 Tbsp rice vinegar')).not.toBeInTheDocument();
+		expect(screen.queryByText(/Chez Marc hasn’t got it/i)).not.toBeInTheDocument();
+		// What is left is the list you would shop from, his.
+		expect(screen.getByText('¾ cup potato starch')).toBeInTheDocument();
+		expect(screen.getByText('1 tsp gochugaru')).toBeInTheDocument();
+		expect(screen.getByText(/differences put away/)).toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole('button', { name: /Show them/i }));
-		expect(await screen.findByText('1 tsp gochugaru')).toBeInTheDocument();
+		expect(await screen.findByText('1 Tbsp rice vinegar')).toBeInTheDocument();
 	});
 
-	it('carries a line across unsaved, and saving writes an ordinary Version with prose', async () => {
-		const { kamosu } = renderRecipe(
-			forked({
-				save_recipe_version: {
-					branch_id: 'mine',
-					version_id: 'v_new',
-					parent_version_id: 'v_mine',
-					sequence: 2,
-					copied: false,
-					collapsed: false,
-					language: 'en',
-					language_offer: null,
-					translates_version_id: null,
-				},
-			}),
-		);
-		await screen.findByText('Maison Batterman');
+	it('carries a line of his into yours unsaved, and saving writes an ordinary Version with prose', async () => {
+		const { kamosu } = renderRecipe(onTheirs(SAVED_ONTO_MINE), 'theirs');
+		await compared();
 
 		// The offer lives where you would want a line of his recipe: in it.
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
 		await fireEvent.click(await screen.findByText('¾ cup potato starch'));
 		await fireEvent.click(screen.getByRole('button', { name: /Write this into mine/i }));
-		// Fold the row shut so only the line itself, at rest, is on the page.
-		await fireEvent.click(screen.getAllByText('¾ cup potato starch')[0]);
 
 		// It is on your recipe and it is not saved. Nothing has been sent yet.
 		expect(screen.getByText(/sitting on your recipe. Not saved/i)).toBeInTheDocument();
@@ -468,11 +585,13 @@ describe('a Divergence', () => {
 		);
 
 		const saved = kamosu.calls.find((call) => call.operation === 'save_recipe_version');
-		expect(saved).toBeDefined();
 		const input = saved?.input as {
+			branch_id: string;
 			ingredients: { text: string }[];
 			change_note: string;
 		};
+		// Onto YOUR version, even though his is the page you were reading.
+		expect(input.branch_id).toBe('mine');
 		// A whole recipe, with his line written in where the Pairing puts it.
 		expect(input.ingredients.map((item) => item.text)).toEqual([
 			'¾ cup potato starch',
@@ -483,30 +602,35 @@ describe('a Divergence', () => {
 		expect(input.change_note).toBe('Took ¾ cup potato starch from Chez Marc.');
 	});
 
+	it('takes a line out of yours as he did, from his page', async () => {
+		const { kamosu } = renderRecipe(onTheirs(SAVED_ONTO_MINE), 'theirs');
+		await compared();
+
+		// Your brown sugar, which he took out: the Ghost offers the removal.
+		await fireEvent.click(await screen.findByText('¼ cup brown sugar'));
+		await fireEvent.click(screen.getByRole('button', { name: /Take it out of mine as well/i }));
+		await fireEvent.click(screen.getByRole('button', { name: /Save a Version/i }));
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: /^Save a Version$/i }).at(-1) as HTMLElement,
+		);
+
+		const saved = kamosu.calls.find((call) => call.operation === 'save_recipe_version');
+		const input = saved?.input as { branch_id: string; ingredients: { text: string }[] };
+		expect(input.branch_id).toBe('mine');
+		expect(input.ingredients.map((item) => item.text)).not.toContain('¼ cup brown sugar');
+	});
+
 	it('carries the nutrition figure through a save rather than erasing it', async () => {
 		// `save_recipe_version` replaces the whole recipe, so a field this
 		// screen forgets to send is a field the save deletes. The nutrition
 		// figure is one of the recipe's own words (#72), and taking one line
 		// across from another Branch is not a reason to lose it.
-		const answers = forked({
-			save_recipe_version: {
-				branch_id: 'mine',
-				version_id: 'v_new',
-				parent_version_id: 'v_mine',
-				sequence: 2,
-				copied: false,
-				collapsed: false,
-				language: 'en',
-				language_offer: null,
-				translates_version_id: null,
-			},
-		});
+		const answers = onTheirs(SAVED_ONTO_MINE);
 		const d = (answers as Record<string, unknown>).divergence as ReturnType<typeof divergence>;
 		d.mine.content.nutrition = { calories: 308, basis: 'per_serving' };
-		const { kamosu } = renderRecipe(answers);
-		await screen.findByText('Maison Batterman');
+		const { kamosu } = renderRecipe(answers, 'theirs');
+		await compared();
 
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
 		await fireEvent.click(await screen.findByText('¾ cup potato starch'));
 		await fireEvent.click(screen.getByRole('button', { name: /Write this into mine/i }));
 		await fireEvent.click(screen.getByRole('button', { name: /Save a Version/i }));
@@ -521,96 +645,86 @@ describe('a Divergence', () => {
 		});
 	});
 
-	it('marks a single value the two Branches do not agree on', async () => {
+	it('marks a single value the two versions do not agree on, with what yours says', async () => {
 		// ADR 0019: "The marking covers the whole recipe, not only the two lists.
 		// Title, Yield, Prep Time, Cook Time and Source are single values."
-		const answers = forked();
+		// On his page his values are the page; the mark is what YOURS has.
+		const answers = onTheirs();
 		const d = (answers as Record<string, unknown>).divergence as ReturnType<typeof divergence>;
 		d.fields.title = { same: false, mine: 'Korean Fried Chicken', theirs: 'KFC, air fryer' };
 		d.fields.cook_time_minutes = { same: false, mine: 30, theirs: 22 };
-		renderRecipe(answers);
+		d.theirs.content.title = 'KFC, air fryer';
+		d.theirs.content.cook_time_minutes = 22;
+		renderRecipe(answers, 'theirs');
+		await compared();
 
-		expect(await screen.findByText(/Chez Marc has KFC, air fryer/i)).toBeInTheDocument();
-		expect(screen.getByText(/Chez Marc has 22/i)).toBeInTheDocument();
+		expect(await screen.findByText(/Korean Fried Chicken/)).toBeInTheDocument();
+		// Chez Marc has 22, not 30: a mark naming him beside your value says
+		// something false about his recipe.
+		expect(screen.queryByText(/Chez Marc has 30/)).not.toBeInTheDocument();
+		expect(screen.getByText('Yours: Korean Fried Chicken')).toBeInTheDocument();
+		expect(screen.getByText(/Yours: 30/)).toBeInTheDocument();
+		expect(screen.queryByText(/Chez Marc has Korean Fried Chicken/)).not.toBeInTheDocument();
 	});
 
 	/**
 	 * #72 gave `divergence` a `fields.nutrition` and nothing read it, so two
 	 * Branches disagreeing about the figure said nothing at all. The mark goes
 	 * with the figure, at the foot of the Ingredients, rather than with the
-	 * marks at the top: the figure is there, so what the other Kitchen says
+	 * marks at the top: the figure is there, so what the other version says
 	 * about it belongs there too (#84).
 	 */
-	it('marks the figure the two Branches do not agree on', async () => {
-		const answers = forked();
+	it('marks the figure the two versions do not agree on, beside the figure', async () => {
+		const answers = onTheirs();
 		const d = (answers as Record<string, unknown>).divergence as ReturnType<typeof divergence>;
 		d.mine.content.nutrition = { calories: 308, basis: 'per_serving' };
+		d.theirs.content.nutrition = { calories: 420, basis: 'per_serving' };
 		d.fields.nutrition = {
 			same: false,
 			mine: { calories: 308, basis: 'per_serving' },
 			theirs: { calories: 420, basis: 'per_serving' },
 		};
-		renderRecipe(answers);
+		renderRecipe(answers, 'theirs');
+		await compared();
 
-		const mark = await screen.findByText(/Chez Marc has 420 kcal a serving/i);
-		expect(mark).toBeInTheDocument();
+		const mark = await screen.findByText('Yours: 308 kcal a serving');
 		// Beside the figure it is about, not up with the Title and the Yield.
 		expect(
-			mark.compareDocumentPosition(screen.getByText('308 kcal a serving')) &
+			mark.compareDocumentPosition(screen.getByText('420 kcal a serving')) &
 				Node.DOCUMENT_POSITION_PRECEDING,
 		).toBeTruthy();
 	});
 
-	it('says so when the other Branch carries no figure where yours does', async () => {
-		const answers = forked();
+	it('says so when your version carries no figure where his does', async () => {
+		const answers = onTheirs();
 		const d = (answers as Record<string, unknown>).divergence as ReturnType<typeof divergence>;
-		d.mine.content.nutrition = { calories: 308, basis: 'per_serving' };
+		d.theirs.content.nutrition = { calories: 420, basis: 'per_serving' };
 		d.fields.nutrition = {
 			same: false,
-			mine: { calories: 308, basis: 'per_serving' },
-			theirs: null,
+			mine: null,
+			theirs: { calories: 420, basis: 'per_serving' },
 		};
-		renderRecipe(answers);
+		renderRecipe(answers, 'theirs');
+		await compared();
 
-		expect(await screen.findByText(/Chez Marc has nothing/i)).toBeInTheDocument();
+		expect(await screen.findByText('Yours: nothing')).toBeInTheDocument();
 	});
 
-	it('writes a carried line into your recipe in place, showing what it replaced', async () => {
-		renderRecipe();
-		await screen.findByText('Maison Batterman');
-
-		// ADR 0014: taking a line "writes it into your recipe and leaves it
-		// unsaved, marked in place with what it replaced, until you save".
-		await fireEvent.click(await screen.findByText('1 cup potato starch (or corn starch)'));
-		await fireEvent.click(screen.getByRole('button', { name: /Write this into mine/i }));
-		// Fold the row shut so only the line itself, at rest, is on the page.
-		await fireEvent.click(screen.getAllByText('¾ cup potato starch')[0]);
-
-		// At rest, in your own recipe, the line now reads as his words, not yours.
-		expect(screen.getByText('¾ cup potato starch')).toBeInTheDocument();
-		expect(screen.queryByText('1 cup potato starch (or corn starch)')).not.toBeInTheDocument();
-		expect(
-			screen.getByText(/replacing 1 cup potato starch \(or corn starch\)/i),
-		).toBeInTheDocument();
-		expect(screen.getByText(/sitting on your recipe. Not saved/i)).toBeInTheDocument();
-	});
-
-	it('says so rather than hiding the others when a third Branch exists', async () => {
+	it('names every version in the strip when there are three', async () => {
 		renderRecipe(
 			forked({
 				get_thread: {
 					lineage_id: 'l_1',
-					branches: ['mine', 'theirs', 'camille'].map((id) => ({
-						branch_id: id,
-						kitchen_id: `k_${id}`,
-						hand_id: `h_${id}`,
-						hand_name: `Chez ${id}`,
-						language: 'en',
-						head_version_id: `v_${id}`,
-						translation: null,
-					})),
+					branches: [
+						MINE_IN_THREAD,
+						THEIRS_IN_THREAD,
+						threadBranch('camille', {
+							cookbook: cookbookLabel('c_camille', ['Camille']),
+							mine: false,
+						}),
+					],
 					// All three parted from the same root, which is what makes
-					// them a crowd rather than unrelated recipes.
+					// them versions of one recipe rather than unrelated recipes.
 					versions: ['mine', 'theirs', 'camille'].flatMap((id) => [
 						occurrenceOf(id, 1, 'v_root', null),
 						occurrenceOf(id, 2, `v_${id}`, 'v_root'),
@@ -620,36 +734,38 @@ describe('a Divergence', () => {
 			}),
 		);
 
-		// ADR 0014: "Two Branches, not five… the switch is the part that will not
-		// survive it unchanged." Undesigned is fine; silent is not.
-		expect(await screen.findByText(/has 3 Branches on this Kamosu/i)).toBeInTheDocument();
-		expect(screen.queryByText('1 tsp gochugaru')).not.toBeInTheDocument();
+		// ADR 0014's switch was for two. Three or four versions of one dish is
+		// ordinary under ADR 0041, so every one is a chip.
+		expect(await screen.findByText('This recipe, 3 versions')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: /Camille’s/ })).toHaveAttribute(
+			'href',
+			'/recipes/camille',
+		);
+		expect(screen.getByRole('link', { name: /Chez Marc/ })).toHaveAttribute(
+			'href',
+			'/recipes/theirs',
+		);
 	});
 
-	it('names the friend’s Kitchen on a Ghost from either side', async () => {
-		renderRecipe();
-		await screen.findByText('Maison Batterman');
-
-		// Standing in your own recipe: his line, which you haven't got.
-		expect(screen.getAllByText(/Chez Marc’s — you haven’t got it/i).length).toBeGreaterThan(0);
-
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
+	it('names Marc on a Ghost, and never you', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
 		await screen.findByText('¾ cup potato starch');
 
-		// Standing in his: your brown sugar, which HE took out. Crossing over
-		// lets you read his recipe; it does not make you him, so the Kitchen
-		// named is still his — naming whichever Kitchen you are not in put
-		// "Maison Batterman took it out" on your own line.
+		// Your brown sugar, which HE took out. Reading his recipe does not make
+		// you him, so the name on the mark is still his. Naming whichever
+		// version you were not on once put "Maison Batterman took it out" on
+		// your own line.
 		expect(screen.getAllByText(/yours — Chez Marc took it out/i).length).toBeGreaterThan(0);
 		expect(screen.queryByText(/Maison Batterman took it out/i)).not.toBeInTheDocument();
 		// And his own changed line reads as not yours, not as "not Chez Marc's".
 		expect(screen.getAllByText(/^not yours$/i).length).toBeGreaterThan(0);
 	});
 
-	it('offers no way to take a whole Branch at once', async () => {
-		renderRecipe();
-		await screen.findByText('Maison Batterman');
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
+	it('offers no way to take a whole version at once', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
+		await screen.findByText('¾ cup potato starch');
 
 		// The absence is the decision (ADR 0014): taking every line one at a
 		// time is a person making a recipe; one button doing it is a merge.
@@ -658,22 +774,12 @@ describe('a Divergence', () => {
 		}
 	});
 
-	it('reads a recipe on its own when there is no second Branch', async () => {
+	it('reads a recipe on its own when there is no second version', async () => {
 		renderRecipe(
 			forked({
 				get_thread: {
 					lineage_id: 'l_1',
-					branches: [
-						{
-							branch_id: 'mine',
-							kitchen_id: 'k_mine',
-							hand_id: 'h_mine',
-							hand_name: 'h_mine',
-							language: 'en',
-							head_version_id: 'v_mine',
-							translation: null,
-						},
-					],
+					branches: [MINE_IN_THREAD],
 					versions: [],
 					attempts: [],
 				},
@@ -681,9 +787,27 @@ describe('a Divergence', () => {
 		);
 
 		expect(await screen.findByText('1 cup potato starch (or corn starch)')).toBeInTheDocument();
-		// No threshold, because there is nowhere to cross to.
-		expect(screen.queryByText(/You are in/i)).not.toBeInTheDocument();
+		// No strip, because there is nowhere else to go.
+		expect(screen.queryByText(/This recipe, \d+ versions/)).not.toBeInTheDocument();
 		expect(screen.queryByText('1 tsp gochugaru')).not.toBeInTheDocument();
+	});
+
+	it('shows your own recipe, unmarked, once you walk back to it from his', async () => {
+		// The screen is reused from one recipe to the next rather than remade,
+		// so walking along the strip must not carry his page's comparison onto yours.
+		const kamosu = standIn({ list_attempts: { attempts: [] }, ...onTheirs() });
+		const { rerender } = render(RecipeTestHarness, {
+			props: { client: kamosu.client, branchId: 'theirs' },
+		});
+		expect(await screen.findByText('1 Tbsp rice vinegar')).toBeInTheDocument();
+
+		kamosu.answer('get_recipe', forked().get_recipe as GetRecipeOutput);
+		await rerender({ client: kamosu.client, branchId: 'mine' });
+
+		expect(await screen.findByText(/Tap another version to read it/)).toBeInTheDocument();
+		expect(await screen.findByText('1 cup potato starch (or corn starch)')).toBeInTheDocument();
+		expect(screen.queryByText('1 tsp gochugaru')).not.toBeInTheDocument();
+		expect(screen.queryByText(/yours — Chez Marc/)).not.toBeInTheDocument();
 	});
 });
 
@@ -758,6 +882,19 @@ describe('the Cooked section', () => {
  * which is which.
  */
 describe('the recipe screen', () => {
+	it('sets a named version’s name under its title, and none on an unnamed one (#131)', async () => {
+		const named = forked({
+			get_recipe: { ...(forked().get_recipe as GetRecipeOutput), name: 'Vegetarian' },
+		});
+		renderRecipe(named);
+		const name = await screen.findByText('Vegetarian');
+		expect(
+			screen
+				.getByRole('heading', { level: 1, name: 'Korean Fried Chicken' })
+				.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
 	const SECTIONED = [
 		{ kind: 'section' as const, text: 'Chicken' },
 		{ kind: 'ingredient' as const, text: '1.4 kg whole chicken' },
@@ -792,7 +929,9 @@ describe('the recipe screen', () => {
 		const recipe: GetRecipeOutput = {
 			branch_id: 'mine',
 			lineage_id: 'l_1',
-			kitchen_id: 'k_mine',
+			cookbook: MY_COOKBOOK,
+			name: null,
+			writes: true,
 			hand_id: 'h_mine',
 			language: 'en',
 			origin_address: null,
@@ -855,17 +994,7 @@ describe('the recipe screen', () => {
 			get_recipe: recipe,
 			get_thread: {
 				lineage_id: 'l_1',
-				branches: [
-					{
-						branch_id: 'mine',
-						kitchen_id: 'k_mine',
-						hand_id: 'h_mine',
-						hand_name: 'h_mine',
-						language: 'en',
-						head_version_id: 'v_mine',
-						translation: null,
-					},
-				],
+				branches: [MINE_IN_THREAD],
 				versions: [],
 				attempts: [],
 			},
@@ -1510,18 +1639,6 @@ describe('the recipe screen', () => {
 		// marked* it is an alert about a defect that is not there.
 		const { goTo } = renderRecipe({
 			...solo(),
-			list_kitchens: {
-				kitchens: [
-					{
-						id: 'k_mine',
-						name: 'Maison Batterman',
-						nickname: null,
-						is_home: true,
-						hand_id: 'h_mine',
-						members: [],
-					},
-				],
-			},
 			save_recipe_version: {
 				branch_id: 'mine',
 				version_id: 'v_2',
@@ -1758,72 +1875,32 @@ describe('the recipe screen', () => {
 
 /**
  * Correcting a Reading where a Divergence is on the page. The gesture belongs
- * to the recipe, not to the marking — but their Branch is theirs (ADR 0007),
- * so it stops at the threshold.
+ * to the recipe, not to the marking.
  */
 describe('correcting a Reading beside a Divergence', () => {
-	it('offers no corrector while you are standing in the other Kitchen’s recipe', async () => {
+	it('offers the corrector on every line of your own version', async () => {
 		renderRecipe();
-		await screen.findByText('Maison Batterman');
-
-		// Your own list offers it on every unmarked line.
+		expect(await screen.findByText('¼ cup honey')).toBeInTheDocument();
 		expect(screen.getByText('¼ cup honey').closest('button')).toBeInTheDocument();
-
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
-		await screen.findByText('¾ cup potato starch');
-
-		// His is a recipe you read, not one you keep. Nothing here writes into it.
-		expect(screen.getByText('¼ cup honey').closest('button')).toBeNull();
-		expect(screen.queryByRole('button', { name: /Fix what Kamosu read/i })).not.toBeInTheDocument();
+		expect(
+			screen.getByText('1 cup potato starch (or corn starch)').closest('button'),
+		).toBeInTheDocument();
 	});
 
-	it('reaches a marked line through its own panel, not through its tap', async () => {
-		const { kamosu } = renderRecipe(
-			forked({
-				set_reading: {
-					line_index: 0,
-					reading: { amount: '¾', unit: 'cup', target: 'potato starch', lineage_id: null },
-					measured: null,
-				},
-			}),
-		);
-		await screen.findByText('Maison Batterman');
+	it('closes an open panel when the marking is put away', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
 
-		// A marked row's tap already means "show me the other side", so the
-		// corrector is a second target inside the panel that opens.
-		await fireEvent.click(screen.getByText('1 cup potato starch (or corn starch)'));
-		await fireEvent.click(screen.getByRole('button', { name: /Fix what Kamosu read/i }));
-		await fireEvent.input(screen.getByLabelText(/What it is/i), {
-			target: { value: 'potato starch' },
-		});
-		await fireEvent.click(screen.getByRole('button', { name: /Save the Reading/i }));
-
-		expect(kamosu.calls.find((call) => call.operation === 'set_reading')?.input).toMatchObject({
-			branch_id: 'mine',
-			line_index: 0,
-			target: 'potato starch',
-		});
-		// Still not an edit to the recipe, marked or not.
-		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
-	});
-
-	it('closes an open corrector when the ground under it moves', async () => {
-		renderRecipe();
-		await screen.findByText('Maison Batterman');
-
-		await fireEvent.click(screen.getByText('¼ cup honey'));
-		expect(screen.getByText('What Kamosu read')).toBeInTheDocument();
-
-		// Both gestures rebuild the list from a different set of rows, so an
-		// open panel would reopen on whatever line lands at that index.
+		// Putting the marks away rebuilds the list from a different set of
+		// rows, so an open panel would reopen on whatever line lands at that index.
+		await fireEvent.click(await screen.findByText('¾ cup potato starch'));
+		expect(screen.getByRole('button', { name: /Write this into mine/i })).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: /Hide them/i }));
-		expect(screen.queryByText('What Kamosu read')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Write this into mine/i })).not.toBeInTheDocument();
 
 		await fireEvent.click(screen.getByRole('button', { name: /Show them/i }));
-		await fireEvent.click(await screen.findByText('¼ cup honey'));
-		expect(screen.getByText('What Kamosu read')).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: /Cross to Chez Marc/ }));
-		expect(screen.queryByText('What Kamosu read')).not.toBeInTheDocument();
+		expect(await screen.findByText('¾ cup potato starch')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /Write this into mine/i })).not.toBeInTheDocument();
 	});
 
 	it('puts the recipe on the reader’s Shopping List, and takes it back off', async () => {
@@ -1835,7 +1912,7 @@ describe('correcting a Reading beside a Divergence', () => {
 			add_to_shopping_list: { chosen: [], rows: [] },
 			remove_from_shopping_list: { chosen: [], rows: [] },
 		});
-		await screen.findByText('Maison Batterman');
+		await screen.findByText('This recipe, 2 versions');
 
 		const button = await screen.findByRole('button', { name: /Add to shopping list/i });
 		await fireEvent.click(button);
@@ -1889,7 +1966,7 @@ describe('a Sheet (#75)', () => {
 			make_sheet: { job_id: 'j_sheet' },
 			get_job: sheetJob,
 		});
-		await screen.findByText('Maison Batterman');
+		await screen.findByText('This recipe, 2 versions');
 
 		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
 		expect(open).toHaveBeenCalledWith('', '_blank');
@@ -1910,7 +1987,7 @@ describe('a Sheet (#75)', () => {
 			make_sheet: { job_id: 'j_sheet' },
 			get_job: { ...sheetJob, status: 'failed', result: null, error: 'no such Branch' },
 		});
-		await screen.findByText('Maison Batterman');
+		await screen.findByText('This recipe, 2 versions');
 
 		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
 		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be made/);
@@ -1932,7 +2009,7 @@ describe('a Sheet (#75)', () => {
 					sheetJob,
 				),
 			});
-			await screen.findByText('Maison Batterman');
+			await screen.findByText('This recipe, 2 versions');
 
 			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
 			// Several lines on this screen are statuses, so the sentence is found by
@@ -1959,7 +2036,7 @@ describe('a Sheet (#75)', () => {
 			make_sheet: { job_id: 'j_sheet' },
 			get_job: outlivingTheWait({ ...sheetJob, status: 'running' as const, result: null }),
 		});
-		await screen.findByText('Maison Batterman');
+		await screen.findByText('This recipe, 2 versions');
 		await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
 		await screen.findByText(/still being made/);
 		return { tab, ...rendered };
@@ -2005,28 +2082,28 @@ describe('on the phone (#76)', () => {
 		localStorage.clear();
 	});
 
-	it('says offline that a recipe the Kitchen does not hold is a copy, and from when', async () => {
+	it('says offline that a recipe the phone’s library does not hold is a copy, and from when', async () => {
 		localStorage.setItem('kamosu.library', JSON.stringify({ held: ['another'] }));
 		offlineWithKeptCopy();
 		renderRecipe();
 		expect(await screen.findByText(`Kept from ${kept.toLocaleDateString()}`)).toBeInTheDocument();
 	});
 
-	it('says nothing of the kind before the phone knows what the Kitchen holds', async () => {
+	it('says nothing of the kind before the phone knows what its library holds', async () => {
 		offlineWithKeptCopy();
 		renderRecipe();
-		await screen.findByText('Maison Batterman');
+		await screen.findByText('This recipe, 2 versions');
 		expect(screen.queryByText(/Kept from/)).not.toBeInTheDocument();
 	});
 
-	it('says nothing of the kind about a recipe the Kitchen holds', async () => {
+	it('says nothing of the kind about a recipe the library holds', async () => {
 		localStorage.setItem(
 			'kamosu.library',
 			JSON.stringify({ filledAt: Date.now(), held: ['mine'] }),
 		);
 		offlineWithKeptCopy();
 		renderRecipe();
-		await screen.findByText('Maison Batterman');
+		await screen.findByText('This recipe, 2 versions');
 		expect(screen.queryByText(/Kept from/)).not.toBeInTheDocument();
 	});
 });
@@ -2064,6 +2141,17 @@ describe('deleting a recipe', () => {
 		await tick();
 		return rendered;
 	}
+
+	it('is not offered on a version somebody else writes (#131)', async () => {
+		renderRecipe(
+			forked({
+				get_share_link: shareLink(false),
+				get_recipe: { ...(forked().get_recipe as GetRecipeOutput), writes: false },
+			}),
+		);
+		expect(await screen.findByRole('button', { name: /shopping list/i })).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Delete this recipe' })).toBeNull();
+	});
 
 	it('is set apart from the actions rather than standing among them', async () => {
 		renderRecipe(forked({ get_share_link: shareLink(false) }));
@@ -2204,11 +2292,8 @@ describe('deleting a recipe', () => {
 // original defect — a field the Core answered and the interface dropped — so
 // it is tested where the drop would happen.
 
-/**
- * What the recipe page asks for on the side and never waits on, plus the one
- * Kitchen the writing screen needs to know whether a save forks.
- */
-const MY_KITCHENS = {
+/** What the recipe page asks for on the side and never waits on. */
+const ON_THE_SIDE = {
 	note_recipe_opened: { lineage_id: 'l_1', opened_at: '2026-09-22T00:00:00Z' },
 	shopping_basis: {
 		branch_id: 'mine',
@@ -2217,18 +2302,6 @@ const MY_KITCHENS = {
 		lines: [],
 	},
 	get_shopping_list: { chosen: [], rows: [] },
-	list_kitchens: {
-		kitchens: [
-			{
-				id: 'k_mine',
-				name: 'Maison Batterman',
-				nickname: null,
-				is_home: true,
-				hand_id: 'h_mine',
-				members: [],
-			},
-		],
-	},
 } as Answers;
 
 /** A save that landed, and what Language its text read as. */
@@ -2260,34 +2333,24 @@ async function editAndSave() {
 /** The Thread as it reads when this recipe has one Translation and no Divergence. */
 const withATranslation = (extra: Answers = {}) =>
 	forked({
-		...MY_KITCHENS,
+		...ON_THE_SIDE,
 		get_thread: {
 			lineage_id: 'l_1',
 			branches: [
-				{
-					branch_id: 'mine',
-					kitchen_id: 'k_mine',
+				MINE_IN_THREAD,
+				threadBranch('b_fr', {
+					cookbook: MY_COOKBOOK,
 					hand_id: 'h_mine',
-					hand_name: 'h_mine',
-					language: 'en',
-					head_version_id: 'v_mine',
-					translation: null,
-				},
-				{
-					branch_id: 'b_fr',
-					kitchen_id: 'k_mine',
-					hand_id: 'h_mine',
-					hand_name: 'h_mine',
 					language: 'fr',
 					head_version_id: 'v_fr',
 					// A Translation renders a Version of this Branch, and its own
-					// chain starts fresh — so it shares no Version with it.
+					// chain starts fresh, so it shares no Version with it.
 					translation: {
 						translates_version_id: 'v_mine',
 						source_branch_id: 'mine',
 						versions_behind: 0,
 					},
-				},
+				}),
 			],
 			versions: [],
 			attempts: [],
@@ -2327,8 +2390,8 @@ describe('a recipe that has a Translation', () => {
 
 describe('the Language offer on the recipe', () => {
 	it('puts the offer where the save already speaks, once a save answers one', async () => {
-		renderRecipe({ ...forked({ ...MY_KITCHENS, ...savedReading('fr') }) });
-		await screen.findByText('Maison Batterman');
+		renderRecipe({ ...forked({ ...ON_THE_SIDE, ...savedReading('fr') }) });
+		await screen.findByText('This recipe, 2 versions');
 
 		await editAndSave();
 
@@ -2339,8 +2402,8 @@ describe('the Language offer on the recipe', () => {
 	});
 
 	it('says nothing when the save’s text agreed with the Language the recipe carries', async () => {
-		renderRecipe({ ...forked({ ...MY_KITCHENS, ...savedReading(null) }) });
-		await screen.findByText('Maison Batterman');
+		renderRecipe({ ...forked({ ...ON_THE_SIDE, ...savedReading(null) }) });
+		await screen.findByText('This recipe, 2 versions');
 
 		await editAndSave();
 

@@ -17,5 +17,5 @@
 </script>
 
 <Kamosu {client}>
-	<RelatedRecipes branchId="b_1" kitchenId="k_home" {related} />
+	<RelatedRecipes branchId="b_1" writes {related} />
 </Kamosu>

@@ -539,9 +539,6 @@
   .max-w-\[34rem\] {
     max-width: 34rem;
   }
-  .max-w-\[58\%\] {
-    max-width: 58%;
-  }
   .max-w-full {
     max-width: 100%;
   }
@@ -637,9 +634,6 @@
   .items-start {
     align-items: flex-start;
   }
-  .items-stretch {
-    align-items: stretch;
-  }
   .justify-between {
     justify-content: space-between;
   }
@@ -721,6 +715,10 @@
     border-top-style: var(--tw-border-style);
     border-top-width: 3px;
   }
+  .border-t-4 {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 4px;
+  }
   .border-b {
     border-bottom-style: var(--tw-border-style);
     border-bottom-width: 1px;
@@ -752,6 +750,9 @@
   .border-accent {
     border-color: var(--color-accent);
   }
+  .border-card {
+    border-color: var(--color-card);
+  }
   .border-cook-accent {
     border-color: var(--color-cook-accent);
   }
@@ -765,6 +766,12 @@
     border-color: color-mix(in srgb, #f4efe3 25%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--color-on-accent) 25%, transparent);
+    }
+  }
+  .border-on-accent\/35 {
+    border-color: color-mix(in srgb, #f4efe3 35%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-on-accent) 35%, transparent);
     }
   }
   .border-on-accent\/40 {
@@ -931,9 +938,6 @@
   }
   .pt-safe {
     padding-top: max(var(--spacing-2), env(safe-area-inset-top));
-  }
-  .pr-gutter {
-    padding-right: var(--spacing-gutter);
   }
   .pb-1 {
     padding-bottom: var(--spacing-1);
@@ -1128,6 +1132,9 @@
   }
   .opacity-70 {
     opacity: 70%;
+  }
+  .opacity-75 {
+    opacity: 75%;
   }
   .grayscale {
     --tw-grayscale: grayscale(100%);

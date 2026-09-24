@@ -86,7 +86,7 @@ impl Core {
     }
 
     /// The fresh-instance door: one Person wins it, becomes the Operator, and
-    /// receives the Kitchen and Hand that make a Person a complete account.
+    /// receives the Cookbook and Hand that make a Person a complete account.
     pub fn create_first_person(
         &self,
         name: &str,
@@ -97,16 +97,15 @@ impl Core {
         let password_hash = hash_password(password)?;
         let session_name = required_text(session_name, "session_name")?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
-        let kitchen_id = format!("k_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
 
-        self.db().with_conn(|conn| {
+        let cookbook_id = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE")
                 .map_err(|e| OpError::internal(format!("cannot begin first-person setup: {e}")))?;
-            let created = (|| -> Result<(), OpError> {
+            let created = (|| -> Result<String, OpError> {
                 if conn.execute(
                     "INSERT OR IGNORE INTO instance_setup(singleton) VALUES (1)",
                     [],
@@ -114,29 +113,27 @@ impl Core {
                     return Err(OpError::unauthorized("this instance already has its first Person"));
                 }
                 conn.execute(
-                    "INSERT INTO people (id, name, password_hash, home_kitchen_id, is_operator) VALUES (?1, ?2, ?3, ?4, 1)",
-                    params![person_id, name, password_hash, kitchen_id],
+                    "INSERT INTO people (id, name, password_hash, is_operator) VALUES (?1, ?2, ?3, 1)",
+                    params![person_id, name, password_hash],
                 ).map_err(|e| OpError::internal(format!("cannot create first Person: {e}")))?;
                 conn.execute(
                     "UPDATE instance_setup SET operator_person_id = ?1 WHERE singleton = 1",
                     params![person_id],
                 ).map_err(|e| OpError::internal(format!("cannot name first Operator: {e}")))?;
-                conn.execute(
-                    "INSERT INTO kitchens (id, name, hand_id) VALUES (?1, ?2, ?1)",
-                    params![kitchen_id, format!("{}'s Home Kitchen", name)],
-                ).map_err(|e| OpError::internal(format!("cannot create Home Kitchen: {e}")))?;
-                conn.execute(
-                    "INSERT INTO kitchen_members (kitchen_id, person_id) VALUES (?1, ?2)",
-                    params![kitchen_id, person_id],
-                ).map_err(|e| OpError::internal(format!("cannot add first Person to Home Kitchen: {e}")))?;
+                // Their own Cookbook, and no Kitchen: a Person cooking alone
+                // needs none (ADR 0041).
+                let cookbook_id = insert_person_cookbook(conn, &person_id)?;
                 conn.execute(
                     "INSERT INTO sessions (id, secret_hash, person_id, name) VALUES (?1, ?2, ?3, ?4)",
                     params![session.id, hash_secret(&session.secret), person_id, session_name],
                 ).map_err(|e| OpError::internal(format!("cannot mint first Session: {e}")))?;
-                Ok(())
+                Ok(cookbook_id)
             })();
             match created {
-                Ok(()) => conn.execute_batch("COMMIT").map_err(|e| OpError::internal(format!("cannot finish first-person setup: {e}"))),
+                Ok(cookbook_id) => conn
+                    .execute_batch("COMMIT")
+                    .map(|()| cookbook_id)
+                    .map_err(|e| OpError::internal(format!("cannot finish first-person setup: {e}"))),
                 Err(err) => {
                     let _ = conn.execute_batch("ROLLBACK");
                     Err(err)
@@ -149,7 +146,7 @@ impl Core {
                 "id": person_id,
                 "name": name,
                 "hand_id": person_id,
-                "home_kitchen_id": kitchen_id,
+                "cookbook_id": cookbook_id,
                 "reading_language": "en",
                 "reading_measures": "us",
                 "is_operator": true,
@@ -415,26 +412,25 @@ impl Core {
         let password_hash = hash_password(password)?;
         let session_name = required_text(session_name, "session_name")?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
-        let kitchen_id = format!("k_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
         };
-        let operator = self.db().with_conn(|conn| {
+        let (operator, cookbook_id) = self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
-            let result = (|| -> Result<bool, OpError> {
+            let result = (|| -> Result<(bool, String), OpError> {
                 let role: Option<i64> = conn.query_row("SELECT is_operator FROM account_links WHERE secret_hash=?1 AND kind='invite' AND spent=0 AND revoked=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let role = role.ok_or_else(|| OpError::unauthorized("this Invite has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1", params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
-                conn.execute("INSERT INTO people (id,name,password_hash,home_kitchen_id,is_operator) VALUES (?1,?2,?3,?4,?5)", params![person_id,name,password_hash,kitchen_id,role]).map_err(|e| refusal_for_a_taken_name(e, name, "cannot create this Person"))?;
-                insert_kitchen_with_member(conn, &kitchen_id, &format!("{name}'s Home Kitchen"), &person_id)?;
+                conn.execute("INSERT INTO people (id,name,password_hash,is_operator) VALUES (?1,?2,?3,?4)", params![person_id,name,password_hash,role]).map_err(|e| refusal_for_a_taken_name(e, name, "cannot create this Person"))?;
+                let cookbook_id = insert_person_cookbook(conn, &person_id)?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)", params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
-                Ok(role != 0)
+                Ok((role != 0, cookbook_id))
             })();
             match result { Ok(v) => { conn.execute_batch("COMMIT").map_err(|e| OpError::internal(e.to_string()))?; Ok(v) }, Err(e) => { let _=conn.execute_batch("ROLLBACK"); Err(e) } }
         })?;
         Ok(
-            json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"home_kitchen_id":kitchen_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"session_id":session.id,"_session_secret":session.secret}),
+            json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"cookbook_id":cookbook_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"session_id":session.id,"_session_secret":session.secret}),
         )
     }
 
@@ -582,7 +578,9 @@ impl Core {
                     .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
                 conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
-                if deleted { conn.execute("DELETE FROM kitchen_members WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?; }
+                if deleted {
+                    forget_cookbook_of(conn, &person_id)?;
+                }
                 Ok(())
             })();
             match result {
@@ -592,20 +590,20 @@ impl Core {
         })
     }
 
-    /// Create a Person with their Home Kitchen. Test plumbing uses this until
-    /// Invites arrive; real account creation enters through `create_first_person`
-    /// or an Invite. A Person on their own is a Kitchen of one (ADR 0007), so
-    /// this never leaves a Person without one.
+    /// Create a Person with their own Cookbook. Test plumbing uses this;
+    /// real account creation enters through `create_first_person` or an
+    /// Invite. Every Person has exactly one Cookbook (ADR 0041), so this never
+    /// leaves a Person without one.
     pub fn create_person(&self, name: &str) -> Result<String, OpError> {
         let id = format!("p_{}", hex::encode(random_bytes(8)));
-        let kitchen_id = format!("k_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
             conn.execute(
-                "INSERT INTO people (id, name, home_kitchen_id) VALUES (?1, ?2, ?3)",
-                params![id, name, kitchen_id],
+                "INSERT INTO people (id, name) VALUES (?1, ?2)",
+                params![id, name],
             )
             .map_err(|e| OpError::internal(format!("cannot create Person: {e}")))?;
-            insert_kitchen_with_member(conn, &kitchen_id, &format!("{name}'s Home Kitchen"), &id)
+            insert_person_cookbook(conn, &id)?;
+            Ok(())
         })?;
         Ok(id)
     }
@@ -737,6 +735,83 @@ pub(super) fn reading_language_of(
 }
 
 /// Hash a Secret for storage/lookup. The Secret itself is never stored.
+/// What deleting an account does to what it wrote (#131, question 11).
+///
+/// Its Cookbook leaves every Kitchen by the ordinary rule, so each Kitchen-mate
+/// keeps a Branch, in their own Cookbook, of every recipe of it they cooked.
+/// Then, where the Person wrote the Cookbook alone, its recipes go with them;
+/// the Cookbook itself stays, named as it was, because Versions elsewhere
+/// still carry its Hand. Where they wrote it with others, the others carry on
+/// and the Person simply stops being one of its Co-authors, taking nothing.
+fn forget_cookbook_of(conn: &Connection, person_id: &str) -> Result<(), OpError> {
+    let mut touched: Vec<String> = {
+        let mut statement = conn
+            .prepare(
+                "SELECT DISTINCT theirs.person_id FROM kitchen_members AS mine \
+                   JOIN kitchen_members AS theirs ON theirs.kitchen_id = mine.kitchen_id \
+                  WHERE mine.person_id = ?1",
+            )
+            .map_err(|e| OpError::internal(format!("cannot read Kitchens: {e}")))?;
+        statement
+            .query_map(params![person_id], |row| row.get(0))
+            .map_err(|e| OpError::internal(format!("cannot read Kitchens: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OpError::internal(format!("cannot read Kitchens: {e}")))?
+    };
+    touched.sort();
+    let kept = keeps_after(
+        conn,
+        &touched,
+        |conn| {
+            conn.execute(
+                "DELETE FROM kitchen_members WHERE person_id = ?1",
+                params![person_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot leave Kitchens: {e}")))?;
+            Ok(())
+        },
+        |person| person != person_id,
+    )?;
+    keep_branches(conn, &kept)?;
+
+    let cookbook_id = cookbook_of_person(conn, person_id)?;
+    let alone: bool = conn
+        .query_row(
+            "SELECT COUNT(*) = 1 FROM cookbook_authors WHERE cookbook_id = ?1",
+            params![cookbook_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Co-authors: {e}")))?;
+    if alone {
+        let name = cookbook_display_name(conn, &cookbook_id)?;
+        conn.execute(
+            "UPDATE cookbooks SET name = COALESCE(name, ?1) WHERE id = ?2",
+            params![name, cookbook_id],
+        )
+        .map_err(|e| OpError::internal(format!("cannot keep the Cookbook's name: {e}")))?;
+        let branches: Vec<String> = {
+            let mut statement = conn
+                .prepare("SELECT id FROM branches WHERE cookbook_id = ?1")
+                .map_err(|e| OpError::internal(format!("cannot read Branches: {e}")))?;
+            statement
+                .query_map(params![cookbook_id], |row| row.get(0))
+                .map_err(|e| OpError::internal(format!("cannot read Branches: {e}")))?
+                .collect::<Result<_, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read Branches: {e}")))?
+        };
+        for branch_id in branches {
+            delete_branch_rows(conn, &branch_id)?;
+        }
+    } else {
+        conn.execute(
+            "DELETE FROM cookbook_authors WHERE cookbook_id = ?1 AND person_id = ?2",
+            params![cookbook_id, person_id],
+        )
+        .map_err(|e| OpError::internal(format!("cannot leave the Cookbook: {e}")))?;
+    }
+    Ok(())
+}
+
 pub fn hash_secret(secret: &str) -> String {
     hex::encode(Sha256::digest(secret.as_bytes()))
 }

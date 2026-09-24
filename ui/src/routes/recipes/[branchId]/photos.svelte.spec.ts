@@ -8,24 +8,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
-import { MY_KITCHENS, PROMOTED, STEPS, diaryEntry, recipeAnswer } from '../../../testing/recipes';
+import {
+	MY_KITCHENS,
+	PROMOTED,
+	STEPS,
+	diaryEntry,
+	recipeAnswer,
+	threadBranch,
+} from '../../../testing/recipes';
 
 function show(over: Answers = {}) {
 	const kamosu = standIn({
 		get_recipe: recipeAnswer(),
 		get_thread: {
 			lineage_id: 'l_1',
-			branches: [
-				{
-					branch_id: 'b_1',
-					kitchen_id: 'k_home',
-					hand_id: 'h_1',
-					hand_name: 'Aurélien',
-					language: 'en',
-					head_version_id: 'v_1',
-					translation: null,
-				},
-			],
+			branches: [threadBranch('b_1', { hand_id: 'h_1', head_version_id: 'v_1' })],
 			versions: [],
 			attempts: [],
 		},
@@ -139,27 +136,10 @@ describe('your cooking photographs on the recipe page', () => {
 });
 
 describe('a cooking photo that makes a Copy (#111)', () => {
-	const kitchenOf = (id: string, name: string, is_home = false) => ({
-		...MY_KITCHENS.kitchens[0]!,
-		id,
-		hand_id: id,
-		name,
-		is_home,
-	});
-	const TWO = [kitchenOf('k_home', 'Home', true), kitchenOf('k_marc', 'Chez Marc')];
-	const SIX = [
-		...TWO,
-		kitchenOf('k_elodie', 'Chez Élodie'),
-		kitchenOf('k_chalet', 'Le Chalet'),
-		kitchenOf('k_papi', 'Chez Papi'),
-		kitchenOf('k_marie', 'Chez Marie'),
-	];
-
-	/** The recipe on screen is held by a Kitchen the cook does not cook in. */
-	async function openOnSomeoneElses(kitchens: typeof TWO) {
+	/** The recipe on screen is written by somebody else's Cookbook, not the cook's. */
+	async function openOnSomeoneElses() {
 		const kamosu = show({
-			get_recipe: recipeAnswer({ kitchen_id: 'k_someone_else' }),
-			list_kitchens: { kitchens },
+			get_recipe: recipeAnswer({ writes: false }),
 			list_attempts: { attempts: [diaryEntry({ photographs: ['p_first'] })] },
 			promote_attempt_photograph: { ...PROMOTED, branch_id: 'b_copy', copied: true },
 		});
@@ -171,30 +151,14 @@ describe('a cooking photo that makes a Copy (#111)', () => {
 	const sentTo = (kamosu: ReturnType<typeof show>) =>
 		kamosu.calls.find((call) => call.operation === 'promote_attempt_photograph')?.input;
 
-	it('names the one Kitchen a cook in one can copy into, and asks nothing', async () => {
-		const { kamosu, on } = await openOnSomeoneElses([kitchenOf('k_home', 'Home', true)]);
-		expect(on.getByText(/your own Miso Soup in Home/)).toBeInTheDocument();
+	it('starts the Copy in your own Cookbook and asks nothing about where (#131)', async () => {
+		const { kamosu, on } = await openOnSomeoneElses();
+		expect(on.getByText(/your own Miso Soup in your Cookbook/)).toBeInTheDocument();
 		expect(on.queryAllByRole('radio')).toHaveLength(0);
 		await fireEvent.click(on.getByRole('button', { name: 'Start my own copy' }));
-		await vi.waitFor(() => expect(sentTo(kamosu)).not.toHaveProperty('kitchen_id'));
+		await vi.waitFor(() => expect(sentTo(kamosu)).toMatchObject({ photograph_id: 'p_first' }));
+		expect(sentTo(kamosu)).not.toHaveProperty('kitchen_id');
 	});
-
-	for (const [count, kitchens] of [
-		['two', TWO],
-		['six', SIX],
-	] as const) {
-		it(`asks a cook in ${count} which keeps the Copy, picking nothing`, async () => {
-			const { kamosu, on } = await openOnSomeoneElses([...kitchens]);
-			const choices = on.getAllByRole('radio');
-			expect(choices).toHaveLength(kitchens.length);
-			expect(choices.some((choice) => (choice as HTMLInputElement).checked)).toBe(false);
-			expect(on.getByRole('button', { name: 'Start my own copy' })).toBeDisabled();
-
-			await fireEvent.click(on.getByRole('radio', { name: /Chez Marc/ }));
-			await fireEvent.click(on.getByRole('button', { name: 'Start my own copy in Chez Marc' }));
-			await vi.waitFor(() => expect(sentTo(kamosu)).toMatchObject({ kitchen_id: 'k_marc' }));
-		});
-	}
 });
 
 describe('a Step’s photograph on the recipe page', () => {

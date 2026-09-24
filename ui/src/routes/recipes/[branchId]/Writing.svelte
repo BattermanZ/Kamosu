@@ -107,14 +107,8 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import { kitchenName, whereASaveLands } from '$lib/where-a-save-lands';
-	import KitchenChoice from '$lib/KitchenChoice.svelte';
 	import { usePhotograph } from '$lib/api/upload';
-	import type {
-		GetRecipeOutput,
-		ListKitchensOutput,
-		ReadPastedRecipeOutput,
-	} from '$lib/api/catalogue';
+	import type { GetRecipeOutput, ReadPastedRecipeOutput } from '$lib/api/catalogue';
 	import type { Nutrition } from './divergence';
 	import { languageName, type WrittenLanguage } from '$lib/language';
 	import Cover from '$lib/cover/Cover.svelte';
@@ -125,8 +119,12 @@
 	interface Props {
 		branchId: string;
 		lineageId: string;
-		/** The Kitchen holding the Branch being written on. */
-		kitchenId: string;
+		/**
+		 * Whether a save lands on this Branch: the Core's answer, from whose
+		 * Cookbook the Branch is in and whether it arrived there (ADR 0041).
+		 * False, a save starts the cook's own Branch in their own Cookbook.
+		 */
+		writes: boolean;
 		/** The recipe as it stands, which is what the draft below starts from. */
 		content: Content;
 		/**
@@ -156,7 +154,9 @@
 		 * component that is about to be destroyed is a line nobody reads.
 		 *
 		 * `branch_id` is the Branch the Version is on, which after a Copy is
-		 * the NEW one rather than the one that was open.
+		 * the NEW one rather than the one that was open. `varied` is the name
+		 * of a variation this save started beside the recipe (#131), which the
+		 * page says on the one it lands on.
 		 *
 		 * `named` is false where the Version landed but a line naming another
 		 * recipe could not be marked (#87). It travels with the rest for the
@@ -175,13 +175,14 @@
 			copied: boolean;
 			named: boolean;
 			language_offer: string | null;
+			varied?: string;
 		}) => void;
 	}
 
 	let {
 		branchId,
 		lineageId,
-		kitchenId,
+		writes,
 		content,
 		components = [],
 		translatingInto,
@@ -442,59 +443,29 @@
 
 	// ---- which of the two saves this is ---------------------------------
 
-	let kitchens = $state<ListKitchensOutput['kitchens']>([]);
 	/**
-	 * Whether the Kitchens are known yet. The save is held until they are.
-	 *
-	 * This is not caution for its own sake: which of the two saves this is, is
-	 * read off them. Unknown, `forking` is false, so the sheet would say
-	 * *writes a new Version onto your recipe, in* — with no Kitchen named —
-	 * and the server would fork anyway. A screen whose whole job at that
-	 * moment is to state the outcome must not guess it.
+	 * A Copy, not a Version: the recipe is not the cook's to change — a
+	 * Kitchen-mate's, or one that arrived from elsewhere — so the save starts
+	 * a Branch of their own in their own Cookbook (ADR 0041). The Core says
+	 * which on the recipe itself, so there is nothing to ask first and
+	 * nothing to guess.
 	 */
-	let kitchensKnown = $state(false);
-	let kitchensFailed = $state(false);
-	$effect(() => {
-		let current = true;
-		kamosu
-			.listKitchens({})
-			.then((all) => {
-				if (!current) return;
-				kitchens = all.kitchens;
-				kitchensKnown = true;
-			})
-			.catch((error: unknown) => {
-				if (!(error instanceof OperationError)) throw error;
-				if (current) kitchensFailed = true;
-			});
-		return () => {
-			current = false;
-		};
-	});
+	const forking = $derived(!writes);
 
 	/**
-	 * A Copy, not a Version: this Branch is held by a Kitchen the caller does
-	 * not cook in. Read off `list_kitchens` rather than guessed, and false
-	 * until that answers — the sheet is what states the outcome, and it is not
-	 * opened before the answer is in.
+	 * **Onto the recipe, or beside it** (#131, screen choice 3). Saving your
+	 * own recipe may instead start a variation of it — a second one in your
+	 * Cookbook, named, the first left exactly as it was. Offered in the sheet
+	 * that already asks what a save is, never on a recipe that is not yours,
+	 * where every save starts one of your own anyway.
 	 */
-	let chosenKitchen = $state<string | undefined>(undefined);
-	const lands = $derived(whereASaveLands(kitchens, kitchenId, chosenKitchen));
-	const forking = $derived(kitchensKnown && lands.forking);
-	/**
-	 * Whether the sheet asks which of the cook's Kitchens keeps what this
-	 * save starts (#111): a Copy, or a Translation of a recipe none of their
-	 * Kitchens holds, by a cook in several. Asked afresh each time the sheet
-	 * opens, with nothing picked.
-	 */
-	const askingWhere = $derived(kitchensKnown && lands.asking);
-	/** The Kitchen the save writes into, whichever of the acts it is. */
-	const savingInto = $derived(lands.into);
-	const savingIntoName = $derived(savingInto ? kitchenName(savingInto) : '');
+	let beside = $state(false);
+	let variationName = $state('');
 
 	/** The sheet states the outcome before the save, so every save opens it. */
 	function openSheet() {
-		chosenKitchen = undefined;
+		beside = false;
+		variationName = '';
 		asking = true;
 	}
 
@@ -504,8 +475,8 @@
 	 * three different things about the same tap.
 	 *
 	 * Translating is checked FIRST and is never a fork: `start_translation`
-	 * makes a Branch of the same Lineage whatever Kitchen holds the recipe
-	 * being translated, so #54's two sentences are both wrong for it.
+	 * makes a Branch of the same Lineage in your own Cookbook, whoever writes
+	 * the recipe being translated, so #54's two sentences are both wrong for it.
 	 */
 	const act = $derived.by(() => {
 		if (translatingInto) {
@@ -518,24 +489,28 @@
 				grave: false,
 			};
 		}
-		return forking
-			? {
-					called: m.write_will_fork(),
-					said: askingWhere
-						? m.write_said_fork_asked({ title: title.trim() })
-						: m.write_said_fork({ title: title.trim(), kitchen: savingIntoName }),
-					does:
-						askingWhere && savingInto
-							? m.write_do_fork_in({ kitchen: savingIntoName })
-							: m.write_do_fork(),
-					grave: true,
-				}
-			: {
-					called: m.write_will_save(),
-					said: m.write_said_save({ title: title.trim(), kitchen: savingIntoName }),
-					does: m.write_do_save(),
-					grave: false,
-				};
+		if (forking) {
+			return {
+				called: m.write_will_fork(),
+				said: m.write_said_fork({ title: title.trim() }),
+				does: m.write_do_fork(),
+				grave: true,
+			};
+		}
+		if (beside) {
+			return {
+				called: m.write_will_save(),
+				said: m.write_where_beside_said({ title: title.trim() }),
+				does: m.write_variation_do(),
+				grave: false,
+			};
+		}
+		return {
+			called: m.write_will_save(),
+			said: m.write_said_save({ title: title.trim() }),
+			does: m.write_do_save(),
+			grave: false,
+		};
 	});
 
 	// ---- the lists ------------------------------------------------------
@@ -891,17 +866,20 @@
 		// Belt and braces: both controls are already disabled while `wrong` is
 		// set, and the reason is on screen beside them.
 		if (wrong) return;
-		// And a save that starts something in a Kitchen nobody has chosen yet
-		// is not a save: the button says so and is disabled (#111).
-		if (askingWhere && !savingInto) return;
+		// A variation is named, since nothing else tells the two apart: the
+		// button waits for one (ADR 0041).
+		if (beside && variationName.trim() === '') return;
 		saving = true;
 		failed = undefined;
 		try {
+			if (beside) {
+				await startVariation();
+				return;
+			}
 			const common = {
 				...drafted(),
 				...(versionName.trim() === '' ? {} : { name: versionName.trim() }),
 				...(changeNote.trim() === '' ? {} : { change_note: changeNote.trim() }),
-				...(savingInto ? { kitchen_id: savingInto.id } : {}),
 			};
 			// Two Operations, one screen. Translating makes a Branch of the same
 			// Lineage carrying its own Language and pointing at the Version of
@@ -944,6 +922,42 @@
 			saving = false;
 			asking = false;
 		}
+	}
+
+	/**
+	 * **Start a variation, and put what was written on it** (#131). The
+	 * variation starts as the recipe exactly as it stands, which is what
+	 * `start_variation` makes; the draft is then saved onto the variation,
+	 * never onto the recipe it came from. Saved with no change at all, it is
+	 * simply the recipe a second time, under its name.
+	 */
+	async function startVariation() {
+		const name = variationName.trim();
+		const started = await kamosu.startVariation({ branch_id: branchId, name });
+		// Saved whether or not anything changed: the Core mints nothing for
+		// content its head already holds, so an unchanged draft costs nothing.
+		await kamosu.saveRecipeVersion({
+			...drafted(),
+			branch_id: started.branch_id,
+			...(changeNote.trim() === '' ? {} : { change_note: changeNote.trim() }),
+		});
+		let named = true;
+		try {
+			await attachNamedRecipes(started.branch_id);
+		} catch (error) {
+			if (!(error instanceof OperationError)) throw error;
+			named = false;
+		}
+		asking = false;
+		saving = false;
+		onSaved({
+			branch_id: started.branch_id,
+			collapsed: false,
+			copied: true,
+			named,
+			language_offer: null,
+			varied: name,
+		});
 	}
 
 	/**
@@ -1050,8 +1064,8 @@
 		{/if}
 		<button
 			type="button"
-			class="text-body font-medium {kitchensKnown && !wrong ? 'text-accent' : 'text-ink-2'}"
-			disabled={saving || !kitchensKnown || Boolean(wrong)}
+			class="text-body font-medium {!wrong ? 'text-accent' : 'text-ink-2'}"
+			disabled={saving || Boolean(wrong)}
 			onclick={openSheet}
 		>
 			{saving ? m.write_saving() : m.write_save()}
@@ -1373,19 +1387,15 @@
 		{/if}
 		<button
 			type="button"
-			class="block w-full p-4 text-center font-display text-body {kitchensKnown && !wrong
-				? forking
+			class="block w-full p-4 text-center font-display text-body {!wrong
+				? act.grave
 					? 'bg-support text-on-accent'
 					: 'bg-accent text-on-accent'
 				: 'border border-rule text-ink-2'}"
-			disabled={saving || !kitchensKnown || Boolean(wrong)}
+			disabled={saving || Boolean(wrong)}
 			onclick={openSheet}
 		>
-			{#if !kitchensKnown}
-				{kitchensFailed ? m.write_outcome_unknown() : m.loading()}
-			{:else}
-				{act.does}
-			{/if}
+			{act.does}
 		</button>
 	</div>
 </div>
@@ -1576,9 +1586,10 @@
 {/snippet}
 
 <!--
-	The sheet that says which of the two saves this is, before it happens
-	(#54). It names the recipe and the Kitchen, because *Save* and *Save* are
-	the same word for two different acts.
+	The sheet that says which of the saves this is, before it happens (#54):
+	onto your recipe, beside it as a variation (#131), or — on a recipe that is
+	not yours — your own copy. It names the recipe, because *Save* and *Save*
+	are the same word for different acts.
 -->
 {#if asking}
 	<div class="fixed inset-0 z-40 bg-accent/40"></div>
@@ -1590,23 +1601,62 @@
 	>
 		<!--
 			A translation is neither of the two saves #54 named. It is never a
-			fork — it makes a Branch of the same Lineage whatever Kitchen holds
-			the source — and it is never a Version on this Branch. So it says
+			fork — it makes a Branch of the same Lineage in your own Cookbook,
+			whoever writes the source — and it is never a Version on this Branch. So it says
 			its own sentence rather than borrowing the closer of two wrong ones.
 		-->
 		<p class="text-label text-ink-2 uppercase">{act.called}</p>
-		<p class="mt-2 text-body">{act.said}</p>
-		{#if askingWhere}
-			<div class="mt-4">
-				<KitchenChoice {kitchens} bind:chosen={chosenKitchen} />
-			</div>
+		{#if !forking && !translating}
+			<!--
+				Onto the recipe, or beside it (#131, screen choice 3): the two
+				places a save of your own recipe can go, chosen here rather than
+				behind a button of their own. Onto is where it starts.
+			-->
+			<fieldset class="mt-3 grid gap-2">
+				<legend class="sr-only">{act.called}</legend>
+				{#each [false, true] as choice (choice)}
+					<label
+						class="flex cursor-pointer items-start gap-3 rounded-sm border bg-card p-3 {beside ===
+						choice
+							? 'border-accent'
+							: 'border-rule'}"
+					>
+						<input
+							type="radio"
+							name="{uid}-where"
+							checked={beside === choice}
+							onchange={() => (beside = choice)}
+							class="mt-1 h-4 w-4 shrink-0 accent-accent"
+						/>
+						<span class="min-w-0">
+							<span class="block text-body font-semibold text-ink">
+								{choice ? m.write_where_beside() : m.write_where_onto({ title: title.trim() })}
+							</span>
+							<span class="block text-read text-ink-2">
+								{choice
+									? m.write_where_beside_said({ title: title.trim() })
+									: m.write_where_onto_said()}
+							</span>
+						</span>
+					</label>
+				{/each}
+			</fieldset>
+		{:else}
+			<p class="mt-2 text-body">{act.said}</p>
 		{/if}
-		<label class="mt-4 block">
-			<span class="block text-label text-ink-2 uppercase">
-				{m.write_name_label()} · {m.write_optional()}
-			</span>
-			<input bind:value={versionName} class="mt-1 {SMALL}" />
-		</label>
+		{#if beside}
+			<label class="mt-4 block">
+				<span class="block text-label text-ink-2 uppercase">{m.write_variation_name()}</span>
+				<input bind:value={variationName} class="mt-1 {SMALL}" />
+			</label>
+		{:else}
+			<label class="mt-4 block">
+				<span class="block text-label text-ink-2 uppercase">
+					{m.write_name_label()} · {m.write_optional()}
+				</span>
+				<input bind:value={versionName} class="mt-1 {SMALL}" />
+			</label>
+		{/if}
 		<label class="mt-3 block">
 			<span class="block text-label text-ink-2 uppercase">
 				{m.write_changed_label()} · {m.write_optional()}
@@ -1619,10 +1669,10 @@
 			class="mt-4 block w-full p-4 text-center font-display text-body text-on-accent disabled:opacity-60 {act.grave
 				? 'bg-support'
 				: 'bg-accent'}"
-			disabled={saving || (askingWhere && !savingInto)}
+			disabled={saving || (beside && variationName.trim() === '')}
 			onclick={save}
 		>
-			{askingWhere && !savingInto ? m.kitchen_ask_choose_first() : act.does}
+			{act.does}
 		</button>
 		<button
 			type="button"

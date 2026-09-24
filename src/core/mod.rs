@@ -50,6 +50,7 @@ use crate::shopping;
 use crate::units;
 
 mod accounts;
+mod cookbooks;
 mod cooking;
 mod imports;
 mod keeping_backups;
@@ -67,6 +68,7 @@ mod tags;
 mod translation;
 
 pub use accounts::*;
+use cookbooks::*;
 pub use cooking::*;
 pub use imports::*;
 use keeping_backups::*;

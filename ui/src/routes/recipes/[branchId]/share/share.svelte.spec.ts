@@ -19,7 +19,9 @@ import ShareTestHarness from './ShareTestHarness.svelte';
 const RECIPE = {
 	branch_id: 'b_1',
 	lineage_id: 'l_1',
-	kitchen_id: 'k_1',
+	cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+	name: null,
+	writes: true,
 	hand_id: 'h_1',
 	language: 'en',
 	origin_address: null,

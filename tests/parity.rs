@@ -43,9 +43,18 @@ fn arguments_for(name: &str) -> Value {
         "accept_kitchen_invite" => json!({ "secret": "parity-no-such-invite" }),
         "remove_kitchen_member" => json!({ "kitchen_id": "k_parity", "person_id": "p_parity" }),
         "delete_kitchen" => json!({ "kitchen_id": "k_parity" }),
+        "preview_leaving_kitchen" => json!({ "kitchen_id": "k_parity" }),
+        "rename_cookbook" => json!({ "name": "Parity" }),
+        "cancel_cookbook_invite" => json!({ "invite_id": "ci_parity" }),
+        "read_cookbook_invite" | "accept_cookbook_invite" => {
+            json!({ "secret": "parity-no-such-invite" })
+        }
+        "remove_cookbook_author" => json!({ "person_id": "p_parity" }),
+        "start_variation" => json!({ "branch_id": "b_parity", "name": "Parity" }),
+        "rename_branch" => json!({ "branch_id": "b_parity", "name": "Parity" }),
         "disable_account" | "delete_account" | "mint_recovery_link" => json!({ "name": "Parity" }),
         "set_operator" => json!({ "name": "Parity", "is_operator": true }),
-        "create_recipe" => json!({ "kitchen_id": "k_parity", "title": "Parity Recipe" }),
+        "create_recipe" => json!({ "title": "Parity Recipe" }),
         "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
         "read_pasted_recipe" => json!({ "text": "Parity Recipe\n\n1 tsp salt\nStir it in." }),
         "start_translation" => {
@@ -63,8 +72,8 @@ fn arguments_for(name: &str) -> Value {
         "set_food_name" => json!({ "food_id": "f_parity", "language": "en", "name": "parity" }),
         "remove_food_name" => json!({ "food_id": "f_parity", "language": "en" }),
         "set_food_cup_weight" => json!({ "food_id": "f_parity", "cup_weight_grams": 100 }),
-        "create_tag" => json!({ "kitchen_id": "k_parity", "language": "en", "name": "parity" }),
-        "list_tags" => json!({ "kitchen_id": "k_parity" }),
+        "create_tag" => json!({ "language": "en", "name": "parity" }),
+        "list_tags" => json!({}),
         "rename_tag" => json!({ "tag_id": "t_parity", "language": "en", "name": "parity" }),
         "delete_tag" => json!({ "tag_id": "t_parity" }),
         "merge_tags" => {
@@ -118,6 +127,17 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "accept_kitchen_invite"
             | "remove_kitchen_member"
             | "delete_kitchen"
+            | "preview_leaving_kitchen"
+            | "get_cookbook"
+            | "rename_cookbook"
+            | "invite_to_cookbook"
+            | "cancel_cookbook_invite"
+            | "read_cookbook_invite"
+            | "accept_cookbook_invite"
+            | "leave_cookbook"
+            | "remove_cookbook_author"
+            | "start_variation"
+            | "rename_branch"
             | "mint_invite"
             | "list_accounts"
             | "set_operator"
@@ -297,6 +317,17 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "accept_kitchen_invite"
                 | "remove_kitchen_member"
                 | "delete_kitchen"
+                | "preview_leaving_kitchen"
+                | "get_cookbook"
+                | "rename_cookbook"
+                | "invite_to_cookbook"
+                | "cancel_cookbook_invite"
+                | "read_cookbook_invite"
+                | "accept_cookbook_invite"
+                | "leave_cookbook"
+                | "remove_cookbook_author"
+                | "start_variation"
+                | "rename_branch"
                 | "mint_invite"
                 | "list_accounts"
                 | "set_operator"

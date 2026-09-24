@@ -42,15 +42,9 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import type {
-		GetRecipeOutput,
-		ListKitchensOutput,
-		PromoteAttemptPhotographOutput,
-	} from '$lib/api/catalogue';
+	import type { GetRecipeOutput, PromoteAttemptPhotographOutput } from '$lib/api/catalogue';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { chosenKitchenInput, kitchenName, whereASaveLands } from '$lib/where-a-save-lands';
-	import KitchenChoice from '$lib/KitchenChoice.svelte';
 	import { focusInAndBack } from '$lib/focus-in-and-back';
 
 	interface Props {
@@ -69,7 +63,6 @@
 	const uid = $props.id();
 
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
-	let kitchens = $state<ListKitchensOutput['kitchens'] | undefined>(undefined);
 	let failed = $state(false);
 	/** Read once, as it was when the sheet opened: a tap changes it after. */
 	let chosen = $state(
@@ -82,11 +75,10 @@
 
 	$effect(() => {
 		let current = true;
-		Promise.all([kamosu.getRecipe({ branch_id: branchId }), kamosu.listKitchens({})])
-			.then(([read, held]) => {
-				if (!current) return;
-				recipe = read;
-				kitchens = held.kitchens;
+		kamosu
+			.getRecipe({ branch_id: branchId })
+			.then((read) => {
+				if (current) recipe = read;
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof OperationError)) throw error;
@@ -99,17 +91,11 @@
 
 	const content = $derived(recipe?.versions.at(-1)?.content);
 
-	/** Which Kitchen keeps a Copy, where the cook is asked (#111). */
-	let chosenKitchen = $state<string | undefined>(undefined);
-	/** A Version, or a Copy — and where — by the writing screen's own rule. */
-	const lands = $derived(
-		recipe && kitchens ? whereASaveLands(kitchens, recipe.kitchen_id, chosenKitchen) : undefined,
-	);
-	const forking = $derived(lands?.forking ?? false);
-	/** A Copy by a cook in several Kitchens: which keeps it is asked (#111). */
-	const askingWhere = $derived(lands?.asking ?? false);
-	const savingInto = $derived(lands?.into);
-	const savingIntoName = $derived(savingInto ? kitchenName(savingInto) : '');
+	/**
+	 * A Version, or a Copy in the cook's own Cookbook, by the writing screen's
+	 * own rule: the Core's `writes` on the recipe (ADR 0041).
+	 */
+	const forking = $derived(recipe !== undefined && !recipe.writes);
 
 	/** A Step's number counts Steps only; a section heading takes none. */
 	const steps = $derived.by(() => {
@@ -123,7 +109,7 @@
 
 	async function promote() {
 		const from = pictures.find((picture) => picture.photograph === chosen);
-		if (!from || target === undefined || (askingWhere && !savingInto)) return;
+		if (!from || target === undefined) return;
 		working = true;
 		refused = undefined;
 		try {
@@ -132,7 +118,6 @@
 				photograph_id: from.photograph,
 				branch_id: branchId,
 				step_index: target === 'main' ? null : target,
-				...(lands ? chosenKitchenInput(lands) : {}),
 			});
 			onPromoted(landed);
 		} catch (error) {
@@ -267,12 +252,6 @@
 					</ul>
 				</details>
 			</div>
-
-			{#if askingWhere}
-				<div class="mt-4">
-					<KitchenChoice kitchens={kitchens ?? []} bind:chosen={chosenKitchen} />
-				</div>
-			{/if}
 		{/if}
 	</div>
 
@@ -284,10 +263,8 @@
 			</p>
 			<p class="mt-1 text-read">
 				{forking
-					? askingWhere
-						? m.write_said_fork_asked({ title: content.title })
-						: m.write_said_fork({ title: content.title, kitchen: savingIntoName })
-					: `${m.write_said_save({ title: content.title, kitchen: savingIntoName })} ${m.promote_in_thread()}`}
+					? m.write_said_fork({ title: content.title })
+					: `${m.write_said_save({ title: content.title })} ${m.promote_in_thread()}`}
 			</p>
 			<p class="mt-2 text-read">{m.promote_public()}</p>
 		</div>
@@ -309,20 +286,10 @@
 			{m.promote_cancel()}
 		</button>
 		<NeedsServer
-			label={working
-				? m.promote_doing()
-				: forking
-					? savingInto && askingWhere
-						? m.write_do_fork_in({ kitchen: savingIntoName })
-						: m.write_do_fork()
-					: m.promote_do()}
+			label={working ? m.promote_doing() : forking ? m.write_do_fork() : m.promote_do()}
 			waiting={m.offline_waits_save()}
 			onclick={promote}
-			disabled={!chosen ||
-				target === undefined ||
-				working ||
-				!content ||
-				(askingWhere && !savingInto)}
+			disabled={!chosen || target === undefined || working || !content}
 			shapeClass="flex-1 p-4 text-center font-display text-body disabled:opacity-40"
 			lookClass={forking ? 'bg-support text-on-accent' : 'bg-accent text-on-accent'}
 		/>

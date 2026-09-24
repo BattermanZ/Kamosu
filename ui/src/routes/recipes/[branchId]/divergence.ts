@@ -2,10 +2,10 @@
  * Reading a Divergence from wherever you are standing, and carrying a line
  * across.
  *
- * The Operation answers rows that are symmetric: `mine` is always the Branch the
- * screen was opened on, and crossing to the other recipe is reading those same
- * rows from the other side rather than asking again. Everything here is that
- * flip, plus the words each row says once you tap it.
+ * The Operation answers rows that are symmetric: `mine` is always the reader's
+ * own recipe (#131), and reading anybody else's version is reading those same
+ * rows from the other side. Everything here is that flip, plus the words each
+ * row says once you tap it.
  *
  * There is deliberately nothing in this file that takes a whole Branch. The
  * absence is the decision (ADR 0014): taking every line one at a time is a
@@ -14,6 +14,7 @@
  */
 
 import { m } from '$lib/paraglide/messages';
+import { branchPlainName } from '$lib/cookbook';
 import type { DivergenceOutput, GetRecipeOutput, SaveRecipeVersionInput } from '$lib/api/catalogue';
 
 /**
@@ -65,11 +66,11 @@ export function see(row: Row, side: Side): Seen {
  * a shopping list rather than a real line of a real recipe, so every one of them
  * is named.
  *
- * `kitchen` is ALWAYS the friend's Kitchen — `divergence.theirs` — never the one
- * you happen to be standing in. Crossing over lets you read their recipe; it
- * does not make you them. Naming whichever Kitchen you are not in instead put
- * the wrong name on a Ghost the moment you crossed: your own brown sugar, on
- * their page, read "Maison Batterman took it out" when Chez Marc had.
+ * `kitchen` is ALWAYS the other version's name — `divergence.theirs`, whose it
+ * is — never the one you happen to be standing in. Reading their recipe does
+ * not make you them. Naming whichever you are not in instead put the wrong
+ * name on a Ghost the moment you crossed: your own brown sugar, on their page,
+ * read "Maison Batterman took it out" when Chez Marc had.
  */
 export function caption(seen: Seen, side: Side, kitchen: string): string {
 	if (!seen.ghost) {
@@ -85,7 +86,7 @@ export function caption(seen: Seen, side: Side, kitchen: string): string {
 
 /** What Kamosu says about a Ghost when it is asked. It never hedges: by the
  *  time this is read, both texts are already on the page. `kitchen` is the
- *  friend's Kitchen, for the same reason as above. */
+ *  other version's name, for the same reason as above. */
 export function sentence(seen: Seen, side: Side, kitchen: string): string {
 	if (!seen.ghost) return seen.other?.text ?? '';
 	if (side === 'mine') return m.divergence_said_added({ kitchen });
@@ -97,7 +98,7 @@ export function sentence(seen: Seen, side: Side, kitchen: string): string {
 /**
  * The offer under a row, and where it lives: only while you are standing in the
  * other person's recipe, because that is where you would want a line of it.
- * Their Branch is their Kitchen's, so nothing here writes to it (ADR 0007) —
+ * Their Branch is their Cookbook's, so nothing here writes to it (ADR 0041) —
  * every offer writes into YOUR recipe, and leaves it unsaved.
  */
 export function offer(row: Row, taken: Taken | undefined): Taken | 'undo' | null {
@@ -235,7 +236,7 @@ export function draftList(
 			return;
 		}
 		// Carrying a line across carries its WORDS. Their Step's Photograph is
-		// held by their Kitchen and is not yours to write into your recipe.
+		// held by their Cookbook and is not yours to write into your recipe.
 		if (decision === 'write' && row.theirs) out.push({ kind, text: row.theirs.text, photo: null });
 		// `remove` writes nothing: that is what taking a removal across means.
 	});
@@ -320,7 +321,7 @@ export function carried(divergence: DivergenceOutput, taken: Map<string, Taken>)
  * sentence (ADR 0004).
  */
 export function prose(divergence: DivergenceOutput, taken: Map<string, Taken>): string {
-	const kitchen = divergence.theirs.kitchen_name;
+	const kitchen = branchPlainName(divergence.theirs);
 	const items = carried(divergence, taken);
 	const say = (item: Carried) =>
 		item.isStep

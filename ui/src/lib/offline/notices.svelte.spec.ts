@@ -11,6 +11,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
+import {
+	cookbookLabel,
+	kitchenAnswer,
+	theirBranch,
+	threadBranch,
+	threadVersion,
+} from '../../testing/recipes';
 import NoticesTestHarness from './NoticesTestHarness.svelte';
 import type { Device } from './device.svelte';
 import { sessionBegan } from './library.svelte';
@@ -31,7 +38,9 @@ const entry = (branch_id: string, main_photo: string | null = null) => ({
 const recipe = (branch_id: string): GetRecipeOutput => ({
 	branch_id,
 	lineage_id: `l_${branch_id}`,
-	kitchen_id: 'k_1',
+	cookbook: cookbookLabel(),
+	name: null,
+	writes: true,
 	hand_id: 'h_1',
 	language: 'en',
 	origin_address: null,
@@ -72,29 +81,21 @@ const recipe = (branch_id: string): GetRecipeOutput => ({
 	cooked: { count: 0, last_cooked_at: null, ratings: [] },
 });
 
+/**
+ * A recipe's Thread: the reader's own version first, then each other one,
+ * every one grown from the same first Version so the page compares them.
+ */
 const thread = (branch_id: string, others: string[] = []) => ({
 	lineage_id: `l_${branch_id}`,
-	branches: [branch_id, ...others].map((id) => ({
-		branch_id: id,
-		kitchen_id: `k_${id}`,
-		hand_id: `h_${id}`,
-		hand_name: `Chez ${id}`,
-		language: 'en',
-		head_version_id: `v_${id}`,
-		translation: null,
-	})),
-	versions: [],
+	branches: [threadBranch(branch_id), ...others.map((id) => theirBranch(id))],
+	versions: [branch_id, ...others].flatMap((id) => [
+		threadVersion(id, 'v_root'),
+		threadVersion(id, `v_${id}`, 2, 'v_root'),
+	]),
 	attempts: [],
 });
 
-const kitchen = (id: string) => ({
-	id,
-	hand_id: `h_${id}`,
-	is_home: true,
-	members: [],
-	name: 'Maison Batterman',
-	nickname: null,
-});
+const kitchen = (id: string) => kitchenAnswer(id);
 
 /** A Kitchen of two recipes, one with a picture. */
 const library = (): Answers => ({
@@ -177,28 +178,39 @@ describe('the first fill', () => {
 			expect(screen.queryByText("Your library isn't on this phone yet")).not.toBeInTheDocument(),
 		);
 		const asked = kamosu.calls.map((c) => c.operation);
-		expect(asked.filter((o) => o === 'get_recipe')).toHaveLength(2);
-		expect(asked.filter((o) => o === 'get_thread')).toHaveLength(2);
+		const read = kamosu.calls
+			.filter((c) => c.operation === 'get_recipe')
+			.map((c) => (c.input as { branch_id: string }).branch_id);
+		// Both shelf cards, and the friend's version the Thread named (#131).
+		expect(read).toEqual(expect.arrayContaining(['b_1', 'b_2', 'b_friend']));
+		expect(asked.filter((o) => o === 'get_thread').length).toBe(read.length);
 		// What each puts on a Shopping List, so the list adds up with no network (#77).
-		expect(asked.filter((o) => o === 'shopping_basis')).toHaveLength(2);
-		// b_1 has exactly one other Branch, so its page would lay it over this
-		// one; b_2 then sees two others, and its page would not.
-		expect(asked.filter((o) => o === 'divergence')).toHaveLength(1);
+		expect(asked.filter((o) => o === 'shopping_basis').length).toBe(read.length);
+		// The friend's version laid over the reader's own, which is what the
+		// switch compares every version against (#131, screen choice 1).
+		expect(
+			kamosu.calls
+				.filter((c) => c.operation === 'divergence')
+				.map((c) => c.input as { branch_id: string; other_branch_id: string }),
+		).toContainEqual({ branch_id: 'b_1', other_branch_id: 'b_friend' });
 		expect(fetched).toContain('/api/photographs/p_1/card');
 		expect(fetched).toContain('/api/photographs/p_b_1/page');
 		// Remembered, so the next start only tops it up.
-		expect(JSON.parse(localStorage.getItem('kamosu.library')!).held).toEqual(['b_1', 'b_2']);
+		expect(JSON.parse(localStorage.getItem('kamosu.library')!).held).toEqual([
+			'b_1',
+			'b_2',
+			'b_friend',
+		]);
 	});
 
-	it('also fills a second Branch of a Lineage when one of the Kitchens holds it', async () => {
-		// The shelf shows one card per Lineage, so the friend's Kitchen's Branch
-		// is only found through the Thread — and it is fetched only when that
-		// Kitchen is one of the Person's.
+	it('also fills every other version of a recipe the Thread names', async () => {
+		// The shelf shows one card per Lineage, so another Cookbook's version
+		// is only found through the Thread, which names only what this Person
+		// may see (#131).
 		const kamosu = show({
 			...library(),
 			search_recipes: { query: null, closest: false, recipes: [entry('b_1')] },
 			get_thread: () => thread('b_1', ['b_other']),
-			list_kitchens: { kitchens: [kitchen('k_b_1'), kitchen('k_b_other')] },
 		});
 		await fireEvent.click(await screen.findByRole('button', { name: 'Fetch it now' }));
 		await waitFor(() =>
@@ -210,18 +222,22 @@ describe('the first fill', () => {
 		expect(read).toEqual(['b_1', 'b_other']);
 	});
 
-	it('leaves a Branch alone when no Kitchen of the Person holds it', async () => {
+	it('compares nothing on a recipe the Person has no version of', async () => {
+		// Two of somebody else's versions, and none of the reader's: the page
+		// has nothing to mark them against, so nothing is asked (#131).
 		const kamosu = show({
 			...library(),
 			search_recipes: { query: null, closest: false, recipes: [entry('b_1')] },
-			get_thread: () => thread('b_1', ['b_stranger']),
-			list_kitchens: { kitchens: [kitchen('k_b_1')] },
+			get_thread: () => ({
+				...thread('b_1', ['b_2']),
+				branches: [theirBranch('b_1'), theirBranch('b_2', 'Luc')],
+			}),
 		});
 		await fireEvent.click(await screen.findByRole('button', { name: 'Fetch it now' }));
 		await waitFor(() =>
 			expect(JSON.parse(localStorage.getItem('kamosu.library') ?? '{}').filledAt).toBeDefined(),
 		);
-		expect(kamosu.calls.filter((c) => c.operation === 'get_recipe')).toHaveLength(1);
+		expect(kamosu.calls.filter((c) => c.operation === 'divergence')).toHaveLength(0);
 	});
 
 	it("learns which recipes are the Kitchen's before any fill, and keeps that", async () => {

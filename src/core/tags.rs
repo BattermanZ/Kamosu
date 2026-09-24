@@ -4,16 +4,17 @@
 use super::*;
 
 impl Core {
-    /// Create a Tag in a Kitchen, named in one Language. Any member may.
+    /// Create a Tag in the caller's own Cookbook, named in one Language. Tags
+    /// belong to the Cookbook, with its recipes (#131, question 3), so any of
+    /// its Co-authors may and nobody else does.
     ///
-    /// A word already used in that Kitchen and Language does not make a second
+    /// A word already used in that Cookbook and Language does not make a second
     /// Tag: the one already there is returned, which is what keeps *dessert*
     /// and *dessert* one Tag (#51). Two people reaching for the same word have
     /// agreed, not collided.
     pub fn create_tag(
         &self,
         person_id: &str,
-        kitchen_id: &str,
         language: &str,
         name: &str,
     ) -> Result<Value, OpError> {
@@ -21,43 +22,84 @@ impl Core {
         let name = required_text(name, "name")?.to_string();
         let tag_id = format!("t_{}", hex::encode(random_bytes(8)));
         self.db().with_conn(|conn| {
-            ensure_member(conn, kitchen_id, person_id)?;
-            if let Some(existing) = tag_id_for_word(conn, kitchen_id, language, &name)? {
+            let cookbook_id = cookbook_of_person(conn, person_id)?;
+            if let Some(existing) = tag_id_for_word(conn, &cookbook_id, language, &name)? {
                 return tag_summary(conn, &existing, person_id);
             }
             conn.execute(
-                "INSERT INTO tags (id, kitchen_id) VALUES (?1, ?2)",
-                params![tag_id, kitchen_id],
+                "INSERT INTO tags (id, cookbook_id) VALUES (?1, ?2)",
+                params![tag_id, cookbook_id],
             )
             .map_err(|e| OpError::internal(format!("cannot create Tag: {e}")))?;
             conn.execute(
-                "INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) \
+                "INSERT INTO tag_names (tag_id, cookbook_id, language, name, name_folded) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![tag_id, kitchen_id, language, name, folded_word(&name)],
+                params![tag_id, cookbook_id, language, name, folded_word(&name)],
             )
             .map_err(|e| OpError::internal(format!("cannot name Tag: {e}")))?;
             tag_summary(conn, &tag_id, person_id)
         })
     }
 
-    /// Every Tag a Kitchen files by, each shown in the reader's Reading
-    /// Language and falling back to whatever name it does have (#51).
-    pub fn list_tags(&self, person_id: &str, kitchen_id: &str) -> Result<Vec<Value>, OpError> {
+    /// Every Tag the caller's own Cookbook files by, each shown in the
+    /// reader's Reading Language and falling back to whatever name it does
+    /// have (#51).
+    ///
+    /// `everywhere` widens it to every Cookbook the caller may see — the words
+    /// a shelf mixing several Cookbooks can be filtered by. There one word is
+    /// one entry, whichever Cookbooks use it: "Dessert" from two Cookbooks is
+    /// one filter, and filtering by it finds both (#131, question 3).
+    ///
+    /// Three reaches: your own Cookbook's Tags (the default, what Settings
+    /// renames); with `everywhere`, every word of every Cookbook you may see;
+    /// with a Kitchen, every word of the Cookbooks seen in that Kitchen. The
+    /// last two answer one entry per word, your own first, since a shelf's
+    /// filter matches the word across Cookbooks (#131, answer 3).
+    pub fn list_tags(
+        &self,
+        person_id: &str,
+        everywhere: bool,
+        kitchen_id: Option<&str>,
+    ) -> Result<Vec<Value>, OpError> {
         self.db().with_conn(|conn| {
-            ensure_member(conn, kitchen_id, person_id)?;
+            let own = cookbook_of_person(conn, person_id)?;
+            if let Some(kitchen_id) = kitchen_id {
+                ensure_member(conn, kitchen_id, person_id)?;
+            }
+            let merged = everywhere || kitchen_id.is_some();
             let ids: Vec<String> = {
                 let mut statement = conn
-                    .prepare("SELECT id FROM tags WHERE kitchen_id = ?1 ORDER BY created_at, id")
+                    .prepare(&format!(
+                        "SELECT tags.id FROM tags \
+                          WHERE CASE \
+                                  WHEN ?4 IS NOT NULL THEN tags.cookbook_id IN ({}) \
+                                  WHEN ?2 THEN tags.cookbook_id IN \
+                                    (SELECT cookbook_id FROM visible_cookbooks WHERE person_id = ?3) \
+                                  ELSE tags.cookbook_id = ?1 \
+                                END \
+                          ORDER BY tags.cookbook_id <> ?1, tags.created_at, tags.id",
+                        cookbooks_seen_in("?4"),
+                    ))
                     .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?;
                 statement
-                    .query_map(params![kitchen_id], |row| row.get(0))
+                    .query_map(params![own, everywhere, person_id, kitchen_id], |row| {
+                        row.get(0)
+                    })
                     .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?
                     .collect::<Result<_, _>>()
                     .map_err(|e| OpError::internal(format!("cannot list Tags: {e}")))?
             };
-            ids.iter()
-                .map(|id| tag_summary(conn, id, person_id))
-                .collect()
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut tags: Vec<Value> = Vec::new();
+            for id in &ids {
+                let tag = tag_summary(conn, id, person_id)?;
+                let word = folded_word(tag["name"].as_str().unwrap_or_default());
+                if merged && !seen.insert(word) {
+                    continue;
+                }
+                tags.push(tag);
+            }
+            Ok(tags)
         })
     }
 
@@ -77,31 +119,31 @@ impl Core {
         let language = supported_language(language)?;
         let name = required_text(name, "name")?.to_string();
         self.db().with_conn(|conn| {
-            let kitchen_id = kitchen_of_tag(conn, tag_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_tag)?;
+            let cookbook_id = cookbook_of_tag(conn, tag_id)?;
+            ensure_writes_or_absent(conn, &cookbook_id, person_id, no_such_tag)?;
             // The word may already be this Tag's own — renaming *dessert* to
             // *Dessert* is a change of spelling, not a collision with itself.
-            match tag_id_for_word(conn, &kitchen_id, language, &name)? {
+            match tag_id_for_word(conn, &cookbook_id, language, &name)? {
                 Some(owner) if owner != tag_id => {
                     return Err(OpError::bad_request(
-                        "this Kitchen already files under that word in that Language",
+                        "this Cookbook already files under that word in that Language",
                     ));
                 }
                 _ => {}
             }
             conn.execute(
-                "INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) \
+                "INSERT INTO tag_names (tag_id, cookbook_id, language, name, name_folded) \
                  VALUES (?1, ?2, ?3, ?4, ?5) \
                  ON CONFLICT(tag_id, language) \
                  DO UPDATE SET name = excluded.name, name_folded = excluded.name_folded",
-                params![tag_id, kitchen_id, language, name, folded_word(&name)],
+                params![tag_id, cookbook_id, language, name, folded_word(&name)],
             )
             .map_err(|e| OpError::internal(format!("cannot rename Tag: {e}")))?;
             tag_summary(conn, tag_id, person_id)
         })
     }
 
-    /// Merge two of a Kitchen's Tags into one: every recipe filed under the
+    /// Merge two of a Cookbook's Tags into one: every recipe filed under the
     /// merged Tag is filed under the kept one instead, and the merged Tag is
     /// gone. The other half of what CONTEXT.md says a Tag is — "renaming or
     /// merging one reaches all of them at once".
@@ -122,19 +164,19 @@ impl Core {
             return Err(OpError::bad_request("a Tag cannot be merged into itself"));
         }
         self.db().with_conn(|conn| {
-            let keep_kitchen = kitchen_of_tag(conn, keep_tag_id)?;
-            let merge_kitchen = kitchen_of_tag(conn, merge_tag_id)?;
-            ensure_member_or_absent(conn, &keep_kitchen, person_id, no_such_tag)?;
-            // Both Tags are checked before the two Kitchens are compared, so
-            // that the refusal below is only ever reached by someone who cooks
-            // in both — otherwise naming another household's Tag as the one to
+            let keep_cookbook = cookbook_of_tag(conn, keep_tag_id)?;
+            let merge_cookbook = cookbook_of_tag(conn, merge_tag_id)?;
+            ensure_writes_or_absent(conn, &keep_cookbook, person_id, no_such_tag)?;
+            // Both Tags are checked before the two Cookbooks are compared, so
+            // that the refusal below is only ever reached by someone who writes
+            // both — otherwise naming another household's Tag as the one to
             // merge would tell the caller it exists (ADR 0040).
-            ensure_member_or_absent(conn, &merge_kitchen, person_id, no_such_tag)?;
-            // Two Kitchens' filing systems are separate things, and neither is
+            ensure_writes_or_absent(conn, &merge_cookbook, person_id, no_such_tag)?;
+            // Two Cookbooks' filing systems are separate things, and neither is
             // the other's to fold into (ADR 0007).
-            if keep_kitchen != merge_kitchen {
+            if keep_cookbook != merge_cookbook {
                 return Err(OpError::bad_request(
-                    "two Tags of different Kitchens cannot be merged",
+                    "two Tags of different Cookbooks cannot be merged",
                 ));
             }
 
@@ -161,7 +203,7 @@ impl Core {
             .map_err(|e| OpError::internal(format!("cannot carry recipes across: {e}")))?;
 
             // The merged Tag's own rows go before the kept Tag adopts any of
-            // its words: one word is unique per Kitchen and Language, so the
+            // its words: one word is unique per Cookbook and Language, so the
             // two Tags may not hold the same word even for an instant.
             for statement in [
                 "DELETE FROM branch_tags WHERE tag_id = ?1",
@@ -175,9 +217,9 @@ impl Core {
             for (language, name, folded) in carried {
                 conn.execute(
                     "INSERT OR IGNORE INTO tag_names \
-                     (tag_id, kitchen_id, language, name, name_folded) \
+                     (tag_id, cookbook_id, language, name, name_folded) \
                      VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![keep_tag_id, keep_kitchen, language, name, folded],
+                    params![keep_tag_id, keep_cookbook, language, name, folded],
                 )
                 .map_err(|e| OpError::internal(format!("cannot adopt Tag name: {e}")))?;
             }
@@ -186,13 +228,13 @@ impl Core {
         })
     }
 
-    /// Take a Tag out of a Kitchen's list, and off every recipe carrying it.
+    /// Take a Tag out of a Cookbook's list, and off every recipe carrying it.
     /// No recipe changes: a Version records what was written, never how it was
     /// filed (ADR 0035).
     pub fn delete_tag(&self, person_id: &str, tag_id: &str) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
-            let kitchen_id = kitchen_of_tag(conn, tag_id)?;
-            ensure_member_or_absent(conn, &kitchen_id, person_id, no_such_tag)?;
+            let cookbook_id = cookbook_of_tag(conn, tag_id)?;
+            ensure_writes_or_absent(conn, &cookbook_id, person_id, no_such_tag)?;
             for statement in [
                 "DELETE FROM branch_tags WHERE tag_id = ?1",
                 "DELETE FROM tag_names WHERE tag_id = ?1",
@@ -207,7 +249,9 @@ impl Core {
 
     /// File a recipe under a Tag, or take it back out — `carried` says which.
     /// Both are ordinary filing: neither mints a Version, neither appears in
-    /// the Thread, and the recipe's fingerprint is untouched (ADR 0035).
+    /// the Thread, and the recipe's fingerprint is untouched (ADR 0035). Only
+    /// the recipe's Co-authors file it (#131, question 3): a Kitchen-mate does
+    /// not put your recipe under a word of theirs.
     pub fn set_recipe_tag(
         &self,
         person_id: &str,
@@ -216,29 +260,21 @@ impl Core {
         carried: bool,
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let branch_kitchen: String = conn
-                .query_row(
-                    "SELECT kitchen_id FROM branches WHERE id = ?1",
-                    params![branch_id],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
-                .ok_or_else(no_such_branch)?;
-            ensure_member_or_absent(conn, &branch_kitchen, person_id, no_such_branch)?;
+            let branch_cookbook = branch_cookbook(conn, branch_id)?;
+            ensure_writes(conn, &branch_cookbook, person_id)?;
 
-            // A Tag belongs to one Kitchen, so a recipe can only be filed
-            // under its own Kitchen's words (ADR 0007). Reaching across is a
-            // request for a Tag this Kitchen does not have.
-            let tag_kitchen = kitchen_of_tag(conn, tag_id)?;
-            if tag_kitchen != branch_kitchen {
+            // A Tag belongs to one Cookbook, so a recipe can only be filed
+            // under its own Cookbook's words. Reaching across is a request for
+            // a Tag this Cookbook does not have.
+            let tag_cookbook = cookbook_of_tag(conn, tag_id)?;
+            if tag_cookbook != branch_cookbook {
                 // The sentence below says this Tag exists on some other shelf,
-                // which is a fact worth having only if that shelf is one of
-                // the caller's own. To anyone else the Tag is not here at all
+                // which is a fact worth having only if that shelf is one the
+                // caller may see. To anyone else the Tag is not here at all
                 // (ADR 0040).
-                ensure_member_or_absent(conn, &tag_kitchen, person_id, no_such_tag)?;
+                ensure_sees_or_absent(conn, &tag_cookbook, person_id, no_such_tag)?;
                 return Err(OpError::not_found(
-                    "no such Tag in the Kitchen holding this recipe",
+                    "no such Tag in the Cookbook holding this recipe",
                 ));
             }
 
@@ -260,16 +296,19 @@ impl Core {
     }
 }
 
-/// A Tag id that names nothing here — and, by ADR 0040, a Tag of a Kitchen the
-/// caller does not cook in.
+/// A Tag id that names nothing here — and, by ADR 0040, a Tag of a Cookbook
+/// the caller may not see.
 pub(super) fn no_such_tag() -> OpError {
     OpError::not_found("no such Tag")
 }
 
-/// Which Kitchen a Tag belongs to — and, by failing, that it exists at all.
-pub(super) fn kitchen_of_tag(conn: &rusqlite::Connection, tag_id: &str) -> Result<String, OpError> {
+/// Which Cookbook a Tag belongs to — and, by failing, that it exists at all.
+pub(super) fn cookbook_of_tag(
+    conn: &rusqlite::Connection,
+    tag_id: &str,
+) -> Result<String, OpError> {
     conn.query_row(
-        "SELECT kitchen_id FROM tags WHERE id = ?1",
+        "SELECT cookbook_id FROM tags WHERE id = ?1",
         params![tag_id],
         |row| row.get(0),
     )
@@ -278,18 +317,18 @@ pub(super) fn kitchen_of_tag(conn: &rusqlite::Connection, tag_id: &str) -> Resul
     .ok_or_else(no_such_tag)
 }
 
-/// The Tag a Kitchen already files under this word in this Language, if any.
+/// The Tag a Cookbook already files under this word in this Language, if any.
 /// Compared on the fold, which is what the schema holds unique.
 pub(super) fn tag_id_for_word(
     conn: &rusqlite::Connection,
-    kitchen_id: &str,
+    cookbook_id: &str,
     language: &str,
     name: &str,
 ) -> Result<Option<String>, OpError> {
     conn.query_row(
         "SELECT tag_id FROM tag_names \
-           WHERE kitchen_id = ?1 AND language = ?2 AND name_folded = ?3",
-        params![kitchen_id, language, folded_word(name)],
+           WHERE cookbook_id = ?1 AND language = ?2 AND name_folded = ?3",
+        params![cookbook_id, language, folded_word(name)],
         |row| row.get(0),
     )
     .optional()
@@ -297,17 +336,18 @@ pub(super) fn tag_id_for_word(
 }
 
 /// The Tag a recipe arriving from elsewhere is filed under, in the receiving
-/// Kitchen's own list (CONTEXT.md, "Tag"): a word this Kitchen already files
+/// Cookbook's own list (CONTEXT.md, "Tag"): a word this Cookbook already files
 /// by, in that Language, is that Tag; otherwise one is made, named in every
 /// Language it arrived in. `None` when there is no name to file by. A Bundle's
-/// tags and a Crouton library's (#128) both land through here.
+/// tags, a Crouton library's (#128), and a Branch copied from another
+/// Cookbook's all land through here.
 pub(super) fn arriving_tag(
     conn: &rusqlite::Connection,
-    kitchen_id: &str,
+    cookbook_id: &str,
     names: &[(&str, &str)],
 ) -> Result<Option<String>, OpError> {
     for (language, name) in names {
-        if let Some(found) = tag_id_for_word(conn, kitchen_id, language, name)? {
+        if let Some(found) = tag_id_for_word(conn, cookbook_id, language, name)? {
             return Ok(Some(found));
         }
     }
@@ -316,15 +356,15 @@ pub(super) fn arriving_tag(
     }
     let tag_id = format!("t_{}", hex::encode(random_bytes(8)));
     conn.execute(
-        "INSERT INTO tags (id, kitchen_id) VALUES (?1, ?2)",
-        params![tag_id, kitchen_id],
+        "INSERT INTO tags (id, cookbook_id) VALUES (?1, ?2)",
+        params![tag_id, cookbook_id],
     )
     .map_err(|e| OpError::internal(format!("cannot create Tag: {e}")))?;
     for (language, name) in names {
         conn.execute(
-            "INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) \
+            "INSERT OR IGNORE INTO tag_names (tag_id, cookbook_id, language, name, name_folded) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![tag_id, kitchen_id, language, name, folded_word(name)],
+            params![tag_id, cookbook_id, language, name, folded_word(name)],
         )
         .map_err(|e| OpError::internal(format!("cannot name Tag: {e}")))?;
     }
@@ -356,7 +396,7 @@ fn tag_summary(
     tag_id: &str,
     viewer_person_id: &str,
 ) -> Result<Value, OpError> {
-    let kitchen_id = kitchen_of_tag(conn, tag_id)?;
+    let cookbook_id = cookbook_of_tag(conn, tag_id)?;
     let mut statement = conn
         .prepare("SELECT language, name FROM tag_names WHERE tag_id = ?1")
         .map_err(|e| OpError::internal(format!("cannot read Tag names: {e}")))?;
@@ -372,7 +412,7 @@ fn tag_summary(
 
     Ok(json!({
         "id": tag_id,
-        "kitchen_id": kitchen_id,
+        "cookbook_id": cookbook_id,
         "name": shown.map(|(_, name)| name.as_str()),
         "language": shown.map(|(language, _)| language.as_str()),
         "names": names,
@@ -395,9 +435,9 @@ fn tag_summary(
 /// `branch_tags` would say ten the moment somebody tagged both a recipe and its
 /// Translation, which is one recipe on every screen that shows it.
 ///
-/// No permission question here. A Tag belongs to one Kitchen (ADR 0007) and so
-/// does every Branch that can carry it, so a caller who may see the Tag at all
-/// may see everything counted.
+/// No permission question here. A Tag belongs to one Cookbook and so does
+/// every Branch that can carry it, so a caller who may see the Tag at all may
+/// see everything counted.
 fn recipes_with_tag(conn: &rusqlite::Connection, tag_id: &str) -> Result<i64, OpError> {
     conn.query_row(
         "SELECT COUNT(DISTINCT branches.lineage_id) FROM branch_tags \

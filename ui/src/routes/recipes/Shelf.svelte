@@ -71,13 +71,22 @@
 
 	let kitchens = $state<ListKitchensOutput['kitchens']>([]);
 	/**
-	 * Every Tag the Kitchens this reader cooks in file by, merged — all of them,
-	 * whichever Kitchen filter is held. Which ones to OFFER is worked out from
-	 * this below rather than by asking again, because a Tag carries the Kitchen
-	 * it belongs to (ADR 0007) and re-asking on every filter tap would put a
-	 * round trip between the thumb and a row of chips that is already here.
+	 * Every word the Cookbooks on this shelf file by, one entry per word
+	 * however many of them use it (#131, question 3): "Dessert" from two
+	 * Cookbooks is one chip, and filtering by it finds what each filed there.
+	 * Every Kitchen's own list is read beside it, once, so a filter tap swaps
+	 * one row of chips for another already here instead of putting a round
+	 * trip between the thumb and the row.
 	 */
 	let tags = $state<Tag[]>([]);
+	/**
+	 * Each Kitchen's own words, by Kitchen id: what its Cookbooks file by, one
+	 * entry per word. Read with the rest rather than narrowed from `tags`,
+	 * because `tags` keeps ONE Tag per word and that Tag may belong to a
+	 * Cookbook the Kitchen does not see, which would hide a word the Kitchen
+	 * really files by.
+	 */
+	let kitchenTags = $state<Record<string, Tag[]>>({});
 	let answer = $state<SearchRecipesOutput | undefined>(undefined);
 	let failed = $state(false);
 	/**
@@ -102,24 +111,23 @@
 			.then(async (held) => {
 				if (!current) return;
 				kitchens = held.kitchens;
-				// Every Kitchen's Tags, merged into one row — the same merge the
-				// shelf itself is (ADR 0027). Asked per Kitchen because a Tag
-				// belongs to one, and a Kitchen whose list cannot be read costs
-				// only its own words rather than the whole row.
-				const lists = await Promise.all(
-					held.kitchens.map((kitchen) =>
-						kamosu.listTags({ kitchen_id: kitchen.id }).catch((error: unknown) => {
-							if (!(error instanceof OperationError)) throw error;
-							return { tags: [] };
-						}),
-					),
-				);
-				// By id, because several answers are being merged into one row
-				// and a Tag drawn twice is two chips that do the same thing.
+				// Every word of every Cookbook on the shelf, merged by the Core
+				// into one entry per word — the same merge the shelf itself is
+				// (ADR 0027). Failing costs only the row, never the shelf.
+				const read = (input: { everywhere: true } | { kitchen_id: string }) =>
+					kamosu.listTags(input).catch((error: unknown) => {
+						if (!(error instanceof OperationError)) throw error;
+						return { tags: [] };
+					});
+				const [words, ...perKitchen] = await Promise.all([
+					read({ everywhere: true }),
+					...held.kitchens.map((kitchen) => read({ kitchen_id: kitchen.id })),
+				]);
 				if (current) {
-					tags = [
-						...new Map(lists.flatMap((list) => list.tags).map((held) => [held.id, held])).values(),
-					];
+					tags = words.tags;
+					kitchenTags = Object.fromEntries(
+						held.kitchens.map((kitchen, index) => [kitchen.id, perKitchen[index]?.tags ?? []]),
+					);
 				}
 			})
 			.catch((error: unknown) => {
@@ -134,7 +142,8 @@
 	});
 
 	/**
-	 * The Tags to offer: those of the Kitchen being filtered to, or all of them.
+	 * The Tags to offer: those of the Cookbooks seen in the Kitchen being
+	 * filtered to, or all of them.
 	 * Narrowed HERE rather than by asking again, so the row follows a Kitchen
 	 * chip the moment it is tapped — a chip that can only ever find nothing is
 	 * worse than no chip.
@@ -143,13 +152,13 @@
 		// Read into a local first, as the search effect below does: a union held
 		// in state does not stay narrowed across the closure that reads it.
 		const held = filter;
-		return byWord(
-			held.kind === 'kitchen' ? tags.filter((tag) => tag.kitchen_id === held.id) : tags,
-		);
+		return byWord(held.kind === 'kitchen' ? (kitchenTags[held.id] ?? []) : tags);
 	});
 
-	/** The Tag being filtered by, once its Kitchen's list has been read. */
-	const filtering = $derived(tags.find((held) => held.id === tag) ?? null);
+	/** The Tag being filtered by, once the list holding it has been read. */
+	const filtering = $derived(
+		[tags, ...Object.values(kitchenTags)].flat().find((held) => held.id === tag) ?? null,
+	);
 	/** Its word, for the count and the nothing-found line. */
 	const filteringWord = $derived(filtering ? tagWord(filtering).name : null);
 
@@ -360,7 +369,7 @@
 				{meaning.status?.on ? m.recipes_nothing_why_meaning() : m.recipes_nothing_why()}
 			</p>
 			<div class="mt-4">
-				<AddOrImport title={unmatched} {kitchens} />
+				<AddOrImport title={unmatched} />
 			</div>
 			<!--
 				Offered here rather than buried in settings: this is the moment a

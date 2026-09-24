@@ -473,14 +473,15 @@ fn photograph_seen_by(conn: &Connection, person_id: &str, hash: &str) -> Result<
         return Ok(true);
     }
 
-    // A Version carried by a Branch of a Kitchen this Person cooks in.
+    // A Version carried by a Branch of a Cookbook this Person may see.
     let mut statement = conn
         .prepare_cached(
             "SELECT versions.content FROM versions
                JOIN branch_versions ON branch_versions.version_id = versions.id
                JOIN branches ON branches.id = branch_versions.branch_id
-               JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id
-              WHERE kitchen_members.person_id = ?2 AND instr(versions.content, ?1) > 0",
+              WHERE branches.cookbook_id IN
+                        (SELECT cookbook_id FROM visible_cookbooks WHERE person_id = ?2)
+                AND instr(versions.content, ?1) > 0",
         )
         .map_err(failed)?;
     let contents = statement
@@ -493,10 +494,11 @@ fn photograph_seen_by(conn: &Connection, person_id: &str, hash: &str) -> Result<
     }
 
     // An Attempt: this Person's own, whole — its pictures and the Versions it
-    // pins — or one of the household's, for the pictures it holds itself.
+    // pins — or one of their company's on a recipe they may see, for the
+    // pictures it holds itself (#131, question 1).
     let mut statement = conn
         .prepare_cached(
-            "SELECT attempts.person_id = ?2, attempts.photographs,
+            &"SELECT attempts.person_id = ?2, attempts.photographs,
                     pinned.content, as_cooked.content
                FROM attempts
                JOIN versions AS pinned ON pinned.id = attempts.version_id
@@ -504,13 +506,14 @@ fn photograph_seen_by(conn: &Connection, person_id: &str, hash: &str) -> Result<
               WHERE (instr(attempts.photographs, ?1) > 0
                      OR instr(pinned.content, ?1) > 0
                      OR instr(as_cooked.content, ?1) > 0)
-                AND (attempts.person_id = ?2 OR EXISTS (
-                      SELECT 1 FROM branches
-                        JOIN kitchen_members AS mine ON mine.kitchen_id = branches.kitchen_id
-                        JOIN kitchen_members AS theirs ON theirs.kitchen_id = branches.kitchen_id
-                       WHERE branches.lineage_id = attempts.lineage_id
-                         AND mine.person_id = ?2
-                         AND theirs.person_id = attempts.person_id))",
+                AND (attempts.person_id = ?2 OR (
+                      attempts.person_id IN (COMPANY)
+                      AND EXISTS (
+                        SELECT 1 FROM branches
+                         WHERE branches.lineage_id = attempts.lineage_id
+                           AND branches.cookbook_id IN
+                               (SELECT cookbook_id FROM visible_cookbooks WHERE person_id = ?2))))"
+                .replace("COMPANY", &company_of("?2")),
         )
         .map_err(failed)?;
     let attempts = statement

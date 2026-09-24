@@ -14,7 +14,8 @@ import Settings from './+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
 import { went } from '../../testing/navigation';
-import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import type { GetCookbookOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
 
 /**
  * Paraglide's `setLocale` reloads the page, which jsdom cannot do. What a test
@@ -63,6 +64,19 @@ const meaningStatus = (
 	...over,
 });
 
+/** Your Cookbook as `get_cookbook` answers it: yours alone, unless a test says otherwise. */
+function cookbookOf(over: Partial<GetCookbookOutput> = {}): GetCookbookOutput {
+	return {
+		id: 'c_1',
+		name: null,
+		authors: [{ person_id: 'p_1', name: 'Aurélien' }],
+		recipe_count: 87,
+		kitchens: [],
+		invites: [],
+		...over,
+	};
+}
+
 /**
  * A signed-in Person who has never touched the setting: reading in English, in
  * American measures. That is the stated default rather than a guess about
@@ -81,6 +95,10 @@ const readsInAmerican: Answers = {
 	meaning_search_status: meaningStatus(),
 	// No Crouton library brought in yet, so Settings links to no Report (#69).
 	list_jobs: { jobs: [] },
+	// A Cookbook of one, as every account starts with (#131), with no words
+	// filed yet: its Tags card reads them whatever Kitchens there are.
+	get_cookbook: cookbookOf(),
+	list_tags: { tags: [] },
 };
 
 describe('the settings screen', () => {
@@ -267,7 +285,7 @@ describe('the settings screen', () => {
 		expect(screen.queryByText('the-one-time-secret')).not.toBeInTheDocument();
 	});
 
-	it("lists a signed-in Person's Kitchens, marking the Home one and letting a member be removed", async () => {
+	it("lists a signed-in Person's Kitchens, whose recipes each shows, and lets a member be removed", async () => {
 		const { kamosu } = renderScreen(Settings, {
 			instance_status: { version: '0.1.0', setup_complete: true },
 			list_sessions: { sessions: [] },
@@ -278,17 +296,15 @@ describe('the settings screen', () => {
 				kitchens: [
 					{
 						id: 'k_home',
-						name: "Aurélien's Home Kitchen",
-						hand_id: 'k_home',
-						is_home: true,
+						name: 'Maison Batterman',
+						cookbooks: [cookbookLabel()],
 						nickname: null,
 						members: [{ person_id: 'p_1', name: 'Aurélien' }],
 					},
 					{
 						id: 'k_shared',
 						name: 'Supper Club',
-						hand_id: 'k_shared',
-						is_home: false,
+						cookbooks: [cookbookLabel(), cookbookLabel('c_2', ['Marie'])],
 						nickname: 'Nos amis',
 						members: [
 							{ person_id: 'p_1', name: 'Aurélien' },
@@ -301,9 +317,13 @@ describe('the settings screen', () => {
 		});
 
 		expect(await screen.findByDisplayValue('Supper Club')).toBeInTheDocument();
-		expect(screen.getByDisplayValue("Aurélien's Home Kitchen")).toBeInTheDocument();
-		expect(screen.getByText('Home')).toBeInTheDocument();
+		expect(screen.getByDisplayValue('Maison Batterman')).toBeInTheDocument();
+		// No Home Kitchen any more: a recipe lives in a Cookbook (#131).
+		expect(screen.queryByText('Home')).not.toBeInTheDocument();
 		expect(screen.getByDisplayValue('Nos amis')).toBeInTheDocument();
+		expect(
+			screen.getByText('Recipes here: Aurélien’s Cookbook and Marie’s Cookbook'),
+		).toBeInTheDocument();
 
 		const marieRow = screen.getByText('Marie').closest('li');
 		await fireEvent.click(within(marieRow as HTMLElement).getByRole('button', { name: 'Remove' }));
@@ -313,18 +333,15 @@ describe('the settings screen', () => {
 		});
 	});
 
-	// #118 and #32's story 20: the same Operation removes someone or, on your
-	// own row, leaves. The two must not read alike.
+	// #131, screen choice 4: leaving is its own act at the foot of the card,
+	// asked first with what each side keeps. Your own row carries no button.
 	describe('leaving a Kitchen', () => {
-		const kitchen = (id: string, members: [string, string][]) => ({
-			id,
-			name: id,
-			hand_id: id,
-			is_home: id === 'k_home',
-			nickname: null,
-			members: members.map(([person_id, name]) => ({ person_id, name })),
-		});
-		const signedIn = (kitchens: ReturnType<typeof kitchen>[]): Answers => ({
+		const kitchen = (id: string, members: [string, string][]) =>
+			kitchenAnswer(id, {
+				name: id,
+				members: members.map(([person_id, name]) => ({ person_id, name })),
+			});
+		const signedIn = (kitchens: ReturnType<typeof kitchen>[], over: Answers = {}): Answers => ({
 			instance_status: { version: '0.1.0', setup_complete: true },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
@@ -332,106 +349,103 @@ describe('the settings screen', () => {
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens },
 			remove_kitchen_member: { removed: true },
+			preview_leaving_kitchen: { they_keep: 4, you_keep: 6 },
+			...over,
 		});
 		const rowOf = (name: string) => screen.getByText(name).closest('li') as HTMLElement;
-		const keeps = /Leaving deletes nothing/;
+		const TWO = [
+			kitchen('Family', [
+				['p_1', 'Aurélien'],
+				['p_2', 'Hélène'],
+				['p_3', 'Luc'],
+			]),
+			kitchen('Supper Club', [
+				['p_1', 'Aurélien'],
+				['p_4', 'Marie'],
+			]),
+		];
+		const cardOf = async (name: string) =>
+			(await screen.findByDisplayValue(name)).closest('li') as HTMLElement;
 
-		it("says Leave on your own row and Remove on everyone else's", async () => {
-			const { kamosu } = renderScreen(
-				Settings,
-				signedIn([
-					kitchen('k_home', [['p_1', 'Aurélien']]),
-					kitchen('k_shared', [
-						['p_1', 'Aurélien'],
-						['p_2', 'Marie'],
-					]),
-				]),
+		it("offers Remove on everyone else's row and nothing on your own", async () => {
+			renderScreen(Settings, signedIn(TWO));
+			const family = await cardOf('Family');
+			const mine = within(within(family).getByText('Aurélien').closest('li') as HTMLElement);
+			expect(mine.queryByRole('button')).not.toBeInTheDocument();
+			expect(within(rowOf('Hélène')).getByRole('button', { name: 'Remove' })).toBeInTheDocument();
+			expect(
+				within(family).getByRole('button', { name: 'Leave this Kitchen' }),
+			).toBeInTheDocument();
+		});
+
+		it('asks first, saying what each side keeps, as the Core counted it', async () => {
+			const { kamosu } = renderScreen(Settings, signedIn(TWO));
+			await fireEvent.click(
+				within(await cardOf('Family')).getByRole('button', { name: 'Leave this Kitchen' }),
 			);
-			await screen.findByDisplayValue('k_shared');
 
-			expect(within(rowOf('Marie')).getByRole('button', { name: 'Remove' })).toBeInTheDocument();
-			const shared = screen.getByDisplayValue('k_shared').closest('li') as HTMLElement;
-			const mine = within(within(shared).getByText('Aurélien').closest('li') as HTMLElement);
-			expect(mine.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
-			expect(within(shared).getByText(keeps)).toBeInTheDocument();
-
-			await fireEvent.click(mine.getByRole('button', { name: 'Leave' }));
+			const sheet = within(await screen.findByRole('dialog'));
+			expect(sheet.getByRole('heading', { name: 'Leave Family?' })).toBeInTheDocument();
+			expect(
+				sheet.getByText('Your recipes stop showing in Family, and theirs stop showing for you.'),
+			).toBeInTheDocument();
+			expect(sheet.getByText('Hélène and Luc keep')).toBeInTheDocument();
+			expect(
+				sheet.getByText('their own copy of the 4 recipes of yours they cooked'),
+			).toBeInTheDocument();
+			expect(sheet.getByText('your own copy of the 6 of theirs you cooked')).toBeInTheDocument();
 			expect(kamosu.calls).toContainEqual({
-				operation: 'remove_kitchen_member',
-				input: { kitchen_id: 'k_shared', person_id: 'p_1' },
+				operation: 'preview_leaving_kitchen',
+				input: { kitchen_id: 'Family' },
 			});
-		});
+			// Asking is not leaving.
+			expect(kamosu.calls.map((call) => call.operation)).not.toContain('remove_kitchen_member');
 
-		it('says why, instead of offering Leave, in the only Kitchen you cook in', async () => {
-			renderScreen(
-				Settings,
-				signedIn([
-					kitchen('k_home', [
-						['p_1', 'Aurélien'],
-						['p_2', 'Marie'],
-					]),
-				]),
-			);
-			const home = (await screen.findByDisplayValue('k_home')).closest('li') as HTMLElement;
-
-			const mine = within(within(home).getByText('Aurélien').closest('li') as HTMLElement);
-			expect(mine.getByText('Your only Kitchen')).toBeInTheDocument();
-			expect(mine.queryByRole('button')).not.toBeInTheDocument();
-			expect(within(rowOf('Marie')).getByRole('button', { name: 'Remove' })).toBeInTheDocument();
-		});
-
-		it('says why, instead of offering Leave, in a Kitchen where you are the only member', async () => {
-			renderScreen(
-				Settings,
-				signedIn([
-					kitchen('k_home', [['p_1', 'Aurélien']]),
-					kitchen('k_shared', [
-						['p_1', 'Aurélien'],
-						['p_2', 'Marie'],
-					]),
-				]),
-			);
-			const home = (await screen.findByDisplayValue('k_home')).closest('li') as HTMLElement;
-
-			const mine = within(within(home).getByText('Aurélien').closest('li') as HTMLElement);
-			expect(mine.getByText("You're the only one here")).toBeInTheDocument();
-			expect(mine.queryByRole('button')).not.toBeInTheDocument();
-			expect(within(home).queryByText(keeps)).not.toBeInTheDocument();
-		});
-
-		it('says so once the last other member is removed while the screen is open', async () => {
-			let marieLeft = false;
-			renderScreen(Settings, {
-				...signedIn([]),
-				list_kitchens: () => ({
-					kitchens: [
-						kitchen('k_home', [['p_1', 'Aurélien']]),
-						kitchen(
-							'k_shared',
-							marieLeft
-								? [['p_1', 'Aurélien']]
-								: [
-										['p_1', 'Aurélien'],
-										['p_2', 'Marie'],
-									],
-						),
-					],
+			await fireEvent.click(sheet.getByRole('button', { name: 'Leave Family' }));
+			await waitFor(() =>
+				expect(kamosu.calls).toContainEqual({
+					operation: 'remove_kitchen_member',
+					input: { kitchen_id: 'Family', person_id: 'p_1' },
 				}),
-				remove_kitchen_member: () => {
-					marieLeft = true;
-					return { removed: true };
-				},
-			});
-			await screen.findByText('Marie');
+			);
+			await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+		});
 
-			await fireEvent.click(within(rowOf('Marie')).getByRole('button', { name: 'Remove' }));
-			await waitFor(() => expect(screen.queryByText('Marie')).not.toBeInTheDocument());
+		it('says one person keeps, not one person keep', async () => {
+			renderScreen(Settings, signedIn(TWO));
+			await fireEvent.click(
+				within(await cardOf('Supper Club')).getByRole('button', { name: 'Leave this Kitchen' }),
+			);
+			expect(
+				within(await screen.findByRole('dialog')).getByText('Marie keeps'),
+			).toBeInTheDocument();
+		});
 
-			const shared = screen.getByDisplayValue('k_shared').closest('li') as HTMLElement;
-			const mine = within(within(shared).getByText('Aurélien').closest('li') as HTMLElement);
-			expect(mine.getByText("You're the only one here")).toBeInTheDocument();
-			expect(mine.queryByRole('button')).not.toBeInTheDocument();
-			expect(within(shared).queryByText(keeps)).not.toBeInTheDocument();
+		it('says one recipe and nothing in words, never "1 recipes" or "0 of theirs"', async () => {
+			renderScreen(
+				Settings,
+				signedIn(TWO, { preview_leaving_kitchen: { they_keep: 1, you_keep: 0 } }),
+			);
+			await fireEvent.click(
+				within(await cardOf('Family')).getByRole('button', { name: 'Leave this Kitchen' }),
+			);
+			const sheet = within(await screen.findByRole('dialog'));
+			expect(
+				sheet.getByText('their own copy of the one recipe of yours they cooked'),
+			).toBeInTheDocument();
+			expect(sheet.getByText('nothing: you cooked none of theirs')).toBeInTheDocument();
+		});
+
+		it('stays without leaving anything', async () => {
+			const { kamosu } = renderScreen(Settings, signedIn(TWO));
+			await fireEvent.click(
+				within(await cardOf('Family')).getByRole('button', { name: 'Leave this Kitchen' }),
+			);
+			await fireEvent.click(
+				within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stay' }),
+			);
+			expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+			expect(kamosu.calls.map((call) => call.operation)).not.toContain('remove_kitchen_member');
 		});
 	});
 
@@ -445,8 +459,7 @@ describe('the settings screen', () => {
 			create_kitchen: {
 				id: 'k_new',
 				name: 'Supper Club',
-				hand_id: 'k_new',
-				is_home: false,
+				cookbooks: [cookbookLabel()],
 				nickname: null,
 				members: [{ person_id: 'p_1', name: 'Aurélien' }],
 			},
@@ -475,9 +488,8 @@ describe('the settings screen', () => {
 				kitchens: [
 					{
 						id: 'k_home',
-						name: "Aurélien's Home Kitchen",
-						hand_id: 'k_home',
-						is_home: true,
+						name: 'Maison Batterman',
+						cookbooks: [cookbookLabel()],
 						nickname: null,
 						members: [{ person_id: 'p_1', name: 'Aurélien' }],
 					},
@@ -486,7 +498,7 @@ describe('the settings screen', () => {
 			invite_to_kitchen: { invite_id: 'ki_1', secret: 'the-invite-secret' },
 		});
 
-		await screen.findByDisplayValue("Aurélien's Home Kitchen");
+		await screen.findByDisplayValue('Maison Batterman');
 		await fireEvent.click(screen.getByRole('button', { name: 'Invite someone' }));
 
 		expect(await screen.findByText('the-invite-secret')).toBeInTheDocument();
@@ -506,8 +518,7 @@ describe('the settings screen', () => {
 			accept_kitchen_invite: {
 				id: 'k_shared',
 				name: 'Supper Club',
-				hand_id: 'k_shared',
-				is_home: false,
+				cookbooks: [cookbookLabel()],
 				nickname: null,
 				members: [{ person_id: 'p_1', name: 'Aurélien' }],
 			},
@@ -540,9 +551,9 @@ describe('the settings screen', () => {
 			...readsInAmerican,
 			list_tags: { tags: [] },
 			list_kitchens: {
-				// The dev instance's own six, home Kitchen included.
+				// The dev instance's own six.
 				kitchens: [
-					"Aurélien's Home Kitchen",
+					'Maison Batterman',
 					'Chez Marc',
 					'Chez Élodie',
 					'Le Chalet',
@@ -551,8 +562,7 @@ describe('the settings screen', () => {
 				].map((name, index) => ({
 					id: `k_${index}`,
 					name,
-					hand_id: `k_${index}`,
-					is_home: index === 0,
+					cookbooks: [cookbookLabel()],
 					nickname: null,
 					members: [{ person_id: 'p_1', name: 'Aurélien' }],
 				})),
@@ -588,7 +598,7 @@ describe('the settings screen', () => {
 	// an informed act, and that a tag known only in one Language can be given a
 	// name in another.
 
-	/** One signed-in Person with one Kitchen, which is the ordinary case. */
+	/** One signed-in Person with one Kitchen and a Cookbook of their own, the ordinary case. */
 	const withKitchen: Answers = {
 		instance_status: { version: '0.1.0', setup_complete: true },
 		list_sessions: { sessions: [] },
@@ -598,9 +608,8 @@ describe('the settings screen', () => {
 			kitchens: [
 				{
 					id: 'k_home',
-					name: "Aurélien's Home Kitchen",
-					hand_id: 'k_home',
-					is_home: true,
+					name: 'Maison Batterman',
+					cookbooks: [cookbookLabel()],
 					nickname: null,
 					members: [{ person_id: 'p_1', name: 'Aurélien' }],
 				},
@@ -610,7 +619,7 @@ describe('the settings screen', () => {
 
 	const settingsTag = (id: string, name: string, recipes: number, language = 'en') => ({
 		id,
-		kitchen_id: 'k_home',
+		cookbook_id: 'c_1',
 		name,
 		language,
 		names: [{ language, name }],
@@ -620,7 +629,7 @@ describe('the settings screen', () => {
 		language_fallback: language !== 'en',
 	});
 
-	it('says a Kitchen has no tags yet rather than showing an empty box', async () => {
+	it('says a Cookbook has no tags yet rather than showing an empty box', async () => {
 		renderScreen(Settings, { ...withKitchen, list_tags: { tags: [] } });
 
 		expect(await screen.findByRole('heading', { name: 'Tags' })).toBeInTheDocument();
@@ -965,9 +974,8 @@ describe('the Reading Language (#112)', () => {
 				kitchens: [
 					{
 						id: 'k_home',
-						name: "Aurélien's Home Kitchen",
-						hand_id: 'k_home',
-						is_home: true,
+						name: 'Maison Batterman',
+						cookbooks: [cookbookLabel()],
 						nickname: null,
 						members: [{ person_id: 'p_1', name: 'Aurélien' }],
 					},
@@ -1024,22 +1032,20 @@ describe('the Reading Language (#112)', () => {
 });
 
 describe('your own name (#113)', () => {
-	/** Your Home Kitchen and one you share with Marie, as the server names them now. */
+	/** A Kitchen of your own and one you share with Marie, as the server names them now. */
 	const kitchensNaming = (you: string) => ({
 		kitchens: [
 			{
 				id: 'k_home',
-				name: "Aurélien's Home Kitchen",
-				hand_id: 'k_home',
-				is_home: true,
+				name: 'Maison Batterman',
+				cookbooks: [cookbookLabel()],
 				nickname: null,
 				members: [{ person_id: 'p_1', name: you }],
 			},
 			{
 				id: 'k_shared',
 				name: 'Supper Club',
-				hand_id: 'k_shared',
-				is_home: false,
+				cookbooks: [cookbookLabel()],
 				nickname: null,
 				members: [
 					{ person_id: 'p_1', name: you },
@@ -1063,7 +1069,7 @@ describe('your own name (#113)', () => {
 	const youSection = async () =>
 		(await screen.findByRole('heading', { name: 'You' })).closest('section') as HTMLElement;
 
-	it('shows your name first, and marks your own row in every Kitchen as you', async () => {
+	it('shows your name first, and marks your own row in every Kitchen and your Cookbook as you', async () => {
 		renderScreen(Settings, signedIn());
 
 		const you = await youSection();
@@ -1076,7 +1082,8 @@ describe('your own name (#113)', () => {
 
 		await screen.findByDisplayValue('Supper Club');
 		const marked = screen.getAllByText('you');
-		expect(marked).toHaveLength(2);
+		// Two Kitchens, and the Written by list of your Cookbook (#131).
+		expect(marked).toHaveLength(3);
 		for (const mark of marked) expect(mark.closest('li')?.textContent).toContain('Aurélien');
 		const marieRow = screen.getByText('Marie').closest('li') as HTMLElement;
 		expect(within(marieRow).queryByText('you')).not.toBeInTheDocument();
@@ -1113,6 +1120,10 @@ describe('your own name (#113)', () => {
 			Settings,
 			signedIn({
 				list_kitchens: () => kitchensNaming(renamed ? 'Aurélien Dupont' : 'Aurélien'),
+				get_cookbook: () =>
+					cookbookOf({
+						authors: [{ person_id: 'p_1', name: renamed ? 'Aurélien Dupont' : 'Aurélien' }],
+					}),
 				rename_person: () => {
 					renamed = true;
 					return { name: 'Aurélien Dupont' };
@@ -1140,9 +1151,10 @@ describe('your own name (#113)', () => {
 		const you = await youSection();
 		expect(within(you).getByText('Aurélien Dupont')).toBeInTheDocument();
 		expect(within(you).getByRole('button', { name: 'Change your name' })).toBeInTheDocument();
-		// Your rows in the Kitchens were read again, and still say they are you.
-		await vi.waitFor(() => expect(screen.getAllByText(/^Aurélien Dupont$/).length).toBe(3));
-		expect(screen.getAllByText('you')).toHaveLength(2);
+		// Your rows in the Kitchens and your Cookbook were read again, and
+		// still say they are you.
+		await vi.waitFor(() => expect(screen.getAllByText(/^Aurélien Dupont$/).length).toBe(4));
+		expect(screen.getAllByText('you')).toHaveLength(3);
 	});
 
 	it('says why a name was refused, and keeps the field open to try another', async () => {
@@ -1290,7 +1302,7 @@ describe('telling your Sessions apart (#114)', () => {
 		const field = screen.getByLabelText('Call it');
 		expect(field).toHaveValue('');
 		await fireEvent.input(field, { target: { value: 'Kitchen laptop' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		await fireEvent.click(within((await rows())[2]).getByRole('button', { name: 'Save' }));
 
 		expect(kamosu.calls).toContainEqual({
 			operation: 'rename_session',
@@ -1326,11 +1338,203 @@ describe('telling your Sessions apart (#114)', () => {
 
 		await fireEvent.click(within((await rows())[1]).getByRole('button', { name: 'Rename' }));
 		await fireEvent.input(screen.getByLabelText('Call it'), { target: { value: 'Work' } });
-		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+		await fireEvent.click(within((await rows())[1]).getByRole('button', { name: 'Save' }));
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'no live Session with that id belongs to this Person',
 		);
 		expect(screen.getByLabelText('Call it')).toHaveValue('Work');
+	});
+});
+
+// #131, screen choices 2 and 5: your Cookbook, above the Kitchens, with the
+// one-use link that makes it a Cookbook you write with somebody.
+describe('your Cookbook (#131)', () => {
+	const signedIn = (over: Answers = {}): Answers => ({
+		instance_status: { version: '0.1.0', setup_complete: true },
+		list_sessions: { sessions: [] },
+		list_access_keys: { access_keys: [] },
+		...readsInAmerican,
+		list_kitchens: { kitchens: [] },
+		...over,
+	});
+	const card = async () =>
+		(await screen.findByRole('heading', { level: 2, name: 'Your Cookbook' })).closest(
+			'section',
+		) as HTMLElement;
+	const TOGETHER = cookbookOf({
+		authors: [
+			{ person_id: 'p_1', name: 'Aurélien' },
+			{ person_id: 'p_2', name: 'Camille' },
+		],
+		recipe_count: 99,
+	});
+
+	it('says who writes it and how many recipes, and is named after them until renamed', async () => {
+		renderScreen(Settings, signedIn());
+		const book = within(await card());
+		const name = book.getByLabelText('Your Cookbook’s name');
+		expect(name).toHaveValue('');
+		expect(name).toHaveAttribute('placeholder', 'Aurélien’s');
+		expect(
+			book.getByText('Named after whoever writes it, until you give it a name of your own.'),
+		).toBeInTheDocument();
+		expect(
+			book.getByText(/^87 recipes\. Only the people who write this Cookbook/),
+		).toBeInTheDocument();
+		// A Cookbook of one has nobody to leave.
+		expect(book.queryByRole('button', { name: 'Leave this Cookbook' })).not.toBeInTheDocument();
+	});
+
+	it('renames it, and clears the name back to its authors’ with an empty box', async () => {
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({ rename_cookbook: cookbookOf({ name: 'Chez nous' }) }),
+		);
+		const book = within(await card());
+		await fireEvent.input(book.getByLabelText('Your Cookbook’s name'), {
+			target: { value: '  Chez nous ' },
+		});
+		await fireEvent.click(book.getByRole('button', { name: 'Save' }));
+		await waitFor(() =>
+			expect(kamosu.calls).toContainEqual({
+				operation: 'rename_cookbook',
+				input: { name: 'Chez nous' },
+			}),
+		);
+
+		await fireEvent.input(book.getByLabelText('Your Cookbook’s name'), { target: { value: '' } });
+		await fireEvent.click(book.getByRole('button', { name: 'Save' }));
+		await waitFor(() =>
+			expect(kamosu.calls).toContainEqual({ operation: 'rename_cookbook', input: { name: null } }),
+		);
+	});
+
+	it('mints a one-use link on this instance, copies it, and cancels it', async () => {
+		let minted = false;
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({
+				invite_to_cookbook: () => {
+					minted = true;
+					return { invite_id: 'ci_1', secret: 'the-cookbook-secret' };
+				},
+				get_cookbook: () =>
+					cookbookOf({
+						invites: minted ? [{ invite_id: 'ci_1', created_at: '2026-09-24T08:00:00Z' }] : [],
+					}),
+				cancel_cookbook_invite: () => {
+					minted = false;
+					return { ended: true };
+				},
+			}),
+		);
+		const writeText = vi.fn(async () => {});
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+		await fireEvent.click(
+			within(await card()).getByRole('button', { name: 'Write it with someone' }),
+		);
+		const link = `${location.origin}/cookbook-invite/the-cookbook-secret`;
+		expect(await screen.findByText(link)).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'Send this to the person. When they open it, their recipes and yours become one Cookbook you both change. Used once.',
+			),
+		).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+		expect(writeText).toHaveBeenCalledWith(link);
+		expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel it' }));
+		await waitFor(() =>
+			expect(kamosu.calls).toContainEqual({
+				operation: 'cancel_cookbook_invite',
+				input: { invite_id: 'ci_1' },
+			}),
+		);
+		await waitFor(() => expect(screen.queryByText(link)).not.toBeInTheDocument());
+		Reflect.deleteProperty(navigator, 'clipboard');
+	});
+
+	it('offers to end a link minted on an earlier visit, which it cannot show again', async () => {
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({
+				get_cookbook: cookbookOf({
+					invites: [{ invite_id: 'ci_old', created_at: '2026-09-20T08:00:00Z' }],
+				}),
+				cancel_cookbook_invite: { ended: true },
+			}),
+		);
+		const book = within(await card());
+		expect(
+			book.getByText('An invite to write it with you is waiting to be opened.'),
+		).toBeInTheDocument();
+		await fireEvent.click(book.getByRole('button', { name: 'Cancel it' }));
+		await waitFor(() =>
+			expect(kamosu.calls).toContainEqual({
+				operation: 'cancel_cookbook_invite',
+				input: { invite_id: 'ci_old' },
+			}),
+		);
+	});
+
+	it('asks before leaving a Cookbook written together, saying what each keeps', async () => {
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({ get_cookbook: TOGETHER, leave_cookbook: cookbookOf({ recipe_count: 99 }) }),
+		);
+		const book = within(await card());
+		expect(
+			book.getByText(
+				'Named after the people who write it until one of you renames it. Any of you can.',
+			),
+		).toBeInTheDocument();
+		await fireEvent.click(book.getByRole('button', { name: 'Leave this Cookbook' }));
+
+		const sheet = within(await screen.findByRole('dialog'));
+		expect(sheet.getByRole('heading', { name: 'Leave Aurélien and Camille?' })).toBeInTheDocument();
+		expect(
+			sheet.getByText(
+				'You take your own copy of all 99 recipes, with their whole history. The others keep theirs.',
+			),
+		).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('leave_cookbook');
+
+		await fireEvent.click(sheet.getByRole('button', { name: 'Leave' }));
+		await waitFor(() =>
+			expect(kamosu.calls.map((call) => call.operation)).toContain('leave_cookbook'),
+		);
+		await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+	});
+
+	it('asks before removing a Co-author, and removes them by the Operation', async () => {
+		const { kamosu } = renderScreen(
+			Settings,
+			signedIn({ get_cookbook: TOGETHER, remove_cookbook_author: cookbookOf() }),
+		);
+		const camille = (await card()).querySelectorAll('li');
+		const row = [...camille].find((li) => li.textContent?.includes('Camille')) as HTMLElement;
+		await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+
+		const sheet = within(await screen.findByRole('dialog'));
+		expect(sheet.getByRole('heading', { name: 'Stop writing with Camille?' })).toBeInTheDocument();
+		await fireEvent.click(sheet.getByRole('button', { name: 'Remove Camille' }));
+		await waitFor(() =>
+			expect(kamosu.calls).toContainEqual({
+				operation: 'remove_cookbook_author',
+				input: { person_id: 'p_2' },
+			}),
+		);
+	});
+
+	it('heads the Tags with your Cookbook, the only one whose words you rename', async () => {
+		renderScreen(Settings, signedIn({ get_cookbook: cookbookOf({ name: 'Chez nous' }) }));
+		const tags = (await screen.findByRole('heading', { name: 'Tags' })).closest(
+			'section',
+		) as HTMLElement;
+		expect(await within(tags).findByRole('heading', { name: 'Chez nous' })).toBeInTheDocument();
 	});
 });

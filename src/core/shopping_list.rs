@@ -24,7 +24,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
-            ensure_member_or_absent(conn, &head.kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_or_absent(conn, &head.cookbook_id, person_id, no_such_branch)?;
             let title = branch_title(conn, &head.head_version_id)?;
             let Some(moment) = shopping_moment(conn, person_id, written_at)? else {
                 return shopping_list(conn, person_id);
@@ -153,7 +153,7 @@ impl Core {
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
-            ensure_member_or_absent(conn, &head.kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_or_absent(conn, &head.cookbook_id, person_id, no_such_branch)?;
             if shopping_moment(conn, person_id, written_at)?.is_none() {
                 return shopping_list(conn, person_id);
             }
@@ -276,7 +276,7 @@ impl Core {
     pub fn shopping_basis(&self, person_id: &str, branch_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let head = branch_head(conn, branch_id)?;
-            ensure_member_or_absent(conn, &head.kitchen_id, person_id, no_such_branch)?;
+            ensure_sees_or_absent(conn, &head.cookbook_id, person_id, no_such_branch)?;
             let reader = Reader::of(conn, person_id)?;
             let content = version_content(conn, &head.head_version_id)?;
             let lines = basis_lines(
@@ -769,7 +769,7 @@ fn chosen_recipes(conn: &Connection, person_id: &str) -> Result<Vec<Chosen>, OpE
         // between Sunday and Tuesday is right on Tuesday.
         let head = branch_head(conn, &branch_id).ok();
         let readable = match &head {
-            Some(head) => is_member(conn, &head.kitchen_id, person_id)?,
+            Some(head) => sees_cookbook(conn, &head.cookbook_id, person_id)?,
             None => false,
         };
         let content = match (&head, readable) {

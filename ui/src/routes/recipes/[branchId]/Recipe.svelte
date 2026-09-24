@@ -110,7 +110,7 @@
 	 * that needed it most as the one case that never got it.
 	 */
 	let copiedInto = $state<
-		{ branchId: string; named: boolean; languageOffer: string | null } | undefined
+		{ branchId: string; named: boolean; languageOffer: string | null; varied?: string } | undefined
 	>(undefined);
 </script>
 
@@ -130,7 +130,8 @@
 	} from '$lib/api/catalogue';
 	import Hero from './Hero.svelte';
 	import { ratingLabel } from '$lib/rating';
-	import Threshold from './Threshold.svelte';
+	import VersionStrip from './VersionStrip.svelte';
+	import { branchPlainName } from '$lib/cookbook';
 	import MarkedRow from './MarkedRow.svelte';
 	import Correcting from './Correcting.svelte';
 	import Writing from './Writing.svelte';
@@ -174,8 +175,14 @@
 
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
 	let divergence = $state<DivergenceOutput | undefined>(undefined);
-	/** How many Branches of this Lineage exist, when that is more than the two the switch reads. */
-	let crowded = $state(0);
+	/**
+	 * Every version of this recipe the reader may see, for the switch (#131):
+	 * the Branches of the Lineage that share a history with this one, which is
+	 * every Copy and variation of it and never a Translation (see below).
+	 */
+	let versions = $state<GetThreadOutput['branches']>([]);
+	/** Whether the page is the reader's own recipe, the one marks compare against. */
+	let onYours = $state(false);
 	let failed = $state(false);
 	/**
 	 * The cookings of this dish, which the Thread already answers. Kept because
@@ -206,7 +213,12 @@
 	/** Bumped after a Promotion, to read the recipe back with its new Version. */
 	let reread = $state(0);
 
-	/** Which recipe you are standing in. `mine` is always the Branch in the URL. */
+	/**
+	 * Which side of the Divergence the page draws. `mine` is always the
+	 * reader's own recipe (#131), so on anybody else's version the page is
+	 * `theirs`: the rows are the same rows, read from the other side, and the
+	 * page is still the recipe in the URL.
+	 */
 	let side = $state<Side>('mine');
 	/** Whether the divergence is marked at all. Off is simply the recipe. */
 	let marks = $state(true);
@@ -391,6 +403,7 @@
 		copied: boolean;
 		named: boolean;
 		language_offer: string | null;
+		varied?: string;
 	}) {
 		// A save moves the head Version, and both of these are keyed by a
 		// line's index into the list that just changed underneath them.
@@ -410,6 +423,7 @@
 				branchId: landed.branch_id,
 				named: landed.named,
 				languageOffer: landed.language_offer,
+				varied: landed.varied,
 			};
 			follow(landed.branch_id);
 			return;
@@ -662,6 +676,16 @@
 			untrack(() => {
 				wrote = undefined;
 				named = undefined;
+				// The comparison was the last version's. Walking along the strip
+				// to your own must not carry its marks, or anything taken from
+				// it, onto a page that has nothing to compare (#131).
+				divergence = undefined;
+				side = 'mine';
+				marks = true;
+				open = new Set();
+				taken = new Map();
+				changeNote = '';
+				saved = 'no';
 				choosingHowMuch = false;
 				howMuchFailed = false;
 				// A Sheet being set was the last recipe's; `printSheet` stops
@@ -728,10 +752,7 @@
 					.catch(() => {});
 
 				// Any Branch of the Lineage answers the same Thread, so this is how
-				// the screen learns a second one exists at all. ADR 0014 designed
-				// the switch for exactly two and says a third is not designed for —
-				// so the recipe is read on its own, and the cook is told why rather
-				// than the other Branches simply vanishing.
+				// the screen learns the other versions of the recipe exist at all.
 				const thread = await kamosu.getThread({ branch_id: branchId });
 				if (!current) return;
 				attempts = thread.attempts;
@@ -743,12 +764,6 @@
 				// So a Translation and the recipe it renders share no Version at
 				// all, and asking for a Divergence between them is answered —
 				// correctly — with "their chains never converge".
-				//
-				// Before #106 that ask was made anyway, on any Lineage holding
-				// exactly two Branches. A recipe with one Translation therefore
-				// failed its own read and drew nothing: the refusal is an
-				// internal error, and this screen turns those into `failed`. It
-				// was invisible only because no screen could make a Translation.
 				//
 				// **Whether two Branches share a chain is answerable here**, and
 				// is not worth a request that would be refused. The Thread
@@ -762,26 +777,31 @@
 					seen.add(occurrence.version_id);
 					versionsOf.set(occurrence.branch_id, seen);
 				}
-				const mine = versionsOf.get(branchId) ?? new Set<string>();
-				const others = thread.branches.filter(
+				const onPage = versionsOf.get(branchId) ?? new Set<string>();
+				versions = thread.branches.filter(
 					(each) =>
-						each.branch_id !== branchId &&
-						[...(versionsOf.get(each.branch_id) ?? [])].some((id) => mine.has(id)),
+						each.branch_id === branchId ||
+						[...(versionsOf.get(each.branch_id) ?? [])].some((id) => onPage.has(id)),
 				);
-				if (others.length !== 1) {
-					if (others.length > 1) crowded = others.length + 1;
-					return;
-				}
+				// **Marks compare against your own** (#131, screen choice 1): the
+				// unnamed version in your own Cookbook that you wrote. On it there
+				// is nothing to mark; on any other version the rows are read with
+				// yours as `mine`, and the page draws `theirs`. With none of your
+				// own there is nothing to compare against at all.
+				const yours = versions.find((each) => each.mine && !each.arrived && each.name === null);
+				onYours = yours?.branch_id === branchId;
+				if (!yours || onYours) return;
 
 				// Read on its own, so a refusal costs the Divergence and never
 				// the recipe. Whatever the Core declines to pair, the cook is
 				// still holding a recipe they can read and cook from.
 				divergence = await kamosu
-					.divergence({ branch_id: branchId, other_branch_id: others[0].branch_id })
+					.divergence({ branch_id: yours.branch_id, other_branch_id: branchId })
 					.catch((error: unknown) => {
 						if (!(error instanceof OperationError)) throw error;
 						return undefined;
 					});
+				if (current && divergence) side = 'theirs';
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
 				if (current) failed = true;
@@ -795,13 +815,12 @@
 	// ---- where you are standing ------------------------------------------
 
 	const here = $derived(side === 'mine' ? divergence?.mine : divergence?.theirs);
-	const there = $derived(side === 'mine' ? divergence?.theirs : divergence?.mine);
 	/**
-	 * The friend's Kitchen — `divergence.theirs` — and it does NOT flip when you
-	 * cross over. Reading their recipe does not make you them, so a Ghost is
-	 * described in terms of them from either side.
+	 * Whose the other version is — `divergence.theirs`, named plainly for the
+	 * marks' own sentences ("not Hélène’s"). Reading their recipe does not
+	 * make you them, so a Ghost is described in terms of them from either side.
 	 */
-	const otherKitchen = $derived(divergence?.theirs.kitchen_name ?? '');
+	const otherKitchen = $derived(divergence ? branchPlainName(divergence.theirs) : '');
 
 	const content = $derived(here?.content ?? recipe?.versions.at(-1)?.content);
 	const readings = $derived(here?.readings ?? recipe?.versions.at(-1)?.readings ?? []);
@@ -909,9 +928,7 @@
 	 * through the overlay there would put your correction on their line.
 	 */
 	const readingAt = (index: number): Slot =>
-		side === 'mine' && fixed.has(index)
-			? (fixed.get(index)?.reading ?? null)
-			: (readings[index] ?? null);
+		fixed.has(index) ? (fixed.get(index)?.reading ?? null) : (readings[index] ?? null);
 
 	/**
 	 * **The one line beneath an Ingredient Line**, and the whole of the rule:
@@ -935,10 +952,9 @@
 	 */
 	function beneathLine(index: number): string {
 		if (index < 0) return '';
-		const converted =
-			side === 'mine' && fixed.has(index)
-				? (fixed.get(index)?.measured ?? null)
-				: (measured.ingredients[index] ?? null);
+		const converted = fixed.has(index)
+			? (fixed.get(index)?.measured ?? null)
+			: (measured.ingredients[index] ?? null);
 		if (converted) return converted;
 		const echo = reading(readingAt(index));
 		const written = content?.ingredients?.[index]?.text ?? '';
@@ -963,15 +979,16 @@
 	}
 
 	/**
-	 * A Reading is corrected only on your own Branch. Standing in the other
-	 * Kitchen's recipe you are reading it, not keeping it: their Branch is
-	 * theirs and nothing on this screen writes into it (ADR 0007).
+	 * A Reading may be corrected on any version you may see, somebody else's
+	 * included: correcting what Kamosu read of a line mints no Version, and
+	 * #131 put it with cooking and the shopping list, on the *may see* side
+	 * of ADR 0041 (answer 7 on the issue). The Core checks the same thing.
 	 *
 	 * This is the whole of the rule. A marked row reaches the corrector too,
 	 * through a second target inside its unfolded panel rather than through its
 	 * own tap — see `MarkedRow`'s `onFixReading`.
 	 */
-	const correctable = $derived(side === 'mine');
+	const correctable = true;
 
 	function toggleCorrector(index: number) {
 		correcting = correcting === index ? null : index;
@@ -1031,24 +1048,26 @@
 		if (!marking || !divergence) return null;
 		const field = divergence.fields[name];
 		if (field.same) return null;
-		const value = fieldText(side === 'mine' ? field.theirs : field.mine);
 		// A Note is a block of prose; "{kitchen} has {value}" reads as nonsense
 		// against one, so it is introduced as the note it is.
+		if (side === 'theirs') {
+			// Their value is the page, so the mark says what YOURS has (#131):
+			// naming them beside your value would say something false about
+			// their recipe.
+			const value = fieldText(field.mine);
+			return name === 'note'
+				? m.divergence_field_note_yours({ value })
+				: m.divergence_field_yours({ value });
+		}
+		const value = fieldText(field.theirs);
 		return name === 'note'
 			? m.divergence_field_note({ kitchen: otherKitchen, value })
 			: m.divergence_field_differs({ kitchen: otherKitchen, value });
 	}
 
-	// Crossing over, and putting the marking away, both rebuild the list from a
-	// different set of rows — so an open panel would reopen on whatever line
-	// happens to land at that index. Both gestures close everything first.
-	function cross() {
-		side = side === 'mine' ? 'theirs' : 'mine';
-		open = new Set();
-		correcting = null;
-		unfoldedComponents = new Set();
-	}
-
+	// Putting the marking away rebuilds the list from a different set of rows —
+	// so an open panel would reopen on whatever line happens to land at that
+	// index. It closes everything first.
 	function toggleMarks() {
 		marks = !marks;
 		open = new Set();
@@ -1131,7 +1150,7 @@
 	<Writing
 		{branchId}
 		lineageId={recipe.lineage_id}
-		kitchenId={recipe.kitchen_id}
+		writes={recipe.writes}
 		{content}
 		components={recipe.versions.at(-1)?.components ?? []}
 		{translatingInto}
@@ -1159,25 +1178,25 @@
 		}}
 	/>
 {:else}
-	<div class="mx-auto max-w-2xl pb-tabbar" data-side={side}>
+	<div
+		class="mx-auto max-w-2xl pb-tabbar"
+		data-side={side}
+		data-whose={recipe && !recipe.writes ? 'theirs' : 'mine'}
+	>
 		{#if failed}
 			<p class="px-gutter py-6 text-body text-support" role="alert">{m.recipe_failed()}</p>
 		{:else if !content}
 			<p class="px-gutter py-6 text-body text-ink-2">{m.loading()}</p>
 		{:else}
-			{#if divergence && here && there}
-				<Threshold
-					hereKitchen={here.kitchen_name}
-					thereKitchen={there.kitchen_name}
-					{unshared}
+			{#if versions.length > 1}
+				<VersionStrip
+					{versions}
+					current={branchId}
+					compared={divergence ? { unshared, with: otherKitchen } : undefined}
+					{onYours}
 					{marks}
-					{cross}
 					{toggleMarks}
 				/>
-			{:else if crowded > 2}
-				<p class="border-b border-rule bg-ground-2 px-gutter py-3 text-read text-ink-2">
-					{m.divergence_too_many({ count: crowded })}
-				</p>
 			{/if}
 
 			<!--
@@ -1202,6 +1221,16 @@
 			10.5px text does not (the title is 25px since #88, still large text
 			at weight 600, so this is unchanged). So the Source is set here instead, on paper.
 		-->
+			<!--
+			A named version's name, under its title (#131, screen choice 3): a
+			variation, or a Branch named when two Cookbooks joined. On paper
+			rather than on the hero, for the contrast reason above.
+		-->
+			{#if recipe?.name}
+				<p class="px-gutter pt-3 font-display text-list-title font-semibold text-ink">
+					{recipe.name}
+				</p>
+			{/if}
 			{#if content.source && !content.main_photo}
 				<p class="px-gutter pt-3 text-label text-ink-2 uppercase">
 					{m.recipe_from_source({ source: content.source.text })}
@@ -1226,7 +1255,7 @@
 			in their recipe under a line describing yours would say something
 			false about which recipe you are reading.
 		-->
-			{#if recipe && side === 'mine'}
+			{#if recipe}
 				<Language
 					language={recipe.language}
 					translation={recipe.translation}
@@ -1281,8 +1310,8 @@
 			whose filing it is. Standing in your own Branch — which is every
 			recipe that has no second Branch at all — the row is simply there.
 		-->
-			{#if recipe && side === 'mine'}
-				<Tags branchId={recipe.branch_id} kitchenId={recipe.kitchen_id} tags={recipe.tags} />
+			{#if recipe}
+				<Tags branchId={recipe.branch_id} writes={recipe.writes} tags={recipe.tags} />
 			{/if}
 			<!--
 			`nutrition` is deliberately absent from that loop. Its mark goes with
@@ -1558,7 +1587,7 @@
 				control on. In your own recipe only, and not while a Divergence is
 				shown: see `pageScaledTo`.
 			-->
-			{#if side === 'mine' && !divergence}
+			{#if !divergence}
 				<div class="mx-gutter mb-2">
 					<div class="flex items-center justify-between gap-3">
 						<p
@@ -1773,10 +1802,10 @@
 			nothing of theirs to show, and showing yours beside their recipe
 			would say something false about whose shelf the links are on.
 		-->
-			{#if recipe && side === 'mine'}
+			{#if recipe}
 				<RelatedRecipes
 					branchId={recipe.branch_id}
-					kitchenId={recipe.kitchen_id}
+					writes={recipe.writes}
 					related={recipe.related_recipes}
 				/>
 			{/if}
@@ -1822,7 +1851,7 @@
 						have none, which is nearly always; and only in your own
 						Branch, for the reason the Tags row is.
 					-->
-					{#if side === 'mine' && myPictures.length > 0}
+					{#if myPictures.length > 0}
 						<div class="mt-3">
 							<h3 class="mb-2 text-label text-ink-2 uppercase">{m.recipe_my_photos()}</h3>
 							<ul class="flex flex-wrap gap-2">
@@ -1863,7 +1892,9 @@
 
 			{#if copiedInto?.branchId === branchId}
 				<p class="mx-gutter mt-4 text-read text-accent" role="status">
-					{m.write_saved_copied()}
+					{copiedInto.varied
+						? m.write_saved_varied({ name: copiedInto.varied })
+						: m.write_saved_copied()}
 				</p>
 			{:else if wrote}
 				<p class="mx-gutter mt-4 text-read text-accent" role="status">
@@ -1929,7 +1960,7 @@
 			{#if recipe}
 				<Promotion
 					{branchId}
-					kitchenId={recipe.kitchen_id}
+					writes={recipe.writes}
 					{attempts}
 					versions={recipe.versions}
 					promoted={() => (reread += 1)}
@@ -1978,7 +2009,7 @@
 			strip are: it changes the recipe, and the recipe you are standing
 			in across a Divergence is not yours to change.
 		-->
-			{#if recipe && side === 'mine'}
+			{#if recipe}
 				<NeedsServer
 					label={m.recipe_language_title()}
 					waiting={m.offline_waits_edit()}
@@ -2077,17 +2108,23 @@
 			are the server's side of the line and never queued (ADR 0013). The
 			outbox carries your own history, never the recipes — and it queues
 			from an allowlist, so this is already true rather than arranged.
+
+			Only on a recipe you write (#131): deleting is a change, and anybody
+			else's version is theirs to keep or delete, so offering it would
+			only ever be offering a refusal.
 		-->
-			<div class="mx-gutter mt-8 border-t border-rule pt-4 text-center">
-				<NeedsServer
-					label={m.recipe_delete()}
-					waiting={m.offline_waits_delete()}
-					onclick={askToDelete}
-					shapeClass="inline-block px-3 py-2 text-read"
-					lookClass="text-support underline underline-offset-4"
-					idleClass="text-ink-2 opacity-55"
-				/>
-			</div>
+			{#if recipe?.writes}
+				<div class="mx-gutter mt-8 border-t border-rule pt-4 text-center">
+					<NeedsServer
+						label={m.recipe_delete()}
+						waiting={m.offline_waits_delete()}
+						onclick={askToDelete}
+						shapeClass="inline-block px-3 py-2 text-read"
+						lookClass="text-support underline underline-offset-4"
+						idleClass="text-ink-2 opacity-55"
+					/>
+				</div>
+			{/if}
 		{/if}
 
 		<!-- Carried across and not yet saved. It becomes real only when an ordinary
@@ -2098,10 +2135,10 @@
 			>
 				<p class="mb-2 text-read">
 					{taken.size === 1
-						? m.divergence_unsaved_one({ kitchen: divergence.theirs.kitchen_name })
+						? m.divergence_unsaved_one({ kitchen: otherKitchen })
 						: m.divergence_unsaved({
 								count: taken.size,
-								kitchen: divergence.theirs.kitchen_name,
+								kitchen: otherKitchen,
 							})}
 				</p>
 				<div class="flex gap-2">
@@ -2146,7 +2183,7 @@
 			bind:value={changeNote}
 			class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"></textarea>
 		<p class="mt-2 text-read text-ink-2">
-			{m.divergence_save_hint({ kitchen: divergence.theirs.kitchen_name })}
+			{m.divergence_save_hint({ kitchen: otherKitchen })}
 		</p>
 		<NeedsServer
 			label={m.divergence_save()}
@@ -2245,13 +2282,16 @@
 {/if}
 
 <style>
-	/* The room you are standing in colours the page: indigo is yours, beni is
-	   theirs. It is what lets the marking stay quiet on the lines themselves,
-	   and `MarkedRow` reads `--whose` for its margin rule. */
-	[data-side='mine'] {
+	/* Whose recipe you are reading colours the page: indigo is yours, beni is
+	   anybody else's (#131, screen choice 1). A variation of your own is
+	   yours, although it is read against your main one as `theirs`, so the
+	   colour follows who writes the page and not which side the marks take.
+	   It is what lets the marking stay quiet on the lines themselves, and
+	   `MarkedRow` reads `--whose` for its margin rule. */
+	[data-whose='mine'] {
 		--whose: var(--color-accent);
 	}
-	[data-side='theirs'] {
+	[data-whose='theirs'] {
 		--whose: var(--color-support);
 	}
 

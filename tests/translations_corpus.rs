@@ -146,15 +146,12 @@ async fn the_real_librarys_languages_are_read_off_its_own_words_and_never_writte
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     // Created with no Language given, so every one of these is Kamosu reading
     // the recipe's own text (ADR 0025: an import has none to disagree with).
     let mut branches: Vec<(String, String, String)> = Vec::new();
     for recipe in &recipes {
-        let mut input = recipe.clone();
-        input["kitchen_id"] = json!(kitchen_id);
+        let input = recipe.clone();
         let (status, created) = app.post_op("create_recipe", Some(&key), &input.to_string());
         assert_eq!(status, 200, "{} — {created}", recipe["title"]);
         branches.push((
@@ -279,11 +276,8 @@ async fn a_real_french_recipe_translates_into_an_ordinary_branch_that_falls_behi
         .mint_access_key(&person, "corpus translations", false)
         .unwrap()
         .secret;
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
-    let mut input = source.clone();
-    input["kitchen_id"] = json!(kitchen_id);
+    let input = source.clone();
     let (status, created) = app.post_op("create_recipe", Some(&key), &input.to_string());
     assert_eq!(status, 200, "{created}");
     let french = created["result"]["branch_id"].as_str().unwrap().to_string();

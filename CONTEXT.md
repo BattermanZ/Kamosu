@@ -61,11 +61,11 @@ The unguessable address at which a recipe can be read by anyone holding it — t
 _Avoid_: Public URL, guest access, token link, published recipe
 
 **Invite**:
-A one-use link that turns a stranger into a Person, or adds a Person to a Kitchen. Kamosu has no signup: every account begins with an Invite, and the first is the Operator's own, minted when the instance first runs.
+A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, or joins another Person's Cookbook to yours — a **Cookbook Invite**, which only somebody who already has an account can open, and which says how many recipes on each side become one before anything happens. Kamosu has no signup: every account begins with an Invite, and the first is the Operator's own, minted when the instance first runs.
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
-A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite, so an agent cannot turn a leak into an account.
+A **Secret** a Person mints for an agent to act with — named, revocable on its own, optionally read-only, and never expiring. One of the two sources of a Credential, and not a Credential itself. It acts as that Person in their Cookbook and every Kitchen they cook in, and is never scoped to one. It can mint no Key, change no password and mint no Invite that makes an account, so an agent cannot turn a leak into an account.
 _Avoid_: API key, token, secret, password, Credential
 
 **Operator**:
@@ -247,6 +247,10 @@ _Avoid_: Revision, snapshot, commit, edit, history entry
 **Branch**:
 One holder's line of Versions within a Lineage, carrying a Language. What a person has on screen is a Branch at its latest Version. It has an id of its own, minted when it starts and carried wherever it travels, and it records the **Hand** of the Cookbook writing it — so a second bundle from the same friend is that Branch continuing rather than a third one to line up beside the others. That id is really two, told apart below: a **Travelling id** and a **Local id**, the same on the instance the Branch started on and different on one that received it. A Cookbook may hold several Branches of one Lineage, a Translation being the ordinary case, so a Branch is never identified by its Cookbook. One started beside your own on purpose carries a name you give it, since nothing else tells the two apart. An instance may hold more than one Branch of the same Lineage — that is divergence, a normal and permanent state, never something to reconcile. It may also carry the address of the instance it lives on — a hint written into a Bundle, never fetched and never required, since a Bundle must work with that server switched off. A Branch in a different Language from the one it grew out of is a Translation.
 _Avoid_: Copy, fork, variant, clone
+
+**Variation**:
+A second **Branch** of one of your own recipes, started beside it on purpose, named, and kept in your own **Cookbook**; the first stays exactly as it was. The one kind of **Copy** you make of a recipe you already write, and only its Cookbook's Co-authors may start one. It may start with no change at all.
+_Avoid_: Variant, fork, alternate version
 
 **Travelling id**:
 The id a **Branch** travels under: minted when the Branch starts, written into every **Bundle** it appears in, and never changed by anything that receives it. It is what makes the sender's next Bundle that Branch continuing rather than a second one lining up beside it. It is unique to a **Cookbook**, not to an instance — two Cookbooks on one Kamosu may each receive the same friend's recipe, and each holds its own copy of it under his travelling id.

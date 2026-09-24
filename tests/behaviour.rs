@@ -181,7 +181,7 @@ async fn instance_status_says_the_version_and_whether_setup_has_happened() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_first_visitor_becomes_the_operator_with_a_home_kitchen_and_hand() {
+async fn the_first_visitor_becomes_the_operator_with_a_cookbook_and_hand() {
     let app = support::spawn_app();
     let first = json!({
         "name": "Aurélien",
@@ -196,9 +196,9 @@ async fn the_first_visitor_becomes_the_operator_with_a_home_kitchen_and_hand() {
     assert!(person["id"].as_str().is_some_and(|id| id.starts_with("p_")));
     assert_eq!(person["hand_id"], person["id"]);
     assert!(
-        person["home_kitchen_id"]
+        person["cookbook_id"]
             .as_str()
-            .is_some_and(|id| id.starts_with("k_"))
+            .is_some_and(|id| id.starts_with("c_"))
     );
     assert_eq!(person["reading_language"], json!("en"));
     assert_eq!(person["reading_measures"], json!("us"));
@@ -214,10 +214,10 @@ async fn the_first_visitor_becomes_the_operator_with_a_home_kitchen_and_hand() {
     assert_eq!(status["result"]["setup_complete"], json!(true));
 }
 
-// --- Kitchens (issue #40) ----------------------------------------------------
+// --- Kitchens (issue #40) and Cookbooks (#131) -------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_person_alone_is_a_kitchen_of_one_with_its_own_hand() {
+async fn a_person_alone_has_a_cookbook_of_their_own_and_needs_no_kitchen() {
     let app = support::spawn_app();
     let person = app.core.create_person("Aurélien").expect("person");
     let key = app
@@ -226,17 +226,36 @@ async fn a_person_alone_is_a_kitchen_of_one_with_its_own_hand() {
         .unwrap()
         .secret;
 
+    // A Kitchen holds nothing, so a Person cooking alone needs none (ADR 0041).
     let (status, listed) = app.post_op("list_kitchens", Some(&key), "{}");
     assert_eq!(status, 200, "{listed}");
-    let kitchens = listed["result"]["kitchens"].as_array().expect("kitchens");
-    assert_eq!(kitchens.len(), 1, "a Person alone is a Kitchen of one");
-    let home = &kitchens[0];
-    assert_eq!(home["is_home"], json!(true));
-    assert_eq!(home["nickname"], json!(null));
-    assert!(home["hand_id"].as_str().is_some(), "its own Hand");
-    let members = home["members"].as_array().expect("members");
-    assert_eq!(members.len(), 1);
-    assert_eq!(members[0]["person_id"], json!(person));
+    assert_eq!(listed["result"]["kitchens"], json!([]), "no Home Kitchen");
+
+    let (status, cookbook) = app.post_op("get_cookbook", Some(&key), "{}");
+    assert_eq!(status, 200, "{cookbook}");
+    let cookbook = &cookbook["result"];
+    assert!(
+        cookbook["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("c_"))
+    );
+    assert_eq!(cookbook["name"], json!(null), "named after who writes it");
+    assert_eq!(
+        cookbook["authors"],
+        json!([{ "person_id": person, "name": "Aurélien" }])
+    );
+    assert_eq!(cookbook["recipe_count"], json!(0));
+    assert_eq!(cookbook["kitchens"], json!([]));
+
+    // And what they write goes into it, with no question of where.
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Soupe" }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    assert_eq!(created["result"]["cookbook"]["id"], cookbook["id"]);
+    assert_eq!(created["result"]["writes"], json!(true));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -257,15 +276,16 @@ async fn any_person_may_create_a_kitchen_named_by_its_creator() {
     assert_eq!(status, 200, "{created}");
     let kitchen = &created["result"];
     assert_eq!(kitchen["name"], json!("Supper Club"));
-    assert_eq!(kitchen["is_home"], json!(false));
     let members = kitchen["members"].as_array().expect("members");
     assert_eq!(members.len(), 1);
     assert_eq!(members[0]["person_id"], json!(person));
+    // A Kitchen sees the Cookbook of every member, its creator's first.
+    let cookbooks = kitchen["cookbooks"].as_array().expect("cookbooks");
+    assert_eq!(cookbooks.len(), 1);
+    assert_eq!(cookbooks[0]["authors"][0]["person_id"], json!(person));
 
-    // Now cooking in more than one Kitchen: the never-asked-when-you-have-one
-    // rule turns on exactly here, and list_kitchens is where a caller reads it.
     let (_, listed) = app.post_op("list_kitchens", Some(&key), "{}");
-    assert_eq!(listed["result"]["kitchens"].as_array().unwrap().len(), 2);
+    assert_eq!(listed["result"]["kitchens"].as_array().unwrap().len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -403,7 +423,7 @@ async fn an_invite_is_spent_on_first_use_and_refused_afterwards() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn leaving_is_not_a_deletion_and_the_last_member_cannot_be_removed() {
+async fn leaving_is_not_a_deletion_and_even_the_last_member_may_leave() {
     let app = support::spawn_app();
     let alice = app.core.create_person("Alice").expect("person");
     let alice_key = app
@@ -427,8 +447,8 @@ async fn leaving_is_not_a_deletion_and_the_last_member_cannot_be_removed() {
     let invite = app.core.invite_to_kitchen(&alice, &kitchen_id).unwrap().1;
     app.core.accept_kitchen_invite(&bob, &invite).unwrap();
 
-    // Bob leaves by removing himself. His own Home Kitchen is untouched, and
-    // this shared Kitchen still stands with Alice in it.
+    // Bob leaves by removing himself, and this shared Kitchen still stands
+    // with Alice in it.
     let (status, left) = app.post_op(
         "remove_kitchen_member",
         Some(&bob_key),
@@ -444,73 +464,17 @@ async fn leaving_is_not_a_deletion_and_the_last_member_cannot_be_removed() {
         .unwrap();
     assert_eq!(shared["members"].as_array().unwrap().len(), 1);
 
-    // Alice is now the last member of this Kitchen — she cannot be removed
-    // from it, by herself or anyone else.
-    let (status, refused) = app.post_op(
+    // A Kitchen holds no recipe, so there is nothing its last member could
+    // strand: Alice may leave it too (ADR 0041), and cook in no Kitchen at
+    // all.
+    let (status, left) = app.post_op(
         "remove_kitchen_member",
         Some(&alice_key),
         &json!({ "kitchen_id": kitchen_id, "person_id": alice }).to_string(),
     );
-    assert_eq!(status, 400, "{refused}");
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_person_cannot_be_removed_from_their_own_last_kitchen() {
-    let app = support::spawn_app();
-    let alice = app.core.create_person("Alice").expect("person");
-    let alice_key = app
-        .core
-        .mint_access_key(&alice, "browser", false)
-        .unwrap()
-        .secret;
-    let bob = app.core.create_person("Bob").expect("person");
-
-    // Bob's Home Kitchen is his only Kitchen; Alice invites him into hers, then
-    // he is asked to leave the shared one — untouched, that leaves him with
-    // his Home Kitchen alone, which is fine. But nobody may strip him of the
-    // last Kitchen he cooks in at all: his own Home Kitchen.
-    let (_, created) = app.post_op(
-        "create_kitchen",
-        Some(&alice_key),
-        &json!({ "name": "Home" }).to_string(),
-    );
-    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
-    let bobs_home_kitchen: String = app
-        .core
-        .list_kitchens(&bob)
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap()["id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    app.core
-        .invite_to_kitchen(&alice, &bobs_home_kitchen)
-        .expect_err("only a member may invite into a Kitchen");
-
-    // Add Bob to Alice's Kitchen directly (test plumbing), then try to strip
-    // him of his Home Kitchen — his last remaining one.
-    let invite = app.core.invite_to_kitchen(&alice, &kitchen_id).unwrap().1;
-    app.core.accept_kitchen_invite(&bob, &invite).unwrap();
-    app.core
-        .remove_kitchen_member(&alice, &kitchen_id, &bob)
-        .expect("Bob still cooks in his Home Kitchen after leaving this one");
-
-    let bob_key = app
-        .core
-        .mint_access_key(&bob, "browser", false)
-        .unwrap()
-        .secret;
-    let (status, refused) = app.post_op(
-        "remove_kitchen_member",
-        Some(&bob_key),
-        &json!({ "kitchen_id": bobs_home_kitchen, "person_id": bob }).to_string(),
-    );
-    assert_eq!(
-        status, 400,
-        "a Person cooks in one or more Kitchens and cannot be stripped of the last one: {refused}"
-    );
+    assert_eq!(status, 200, "{left}");
+    let (_, remaining) = app.post_op("list_kitchens", Some(&alice_key), "{}");
+    assert_eq!(remaining["result"]["kitchens"], json!([]));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -948,16 +912,28 @@ fn ask_into_kitchen(app: &support::TestApp, host_key: &str, kitchen_id: &str, gu
     assert_eq!(status, 200, "{joined}");
 }
 
-/// A Person's Home Kitchen — the one `create_person` seats them in. Saving a
-/// recipe into a *second* Kitchen the same Person cooks in is what makes a
-/// Copy, so every test that needs two Branches of one Lineage needs this one
-/// too.
-fn home_kitchen_of(app: &support::TestApp, person_id: &str) -> String {
+/// Make `guest` a Co-author of `host`'s Cookbook, through an ordinary
+/// Cookbook Invite: from then on either may change any recipe in it (ADR
+/// 0041).
+fn write_together(app: &support::TestApp, host_key: &str, guest_key: &str) {
+    let (status, invite) = app.post_op("invite_to_cookbook", Some(host_key), "{}");
+    assert_eq!(status, 200, "{invite}");
+    let (status, joined) = app.post_op(
+        "accept_cookbook_invite",
+        Some(guest_key),
+        &json!({ "secret": invite["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+}
+
+/// A Person's own Cookbook — where everything they write, import or receive
+/// goes (ADR 0041).
+fn cookbook_of(app: &support::TestApp, person_id: &str) -> String {
     app.core
         .db()
         .with_conn(|conn| {
             conn.query_row(
-                "SELECT home_kitchen_id FROM people WHERE id = ?1",
+                "SELECT cookbook_id FROM cookbook_authors WHERE person_id = ?1",
                 rusqlite::params![person_id],
                 |row| row.get(0),
             )
@@ -988,16 +964,16 @@ fn backdate_branch_head(app: &support::TestApp, branch_id: &str) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn creating_a_recipe_needs_only_a_title_and_produces_a_lineage_branch_and_first_version() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Tarte aux pommes" }).to_string(),
+        &json!({ "title": "Tarte aux pommes" }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     let recipe = &created["result"];
-    assert_eq!(recipe["kitchen_id"], json!(kitchen_id));
+    assert_eq!(recipe["cookbook"]["id"], json!(cookbook_of(&app, &person)));
     let branch_id = recipe["branch_id"].as_str().unwrap().to_string();
     let lineage_id = recipe["lineage_id"].as_str().unwrap();
     assert!(lineage_id.starts_with("l_"));
@@ -1039,18 +1015,18 @@ async fn identical_text_on_two_instances_produces_the_same_fingerprint() {
     // communicated, that both happen to be handed the identical title.
     let app_a = support::spawn_app();
     let app_b = support::spawn_app();
-    let (_, key_a, kitchen_a) = person_with_kitchen(&app_a, "Aurélien");
-    let (_, key_b, kitchen_b) = person_with_kitchen(&app_b, "Marc");
+    let (_, key_a, _) = person_with_kitchen(&app_a, "Aurélien");
+    let (_, key_b, _) = person_with_kitchen(&app_b, "Marc");
 
     let (_, created_a) = app_a.post_op(
         "create_recipe",
         Some(&key_a),
-        &json!({ "kitchen_id": kitchen_a, "title": "Ratatouille" }).to_string(),
+        &json!({ "title": "Ratatouille" }).to_string(),
     );
     let (_, created_b) = app_b.post_op(
         "create_recipe",
         Some(&key_b),
-        &json!({ "kitchen_id": kitchen_b, "title": "Ratatouille" }).to_string(),
+        &json!({ "title": "Ratatouille" }).to_string(),
     );
 
     assert_eq!(
@@ -1067,11 +1043,11 @@ async fn identical_text_on_two_instances_produces_the_same_fingerprint() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn renaming_a_version_never_changes_its_identity_hand_or_parent() {
     let app = support::spawn_app();
-    let (person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let version_id = created["result"]["head_version_id"]
@@ -1117,18 +1093,14 @@ async fn renaming_a_version_never_changes_its_identity_hand_or_parent() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn only_the_hand_that_wrote_a_version_may_rename_it() {
     let app = support::spawn_app();
-    let (alice, alice_key, kitchen_id) = person_with_kitchen(&app, "Alice");
+    let (_, alice_key, _) = person_with_kitchen(&app, "Alice");
     let (_, bob_key, _) = person_with_kitchen(&app, "Bob");
-    let invite = app.core.invite_to_kitchen(&alice, &kitchen_id).unwrap().1;
-    app.post_op(
-        "accept_kitchen_invite",
-        Some(&bob_key),
-        &json!({ "secret": invite }).to_string(),
-    );
+    // Two Co-authors, so both write onto the one Branch (ADR 0041).
+    write_together(&app, &alice_key, &bob_key);
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&alice_key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Gratin" }).to_string(),
+        &json!({ "title": "Gratin" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     backdate_branch_head(&app, &branch_id);
@@ -1190,12 +1162,11 @@ async fn renaming_yourself_reaches_every_version_you_wrote_and_moves_no_id() {
     let (_, me) = app.post_op("get_person", Some(secret), "{}");
     assert_eq!(me["result"]["name"], json!("Aurélien"));
     let person = me["result"]["person_id"].as_str().unwrap().to_string();
-    let kitchen_id = home_kitchen_of(&app, &person);
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(secret),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     backdate_branch_head(&app, &branch_id);
@@ -1224,8 +1195,8 @@ async fn renaming_yourself_reaches_every_version_you_wrote_and_moves_no_id() {
     }
     assert_eq!(
         before["branches"][0]["hand_name"],
-        json!("Aurélien's Home Kitchen"),
-        "a Branch is named by its Kitchen, the same live way"
+        json!("Aurélien"),
+        "a Branch is named by its Cookbook, which is named after who writes it"
     );
 
     // Spaces around a name are nobody's name.
@@ -1241,6 +1212,11 @@ async fn renaming_yourself_reaches_every_version_you_wrote_and_moves_no_id() {
     assert_eq!(me["result"]["person_id"], json!(person));
 
     let after = thread(&app);
+    assert_eq!(
+        after["branches"][0]["hand_name"],
+        json!("Aurélien Dupont"),
+        "and so is his Cookbook, the same live way"
+    );
     let after_versions = after["versions"].as_array().unwrap();
     assert_eq!(after_versions.len(), before_versions.len());
     for (was, is) in before_versions.iter().zip(after_versions) {
@@ -1313,12 +1289,12 @@ async fn a_recurring_version_id_is_named_per_occurrence_not_globally() {
     // share a Version id (it is a pure content fingerprint), but each is its
     // own row in the chain, and each must be nameable on its own.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let original_version = created["result"]["head_version_id"]
@@ -1385,12 +1361,12 @@ async fn a_recurring_version_id_is_named_per_occurrence_not_globally() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rapid_re_saves_collapse_and_history_stays_append_only() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Tarte" }).to_string(),
+        &json!({ "title": "Tarte" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let first_version = created["result"]["head_version_id"]
@@ -1494,9 +1470,9 @@ async fn rapid_re_saves_collapse_and_history_stays_append_only() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn only_a_kitchen_member_may_create_or_read_its_recipes() {
+async fn a_recipe_is_read_only_by_its_cookbook_and_the_kitchens_it_is_in() {
     let app = support::spawn_app();
-    let (_owner, owner_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_owner, owner_key, _) = person_with_kitchen(&app, "Aurélien");
     let stranger = app.core.create_person("Marc").expect("person");
     let stranger_key = app
         .core
@@ -1504,22 +1480,23 @@ async fn only_a_kitchen_member_may_create_or_read_its_recipes() {
         .unwrap()
         .secret;
 
-    let (status, _) = app.post_op(
+    // Anybody may write a recipe: it goes into their own Cookbook (ADR 0041).
+    let (status, theirs) = app.post_op(
         "create_recipe",
         Some(&stranger_key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Not yours" }).to_string(),
+        &json!({ "title": "His own" }).to_string(),
     );
-    assert_eq!(status, 401);
+    assert_eq!(status, 200, "{theirs}");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&owner_key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
-    // A recipe held by a Kitchen the caller does not cook in answers exactly as
-    // a Branch id this instance has never held does (#97, ADR 0040) — the case
+    // A recipe in a Cookbook the caller may not see answers exactly as a
+    // Branch id this instance has never held does (#97, ADR 0040) — the case
     // still matters, only the answer has moved.
     let (status, refused) = app.post_op(
         "get_recipe",
@@ -1538,16 +1515,16 @@ async fn only_a_kitchen_member_may_create_or_read_its_recipes() {
 // --- Copy (issue #54) ---------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn editing_a_recipe_your_kitchen_holds_writes_an_ordinary_version() {
+async fn editing_a_recipe_your_cookbook_writes_writes_an_ordinary_version() {
     // The unremarkable case, stated as its own acceptance criterion: a save
-    // by a member of the Branch's own Kitchen is never a Copy.
+    // by a Co-author of the Branch's own Cookbook is never a Copy.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -1567,23 +1544,23 @@ async fn editing_a_recipe_your_kitchen_holds_writes_an_ordinary_version() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
+async fn editing_a_recipe_your_cookbook_did_not_write_starts_a_copy() {
     let app = support::spawn_app();
-    let (owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
-    // Marc's only Kitchen is the Home Kitchen create_person gives him — so a
-    // Bundle he receives lands there, and the Copy he makes of it stays there.
+    let (owner, owner_key, _) = person_with_kitchen(&app, "Aurélien");
+    // A Bundle Marc receives lands in his own Cookbook, and the Copy he makes
+    // of it stays there.
     let copier = app.core.create_person("Marc").expect("person");
     let copier_key = app
         .core
         .mint_access_key(&copier, "browser", false)
         .unwrap()
         .secret;
-    let copier_kitchen = home_kitchen_of(&app, &copier);
+    let copier_cookbook = cookbook_of(&app, &copier);
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&owner_key),
-        &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let source_branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let lineage_id = created["result"]["lineage_id"]
@@ -1603,9 +1580,9 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
     );
     let source_head = edited["result"]["version_id"].as_str().unwrap().to_string();
 
-    // Aurélien sends Marc the recipe. It arrives in Marc's Kitchen still under
-    // the Hand of the Kitchen that wrote it, so Marc's Kitchen holds it and has
-    // never written it (#100: holding is how a Copy is reached at all).
+    // Aurélien sends Marc the recipe. It arrives in Marc's Cookbook still under
+    // the Hand of the Cookbook that wrote it, so Marc's Cookbook holds it and
+    // has never written it (#100: holding is how a Copy is reached at all).
     let report = receive(
         &app,
         &copier_key,
@@ -1626,7 +1603,7 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
     let new_branch_id = copied["result"]["branch_id"].as_str().unwrap().to_string();
     assert_ne!(
         new_branch_id, arrived_branch_id,
-        "a Copy carries your Kitchen's Hand and a fresh Branch id"
+        "a Copy carries your Cookbook's Hand and a fresh Branch id"
     );
     assert_eq!(
         copied["result"]["parent_version_id"],
@@ -1642,18 +1619,19 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
     let recipe = &read_back["result"];
     assert_eq!(recipe["lineage_id"], json!(lineage_id), "the same Lineage");
     assert_eq!(
-        recipe["kitchen_id"],
-        json!(copier_kitchen),
-        "held by your Kitchen"
+        recipe["cookbook"]["id"],
+        json!(copier_cookbook),
+        "held by your Cookbook"
     );
+    assert_eq!(recipe["writes"], json!(true), "and yours to change");
 
-    let copier_kitchen_hand: String = app
+    let copier_cookbook_hand: String = app
         .core
         .db()
         .with_conn(|conn| {
             conn.query_row(
-                "SELECT hand_id FROM kitchens WHERE id = ?1",
-                rusqlite::params![copier_kitchen],
+                "SELECT hand_id FROM cookbooks WHERE id = ?1",
+                rusqlite::params![copier_cookbook],
                 |row| row.get(0),
             )
             .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
@@ -1661,8 +1639,8 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
         .unwrap();
     assert_eq!(
         recipe["hand_id"],
-        json!(copier_kitchen_hand),
-        "the new Branch carries your Kitchen's Hand"
+        json!(copier_cookbook_hand),
+        "the new Branch carries your Cookbook's Hand"
     );
 
     let versions = recipe["versions"].as_array().unwrap();
@@ -1710,20 +1688,20 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn saving_unchanged_content_from_another_kitchen_starts_no_copy() {
+async fn saving_unchanged_content_from_another_cookbook_starts_no_copy() {
     // Merely receiving or viewing a recipe must never create a Branch — and
-    // neither must a "save" that changes nothing, even from a Kitchen that
+    // neither must a "save" that changes nothing, even from a Cookbook that
     // did not write this Branch (CONTEXT.md, "Copy": "Merely reading a recipe
     // never starts one").
     let app = support::spawn_app();
-    let (_owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_owner, owner_key, _) = person_with_kitchen(&app, "Aurélien");
     let (copier, copier_key, _) = person_with_kitchen(&app, "Marc");
-    let copier_kitchen = home_kitchen_of(&app, &copier);
+    let copier_cookbook = cookbook_of(&app, &copier);
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&owner_key),
-        &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let sent = created["result"]["branch_id"].as_str().unwrap().to_string();
     let report = receive(&app, &copier_key, &bundle_of(&app, &owner_key, &sent));
@@ -1738,60 +1716,61 @@ async fn saving_unchanged_content_from_another_kitchen_starts_no_copy() {
     assert_eq!(unchanged["result"]["copied"], json!(false));
     assert_eq!(unchanged["result"]["branch_id"], json!(branch_id));
 
-    let branches_in_copier_kitchen: i64 = app
+    let branches_in_copier_cookbook: i64 = app
         .core
         .db()
         .with_conn(|conn| {
             conn.query_row(
-                "SELECT COUNT(*) FROM branches WHERE kitchen_id = ?1",
-                rusqlite::params![copier_kitchen],
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = ?1",
+                rusqlite::params![copier_cookbook],
                 |row| row.get(0),
             )
             .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
         })
         .unwrap();
     assert_eq!(
-        branches_in_copier_kitchen, 1,
-        "no Branch was started in the reader's Kitchen beside the one that arrived"
+        branches_in_copier_cookbook, 1,
+        "no Branch was started in the reader's Cookbook beside the one that arrived"
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_copy_may_be_held_by_a_kitchen_named_explicitly() {
-    // A Person cooking in several Kitchens may say which one a save is on
-    // behalf of. Naming one that did not write the Branch makes the Copy there.
+async fn a_kitchen_mates_save_starts_a_branch_in_their_own_cookbook() {
+    // ADR 0041's whole reason: "It's my recipe, and only I should update it."
+    // Inside a shared Kitchen a member reads, cooks and changes Aurélien's
+    // recipe, and the change is theirs, in their own Cookbook — his recipe is
+    // never touched.
     let app = support::spawn_app();
     let (_owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
-    let copier = app.core.create_person("Marc").expect("person");
+    let copier = app.core.create_person("Hélène").expect("person");
     let copier_key = app
         .core
         .mint_access_key(&copier, "browser", false)
         .unwrap()
         .secret;
-    let (_, second_kitchen) = app.post_op(
-        "create_kitchen",
-        Some(&copier_key),
-        &json!({ "name": "Marc's Other Kitchen" }).to_string(),
-    );
-    let second_kitchen_id = second_kitchen["result"]["id"].as_str().unwrap().to_string();
+    let copier_cookbook = cookbook_of(&app, &copier);
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&owner_key),
-        &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Tartiflette" }).to_string(),
     );
     let source_branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let source_head = created["result"]["head_version_id"].clone();
     ask_into_kitchen(&app, &owner_key, &owner_kitchen, &copier_key);
+
+    // She sees it, and is told before saving that it is not hers to write.
+    let (_, seen) = app.post_op(
+        "get_recipe",
+        Some(&copier_key),
+        &json!({ "branch_id": source_branch_id }).to_string(),
+    );
+    assert_eq!(seen["result"]["writes"], json!(false), "{seen}");
 
     let (status, copied) = app.post_op(
         "save_recipe_version",
         Some(&copier_key),
-        &json!({
-            "branch_id": source_branch_id,
-            "title": "Soupe, ma version",
-            "kitchen_id": second_kitchen_id,
-        })
-        .to_string(),
+        &json!({ "branch_id": source_branch_id, "title": "Tartiflette, moins de vin" }).to_string(),
     );
     assert_eq!(status, 200, "{copied}");
     assert_eq!(copied["result"]["copied"], json!(true));
@@ -1803,10 +1782,40 @@ async fn a_copy_may_be_held_by_a_kitchen_named_explicitly() {
         &json!({ "branch_id": new_branch_id }).to_string(),
     );
     assert_eq!(
-        read_back["result"]["kitchen_id"],
-        json!(second_kitchen_id),
-        "held by the Kitchen named explicitly, not the one holding the source"
+        read_back["result"]["cookbook"]["id"],
+        json!(copier_cookbook),
+        "held by her own Cookbook, not the one holding the source"
     );
+    assert_eq!(
+        read_back["result"]["name"],
+        json!(null),
+        "her first, so unnamed"
+    );
+
+    let (_, source) = app.post_op(
+        "get_recipe",
+        Some(&owner_key),
+        &json!({ "branch_id": source_branch_id }).to_string(),
+    );
+    assert_eq!(
+        source["result"]["head_version_id"], source_head,
+        "his recipe is exactly as he left it"
+    );
+
+    // They share a Kitchen, so he sees hers beside his own, labelled as hers.
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&owner_key),
+        &json!({ "branch_id": source_branch_id }).to_string(),
+    );
+    let branches = thread["result"]["branches"].as_array().unwrap();
+    assert_eq!(branches.len(), 2, "{thread}");
+    let hers = branches
+        .iter()
+        .find(|b| b["branch_id"] == json!(new_branch_id))
+        .unwrap();
+    assert_eq!(hers["mine"], json!(false));
+    assert_eq!(hers["cookbook"]["authors"][0]["name"], json!("Hélène"));
 }
 
 // --- The recipe as written (issue #43) ---------------------------------------
@@ -1814,13 +1823,12 @@ async fn a_copy_may_be_held_by_a_kitchen_named_explicitly() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saving_a_version_carries_the_whole_written_recipe_verbatim() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "10 Minute Chili Garlic Silken Tofu" })
-            .to_string(),
+        &json!({ "title": "10 Minute Chili Garlic Silken Tofu" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     backdate_branch_head(&app, &branch_id);
@@ -1918,12 +1926,12 @@ async fn saving_a_version_carries_the_whole_written_recipe_verbatim() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_bare_title_still_produces_a_complete_recipe_with_no_rating_field() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Bare Name Recipe" }).to_string(),
+        &json!({ "title": "Bare Name Recipe" }).to_string(),
     );
     let content = &created["result"]["versions"][0]["content"];
     assert_eq!(content["title"], json!("Bare Name Recipe"));
@@ -1943,11 +1951,11 @@ async fn a_bare_title_still_produces_a_complete_recipe_with_no_rating_field() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn editing_any_part_of_the_written_recipe_mints_a_version() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let first_version = created["result"]["head_version_id"]
@@ -1970,11 +1978,11 @@ async fn editing_any_part_of_the_written_recipe_mints_a_version() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saving_a_version_rejects_malformed_recipe_fields() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -2033,7 +2041,7 @@ fn the_crouton_corpus_no_quantity_figure_is_a_fixture_fact() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usable() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Genuine text from Aurélien's 86-recipe Crouton corpus
     // (samples/crouton/): "2 tbsp soy sauce" carries a quantity, "pinch of
@@ -2044,7 +2052,6 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "10 Minute Chili Garlic Silken Tofu",
             "ingredients": [
                 { "kind": "section", "text": "For the sauce" },
@@ -2170,12 +2177,11 @@ async fn a_reading_is_stored_beside_the_line_and_an_unread_line_stays_fully_usab
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reading_cannot_land_on_a_section_or_off_the_end_of_the_list() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Soupe",
             "ingredients": [
                 { "kind": "section", "text": "For the broth" },
@@ -2204,7 +2210,7 @@ async fn a_reading_cannot_land_on_a_section_or_off_the_end_of_the_list() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn only_a_kitchen_member_may_correct_a_reading() {
     let app = support::spawn_app();
-    let (_owner, owner_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_owner, owner_key, _) = person_with_kitchen(&app, "Aurélien");
     let stranger = app.core.create_person("Marc").expect("person");
     let stranger_key = app
         .core
@@ -2216,7 +2222,6 @@ async fn only_a_kitchen_member_may_correct_a_reading() {
         "create_recipe",
         Some(&owner_key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Soupe",
             "ingredients": [{ "kind": "ingredient", "text": "1 litre stock" }],
         })
@@ -2235,13 +2240,12 @@ async fn only_a_kitchen_member_may_correct_a_reading() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Soupe",
             "ingredients": [
                 { "kind": "ingredient", "text": "2 tbsp soy sauce" },
@@ -2327,13 +2331,12 @@ async fn saving_a_new_version_carries_a_reading_forward_for_every_unchanged_line
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reading_a_line_lays_a_reading_over_it_and_never_mints_a_version() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Crêpes",
             "ingredients": [
                 { "kind": "ingredient", "text": "200 g de farine" },
@@ -2391,14 +2394,13 @@ async fn reading_a_line_lays_a_reading_over_it_and_never_mints_a_version() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_line_creates_its_food_by_the_ordinary_rules() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     for title in ["Crêpes", "Gâteau"] {
         let (status, created) = app.post_op(
             "create_recipe",
             Some(&key),
             &json!({
-                "kitchen_id": kitchen_id,
                 "title": title,
                 "language": "fr",
                 "ingredients": [{ "kind": "ingredient", "text": "200 g de farine" }],
@@ -2440,7 +2442,7 @@ async fn a_read_line_creates_its_food_by_the_ordinary_rules() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_of_lines_nothing_can_read_saves_and_serves_exactly_as_written() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let unreadable = [
         "Add the orzo and mix well to coat it in the sauce, then bring to a low boil",
@@ -2451,7 +2453,6 @@ async fn a_recipe_of_lines_nothing_can_read_saves_and_serves_exactly_as_written(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Notes to self",
             "ingredients": unreadable
                 .iter()
@@ -2488,13 +2489,12 @@ async fn a_recipe_of_lines_nothing_can_read_saves_and_serves_exactly_as_written(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reading_the_library_reads_what_is_unread_and_leaves_a_correction_alone() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Chicken Katsu Curry",
             "ingredients": [
                 { "kind": "ingredient", "text": "1 cup panko" },
@@ -2573,20 +2573,13 @@ async fn reading_the_library_is_the_operators_alone() {
 /// Versions — a Version is content-addressed (ADR 0004), so two Recipes
 /// with identical content share one, and Readings key on the Version rather
 /// than the Branch (ADR 0021).
-fn read_a_word(
-    app: &support::TestApp,
-    key: &str,
-    kitchen_id: &str,
-    language: &str,
-    word: &str,
-) -> String {
+fn read_a_word(app: &support::TestApp, key: &str, language: &str, word: &str) -> String {
     static FIXTURE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let fixture_id = FIXTURE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let (_, created) = app.post_op(
         "create_recipe",
         Some(key),
         &json!({
-            "kitchen_id": kitchen_id,
             "language": language,
             "title": format!("Food Match fixture {fixture_id}"),
             "ingredients": [{ "kind": "ingredient", "text": word }],
@@ -2606,7 +2599,7 @@ fn read_a_word(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reading_naming_an_unseen_word_creates_a_food_automatically() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, foods_before) = app.post_op("list_foods", Some(&key), "{}");
     assert_eq!(
@@ -2615,7 +2608,7 @@ async fn a_reading_naming_an_unseen_word_creates_a_food_automatically() {
         "nothing has been read yet"
     );
 
-    read_a_word(&app, &key, &kitchen_id, "en", "soy sauce");
+    read_a_word(&app, &key, "en", "soy sauce");
 
     let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
     let foods = listed["result"]["foods"].as_array().unwrap();
@@ -2640,7 +2633,7 @@ async fn a_reading_naming_an_unseen_word_creates_a_food_automatically() {
 
     // Reading the same word again — even spelled differently — does not
     // create a second Food.
-    read_a_word(&app, &key, &kitchen_id, "en", "Soy Sauce");
+    read_a_word(&app, &key, "en", "Soy Sauce");
     let (_, listed_again) = app.post_op("list_foods", Some(&key), "{}");
     let foods_again = listed_again["result"]["foods"].as_array().unwrap();
     assert_eq!(
@@ -2654,25 +2647,25 @@ async fn a_reading_naming_an_unseen_word_creates_a_food_automatically() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn matching_folds_case_and_whitespace_but_respects_language_accents_and_plurals() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Case and stray whitespace fold: "Flour" and "  flour  " are one Food.
-    read_a_word(&app, &key, &kitchen_id, "en", "Flour");
-    read_a_word(&app, &key, &kitchen_id, "en", "  flour  ");
+    read_a_word(&app, &key, "en", "Flour");
+    read_a_word(&app, &key, "en", "  flour  ");
 
     // Accents are meaning, not noise: maïs (corn) is not mais (but) — the
     // worked example in ADR 0022.
-    read_a_word(&app, &key, &kitchen_id, "fr", "maïs");
-    read_a_word(&app, &key, &kitchen_id, "fr", "mais");
+    read_a_word(&app, &key, "fr", "maïs");
+    read_a_word(&app, &key, "fr", "mais");
 
     // Plurals are meaning too, ADR 0022's own example: oeufs is not oeuf.
-    read_a_word(&app, &key, &kitchen_id, "fr", "oeuf");
-    read_a_word(&app, &key, &kitchen_id, "fr", "oeufs");
+    read_a_word(&app, &key, "fr", "oeuf");
+    read_a_word(&app, &key, "fr", "oeufs");
 
     // Language must agree: English raisin (a dried grape) is not French
     // raisin (a fresh one) — ADR 0022.
-    read_a_word(&app, &key, &kitchen_id, "en", "raisin");
-    read_a_word(&app, &key, &kitchen_id, "fr", "raisin");
+    read_a_word(&app, &key, "en", "raisin");
+    read_a_word(&app, &key, "fr", "raisin");
 
     let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
     let foods = listed["result"]["foods"].as_array().unwrap();
@@ -2693,11 +2686,11 @@ async fn matching_folds_case_and_whitespace_but_respects_language_accents_and_pl
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_ambiguous_lone_word_resolves_to_the_food_the_most_readings_already_use() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Food A: read twice, so it is the busier of the two once B exists too.
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, "fr", "farine");
+    read_a_word(&app, &key, "fr", "farine");
     let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
     let food_a_id = listed["result"]["foods"][0]["id"]
         .as_str()
@@ -2706,7 +2699,7 @@ async fn an_ambiguous_lone_word_resolves_to_the_food_the_most_readings_already_u
     assert_eq!(listed["result"]["foods"][0]["reading_count"], json!(2));
 
     // Food B: an unrelated Food, read once via a different English word.
-    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    read_a_word(&app, &key, "en", "rye flour");
     let (_, listed2) = app.post_op("list_foods", Some(&key), "{}");
     let food_b_id = listed2["result"]["foods"]
         .as_array()
@@ -2731,7 +2724,7 @@ async fn an_ambiguous_lone_word_resolves_to_the_food_the_most_readings_already_u
     // A fresh, lone French "farine" is now ambiguous between A and B. It
     // resolves to the busier of the two — A, with two Readings already —
     // rather than ever creating a third Food.
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, "fr", "farine");
 
     let (_, listed3) = app.post_op("list_foods", Some(&key), "{}");
     let foods3 = listed3["result"]["foods"].as_array().unwrap();
@@ -2763,13 +2756,13 @@ async fn an_ambiguous_lone_word_resolves_to_the_food_the_most_readings_already_u
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn correcting_an_already_read_lines_ambiguous_target_does_not_count_its_own_stale_reading() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Food A: one Reading elsewhere, plus the line we are about to correct —
     // two Readings in total, but only one that will still be A's once the
     // correction below lands.
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
-    let correcting_branch_id = read_a_word(&app, &key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &key, "fr", "farine");
+    let correcting_branch_id = read_a_word(&app, &key, "fr", "farine");
     let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
     let food_a_id = listed["result"]["foods"][0]["id"]
         .as_str()
@@ -2778,8 +2771,8 @@ async fn correcting_an_already_read_lines_ambiguous_target_does_not_count_its_ow
     assert_eq!(listed["result"]["foods"][0]["reading_count"], json!(2));
 
     // Food B: busier than Food A's *other* Reading (1), read twice.
-    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
-    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    read_a_word(&app, &key, "en", "rye flour");
+    read_a_word(&app, &key, "en", "rye flour");
     let (_, listed2) = app.post_op("list_foods", Some(&key), "{}");
     let food_b_id = listed2["result"]["foods"]
         .as_array()
@@ -2846,8 +2839,8 @@ async fn correcting_an_already_read_lines_ambiguous_target_does_not_count_its_ow
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_food_nothing_points_at_is_kept_rather_than_swept() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let branch_id = read_a_word(&app, &key, &kitchen_id, "en", "cardamom");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = read_a_word(&app, &key, "en", "cardamom");
 
     let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
     let food_id = listed["result"]["foods"][0]["id"]
@@ -2884,8 +2877,8 @@ async fn a_food_nothing_points_at_is_kept_rather_than_swept() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_food_holds_an_optional_cup_weight_and_a_nutrition_slot_that_never_travels() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    read_a_word(&app, &key, &kitchen_id, "en", "butter");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    read_a_word(&app, &key, "en", "butter");
     let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
     let food_id = listed["result"]["foods"][0]["id"]
         .as_str()
@@ -2931,8 +2924,8 @@ async fn a_food_holds_an_optional_cup_weight_and_a_nutrition_slot_that_never_tra
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken() {
     let app = support::spawn_app();
-    let (_owner, owner_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    read_a_word(&app, &owner_key, &kitchen_id, "fr", "farine");
+    let (_owner, owner_key, _) = person_with_kitchen(&app, "Aurélien");
+    read_a_word(&app, &owner_key, "fr", "farine");
     let (_, listed) = app.post_op("list_foods", Some(&owner_key), "{}");
     let food_id = listed["result"]["foods"][0]["id"]
         .as_str()
@@ -2985,7 +2978,7 @@ async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken(
 
 // --- Merge Suggestions and Merge (issue #48) ---------------------------------
 
-/// The Operator, with an Access Key and their home Kitchen — the only Person
+/// The Operator, with an Access Key and a Kitchen of their own — the only Person
 /// who may merge a Food or delete one (CONTEXT.md, ADR 0022).
 fn operator_with_kitchen(app: &support::TestApp) -> (String, String) {
     let first = json!({
@@ -2996,7 +2989,7 @@ fn operator_with_kitchen(app: &support::TestApp) -> (String, String) {
     let (status, created) = app.post_auth("/auth/first-person", &first.to_string());
     assert_eq!(status, 200, "{created}");
     let operator_id = created["result"]["person"]["id"].as_str().unwrap();
-    let kitchen_id = created["result"]["person"]["home_kitchen_id"]
+    let kitchen_id = created["result"]["person"]["cookbook_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -3031,10 +3024,10 @@ fn food_named(app: &support::TestApp, key: &str, language: &str, name: &str) -> 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typing_a_name_another_food_answers_to_records_a_suggestion_and_merges_nothing() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
 
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
-    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    read_a_word(&app, &key, "fr", "farine");
+    read_a_word(&app, &key, "en", "rye flour");
     let food_a = food_named(&app, &key, "fr", "farine");
     let food_b = food_named(&app, &key, "en", "rye flour");
 
@@ -3107,16 +3100,16 @@ async fn typing_a_name_another_food_answers_to_records_a_suggestion_and_merges_n
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn merging_is_the_operators_and_says_what_it_will_move_before_it_moves_it() {
     let app = support::spawn_app();
-    let (operator_key, kitchen_id) = operator_with_kitchen(&app);
+    let (operator_key, _) = operator_with_kitchen(&app);
 
     // Food A: three Readings, spread across three recipes.
-    read_a_word(&app, &operator_key, &kitchen_id, "fr", "farine");
-    read_a_word(&app, &operator_key, &kitchen_id, "fr", "farine");
-    let edited_branch_id = read_a_word(&app, &operator_key, &kitchen_id, "fr", "farine");
+    read_a_word(&app, &operator_key, "fr", "farine");
+    read_a_word(&app, &operator_key, "fr", "farine");
+    let edited_branch_id = read_a_word(&app, &operator_key, "fr", "farine");
     let food_a = food_named(&app, &operator_key, "fr", "farine");
 
     // Food B: one Reading, and an English name Food A has none of.
-    read_a_word(&app, &operator_key, &kitchen_id, "en", "flour");
+    read_a_word(&app, &operator_key, "en", "flour");
     let food_b = food_named(&app, &operator_key, "en", "flour");
 
     // An ordinary Person may not merge: it is on the Operator's exact list of
@@ -3298,10 +3291,10 @@ async fn merging_is_the_operators_and_says_what_it_will_move_before_it_moves_it(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_merge_asks_which_cup_weight_survives_only_when_the_two_disagree() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
 
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
-    read_a_word(&app, &key, &kitchen_id, "en", "flour");
+    read_a_word(&app, &key, "fr", "farine");
+    read_a_word(&app, &key, "en", "flour");
     let food_a = food_named(&app, &key, "fr", "farine");
     let food_b = food_named(&app, &key, "en", "flour");
 
@@ -3408,10 +3401,10 @@ async fn a_merge_asks_which_cup_weight_survives_only_when_the_two_disagree() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_merge_clears_every_suggestion_naming_either_food() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
 
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
-    read_a_word(&app, &key, &kitchen_id, "en", "rye flour");
+    read_a_word(&app, &key, "fr", "farine");
+    read_a_word(&app, &key, "en", "rye flour");
     let food_a = food_named(&app, &key, "fr", "farine");
     let food_b = food_named(&app, &key, "en", "rye flour");
     let (status, named) = app.post_op(
@@ -3464,14 +3457,14 @@ async fn a_merge_clears_every_suggestion_naming_either_food() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_name_a_merge_adopts_leaves_the_same_trail_a_typed_one_would() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
 
     // Three Foods. A and B are about to be merged; C already answers to the
     // English word B holds, so the survivor's adoption of it makes a duplicate
     // name — the one ADR 0022 says must leave a trail however it was made.
-    read_a_word(&app, &key, &kitchen_id, "fr", "farine");
-    read_a_word(&app, &key, &kitchen_id, "en", "flour");
-    read_a_word(&app, &key, &kitchen_id, "es", "harina");
+    read_a_word(&app, &key, "fr", "farine");
+    read_a_word(&app, &key, "en", "flour");
+    read_a_word(&app, &key, "es", "harina");
     let food_a = food_named(&app, &key, "fr", "farine");
     let food_b = food_named(&app, &key, "en", "flour");
     let food_c = food_named(&app, &key, "es", "harina");
@@ -3528,8 +3521,8 @@ async fn a_name_a_merge_adopts_leaves_the_same_trail_a_typed_one_would() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_operator_may_delete_a_food_nothing_points_at_and_no_other() {
     let app = support::spawn_app();
-    let (operator_key, kitchen_id) = operator_with_kitchen(&app);
-    let branch_id = read_a_word(&app, &operator_key, &kitchen_id, "en", "cardamom");
+    let (operator_key, _) = operator_with_kitchen(&app);
+    let branch_id = read_a_word(&app, &operator_key, "en", "cardamom");
     let food_id = food_named(&app, &operator_key, "en", "cardamom");
 
     // Something still points at it: refused, rather than cascaded. What a Food
@@ -3581,28 +3574,22 @@ async fn an_operator_may_delete_a_food_nothing_points_at_and_no_other() {
 // --- Tags (issue #51) --------------------------------------------------------
 
 /// Create a Tag and hand back its id.
-fn tag_in(
-    app: &support::TestApp,
-    key: &str,
-    kitchen_id: &str,
-    language: &str,
-    name: &str,
-) -> String {
+fn tag_in(app: &support::TestApp, key: &str, language: &str, name: &str) -> String {
     let (status, created) = app.post_op(
         "create_tag",
         Some(key),
-        &json!({ "kitchen_id": kitchen_id, "language": language, "name": name }).to_string(),
+        &json!({ "language": language, "name": name }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     created["result"]["id"].as_str().unwrap().to_string()
 }
 
 /// Create a recipe and hand back its Branch id.
-fn recipe_in(app: &support::TestApp, key: &str, kitchen_id: &str, title: &str) -> String {
+fn recipe_in(app: &support::TestApp, key: &str, title: &str) -> String {
     let (status, created) = app.post_op(
         "create_recipe",
         Some(key),
-        &json!({ "kitchen_id": kitchen_id, "title": title }).to_string(),
+        &json!({ "title": title }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     created["result"]["branch_id"].as_str().unwrap().to_string()
@@ -3625,37 +3612,32 @@ fn file_under(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_tag_belongs_to_a_kitchen_never_to_the_instance_and_never_to_a_recipe() {
+async fn a_tag_belongs_to_a_cookbook_never_to_the_instance_and_never_to_a_recipe() {
     let app = support::spawn_app();
-    let (_, key_a, kitchen_a) = person_with_kitchen(&app, "Aurélien");
-    let (_, key_b, kitchen_b) = person_with_kitchen(&app, "Marc");
+    let (_, key_a, _) = person_with_kitchen(&app, "Aurélien");
+    let (_, key_b, _) = person_with_kitchen(&app, "Marc");
 
-    // The same word in two Kitchens is two Tags. What one Kitchen means by
-    // "quick" is its own business (ADR 0007).
-    let quick_a = tag_in(&app, &key_a, &kitchen_a, "en", "quick");
-    let quick_b = tag_in(&app, &key_b, &kitchen_b, "en", "quick");
-    assert_ne!(quick_a, quick_b, "one word, two Kitchens, two Tags");
+    // The same word in two Cookbooks is two Tags. What one Cookbook means by
+    // "quick" is its own business (ADR 0007, #131 question 3).
+    let quick_a = tag_in(&app, &key_a, "en", "quick");
+    let quick_b = tag_in(&app, &key_b, "en", "quick");
+    assert_ne!(quick_a, quick_b, "one word, two Cookbooks, two Tags");
 
-    // Neither Kitchen's list mentions the other's.
-    let (_, listed) = app.post_op(
-        "list_tags",
-        Some(&key_a),
-        &json!({ "kitchen_id": kitchen_a }).to_string(),
-    );
-    let tags = listed["result"]["tags"].as_array().unwrap();
-    assert_eq!(tags.len(), 1);
-    assert_eq!(tags[0]["id"], json!(quick_a));
+    // Neither Cookbook's list mentions the other's, even asked everywhere:
+    // a stranger's Cookbook is not somewhere its filing can be read from.
+    for everywhere in [false, true] {
+        let (_, listed) = app.post_op(
+            "list_tags",
+            Some(&key_a),
+            &json!({ "everywhere": everywhere }).to_string(),
+        );
+        let tags = listed["result"]["tags"].as_array().unwrap();
+        assert_eq!(tags.len(), 1, "{listed}");
+        assert_eq!(tags[0]["id"], json!(quick_a));
+    }
 
-    // And a stranger to the Kitchen may not read its filing at all.
-    let (status, refused) = app.post_op(
-        "list_tags",
-        Some(&key_b),
-        &json!({ "kitchen_id": kitchen_a }).to_string(),
-    );
-    assert_eq!(status, 401, "{refused}");
-
-    // A recipe cannot be filed under another Kitchen's word.
-    let branch = recipe_in(&app, &key_a, &kitchen_a, "Tarte aux pommes");
+    // A recipe cannot be filed under another Cookbook's word.
+    let branch = recipe_in(&app, &key_a, "Tarte aux pommes");
     let (status, refused) = app.post_op(
         "set_recipe_tag",
         Some(&key_a),
@@ -3667,19 +3649,15 @@ async fn a_tag_belongs_to_a_kitchen_never_to_the_instance_and_never_to_a_recipe(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_word_twice_is_one_tag_and_case_does_not_make_a_second() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let first = tag_in(&app, &key, &kitchen, "en", "dessert");
-    let again = tag_in(&app, &key, &kitchen, "en", "dessert");
-    let shouted = tag_in(&app, &key, &kitchen, "en", "Dessert");
+    let first = tag_in(&app, &key, "en", "dessert");
+    let again = tag_in(&app, &key, "en", "dessert");
+    let shouted = tag_in(&app, &key, "en", "Dessert");
     assert_eq!(first, again, "the same word is the same Tag");
     assert_eq!(first, shouted, "case is not a second Tag");
 
-    let (_, listed) = app.post_op(
-        "list_tags",
-        Some(&key),
-        &json!({ "kitchen_id": kitchen }).to_string(),
-    );
+    let (_, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
     assert_eq!(listed["result"]["tags"].as_array().unwrap().len(), 1);
 
     // The first spelling is the one kept: a Tag is not renamed by someone
@@ -3692,17 +3670,17 @@ async fn one_word_is_one_tag_past_the_ascii_alphabet() {
     // Kamosu is written in three Languages, two of them accented, so a fold
     // that stops at ASCII is a fold that does not work here.
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Case, above the ASCII range.
-    let summer = tag_in(&app, &key, &kitchen, "fr", "été");
+    let summer = tag_in(&app, &key, "fr", "été");
     assert_eq!(
-        tag_in(&app, &key, &kitchen, "fr", "Été"),
+        tag_in(&app, &key, "fr", "Été"),
         summer,
         "an accented capital is the same word"
     );
     assert_eq!(
-        tag_in(&app, &key, &kitchen, "fr", "ÉTÉ"),
+        tag_in(&app, &key, "fr", "ÉTÉ"),
         summer,
         "shouted is the same word"
     );
@@ -3713,24 +3691,20 @@ async fn one_word_is_one_tag_past_the_ascii_alphabet() {
     let precomposed = "crème";
     let decomposed = "cre\u{0300}me";
     assert_ne!(precomposed, decomposed, "these differ as bytes");
-    let cream = tag_in(&app, &key, &kitchen, "fr", precomposed);
+    let cream = tag_in(&app, &key, "fr", precomposed);
     assert_eq!(
-        tag_in(&app, &key, &kitchen, "fr", decomposed),
+        tag_in(&app, &key, "fr", decomposed),
         cream,
         "one word typed two ways is one Tag"
     );
 
-    let (_, listed) = app.post_op(
-        "list_tags",
-        Some(&key),
-        &json!({ "kitchen_id": kitchen }).to_string(),
-    );
+    let (_, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
     let tags = listed["result"]["tags"].as_array().unwrap();
     assert_eq!(tags.len(), 2, "été and crème, once each: {listed}");
 
     // And Spanish, the third Language, folds too.
-    let quick = tag_in(&app, &key, &kitchen, "es", "rápido");
-    assert_eq!(tag_in(&app, &key, &kitchen, "es", "RÁPIDO"), quick);
+    let quick = tag_in(&app, &key, "es", "rápido");
+    assert_eq!(tag_in(&app, &key, "es", "RÁPIDO"), quick);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3739,7 +3713,7 @@ async fn a_tag_holds_a_name_per_language_and_is_shown_in_the_readers_own() {
     let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
     let (_, reader_key, _) = person_with_kitchen(&app, "Marc");
 
-    let tag = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let tag = tag_in(&app, &key, "en", "dessert");
     let (status, renamed) = app.post_op(
         "rename_tag",
         Some(&key),
@@ -3760,7 +3734,8 @@ async fn a_tag_holds_a_name_per_language_and_is_shown_in_the_readers_own() {
     assert_eq!(renamed["result"]["name"], json!("dessert"));
     assert_eq!(renamed["result"]["language"], json!("en"));
 
-    // Marc joins the Kitchen and reads French: the same Tag, his word.
+    // Marc joins the Kitchen and reads French: the same Tag, his word, among
+    // the words of every Cookbook he may see.
     let (_, invite) = app.post_op(
         "invite_to_kitchen",
         Some(&key),
@@ -3780,7 +3755,7 @@ async fn a_tag_holds_a_name_per_language_and_is_shown_in_the_readers_own() {
     let (_, listed) = app.post_op(
         "list_tags",
         Some(&reader_key),
-        &json!({ "kitchen_id": kitchen }).to_string(),
+        &json!({ "everywhere": true }).to_string(),
     );
     assert_eq!(listed["result"]["tags"][0]["name"], json!("dessert sucré"));
     assert_eq!(listed["result"]["tags"][0]["language"], json!("fr"));
@@ -3795,7 +3770,7 @@ async fn a_tag_holds_a_name_per_language_and_is_shown_in_the_readers_own() {
     let (_, fallen_back) = app.post_op(
         "list_tags",
         Some(&reader_key),
-        &json!({ "kitchen_id": kitchen }).to_string(),
+        &json!({ "everywhere": true }).to_string(),
     );
     assert_eq!(fallen_back["result"]["tags"][0]["name"], json!("dessert"));
     assert_eq!(fallen_back["result"]["tags"][0]["language"], json!("en"));
@@ -3804,11 +3779,11 @@ async fn a_tag_holds_a_name_per_language_and_is_shown_in_the_readers_own() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn renaming_a_tag_reaches_every_recipe_carrying_it_immediately() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let tag = tag_in(&app, &key, &kitchen, "en", "desert");
-    let tarte = recipe_in(&app, &key, &kitchen, "Tarte aux pommes");
-    let mousse = recipe_in(&app, &key, &kitchen, "Mousse au chocolat");
+    let tag = tag_in(&app, &key, "en", "desert");
+    let tarte = recipe_in(&app, &key, "Tarte aux pommes");
+    let mousse = recipe_in(&app, &key, "Mousse au chocolat");
     file_under(&app, &key, &tarte, &tag, true);
     file_under(&app, &key, &mousse, &tag, true);
 
@@ -3840,9 +3815,9 @@ async fn filing_a_recipe_never_touches_its_fingerprint_or_its_thread() {
     // So none of tagging, untagging or renaming may mint a Version, move the
     // head fingerprint, or leave a mark in the Thread.
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let branch = recipe_in(&app, &key, &kitchen, "Tarte aux pommes");
+    let branch = recipe_in(&app, &key, "Tarte aux pommes");
     let (_, before) = app.post_op(
         "get_recipe",
         Some(&key),
@@ -3858,7 +3833,7 @@ async fn filing_a_recipe_never_touches_its_fingerprint_or_its_thread() {
         "filed under nothing yet"
     );
 
-    let tag = tag_in(&app, &key, &kitchen, "en", "desert");
+    let tag = tag_in(&app, &key, "en", "desert");
     let filed = file_under(&app, &key, &branch, &tag, true);
     assert_eq!(filed["tags"][0]["id"], json!(tag));
 
@@ -3897,10 +3872,10 @@ async fn filing_a_recipe_never_touches_its_fingerprint_or_its_thread() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deleting_a_tag_takes_it_off_every_recipe_and_changes_no_recipe() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let tag = tag_in(&app, &key, &kitchen, "en", "quick");
-    let branch = recipe_in(&app, &key, &kitchen, "Omelette");
+    let tag = tag_in(&app, &key, "en", "quick");
+    let branch = recipe_in(&app, &key, "Omelette");
     file_under(&app, &key, &branch, &tag, true);
     let (_, before) = app.post_op(
         "get_recipe",
@@ -3926,11 +3901,7 @@ async fn deleting_a_tag_takes_it_off_every_recipe_and_changes_no_recipe() {
         after["result"]["head_version_id"], head_before,
         "the recipe itself is untouched"
     );
-    let (_, listed) = app.post_op(
-        "list_tags",
-        Some(&key),
-        &json!({ "kitchen_id": kitchen }).to_string(),
-    );
+    let (_, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
     assert_eq!(listed["result"]["tags"], json!([]));
 }
 
@@ -3938,10 +3909,10 @@ async fn deleting_a_tag_takes_it_off_every_recipe_and_changes_no_recipe() {
 async fn merging_two_tags_carries_every_recipe_across_and_mints_no_version() {
     // CONTEXT.md, "Tag": renaming *or merging* one reaches all of them at once.
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let pudding = tag_in(&app, &key, &kitchen, "en", "pudding");
-    let sweet = tag_in(&app, &key, &kitchen, "en", "sweet things");
+    let pudding = tag_in(&app, &key, "en", "pudding");
+    let sweet = tag_in(&app, &key, "en", "sweet things");
     // The losing Tag carries a French word the winner has not got.
     app.post_op(
         "rename_tag",
@@ -3949,8 +3920,8 @@ async fn merging_two_tags_carries_every_recipe_across_and_mints_no_version() {
         &json!({ "tag_id": sweet, "language": "fr", "name": "sucré" }).to_string(),
     );
 
-    let tarte = recipe_in(&app, &key, &kitchen, "Tarte aux pommes");
-    let mousse = recipe_in(&app, &key, &kitchen, "Mousse au chocolat");
+    let tarte = recipe_in(&app, &key, "Tarte aux pommes");
+    let mousse = recipe_in(&app, &key, "Mousse au chocolat");
     file_under(&app, &key, &tarte, &sweet, true);
     file_under(&app, &key, &mousse, &sweet, true);
     // One recipe already carries both, which the merge must not double up.
@@ -3981,11 +3952,7 @@ async fn merging_two_tags_carries_every_recipe_across_and_mints_no_version() {
     );
 
     // One Tag left in the Kitchen, and every recipe is under it exactly once.
-    let (_, listed) = app.post_op(
-        "list_tags",
-        Some(&key),
-        &json!({ "kitchen_id": kitchen }).to_string(),
-    );
+    let (_, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
     assert_eq!(listed["result"]["tags"].as_array().unwrap().len(), 1);
     for branch in [&tarte, &mousse] {
         let (_, read) = app.post_op(
@@ -4011,11 +3978,11 @@ async fn merging_two_tags_carries_every_recipe_across_and_mints_no_version() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tag_is_merged_only_within_one_kitchen_and_never_into_itself() {
     let app = support::spawn_app();
-    let (_, key_a, kitchen_a) = person_with_kitchen(&app, "Aurélien");
-    let (_, key_b, kitchen_b) = person_with_kitchen(&app, "Marc");
+    let (_, key_a, _) = person_with_kitchen(&app, "Aurélien");
+    let (_, key_b, _) = person_with_kitchen(&app, "Marc");
 
-    let mine = tag_in(&app, &key_a, &kitchen_a, "en", "quick");
-    let theirs = tag_in(&app, &key_b, &kitchen_b, "en", "quick");
+    let mine = tag_in(&app, &key_a, "en", "quick");
+    let theirs = tag_in(&app, &key_b, "en", "quick");
 
     let (status, refused) = app.post_op(
         "merge_tags",
@@ -4043,10 +4010,10 @@ async fn a_tag_is_merged_only_within_one_kitchen_and_never_into_itself() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rename_onto_a_word_the_kitchen_already_files_by_is_refused() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let dessert = tag_in(&app, &key, &kitchen, "en", "dessert");
-    let quick = tag_in(&app, &key, &kitchen, "en", "quick");
+    let dessert = tag_in(&app, &key, "en", "dessert");
+    let quick = tag_in(&app, &key, "en", "quick");
 
     let (status, refused) = app.post_op(
         "rename_tag",
@@ -4071,14 +4038,14 @@ async fn a_rename_onto_a_word_the_kitchen_already_files_by_is_refused() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tag_narrows_the_shelf_and_composes_with_a_search() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
-    let (_, other_key, other_kitchen) = person_with_kitchen(&app, "Marc");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_, other_key, _) = person_with_kitchen(&app, "Marc");
 
-    let spicy = tag_in(&app, &key, &kitchen, "en", "spicy");
-    let ramen = recipe_in(&app, &key, &kitchen, "Spicy Korean Chicken Ramen");
-    let curry = recipe_in(&app, &key, &kitchen, "Katsu Curry");
+    let spicy = tag_in(&app, &key, "en", "spicy");
+    let ramen = recipe_in(&app, &key, "Spicy Korean Chicken Ramen");
+    let curry = recipe_in(&app, &key, "Katsu Curry");
     // The one this filter must never answer with.
-    recipe_in(&app, &key, &kitchen, "Gâteau au chocolat");
+    recipe_in(&app, &key, "Gâteau au chocolat");
     file_under(&app, &key, &ramen, &spicy, true);
     file_under(&app, &key, &curry, &spicy, true);
 
@@ -4123,7 +4090,7 @@ async fn a_tag_narrows_the_shelf_and_composes_with_a_search() {
 
     // Marc's Tag is not this caller's to hear about, so naming it answers
     // exactly as an unminted Tag id does (ADR 0040).
-    let theirs = tag_in(&app, &other_key, &other_kitchen, "en", "spicy");
+    let theirs = tag_in(&app, &other_key, "en", "spicy");
     let (status, refused) = app.post_op(
         "search_recipes",
         Some(&key),
@@ -4156,15 +4123,11 @@ async fn a_tag_narrows_the_shelf_and_composes_with_a_search() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tag_counts_its_recipes_as_the_shelf_counts_them() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let dessert = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let dessert = tag_in(&app, &key, "en", "dessert");
     let count_of = |tag_id: &str| {
-        let (status, listed) = app.post_op(
-            "list_tags",
-            Some(&key),
-            &json!({ "kitchen_id": kitchen }).to_string(),
-        );
+        let (status, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
         assert_eq!(status, 200, "{listed}");
         listed["result"]["tags"]
             .as_array()
@@ -4181,7 +4144,7 @@ async fn a_tag_counts_its_recipes_as_the_shelf_counts_them() {
     // blank is not.
     assert_eq!(count_of(&dessert), 0);
 
-    let mousse = recipe_in(&app, &key, &kitchen, "Mousse au chocolat");
+    let mousse = recipe_in(&app, &key, "Mousse au chocolat");
     file_under(&app, &key, &mousse, &dessert, true);
     assert_eq!(count_of(&dessert), 1);
 
@@ -4214,7 +4177,7 @@ async fn a_tag_counts_its_recipes_as_the_shelf_counts_them() {
 
     // Setting a Tag answers with the recipe's Tags, counts included, so a
     // screen that has just tagged something need not ask again.
-    let sponge = recipe_in(&app, &key, &kitchen, "Biscuit roulé");
+    let sponge = recipe_in(&app, &key, "Biscuit roulé");
     let tags = file_under(&app, &key, &sponge, &dessert, true);
     assert_eq!(tags["tags"][0]["recipes"], json!(2));
 }
@@ -4229,17 +4192,13 @@ async fn a_tag_counts_its_recipes_as_the_shelf_counts_them() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tag_says_whether_its_name_is_in_the_readers_own_language() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let mijote = tag_in(&app, &key, &kitchen, "fr", "mijoté");
-    let dessert = tag_in(&app, &key, &kitchen, "en", "dessert");
+    let mijote = tag_in(&app, &key, "fr", "mijoté");
+    let dessert = tag_in(&app, &key, "en", "dessert");
 
     let marked = |tag_id: &str| {
-        let (status, listed) = app.post_op(
-            "list_tags",
-            Some(&key),
-            &json!({ "kitchen_id": kitchen }).to_string(),
-        );
+        let (status, listed) = app.post_op("list_tags", Some(&key), &json!({}).to_string());
         assert_eq!(status, 200, "{listed}");
         let tag = listed["result"]["tags"]
             .as_array()
@@ -4291,16 +4250,16 @@ async fn a_tag_says_whether_its_name_is_in_the_readers_own_language() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_name() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, curry) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Curry" }).to_string(),
+        &json!({ "title": "Curry" }).to_string(),
     );
     let (_, naan) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Naan" }).to_string(),
+        &json!({ "title": "Naan" }).to_string(),
     );
     let curry_branch = curry["result"]["branch_id"].as_str().unwrap();
     let naan_branch = naan["result"]["branch_id"].as_str().unwrap();
@@ -4362,19 +4321,27 @@ async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_
     );
 
     // A future deletion or move off this shelf leaves the remembered name, not
-    // an unusable pointer. Moving the Branch is setup only: every assertion
-    // above and below crosses a real Door.
-    let (_, elsewhere) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        &json!({ "name": "Elsewhere" }).to_string(),
-    );
-    let elsewhere_id = elsewhere["result"]["id"].as_str().unwrap();
+    // an unusable pointer. Moving the Branch into a stranger's Cookbook is
+    // setup only: every assertion above and below crosses a real Door.
+    let stranger = app.core.create_person("Elsewhere").expect("person");
+    let elsewhere_id = cookbook_of(&app, &stranger);
+    let own_cookbook: String = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT cookbook_id FROM branches WHERE id = ?1",
+                rusqlite::params![naan_branch],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
     app.core
         .db()
         .with_conn(|conn| {
             conn.execute(
-                "UPDATE branches SET kitchen_id = ?1 WHERE id = ?2",
+                "UPDATE branches SET cookbook_id = ?1 WHERE id = ?2",
                 rusqlite::params![elsewhere_id, naan_branch],
             )
             .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
@@ -4411,8 +4378,8 @@ async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_
         .db()
         .with_conn(|conn| {
             conn.execute(
-                "UPDATE branches SET kitchen_id = ?1 WHERE id = ?2",
-                rusqlite::params![kitchen_id, naan_branch],
+                "UPDATE branches SET cookbook_id = ?1 WHERE id = ?2",
+                rusqlite::params![own_cookbook, naan_branch],
             )
             .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
             Ok(())
@@ -4448,16 +4415,16 @@ async fn related_recipes_are_one_two_way_shelf_local_link_that_keeps_a_departed_
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_link_to_a_deleted_recipe_can_be_taken_off_by_naming_its_lineage() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, curry) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Curry" }).to_string(),
+        &json!({ "title": "Curry" }).to_string(),
     );
     let (_, naan) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Naan" }).to_string(),
+        &json!({ "title": "Naan" }).to_string(),
     );
     let curry_branch = curry["result"]["branch_id"].as_str().unwrap();
     let naan_branch = naan["result"]["branch_id"].as_str().unwrap();
@@ -5348,7 +5315,7 @@ async fn work_accepted_before_a_restart_never_strands() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_operator_mints_a_one_use_invite_that_creates_a_person_and_home_kitchen() {
+async fn an_operator_mints_a_one_use_invite_that_creates_a_person_and_their_cookbook() {
     let app = support::spawn_app();
     let first = json!({
         "name": "Aurélien",
@@ -5373,7 +5340,7 @@ async fn an_operator_mints_a_one_use_invite_that_creates_a_person_and_home_kitch
     let (status, joined) = app.post_auth("/auth/invite", &join.to_string());
     assert_eq!(status, 200, "{joined}");
     assert_eq!(joined["result"]["person"]["name"], json!("Marie"));
-    assert!(joined["result"]["person"]["home_kitchen_id"].is_string());
+    assert!(joined["result"]["person"]["cookbook_id"].is_string());
     assert_eq!(joined["result"]["person"]["is_operator"], json!(false));
 
     let (status, spent) = app.post_auth("/auth/invite", &join.to_string());
@@ -5683,7 +5650,8 @@ async fn deleting_an_account_frees_its_name_and_keeps_its_hand() {
     let operator_secret = operator_secret.as_str();
 
     // The first "Delete probe" writes a recipe in a Kitchen the Operator also
-    // cooks in, so it is still readable once its writer is gone.
+    // cooks in, and the Operator cooks it, so the Operator keeps a Branch of it
+    // once its writer is gone (#131, question 11).
     let (status, shared) = app.post_op(
         "create_kitchen",
         Some(operator_secret),
@@ -5703,12 +5671,19 @@ async fn deleting_an_account_frees_its_name_and_keeps_its_hand() {
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&first_secret),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
-    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let written = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, cooked) = app.post_op(
+        "start_attempt",
+        Some(operator_secret),
+        &json!({ "branch_id": written }).to_string(),
+    );
+    assert_eq!(status, 200, "{cooked}");
 
     let mut earlier = vec![first_probe.clone()];
+    let mut kept: Option<String> = None;
     for run in 1..=2 {
         let (status, deleted) = app.post_op(
             "delete_account",
@@ -5717,6 +5692,26 @@ async fn deleting_an_account_frees_its_name_and_keeps_its_hand() {
         );
         assert_eq!(status, 200, "run {run}: {deleted}");
         assert_eq!(deleted["result"]["deleted"], json!(true));
+        let (status, gone) = app.post_op(
+            "get_recipe",
+            Some(operator_secret),
+            &json!({ "branch_id": written }).to_string(),
+        );
+        assert_eq!(
+            status, 404,
+            "run {run}: the recipe went with its writer: {gone}"
+        );
+        let branch_id = kept.get_or_insert_with(|| {
+            let (_, shelf) = app.post_op(
+                "search_recipes",
+                Some(operator_secret),
+                &json!({ "query": "Soupe" }).to_string(),
+            );
+            shelf["result"]["recipes"][0]["branch_id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("the Operator kept what they cooked: {shelf}"))
+                .to_string()
+        });
 
         let again = join_by_invite(&app, operator_secret, "Delete probe");
         assert_eq!(again.status, 200, "run {run}: {}", again.text());
@@ -5762,7 +5757,7 @@ async fn deleting_an_account_frees_its_name_and_keeps_its_hand() {
     let (status, refused) = app.post_op(
         "get_recipe",
         Some(&latest_secret),
-        &json!({ "branch_id": branch_id }).to_string(),
+        &json!({ "branch_id": kept.expect("kept above") }).to_string(),
     );
     assert_eq!(
         status, 404,
@@ -5956,7 +5951,6 @@ fn recipe_ready_to_cook(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Katsu Curry",
             "ingredients": [
                 { "kind": "ingredient", "text": "2 escalopes de poulet" },
@@ -6565,7 +6559,6 @@ async fn a_recipe_shows_cook_count_last_cooked_and_each_persons_most_recent_rati
         "create_recipe",
         Some(&aurelien_key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Katsu Curry",
             "steps": [{ "kind": "step", "text": "Frire." }],
         })
@@ -6969,9 +6962,9 @@ async fn a_read_only_access_key_cannot_start_or_advance_an_attempt_but_can_read_
 
 // --- The Thread and the Branch Point (issue #53) ------------------------------
 
-/// One Lineage, two Branches, one Person who cooks in both Kitchens the
-/// Branches live in — a Kitchen holding several Branches of one Lineage
-/// (CONTEXT.md, "Branch"), built with real Operations rather than raw SQL.
+/// One Lineage, two Branches, one Person who writes both — a Cookbook holding
+/// a recipe and a variation of it (CONTEXT.md, "Branch"; ADR 0041), built with
+/// real Operations rather than raw SQL.
 /// The shared trunk runs four Versions deep before the fork, and each side
 /// grows two more afterwards, so the chain the Branch Point has to walk is
 /// genuinely deep rather than a two-Version toy.
@@ -6979,13 +6972,12 @@ async fn a_read_only_access_key_cannot_start_or_advance_an_attempt_but_can_read_
 fn two_branches_of_one_deep_lineage(
     app: &support::TestApp,
 ) -> (String, String, String, String, String, String) {
-    let (person, key, kitchen_a) = person_with_kitchen(app, "Aurélien");
-    let kitchen_b = home_kitchen_of(app, &person);
+    let (person, key, _) = person_with_kitchen(app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_a, "title": "Poulet Coréen v1" }).to_string(),
+        &json!({ "title": "Poulet Coréen v1" }).to_string(),
     );
     let branch_a = created["result"]["branch_id"].as_str().unwrap().to_string();
     let lineage_id = created["result"]["lineage_id"]
@@ -7014,18 +7006,23 @@ fn two_branches_of_one_deep_lineage(
         .unwrap()
         .to_string();
 
-    // The fork: saving into a *different* Kitchen the same Person cooks in
-    // is a Copy, exactly as an in-instance Translation would be — it starts
-    // branch_b at the Version just read, carrying the whole chain behind it.
-    backdate_branch_head(app, &branch_a);
+    // The fork: a variation started on purpose (ADR 0041) is a Branch of its
+    // own, starting at the Version just read and carrying the whole chain
+    // behind it; its first change is its own.
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": branch_a, "name": "Sans friture" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let branch_b = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(app, &branch_b);
     let (_, forked) = app.post_op(
         "save_recipe_version",
         Some(&key),
-        &json!({ "branch_id": branch_a, "kitchen_id": kitchen_b, "title": "Poulet Coréen, sans friture" })
-            .to_string(),
+        &json!({ "branch_id": branch_b, "title": "Poulet Coréen, sans friture" }).to_string(),
     );
-    assert_eq!(forked["result"]["copied"], json!(true));
-    let branch_b = forked["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_eq!(forked["result"]["copied"], json!(false), "{forked}");
 
     // Two more saves on each side, so both Branches keep growing past the
     // fork rather than stopping the instant they diverge.
@@ -7040,7 +7037,7 @@ fn two_branches_of_one_deep_lineage(
         app.post_op(
             "save_recipe_version",
             Some(&key),
-            &json!({ "branch_id": branch_b, "kitchen_id": kitchen_b, "title": format!("Sans friture, take {n}") })
+            &json!({ "branch_id": branch_b, "title": format!("Sans friture, take {n}") })
                 .to_string(),
         );
     }
@@ -7122,55 +7119,61 @@ async fn the_thread_shows_every_branch_the_caller_can_see_and_hides_the_rest() {
         "the Attempt hangs off the Thread: {result}"
     );
 
-    // A Person who cooks in only one of the two Kitchens sees only that
-    // Branch — no Version is hidden from someone who can see it, but a
-    // Branch in a Kitchen this Person does not belong to is not this
-    // Person's to see at all.
-    let branch_a_kitchen: String = app
-        .core
-        .db()
-        .with_conn(|conn| {
-            conn.query_row(
-                "SELECT kitchen_id FROM branches WHERE id = ?1",
-                rusqlite::params![branch_a],
-                |row| row.get(0),
-            )
-            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
-        })
-        .unwrap();
-    let marc = app.core.create_person("Marc").expect("person");
-    let marc_key = app
-        .core
-        .mint_access_key(&marc, "browser", false)
-        .unwrap()
-        .secret;
-    let invite = app
-        .core
-        .invite_to_kitchen(&aurelien, &branch_a_kitchen)
-        .unwrap()
-        .1;
-    app.core.accept_kitchen_invite(&marc, &invite).unwrap();
-
-    let (status, marcs_view) = app.post_op(
-        "get_thread",
-        Some(&marc_key),
-        &json!({ "branch_id": branch_a }).to_string(),
+    // What a Person sees is decided by whose Cookbooks their Kitchens see
+    // (ADR 0041). Marc cooks with Aurélien in one Kitchen, Camille in
+    // another, and Camille's change is a Branch in her own Cookbook: Aurélien
+    // sees all three, Marc only the two in Aurélien's Cookbook. No Version is
+    // hidden from someone who can see its Branch, but a Branch in a Cookbook
+    // this Person may not see is not theirs to see at all.
+    let key_of = |name: &str| {
+        let person = app.core.create_person(name).expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "browser", false)
+            .unwrap()
+            .secret;
+        (person, key)
+    };
+    let (_marc, marc_key) = key_of("Marc");
+    let (_camille, camille_key) = key_of("Camille");
+    for (with, name) in [(&marc_key, "Family"), (&camille_key, "Supper club")] {
+        let kitchen = app.core.create_kitchen(&aurelien, name).unwrap();
+        ask_into_kitchen(&app, &key, kitchen["id"].as_str().unwrap(), with);
+    }
+    let (_, hers) = app.post_op(
+        "save_recipe_version",
+        Some(&camille_key),
+        &json!({ "branch_id": branch_a, "title": "Poulet Coréen de Camille" }).to_string(),
     );
-    assert_eq!(status, 200, "{marcs_view}");
-    let marcs_branch_ids: Vec<&str> = marcs_view["result"]["branches"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|b| b["branch_id"].as_str().unwrap())
-        .collect();
+    let branch_c = hers["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_eq!(hers["result"]["copied"], json!(true), "{hers}");
+
+    let branches_seen_by = |who: &str| -> Vec<String> {
+        let (status, view) = app.post_op(
+            "get_thread",
+            Some(who),
+            &json!({ "branch_id": branch_a }).to_string(),
+        );
+        assert_eq!(status, 200, "{view}");
+        view["result"]["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["branch_id"].as_str().unwrap().to_string())
+            .collect()
+    };
     assert_eq!(
-        marcs_branch_ids,
-        vec![branch_a.as_str()],
-        "Marc cooks in branch_a's Kitchen alone, so branch_b stays invisible to him: {marcs_view}"
+        branches_seen_by(&key),
+        vec![branch_a.clone(), branch_b.clone(), branch_c.clone()]
+    );
+    assert_eq!(
+        branches_seen_by(&marc_key),
+        vec![branch_a.clone(), branch_b.clone()],
+        "Camille's Cookbook is seen in no Kitchen of Marc's, so her Branch stays invisible to him"
     );
 
-    // A stranger to both Kitchens is refused outright.
-    let stranger = app.core.create_person("Camille").expect("person");
+    // A stranger to every Kitchen is refused outright.
+    let stranger = app.core.create_person("Nadia").expect("person");
     let stranger_key = app
         .core
         .mint_access_key(&stranger, "browser", false)
@@ -7224,13 +7227,12 @@ async fn branch_point_is_computed_by_walking_both_chains_across_a_deep_chain() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_rapid_re_save_after_a_copy_appends_instead_of_severing_the_two_branches() {
     let app = support::spawn_app();
-    let (person, key, kitchen_a) = person_with_kitchen(&app, "Aurélien");
-    let kitchen_b = home_kitchen_of(&app, &person);
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_a, "title": "Maison Batterman" }).to_string(),
+        &json!({ "title": "Maison Batterman" }).to_string(),
     );
     let branch_t = created["result"]["branch_id"].as_str().unwrap().to_string();
     let shared_version = created["result"]["head_version_id"]
@@ -7238,16 +7240,20 @@ async fn a_rapid_re_save_after_a_copy_appends_instead_of_severing_the_two_branch
         .unwrap()
         .to_string();
 
-    // A friend takes a copy: saving into a Kitchen that did not write this
-    // Branch starts one of its own, carrying the whole chain behind it.
+    // A second Branch takes a copy: a variation carries the whole chain
+    // behind it, exactly as a Copy by somebody else does, and changes it.
+    let (_, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": branch_t, "name": "Chez Marc" }).to_string(),
+    );
+    let branch_m = varied["result"]["branch_id"].as_str().unwrap().to_string();
     let (_, copied) = app.post_op(
         "save_recipe_version",
         Some(&key),
-        &json!({ "branch_id": branch_t, "kitchen_id": kitchen_b, "title": "Chez Marc" })
-            .to_string(),
+        &json!({ "branch_id": branch_m, "title": "Chez Marc" }).to_string(),
     );
-    assert_eq!(copied["result"]["copied"], json!(true));
-    let branch_m = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_eq!(copied["result"]["branch_id"], json!(branch_m), "{copied}");
 
     // The pair is sound before the tweak — this is what the tweak used to
     // destroy, so it has to be proved rather than assumed.
@@ -7349,18 +7355,18 @@ async fn a_rapid_re_save_after_a_copy_appends_instead_of_severing_the_two_branch
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_unrelated_recipes_that_happen_to_match_do_not_close_each_others_window() {
     let app = support::spawn_app();
-    let (_aurelien, key, kitchen) = person_with_kitchen(&app, "Aurélien");
-    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+    let (_aurelien, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_marc, marc_key, _) = person_with_kitchen(&app, "Marc");
 
     let (_, mine) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let (_, theirs) = app.post_op(
         "create_recipe",
         Some(&marc_key),
-        &json!({ "kitchen_id": marc_kitchen, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     assert_eq!(
         mine["result"]["head_version_id"], theirs["result"]["head_version_id"],
@@ -7487,7 +7493,7 @@ fn import_and_wait(app: &support::TestApp, key: &str, body: &Value) -> Value {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_hand() {
+async fn importing_lands_a_new_recipe_in_your_own_cookbook_with_the_importing_hand() {
     let app = support::spawn_app();
     let person = app.core.create_person("Aurélien").expect("person");
     let key = app
@@ -7495,7 +7501,7 @@ async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_han
         .mint_access_key(&person, "importer", false)
         .unwrap()
         .secret;
-    let home_kitchen_id = home_kitchen_of(&app, &person);
+    let cookbook_id = cookbook_of(&app, &person);
 
     let report = import_and_wait(
         &app,
@@ -7513,7 +7519,7 @@ async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_han
     );
 
     assert_eq!(report["source_kind"], json!("crouton"));
-    assert_eq!(report["kitchen_id"], json!(home_kitchen_id));
+    assert_eq!(report["cookbook_id"], json!(cookbook_id));
     let arrived = report["arrived"].as_array().unwrap();
     assert_eq!(arrived.len(), 1, "{report}");
     assert_eq!(arrived[0]["status"], json!("created"));
@@ -7522,7 +7528,7 @@ async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_han
     assert!(report["unreadable"].as_array().unwrap().is_empty());
     let branch_id = arrived[0]["branch_id"].as_str().unwrap().to_string();
 
-    // It landed in the Home Kitchen, the imported Person's Hand on the first
+    // It landed in their own Cookbook, the imported Person's Hand on the first
     // Version, and carries the Source it really came from — no import mark,
     // no provenance field, no per-line badge (ADR 0025).
     let (status, recipe) = app.post_op(
@@ -7531,7 +7537,7 @@ async fn importing_lands_a_new_recipe_in_the_home_kitchen_with_the_importing_han
         &json!({ "branch_id": branch_id }).to_string(),
     );
     assert_eq!(status, 200, "{recipe}");
-    assert_eq!(recipe["result"]["kitchen_id"], json!(home_kitchen_id));
+    assert_eq!(recipe["result"]["cookbook"]["id"], json!(cookbook_id));
     let first_version = &recipe["result"]["versions"][0];
     assert_eq!(first_version["hand_id"], json!(person));
     assert_eq!(
@@ -8245,6 +8251,7 @@ fn a_failing_migration_refuses_to_serve_and_leaves_a_restorable_snapshot() {
         version: 2,
         description: "the Job shape",
         sql: "CREATE TABLE this_is_not_sql (",
+        ..Migration::SQL_ONLY
     };
     let steps: &[Migration] = &[db::MIGRATIONS[0], broken_v2];
     let failure = db::Db::open_with_migrations(&data_dir, steps)
@@ -8917,7 +8924,6 @@ fn a_lineage_that_forked(app: &support::TestApp) -> (String, String, String) {
 
     // The Branch Point: the recipe as both of them knew it.
     let branch_point = json!({
-        "kitchen_id": my_kitchen,
         "title": "Korean Fried Chicken",
         "ingredients": [
             { "kind": "section", "text": "Chicken" },
@@ -8947,7 +8953,6 @@ fn a_lineage_that_forked(app: &support::TestApp) -> (String, String, String) {
         Some(&marc_key),
         &json!({
             "branch_id": my_branch,
-            "kitchen_id": marc_kitchen,
             "title": "Korean Fried Chicken",
             "ingredients": [
                 { "kind": "section", "text": "Chicken" },
@@ -9048,10 +9053,12 @@ async fn a_divergence_is_two_whole_recipes_with_the_unshared_lines_marked() {
     assert_eq!(mine["steps"].as_array().unwrap().len(), 2);
     assert_eq!(theirs["steps"].as_array().unwrap().len(), 3);
     assert_eq!(
-        divergence["result"]["theirs"]["kitchen_name"],
-        json!("Marc's Kitchen"),
-        "the switch names the Kitchen you cross into"
+        divergence["result"]["theirs"]["cookbook"]["authors"][0]["name"],
+        json!("Marc"),
+        "the switch names whose recipe you cross into"
     );
+    assert_eq!(divergence["result"]["theirs"]["mine"], json!(false));
+    assert_eq!(divergence["result"]["mine"]["mine"], json!(true));
 
     let ingredients = rows_of(&divergence, "ingredients");
 
@@ -9264,19 +9271,19 @@ async fn a_divergence_reads_the_same_from_either_branch() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_divergence_cannot_reach_a_branch_you_could_not_otherwise_read() {
     let app = support::spawn_app();
-    let (_, mine_key, my_kitchen) = person_with_kitchen(&app, "Aurélien");
-    let (_, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+    let (_, mine_key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_, marc_key, _) = person_with_kitchen(&app, "Marc");
 
     let (_, mine) = app.post_op(
         "create_recipe",
         Some(&mine_key),
-        &json!({ "kitchen_id": my_kitchen, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let my_branch = mine["result"]["branch_id"].as_str().unwrap().to_string();
     let (_, theirs) = app.post_op(
         "create_recipe",
         Some(&marc_key),
-        &json!({ "kitchen_id": marc_kitchen, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let marc_branch = theirs["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -9297,14 +9304,14 @@ async fn a_divergence_cannot_reach_a_branch_you_could_not_otherwise_read() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn two_branches_of_different_lineages_are_not_a_divergence() {
     let app = support::spawn_app();
-    let (_, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let mut branches = Vec::new();
     for title in ["Soupe", "Katsu Curry"] {
         let (_, created) = app.post_op(
             "create_recipe",
             Some(&key),
-            &json!({ "kitchen_id": kitchen, "title": title }).to_string(),
+            &json!({ "title": title }).to_string(),
         );
         branches.push(created["result"]["branch_id"].as_str().unwrap().to_string());
     }
@@ -9352,7 +9359,7 @@ async fn a_section_heading_never_pairs_with_an_ingredient_line() {
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&mine_key),
-        &json!({ "kitchen_id": my_kitchen, "title": "Sauce", "ingredients": [] }).to_string(),
+        &json!({ "title": "Sauce", "ingredients": [] }).to_string(),
     );
     let my_branch = created["result"]["branch_id"].as_str().unwrap().to_string();
     ask_into_kitchen(&app, &mine_key, &my_kitchen, &marc_key);
@@ -9363,7 +9370,6 @@ async fn a_section_heading_never_pairs_with_an_ingredient_line() {
         Some(&marc_key),
         &json!({
             "branch_id": my_branch,
-            "kitchen_id": marc_kitchen,
             "title": "Sauce",
             "ingredients": [{ "kind": "ingredient", "text": "Sauce" }],
         })
@@ -9403,11 +9409,9 @@ async fn a_section_heading_never_pairs_with_an_ingredient_line() {
 
 // --- One shelf and word search (issue #62) -----------------------------------
 
-/// Put one recipe on a Kitchen's shelf and answer its Branch id.
-fn shelve_recipe(app: &support::TestApp, key: &str, kitchen: &str, recipe: Value) -> String {
-    let mut input = recipe;
-    input["kitchen_id"] = json!(kitchen);
-    let (status, created) = app.post_op("create_recipe", Some(key), &input.to_string());
+/// Put one recipe in its writer's Cookbook and answer its Branch id.
+fn shelve_recipe(app: &support::TestApp, key: &str, recipe: Value) -> String {
+    let (status, created) = app.post_op("create_recipe", Some(key), &recipe.to_string());
     assert_eq!(status, 200, "{created}");
     created["result"]["branch_id"]
         .as_str()
@@ -9417,8 +9421,8 @@ fn shelve_recipe(app: &support::TestApp, key: &str, kitchen: &str, recipe: Value
 
 /// The same, for the many recipes here that need nothing but a title — which
 /// is all a recipe ever needs (#6).
-fn shelve(app: &support::TestApp, key: &str, kitchen: &str, title: &str) -> String {
-    shelve_recipe(app, key, kitchen, json!({ "title": title }))
+fn shelve(app: &support::TestApp, key: &str, title: &str) -> String {
+    shelve_recipe(app, key, json!({ "title": title }))
 }
 
 /// Search the shelf and answer the entries, failing loudly on any error the
@@ -9442,10 +9446,10 @@ fn titles(entries: &[Value]) -> Vec<&str> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_shelf_is_alphabetical_and_carries_no_kitchen_anywhere_on_it() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     for title in ["Sukiyaki Udon", "Airfried Cauliflower", "Miso Soup"] {
-        shelve(&app, &key, &kitchen_id, title);
+        shelve(&app, &key, title);
     }
 
     let entries = shelf(&app, &key, json!({}));
@@ -9465,26 +9469,22 @@ async fn the_shelf_is_alphabetical_and_carries_no_kitchen_anywhere_on_it() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn one_lineage_held_by_two_kitchens_is_one_card_and_a_filter_picks_a_branch() {
+async fn one_lineage_in_two_cookbooks_is_one_card_that_opens_your_own_else_the_original() {
     let app = support::spawn_app();
-    let (_person, key, home) = person_with_kitchen(&app, "Aurélien");
-    let (_, second) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        &json!({ "name": "Chez Marc" }).to_string(),
-    );
-    let other = second["result"]["id"].as_str().unwrap().to_string();
+    let (_, key, family) = person_with_kitchen(&app, "Aurélien");
+    let (_, helene_key, _) = person_with_kitchen(&app, "Hélène");
+    let (_, marc_key, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &family, &helene_key);
+    ask_into_kitchen(&app, &key, &family, &marc_key);
 
-    let branch = shelve(&app, &key, &home, "Katsu Curry");
+    let branch = shelve(&app, &key, "Katsu Curry");
 
-    // Editing it on behalf of the second Kitchen is a Copy: one Lineage, two
-    // Branches, both on this Person's shelf.
+    // Hélène changes it: a Branch of her own, in her own Cookbook (ADR 0041).
     let (status, copied) = app.post_op(
         "save_recipe_version",
-        Some(&key),
+        Some(&helene_key),
         &json!({
             "branch_id": branch,
-            "kitchen_id": other,
             "title": "Katsu Curry",
             "note": "less sauce",
         })
@@ -9492,23 +9492,38 @@ async fn one_lineage_held_by_two_kitchens_is_one_card_and_a_filter_picks_a_branc
     );
     assert_eq!(status, 200, "{copied}");
     assert_eq!(copied["result"]["copied"], json!(true), "{copied}");
-    let copied_branch = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    let hers = copied["result"]["branch_id"].as_str().unwrap().to_string();
 
-    let everything = shelf(&app, &key, json!({}));
-    assert_eq!(
-        titles(&everything),
-        ["Katsu Curry"],
-        "one card per Lineage, however many Kitchens hold a Branch of it"
+    // One card per Lineage for everybody, and it opens your own Branch …
+    for (who, opens) in [(&key, &branch), (&helene_key, &hers)] {
+        let everything = shelf(&app, who, json!({}));
+        assert_eq!(
+            titles(&everything),
+            ["Katsu Curry"],
+            "one card per Lineage, however many Cookbooks hold a Branch of it"
+        );
+        assert_eq!(everything[0]["branch_id"], json!(opens), "{everything:#?}");
+    }
+    // … or, for somebody with none of their own, the original.
+    let marcs = shelf(&app, &marc_key, json!({}));
+    assert_eq!(marcs[0]["branch_id"], json!(branch), "{marcs:#?}");
+
+    // Filtered to a Kitchen, the shelf is the Cookbooks seen in it. The supper
+    // club is Aurélien and Marc, so Hélène's Branch is not in it and the card
+    // opens his.
+    let (_, club) = app.post_op(
+        "create_kitchen",
+        Some(&marc_key),
+        &json!({ "name": "Supper club" }).to_string(),
     );
-
-    // Filtered to one Kitchen, the card opens that Kitchen's Branch.
-    let here = shelf(&app, &key, json!({ "kitchen_id": home }));
-    assert_eq!(here.len(), 1, "{here:#?}");
-    assert_eq!(here[0]["branch_id"], json!(branch));
-
-    let there = shelf(&app, &key, json!({ "kitchen_id": other }));
+    let club = club["result"]["id"].as_str().unwrap().to_string();
+    ask_into_kitchen(&app, &marc_key, &club, &key);
+    let there = shelf(&app, &helene_key, json!({ "kitchen_id": family }));
     assert_eq!(there.len(), 1, "{there:#?}");
-    assert_eq!(there[0]["branch_id"], json!(copied_branch));
+    assert_eq!(there[0]["branch_id"], json!(hers));
+    let club_shelf = shelf(&app, &key, json!({ "kitchen_id": club }));
+    assert_eq!(club_shelf.len(), 1, "{club_shelf:#?}");
+    assert_eq!(club_shelf[0]["branch_id"], json!(branch));
 
     // Nothing was remembered: asking again with no filter is the whole shelf.
     // A filter that persists is a mode, and a mode you forgot you set is the
@@ -9519,7 +9534,7 @@ async fn one_lineage_held_by_two_kitchens_is_one_card_and_a_filter_picks_a_branc
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_in_another_language_is_shown_and_marked_rather_than_hidden() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -9529,13 +9544,11 @@ async fn a_recipe_in_another_language_is_shown_and_marked_rather_than_hidden() {
     shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({ "title": "Îles Flottantes", "language": "fr" }),
     );
     shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({ "title": "Miso Soup", "language": "en" }),
     );
 
@@ -9557,13 +9570,7 @@ async fn a_recipe_in_another_language_is_shown_and_marked_rather_than_hidden() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_lineage_with_a_branch_in_the_reading_language_opens_that_one_unmarked() {
     let app = support::spawn_app();
-    let (_person, key, home) = person_with_kitchen(&app, "Aurélien");
-    let (_, second) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        &json!({ "name": "Chez Marc" }).to_string(),
-    );
-    let other = second["result"]["id"].as_str().unwrap().to_string();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -9574,7 +9581,6 @@ async fn a_lineage_with_a_branch_in_the_reading_language_opens_that_one_unmarked
     let french = shelve_recipe(
         &app,
         &key,
-        &home,
         json!({ "title": "Purée de Pommes de Terre", "language": "fr" }),
     );
     let (_, copied) = app.post_op(
@@ -9582,7 +9588,6 @@ async fn a_lineage_with_a_branch_in_the_reading_language_opens_that_one_unmarked
         Some(&key),
         &json!({
             "branch_id": french,
-            "kitchen_id": other,
             "title": "Purée de Pommes de Terre",
             "note": "the same, mine",
         })
@@ -9614,14 +9619,13 @@ async fn a_lineage_with_a_branch_in_the_reading_language_opens_that_one_unmarked
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_exact_title_wins_and_every_result_quotes_the_line_that_matched() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    shelve(&app, &key, &kitchen_id, "Chocolate");
-    shelve(&app, &key, &kitchen_id, "Chocolate Chip Cookies");
+    shelve(&app, &key, "Chocolate");
+    shelve(&app, &key, "Chocolate Chip Cookies");
     shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({
             "title": "Chilli con carne",
             "ingredients": [{ "kind": "ingredient", "text": "50 g dark chocolate" }],
@@ -9630,7 +9634,6 @@ async fn an_exact_title_wins_and_every_result_quotes_the_line_that_matched() {
     shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({
             "title": "Braised Beef",
             "steps": [
@@ -9639,7 +9642,7 @@ async fn an_exact_title_wins_and_every_result_quotes_the_line_that_matched() {
             ],
         }),
     );
-    shelve(&app, &key, &kitchen_id, "Miso Soup");
+    shelve(&app, &key, "Miso Soup");
 
     let found = shelf(&app, &key, json!({ "query": "chocolate" }));
     assert_eq!(
@@ -9680,11 +9683,10 @@ async fn an_exact_title_wins_and_every_result_quotes_the_line_that_matched() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_accent_left_off_still_finds_the_recipe() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({ "title": "Gâteau Au Chocolat", "language": "fr" }),
     );
 
@@ -9717,7 +9719,7 @@ async fn search_reaches_this_persons_own_attempts_and_nobody_elses() {
         &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
     );
 
-    let branch = shelve(&app, &mine_key, &kitchen_id, "Miso Soup");
+    let branch = shelve(&app, &mine_key, "Miso Soup");
 
     // Camille cooks it and writes her own diary line about it.
     let (_, attempt) = app.post_op(
@@ -9770,8 +9772,8 @@ async fn my_recipes_means_created_branched_or_cooked() {
         &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
     );
 
-    let cooked = shelve(&app, &mine_key, &kitchen_id, "Miso Soup");
-    shelve(&app, &mine_key, &kitchen_id, "Katsu Curry");
+    let cooked = shelve(&app, &mine_key, "Miso Soup");
+    shelve(&app, &mine_key, "Katsu Curry");
 
     // Camille sees the whole shelf, and none of it is hers yet.
     assert_eq!(shelf(&app, &camille_key, json!({})).len(), 2);
@@ -9799,8 +9801,8 @@ async fn my_recipes_means_created_branched_or_cooked() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nothing_found_answers_no_entries_and_the_query_it_was_asked() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    shelve(&app, &key, &kitchen_id, "Miso Soup");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    shelve(&app, &key, "Miso Soup");
 
     let (status, answer) = app.post_op(
         "search_recipes",
@@ -9831,7 +9833,7 @@ async fn the_shelf_holds_only_what_this_persons_kitchens_hold() {
     let (_aurelien, mine_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
     let (_stranger, stranger_key, _their_kitchen) = person_with_kitchen(&app, "Marc");
 
-    shelve(&app, &mine_key, &kitchen_id, "Miso Soup");
+    shelve(&app, &mine_key, "Miso Soup");
 
     assert!(
         shelf(&app, &stranger_key, json!({})).is_empty(),
@@ -9851,12 +9853,11 @@ async fn the_shelf_holds_only_what_this_persons_kitchens_hold() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_step_is_numbered_as_the_recipe_page_numbers_it_and_a_section_is_neither() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({
             "title": "Katsu Curry",
             "steps": [
@@ -9886,7 +9887,7 @@ async fn a_step_is_numbered_as_the_recipe_page_numbers_it_and_a_section_is_neith
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_word_only_the_other_language_uses_still_finds_the_recipe() {
     let app = support::spawn_app();
-    let (_person, key, home) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -9898,7 +9899,6 @@ async fn a_word_only_the_other_language_uses_still_finds_the_recipe() {
     let english = shelve_recipe(
         &app,
         &key,
-        &home,
         json!({
             "title": "Chocolate Mousse",
             "language": "en",
@@ -9982,8 +9982,8 @@ fn english_mousse() -> Value {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_translation_is_an_ordinary_branch_of_the_same_lineage_in_another_language() {
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
-    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, english_mousse());
 
     let (_, source) = app.post_op(
         "get_recipe",
@@ -10068,8 +10068,8 @@ async fn a_translation_is_an_ordinary_branch_of_the_same_lineage_in_another_lang
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn how_far_behind_a_translation_has_fallen_is_exact_and_moves_as_the_source_moves() {
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
-    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, english_mousse());
 
     let mut input = french_mousse();
     input["branch_id"] = json!(english);
@@ -10142,7 +10142,7 @@ async fn how_far_behind_a_translation_has_fallen_is_exact_and_moves_as_the_sourc
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_with() {
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -10151,7 +10151,7 @@ async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_wit
 
     // Written in French by a cook whose Reading Language is English: the
     // recipe's own text decides, not the account's preference.
-    let french = shelve_recipe(&app, &key, &kitchen, french_mousse());
+    let french = shelve_recipe(&app, &key, french_mousse());
     let (_, read) = app.post_op(
         "get_recipe",
         Some(&key),
@@ -10162,7 +10162,7 @@ async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_wit
     // A recipe that is nothing but a title has no text to read a Language out
     // of — three of the real 86 are exactly this — so the writer's own
     // Language answers rather than a guess.
-    let bare = shelve(&app, &key, &kitchen, "Dan Dan Noodles");
+    let bare = shelve(&app, &key, "Dan Dan Noodles");
     let (_, bare_read) = app.post_op(
         "get_recipe",
         Some(&key),
@@ -10173,7 +10173,7 @@ async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_wit
     // And a Language stated outright is never second-guessed.
     let mut stated = french_mousse();
     stated["language"] = json!("es");
-    let spanish = shelve_recipe(&app, &key, &kitchen, stated);
+    let spanish = shelve_recipe(&app, &key, stated);
     let (_, spanish_read) = app.post_op(
         "get_recipe",
         Some(&key),
@@ -10185,10 +10185,10 @@ async fn a_language_is_detected_from_the_text_when_there_is_none_to_disagree_wit
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_language_that_disagrees_with_the_text_is_offered_and_never_taken() {
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let mut mislabelled = french_mousse();
     mislabelled["language"] = json!("en");
-    let branch = shelve_recipe(&app, &key, &kitchen, mislabelled);
+    let branch = shelve_recipe(&app, &key, mislabelled);
 
     // The save reads the text, disagrees, and says so — and changes nothing.
     backdate_branch_head(&app, &branch);
@@ -10257,7 +10257,7 @@ async fn a_language_that_disagrees_with_the_text_is_offered_and_never_taken() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unknown_is_permanent_and_unremarkable_no_prompt_no_badge_no_nag() {
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -10280,7 +10280,7 @@ async fn unknown_is_permanent_and_unremarkable_no_prompt_no_badge_no_nag() {
             { "kind": "step", "text": "Versez la sauce soja et le sucre dans la poêle." },
         ],
     });
-    let branch = shelve_recipe(&app, &key, &kitchen, bilingual.clone());
+    let branch = shelve_recipe(&app, &key, bilingual.clone());
 
     let (status, set) = app.post_op(
         "set_recipe_language",
@@ -10331,8 +10331,8 @@ async fn unknown_is_permanent_and_unremarkable_no_prompt_no_badge_no_nag() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_that_is_translated_cannot_then_be_called_unknown() {
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
-    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, english_mousse());
     let mut input = french_mousse();
     input["branch_id"] = json!(english);
     input["language"] = json!("fr");
@@ -10364,7 +10364,7 @@ async fn a_recipe_that_is_translated_cannot_then_be_called_unknown() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_agent_translating_writes_under_the_persons_credential_and_the_kitchens_hand() {
     let app = support::spawn_app();
-    let (person, _key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (person, _key, _) = person_with_kitchen(&app, "Aurélien");
     // The agent holds an Access Key of Aurélien's — a Credential naming him,
     // never one of its own (ADR 0006: a scribe, not an author).
     let agent_key = app
@@ -10373,7 +10373,7 @@ async fn an_agent_translating_writes_under_the_persons_credential_and_the_kitche
         .unwrap()
         .secret;
 
-    let english = shelve_recipe(&app, &agent_key, &kitchen, english_mousse());
+    let english = shelve_recipe(&app, &agent_key, english_mousse());
     let (_, source) = app.post_op(
         "get_recipe",
         Some(&agent_key),
@@ -10388,10 +10388,13 @@ async fn an_agent_translating_writes_under_the_persons_credential_and_the_kitche
         app.post_op("start_translation", Some(&agent_key), &input.to_string());
     assert_eq!(status, 200, "{translated}");
 
-    // The Hand on the Branch is the Person's Kitchen's — the Translation lands
-    // on his own shelf, not somewhere an agent owns.
+    // The Hand on the Branch is the Person's Cookbook's — the Translation
+    // lands in his own Cookbook, not somewhere an agent owns.
     assert_eq!(translated["result"]["hand_id"], json!(kitchen_hand));
-    assert_eq!(translated["result"]["kitchen_id"], json!(kitchen));
+    assert_eq!(
+        translated["result"]["cookbook"],
+        source["result"]["cookbook"]
+    );
     // And the Hand on the Version is the Person himself.
     assert_eq!(
         translated["result"]["versions"][0]["hand_id"],
@@ -10403,7 +10406,7 @@ async fn an_agent_translating_writes_under_the_persons_credential_and_the_kitche
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_shelf_shows_one_card_per_lineage_in_the_readers_language_and_marks_a_fallback() {
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -10411,7 +10414,7 @@ async fn the_shelf_shows_one_card_per_lineage_in_the_readers_language_and_marks_
     );
 
     // One recipe with a French Translation, and one with none.
-    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let english = shelve_recipe(&app, &key, english_mousse());
     let mut input = french_mousse();
     input["branch_id"] = json!(english);
     input["language"] = json!("fr");
@@ -10423,7 +10426,6 @@ async fn the_shelf_shows_one_card_per_lineage_in_the_readers_language_and_marks_
     let english_only = shelve_recipe(
         &app,
         &key,
-        &kitchen,
         json!({
             "title": "Yogurt Flatbread",
             "steps": [
@@ -10461,26 +10463,22 @@ async fn the_version_a_language_change_makes_leaves_the_chain_walkable() {
     // insists they are contiguous, so this is the shape most likely to have
     // been broken by making the change a Version at all.
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
-    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, english_mousse());
 
-    let (_, second) = app.post_op(
-        "create_kitchen",
+    // A variation changed: two Branches of one Lineage to find a Branch Point
+    // between.
+    let (_, varied) = app.post_op(
+        "start_variation",
         Some(&key),
-        &json!({ "name": "The Other Kitchen" }).to_string(),
+        &json!({ "branch_id": english, "name": "The other way" }).to_string(),
     );
-    let second_kitchen = second["result"]["id"].as_str().unwrap().to_string();
-
-    // Saved on behalf of a Kitchen that does not hold this Branch: a Copy, and
-    // so two Branches of one Lineage to find a Branch Point between.
+    let theirs = varied["result"]["branch_id"].as_str().unwrap().to_string();
     let mut copy = english_mousse();
-    copy["branch_id"] = json!(english);
-    copy["kitchen_id"] = json!(second_kitchen);
+    copy["branch_id"] = json!(theirs);
     copy["title"] = json!("Chocolate Mousse, the other way");
     let (status, copied) = app.post_op("save_recipe_version", Some(&key), &copy.to_string());
     assert_eq!(status, 200, "{copied}");
-    assert_eq!(copied["result"]["copied"], json!(true));
-    let theirs = copied["result"]["branch_id"].as_str().unwrap().to_string();
 
     let (status, before) = app.post_op(
         "branch_point",
@@ -10526,8 +10524,8 @@ async fn a_rapid_re_save_never_collapses_away_the_version_a_translation_renders(
     // Translation says it renders and the pointer is left naming text that no
     // longer occurs anywhere.
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
-    let english = shelve_recipe(&app, &key, &kitchen, english_mousse());
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let english = shelve_recipe(&app, &key, english_mousse());
 
     let mut input = french_mousse();
     input["branch_id"] = json!(english);
@@ -10584,10 +10582,10 @@ async fn saying_what_language_a_recipe_is_in_does_not_make_its_translations_stal
     // be counted from the newest occurrence, or a relabel would put every
     // Translation permanently and unrecoverably one Version behind.
     let app = support::spawn_app();
-    let (_person, key, kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let mut mislabelled = english_mousse();
     mislabelled["language"] = json!("es");
-    let english = shelve_recipe(&app, &key, &kitchen, mislabelled);
+    let english = shelve_recipe(&app, &key, mislabelled);
 
     let mut input = french_mousse();
     input["branch_id"] = json!(english);
@@ -10827,7 +10825,6 @@ async fn promoting_a_picture_keeps_the_version_its_name() {
 fn recipe_with_readings(
     app: &support::TestApp,
     key: &str,
-    kitchen_id: &str,
     title: &str,
     lines: &[(&str, &str, &str, &str)],
 ) -> String {
@@ -10838,8 +10835,7 @@ fn recipe_with_readings(
     let (_, created) = app.post_op(
         "create_recipe",
         Some(key),
-        &json!({ "kitchen_id": kitchen_id, "title": title, "ingredients": ingredients })
-            .to_string(),
+        &json!({ "title": title, "ingredients": ingredients }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     for (index, (_, amount, unit, target)) in lines.iter().enumerate() {
@@ -10891,13 +10887,12 @@ fn reads_in(app: &support::TestApp, key: &str, language: &str, measures: &str) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn any_written_word_is_a_unit_and_only_the_closed_set_ever_converts() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
 
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "Tofu",
         &[
             // Whatever the cook wrote is a Unit. A poignée is as real as a
@@ -10922,7 +10917,6 @@ async fn any_written_word_is_a_unit_and_only_the_closed_set_ever_converts() {
         let branch_id = recipe_with_readings(
             &app,
             &key,
-            &kitchen_id,
             &format!("Flour in {spelling}"),
             &[("250 g flour", "250", spelling, "flour")],
         );
@@ -10937,7 +10931,7 @@ async fn any_written_word_is_a_unit_and_only_the_closed_set_ever_converts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_convertible_set_knows_three_languages_and_the_named_regional_spoons() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
 
     // The same spoon in three Languages is one Unit — and ADR 0016's own
@@ -10955,7 +10949,6 @@ async fn the_convertible_set_knows_three_languages_and_the_named_regional_spoons
         let branch_id = recipe_with_readings(
             &app,
             &key,
-            &kitchen_id,
             &format!("Soy in {spelling}"),
             &[("3 tbsp soy sauce", "3", spelling, "soy sauce")],
         );
@@ -10971,7 +10964,6 @@ async fn the_convertible_set_knows_three_languages_and_the_named_regional_spoons
     let named = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "Soy, named precisely",
         &[
             (
@@ -10998,13 +10990,12 @@ async fn the_convertible_set_knows_three_languages_and_the_named_regional_spoons
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rounding_happens_last_and_once_and_a_cup_of_a_staple_becomes_a_weight() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
 
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "Three cups of things",
         &[
             // ADR 0016's own arithmetic: three cups is 710 ml, not 720. It is
@@ -11046,13 +11037,12 @@ async fn rounding_happens_last_and_once_and_a_cup_of_a_staple_becomes_a_weight()
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_blank_cup_weight_offers_millilitres_and_an_override_beats_the_shipped_figure() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
 
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "Mushrooms and flour",
         &[
             ("1 cup sliced mushrooms", "1", "cup", "sliced mushrooms"),
@@ -11114,14 +11104,13 @@ async fn a_blank_cup_weight_offers_millilitres_and_an_override_beats_the_shipped
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fractions_are_used_where_the_measure_is_fractional_and_metric_stays_whole() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // An American reads a metric recipe. The cups in her drawer are marked in
     // fractions, so that is how the line is written.
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "A metric recipe read in America",
         &[
             ("500 ml lait", "500", "ml", "lait"),
@@ -11154,12 +11143,11 @@ async fn fractions_are_used_where_the_measure_is_fractional_and_metric_stays_who
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_converted_amount_says_about_in_the_readers_own_language() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "One cup of flour",
         &[("2 cups flour", "2", "cups", "flour")],
     );
@@ -11214,14 +11202,13 @@ async fn every_converted_amount_says_about_in_the_readers_own_language() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn temperatures_convert_on_the_conventional_oven_ladder_never_arithmetically() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "An oven and some distractions",
             "steps": [
                 // 350°F is 176.67°C by arithmetic and 180°C on the dial.
@@ -11266,7 +11253,6 @@ async fn temperatures_convert_on_the_conventional_oven_ladder_never_arithmetical
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Un four français",
             "steps": [
                 { "kind": "step", "text": "Préchauffer le four à 180 °C." },
@@ -11285,7 +11271,7 @@ async fn temperatures_convert_on_the_conventional_oven_ladder_never_arithmetical
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_already_in_your_measures_is_untouched_within_its_own_system() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Kamosu converts BETWEEN systems and never re-expresses within one. An
     // American told her `4 tsp` is `about 1⅓ tbsp` has been handed a second way
@@ -11295,7 +11281,6 @@ async fn a_recipe_already_in_your_measures_is_untouched_within_its_own_system() 
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "Already American",
         &[
             ("4 tsp baking powder", "4", "tsp", "baking powder"),
@@ -11314,7 +11299,6 @@ async fn a_recipe_already_in_your_measures_is_untouched_within_its_own_system() 
     let metric = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "Déjà métrique",
         &[
             ("1500 g de farine", "1500", "g", "farine"),
@@ -11331,7 +11315,7 @@ async fn a_recipe_already_in_your_measures_is_untouched_within_its_own_system() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_metric_dial_setting_off_the_american_ladder_still_answers() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "us");
 
     // 170 °C and 210 °C are ordinary settings on an oven sold in France and
@@ -11343,7 +11327,6 @@ async fn a_metric_dial_setting_off_the_american_ladder_still_answers() {
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Un four français",
             "steps": [
                 { "kind": "step", "text": "Préchauffer le four à 170 °C." },
@@ -11371,7 +11354,6 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Shortbread",
             "yield": { "amount": "4", "noun": "servings" },
             "ingredients": [
@@ -11499,12 +11481,11 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
 
 /// A Shortbread for four with the three kinds of line scaling meets (#109):
 /// one that converts, one already in grams, and one Kamosu cannot read.
-fn shortbread(app: &support::TestApp, key: &str, kitchen_id: &str, made: Value) -> String {
+fn shortbread(app: &support::TestApp, key: &str, made: Value) -> String {
     let (_, created) = app.post_op(
         "create_recipe",
         Some(key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Shortbread",
             "yield": made,
             "ingredients": [
@@ -11556,14 +11537,9 @@ fn read_at(app: &support::TestApp, key: &str, branch_id: &str, wanted: Option<Va
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_page_reads_at_the_yield_it_names_and_stores_none_of_it() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
-    let branch_id = shortbread(
-        &app,
-        &key,
-        &kitchen_id,
-        json!({ "amount": "4", "noun": "servings" }),
-    );
+    let branch_id = shortbread(&app, &key, json!({ "amount": "4", "noun": "servings" }));
 
     // Named for one read, for the errands (#109): every line that can scale
     // does, the one Kamosu cannot read stays as written, and the answer says
@@ -11640,9 +11616,9 @@ async fn a_recipe_page_reads_at_the_yield_it_names_and_stores_none_of_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_that_never_said_what_it_makes_is_cooked_at_a_multiplier() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
-    let branch_id = shortbread(&app, &key, &kitchen_id, Value::Null);
+    let branch_id = shortbread(&app, &key, Value::Null);
 
     let (_, attempt) = app.post_op(
         "start_attempt",
@@ -11697,8 +11673,8 @@ async fn a_recipe_that_never_said_what_it_makes_is_cooked_at_a_multiplier() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_shopping_list_holds_a_multiplier_to_the_same_rule_as_a_cooking() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let branch_id = shortbread(&app, &key, &kitchen_id, Value::Null);
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = shortbread(&app, &key, Value::Null);
 
     // Twice a recipe that never said what it makes, carried from its page (#109).
     let twice = json!({ "amount": "2", "noun": "" });
@@ -11726,9 +11702,9 @@ async fn the_shopping_list_holds_a_multiplier_to_the_same_rule_as_a_cooking() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_diary_says_what_the_recipe_makes_beside_what_was_cooked() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let made = json!({ "amount": "12", "noun": "biscuits" });
-    let branch_id = shortbread(&app, &key, &kitchen_id, made.clone());
+    let branch_id = shortbread(&app, &key, made.clone());
     let (_, attempt) = app.post_op(
         "start_attempt",
         Some(&key),
@@ -11781,7 +11757,6 @@ async fn reading_measures_live_on_the_account_and_default_to_american() {
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "One recipe, two readers",
         &[("2 cups flour", "2", "cups", "flour")],
     );
@@ -11841,12 +11816,11 @@ async fn reading_measures_live_on_the_account_and_default_to_american() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_converted_line_reaches_an_agent_through_the_mcp_door_too() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     reads_in(&app, &key, "en", "metric");
     let branch_id = recipe_with_readings(
         &app,
         &key,
-        &kitchen_id,
         "How much flour in grams",
         &[("2 cups flour", "2", "cups", "flour")],
     );
@@ -11884,9 +11858,9 @@ async fn the_converted_line_reaches_an_agent_through_the_mcp_door_too() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_diary_lists_the_callers_own_cookings_newest_first_naming_the_recipe_of_each() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
-    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, "Miso Soup");
+    let curry = recipe_in(&app, &key, "Katsu Curry");
 
     let long_ago = cook_it(&app, &key, &soup, json!({ "rating": "again" }));
     backdate_attempt_created(&app, &long_ago, 9);
@@ -11931,10 +11905,10 @@ async fn the_diary_lists_the_callers_own_cookings_newest_first_naming_the_recipe
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_diary_holds_cookings_nobody_ever_finished_beside_the_finished_ones() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
-    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
-    let bread = recipe_in(&app, &key, &kitchen_id, "Pain");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, "Miso Soup");
+    let curry = recipe_in(&app, &key, "Katsu Curry");
+    let bread = recipe_in(&app, &key, "Pain");
 
     let finished = cook_it(&app, &key, &soup, json!({ "rating": "again" }));
 
@@ -11997,7 +11971,7 @@ async fn the_diary_holds_cookings_nobody_ever_finished_beside_the_finished_ones(
 async fn the_diary_is_the_callers_own_and_never_anybody_elses() {
     let app = support::spawn_app();
     let (aurelien, aurelien_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &aurelien_key, &kitchen_id, "Miso Soup");
+    let soup = recipe_in(&app, &aurelien_key, "Miso Soup");
 
     let (_marie, marie_key, _marie_kitchen) = person_with_kitchen(&app, "Marie");
     let invite = app
@@ -12042,7 +12016,7 @@ async fn the_diary_is_the_callers_own_and_never_anybody_elses() {
 async fn an_attempt_against_a_recipe_that_left_the_shelf_keeps_the_name_it_was_known_by() {
     let app = support::spawn_app();
     let (aurelien, aurelien_key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &aurelien_key, &kitchen_id, "Miso Soup");
+    let soup = recipe_in(&app, &aurelien_key, "Miso Soup");
 
     let (marie, marie_key, _marie_kitchen) = person_with_kitchen(&app, "Marie");
     let invite = app
@@ -12055,7 +12029,8 @@ async fn an_attempt_against_a_recipe_that_left_the_shelf_keeps_the_name_it_was_k
     let hers = cook_it(&app, &marie_key, &soup, json!({ "rating": "again" }));
 
     // Marie leaves Aurélien's Kitchen. Leaving is not a deletion: the recipe
-    // stays his, and her Attempts follow her.
+    // stays his, her Attempts follow her, and she keeps her own Branch of the
+    // soup she cooked (#131, question 2), which is what her diary opens now.
     let (status, left) = app.post_op(
         "remove_kitchen_member",
         Some(&marie_key),
@@ -12068,6 +12043,22 @@ async fn an_attempt_against_a_recipe_that_left_the_shelf_keeps_the_name_it_was_k
     let entries = listed["result"]["attempts"].as_array().expect("attempts");
     assert_eq!(entries.len(), 1, "the cooking still happened: {listed}");
     assert_eq!(entries[0]["id"], json!(hers));
+    let kept = entries[0]["recipe"]["branch_id"]
+        .as_str()
+        .expect("her own Branch of it")
+        .to_string();
+    assert_ne!(kept, soup, "hers, not his");
+
+    // She throws her copy away, and the diary still says what she cooked:
+    // text is better than a pointer that opens nothing (#52's rule).
+    let (status, deleted) = app.post_op(
+        "delete_recipe",
+        Some(&marie_key),
+        &json!({ "branch_id": kept }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    let (_, listed) = app.post_op("list_attempts", Some(&marie_key), "{}");
+    let entries = listed["result"]["attempts"].as_array().expect("attempts");
     assert_eq!(
         entries[0]["recipe"]["title"],
         json!("Miso Soup"),
@@ -12083,8 +12074,8 @@ async fn an_attempt_against_a_recipe_that_left_the_shelf_keeps_the_name_it_was_k
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_diary_follows_a_rename_while_the_recipe_is_still_on_the_shelf() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &key, &kitchen_id, "Soupe");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, "Soupe");
     cook_it(&app, &key, &soup, json!({}));
 
     backdate_branch_head(&app, &soup);
@@ -12111,9 +12102,9 @@ async fn the_diary_follows_a_rename_while_the_recipe_is_still_on_the_shelf() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_attempt_is_corrected_and_put_away_from_the_diary() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
-    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, "Miso Soup");
+    let curry = recipe_in(&app, &key, "Katsu Curry");
 
     let kept = cook_it(&app, &key, &soup, json!({ "rating": "no" }));
     let put_away = cook_it(&app, &key, &curry, json!({}));
@@ -12169,12 +12160,11 @@ async fn the_diary_needs_a_credential_naming_a_person_and_takes_no_input() {
 /// never named by any Step, one Step names nothing at all, and one line is
 /// left unread so the panel has to cope with a Reading that is simply absent.
 fn recipe_read_and_ready_to_cook(app: &support::TestApp, cook_name: &str) -> (String, String) {
-    let (_person, key, kitchen_id) = person_with_kitchen(app, cook_name);
+    let (_person, key, _) = person_with_kitchen(app, cook_name);
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Chicken Katsu Curry",
             "yield": { "amount": "4", "noun": "servings" },
             "ingredients": [
@@ -12288,12 +12278,11 @@ async fn a_step_uses_the_ingredients_its_readings_name_and_nothing_is_stored() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_step_names_a_food_as_a_whole_word_and_never_as_a_fragment() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Whole words only",
             "ingredients": [
                 { "kind": "ingredient", "text": "2 eggs" },
@@ -12383,7 +12372,7 @@ async fn a_duration_in_a_steps_text_is_offered_as_a_timer_and_nothing_else_is() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_range_offers_its_lower_end_and_a_number_that_is_not_a_duration_offers_nothing() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let written = [
         ("Knead the dough for 3–4 minutes.", json!(180)),
         ("Microwave until golden, 1 to 3 minutes.", json!(60)),
@@ -12411,7 +12400,6 @@ async fn a_range_offers_its_lower_end_and_a_number_that_is_not_a_duration_offers
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Every duration the corpus writes",
             "steps": written
                 .iter()
@@ -12518,7 +12506,7 @@ fn a_person_who_is_not_the_operator(app: &support::TestApp) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_fresh_instance_searches_by_words_and_says_so() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
 
     let (status, held) = app.post_op("meaning_search_status", Some(&key), "{}");
     assert_eq!(status, 200, "{held}");
@@ -12544,7 +12532,7 @@ async fn a_fresh_instance_searches_by_words_and_says_so() {
     let (_, made) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Miso Soup" }).to_string(),
+        &json!({ "title": "Miso Soup" }).to_string(),
     );
     assert_eq!(made["ok"], json!(true), "{made}");
     let (status, found) = app.post_op(
@@ -12833,7 +12821,6 @@ fn home_titles(
 fn timed_recipe_in(
     app: &support::TestApp,
     key: &str,
-    kitchen_id: &str,
     title: &str,
     prep: Option<i64>,
     cook: Option<i64>,
@@ -12842,7 +12829,6 @@ fn timed_recipe_in(
         "create_recipe",
         Some(key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": title,
             "prep_time_minutes": prep,
             "cook_time_minutes": cook,
@@ -12856,15 +12842,15 @@ fn timed_recipe_in(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn home_shows_the_four_computed_shelves_the_spec_names() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Cooked twice and quick: it stands on two shelves at once, because a
     // suggestion is not a filing system and nothing here is exclusive.
-    let ramen = timed_recipe_in(&app, &key, &kitchen_id, "Ramen", Some(5), Some(10));
+    let ramen = timed_recipe_in(&app, &key, "Ramen", Some(5), Some(10));
     // Cooked once, and far too long to be a Tuesday.
-    let cassoulet = timed_recipe_in(&app, &key, &kitchen_id, "Cassoulet", Some(60), Some(180));
+    let cassoulet = timed_recipe_in(&app, &key, "Cassoulet", Some(60), Some(180));
     // Never cooked, and quick.
-    let omelette = timed_recipe_in(&app, &key, &kitchen_id, "Omelette", None, Some(8));
+    let omelette = timed_recipe_in(&app, &key, "Omelette", None, Some(8));
 
     cook_it(&app, &key, &ramen, json!({}));
     cook_it(&app, &key, &ramen, json!({}));
@@ -12903,9 +12889,9 @@ async fn home_shows_the_four_computed_shelves_the_spec_names() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn home_counts_unfinished_cookings_because_starting_is_what_makes_a_cooking_real() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
-    recipe_in(&app, &key, &kitchen_id, "Pain");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, "Miso Soup");
+    recipe_in(&app, &key, "Pain");
 
     // Started and never finished. It is still a cooking (ADR 0010), which is
     // the same rule the diary shows it under — so it counts here and takes the
@@ -12933,18 +12919,18 @@ async fn home_counts_unfinished_cookings_because_starting_is_what_makes_a_cookin
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_kamosu_knows_no_time_for_is_never_called_quick() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // No time at all — the ordinary state of 36 of the 86 real recipes. Calling
     // it quick would be a guess, which is the one thing Kamosu will not do with
     // a number it does not have.
-    recipe_in(&app, &key, &kitchen_id, "Grand-mère's stew");
+    recipe_in(&app, &key, "Grand-mère's stew");
     // One of the two times is enough to answer with.
-    timed_recipe_in(&app, &key, &kitchen_id, "Toast", None, Some(3));
+    timed_recipe_in(&app, &key, "Toast", None, Some(3));
     // Exactly on the line is under it.
-    timed_recipe_in(&app, &key, &kitchen_id, "Risotto", Some(10), Some(20));
+    timed_recipe_in(&app, &key, "Risotto", Some(10), Some(20));
     // One minute past is past.
-    timed_recipe_in(&app, &key, &kitchen_id, "Daube", Some(11), Some(20));
+    timed_recipe_in(&app, &key, "Daube", Some(11), Some(20));
 
     let shelves = home_titles(&app, &key);
     assert_eq!(
@@ -12962,7 +12948,7 @@ async fn a_recipe_kamosu_knows_no_time_for_is_never_called_quick() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_empty_shelf_is_left_out_and_an_empty_library_answers_with_no_shelves_at_all() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // A Kitchen holding nothing. Four empty rows would be four ways of saying
     // the same nothing, so the answer carries none and the screen says it once.
@@ -12972,7 +12958,7 @@ async fn an_empty_shelf_is_left_out_and_an_empty_library_answers_with_no_shelves
 
     // One recipe, never cooked, no time on it, never opened: exactly one shelf
     // has anything to say, and it is the only one that appears.
-    recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    recipe_in(&app, &key, "Miso Soup");
     let shelves = home_titles(&app, &key);
     assert_eq!(
         shelves.keys().collect::<Vec<_>>(),
@@ -12984,12 +12970,12 @@ async fn an_empty_shelf_is_left_out_and_an_empty_library_answers_with_no_shelves
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn recently_opened_is_one_fact_per_person_per_lineage_and_reaches_nobody_else() {
     let app = support::spawn_app();
-    let (_aurelien, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+    let (_aurelien, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_marc, marc_key, _) = person_with_kitchen(&app, "Marc");
 
-    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
-    let curry = recipe_in(&app, &key, &kitchen_id, "Katsu Curry");
-    recipe_in(&app, &marc_key, &marc_kitchen, "Cassoulet");
+    let soup = recipe_in(&app, &key, "Miso Soup");
+    let curry = recipe_in(&app, &key, "Katsu Curry");
+    recipe_in(&app, &marc_key, "Cassoulet");
 
     let open = |branch: &str| {
         let (status, noted) = app.post_op(
@@ -13039,8 +13025,8 @@ async fn recently_opened_is_one_fact_per_person_per_lineage_and_reaches_nobody_e
 async fn a_recipe_in_a_kitchen_you_do_not_cook_in_can_be_neither_opened_nor_shelved() {
     let app = support::spawn_app();
     let (_aurelien, key, _kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
-    let cassoulet = recipe_in(&app, &marc_key, &marc_kitchen, "Cassoulet");
+    let (_marc, marc_key, _) = person_with_kitchen(&app, "Marc");
+    let cassoulet = recipe_in(&app, &marc_key, "Cassoulet");
 
     let (status, refused) = app.post_op(
         "note_recipe_opened",
@@ -13064,8 +13050,8 @@ async fn a_recipe_in_a_kitchen_you_do_not_cook_in_can_be_neither_opened_nor_shel
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn home_cards_are_the_same_cards_the_library_shelf_serves() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let soup = recipe_in(&app, &key, &kitchen_id, "Miso Soup");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let soup = recipe_in(&app, &key, "Miso Soup");
 
     let (_, home) = app.post_op("home_shelves", Some(&key), "{}");
     let on_home = home["result"]["shelves"][0]["recipes"][0].clone();
@@ -13087,12 +13073,11 @@ async fn home_cards_are_the_same_cards_the_library_shelf_serves() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn home_files_a_lineage_once_under_the_reading_language() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Soupe miso",
             "language": "fr",
             "prep_time_minutes": 5,
@@ -13173,11 +13158,11 @@ fn share(app: &support::TestApp, key: &str, branch_id: &str) -> (String, String)
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_share_link_is_one_permanent_address_and_asking_twice_does_not_mint_a_second() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Tarte aux pommes" }).to_string(),
+        &json!({ "title": "Tarte aux pommes" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -13208,11 +13193,11 @@ async fn a_share_link_is_one_permanent_address_and_asking_twice_does_not_mint_a_
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ending_a_share_link_is_permanent_and_re_enabling_mints_a_new_one() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Coq au vin" }).to_string(),
+        &json!({ "title": "Coq au vin" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -13249,13 +13234,12 @@ async fn ending_a_share_link_is_permanent_and_re_enabling_mints_a_new_one() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_share_link_page_never_shows_an_attempt() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let plated = upload_a_picture(&app, &key, 12);
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Katsu Curry",
             "main_photo": plated,
             "steps": [{ "kind": "step", "text": "Fry the cutlet.", "photo": null }],
@@ -13335,11 +13319,11 @@ async fn a_share_link_page_never_shows_an_attempt() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_share_carries_the_whole_chain_back_to_the_first_version() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Shortbread" }).to_string(),
+        &json!({ "title": "Shortbread" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -13416,11 +13400,11 @@ async fn the_share_link_page_closes_the_ingredients_with_the_nutrition_figure() 
     // this page and on the app's. It always says what it counts — 308 says
     // nothing on its own — and most recipes carry none at all.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Katsu Curry" }).to_string(),
+        &json!({ "title": "Katsu Curry" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -13476,11 +13460,11 @@ async fn the_share_link_page_closes_the_ingredients_with_the_nutrition_figure() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_share_link_is_not_a_key_to_the_instance() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, shared_recipe) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Shared" }).to_string(),
+        &json!({ "title": "Shared" }).to_string(),
     );
     let shared_branch = shared_recipe["result"]["branch_id"]
         .as_str()
@@ -13489,7 +13473,7 @@ async fn a_share_link_is_not_a_key_to_the_instance() {
     let (_status, private_recipe) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Kept to myself" }).to_string(),
+        &json!({ "title": "Kept to myself" }).to_string(),
     );
     let private_branch = private_recipe["result"]["branch_id"]
         .as_str()
@@ -13524,13 +13508,13 @@ async fn a_share_link_is_not_a_key_to_the_instance() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn only_the_kitchen_holding_a_recipe_may_share_it() {
     let app = support::spawn_app();
-    let (_mine, my_key, my_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_mine, my_key, _) = person_with_kitchen(&app, "Aurélien");
     let (_theirs, their_key, _their_kitchen) = person_with_kitchen(&app, "Marc");
 
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&my_key),
-        &json!({ "kitchen_id": my_kitchen, "title": "Mine" }).to_string(),
+        &json!({ "title": "Mine" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -13555,11 +13539,11 @@ async fn a_share_link_is_a_token_so_moving_the_instance_does_not_break_it() {
     let app = support::spawn_app();
     // Moving the instance is the Operator's act, so this one needs the
     // Operator rather than any Person.
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Moved house" }).to_string(),
+        &json!({ "title": "Moved house" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let (token, url) = share(&app, &key, &branch_id);
@@ -13598,11 +13582,11 @@ async fn a_share_link_is_a_token_so_moving_the_instance_does_not_break_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_card_a_messaging_app_fetches_is_a_real_picture() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Braised Chicken in Red Wine" }).to_string(),
+        &json!({ "title": "Braised Chicken in Red Wine" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let (token, _url) = share(&app, &key, &branch_id);
@@ -13624,12 +13608,11 @@ async fn the_card_a_messaging_app_fetches_is_a_real_picture() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_shared_recipes_translations_are_readable_under_the_same_token() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Shortbread",
             "ingredients": [{ "kind": "ingredient", "text": "250 g butter" }],
         })
@@ -13691,11 +13674,11 @@ async fn a_shared_recipes_translations_are_readable_under_the_same_token() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_card_is_drawn_once_and_kept() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Drawn once" }).to_string(),
+        &json!({ "title": "Drawn once" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let (token, _url) = share(&app, &key, &branch_id);
@@ -13840,14 +13823,13 @@ async fn a_stranger_with_a_share_link_takes_the_recipe_file() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_carries_a_typed_nutrition_figure_with_the_basis_it_counts() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Typed at creation, per serving.
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Chocolate chunk cookies",
             "nutrition": { "calories": 308, "basis": "per_serving" },
         })
@@ -13888,12 +13870,11 @@ async fn a_recipe_carries_a_typed_nutrition_figure_with_the_basis_it_counts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changing_only_the_nutrition_figure_mints_a_version() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Soupe",
             "nutrition": { "calories": 120, "basis": "per_serving" },
         })
@@ -13966,7 +13947,7 @@ async fn changing_only_the_nutrition_figure_mints_a_version() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nothing_computes_nutrition_from_the_ingredient_lines_or_the_foods_they_name() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Ingredient Lines that read cleanly — quantity, Unit and Food all found,
     // which is the state a computing importer would have everything it needed
@@ -13977,7 +13958,6 @@ async fn nothing_computes_nutrition_from_the_ingredient_lines_or_the_foods_they_
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Plain Loaf",
             "ingredients": [
                 { "kind": "ingredient", "text": "500 g strong white flour" },
@@ -14024,11 +14004,11 @@ async fn nothing_computes_nutrition_from_the_ingredient_lines_or_the_foods_they_
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_nutrition_figure_that_does_not_say_what_it_counts_is_refused() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+        &json!({ "title": "Soupe" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
 
@@ -14171,11 +14151,11 @@ async fn what_a_bundle_could_carry_never_reaches_a_food() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_version_written_before_a_field_existed_still_answers_the_declared_shape() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Written Before Nutrition" }).to_string(),
+        &json!({ "title": "Written Before Nutrition" }).to_string(),
     );
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
     let version_id = created["result"]["head_version_id"]
@@ -14256,12 +14236,11 @@ async fn a_version_written_before_a_field_existed_still_answers_the_declared_sha
 /// *about*, two amounts that will not add and ride side by side, a line
 /// carrying no quantity that rides as *some*, and a line with no Food to merge
 /// under at all.
-fn two_real_recipes(app: &support::TestApp, key: &str, kitchen_id: &str) -> (String, String) {
+fn two_real_recipes(app: &support::TestApp, key: &str) -> (String, String) {
     let (_, chicken) = app.post_op(
         "create_recipe",
         Some(key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Korean Fried Chicken",
             "yield": { "amount": "4", "noun": "servings" },
             "ingredients": [
@@ -14276,7 +14255,6 @@ fn two_real_recipes(app: &support::TestApp, key: &str, kitchen_id: &str) -> (Str
         "create_recipe",
         Some(key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Braised Chicken in Red Wine (Coq au Vin)",
             "yield": { "amount": "4", "noun": "servings" },
             "ingredients": [
@@ -14320,13 +14298,13 @@ async fn the_list_leaves_as_text_under_a_header_line_and_kamosu_lets_go_of_it() 
     // leaves and something else holds the ticks, so a list with no way out
     // would have made the missing tick a refusal rather than a boundary.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (chicken, coq) = two_real_recipes(&app, &key);
     for branch_id in [&chicken, &coq] {
         app.post_op(
             "add_to_shopping_list",
@@ -14439,13 +14417,13 @@ async fn choosing_a_recipe_already_on_the_list_moves_its_yield_rather_than_ignor
     // that choosing one already on the list is not an error. Silently keeping
     // the old figure would shop for four while saying nothing.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (chicken, _coq) = two_real_recipes(&app, &key);
 
     app.post_op(
         "add_to_shopping_list",
@@ -14500,13 +14478,13 @@ async fn choosing_a_recipe_already_on_the_list_moves_its_yield_rather_than_ignor
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_shopping_row_merges_every_mention_of_one_food_and_says_what_it_cannot_add() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (chicken, coq) = two_real_recipes(&app, &key);
 
     // The list starts empty and is always there: nobody creates one.
     let (status, empty) = app.post_op("get_shopping_list", Some(&key), "{}");
@@ -14591,13 +14569,13 @@ async fn a_shopping_row_merges_every_mention_of_one_food_and_says_what_it_cannot
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_rows_are_computed_every_time_so_editing_a_recipe_changes_the_list_at_once() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (chicken, _coq) = two_real_recipes(&app, &key);
     app.post_op(
         "add_to_shopping_list",
         Some(&key),
@@ -14736,8 +14714,8 @@ async fn a_value_outside_a_declared_enum_is_refused_at_both_doors() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_misspelt_yield_is_refused_rather_than_erasing_the_one_stored() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, _coq) = two_real_recipes(&app, &key);
 
     app.post_op(
         "add_to_shopping_list",
@@ -14786,13 +14764,13 @@ async fn a_misspelt_yield_is_refused_rather_than_erasing_the_one_stored() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_yield_being_shopped_for_moves_every_amount_with_it() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (chicken, _coq) = two_real_recipes(&app, &key);
 
     app.post_op(
         "add_to_shopping_list",
@@ -14833,8 +14811,8 @@ async fn the_yield_being_shopped_for_moves_every_amount_with_it() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_loose_item_is_kept_exactly_as_typed_and_merges_with_nothing() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, _coq) = two_real_recipes(&app, &key);
     app.post_op(
         "add_to_shopping_list",
         Some(&key),
@@ -14901,7 +14879,6 @@ async fn a_recipe_that_can_no_longer_be_read_stays_on_the_list_and_says_so() {
         "create_recipe",
         Some(&marc_key),
         &json!({
-            "kitchen_id": marc_kitchen,
             "title": "Ratatouille aux anchois",
             "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
         })
@@ -14958,9 +14935,9 @@ async fn a_recipe_that_can_no_longer_be_read_stays_on_the_list_and_says_so() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn there_is_exactly_one_list_per_person_and_it_is_nobody_elses() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_marc, marc_key, _marc_kitchen) = person_with_kitchen(&app, "Marc");
-    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (chicken, _coq) = two_real_recipes(&app, &key);
 
     // Choosing the same recipe twice makes no second entry: a list is a set.
     app.post_op(
@@ -14993,7 +14970,7 @@ async fn there_is_exactly_one_list_per_person_and_it_is_nobody_elses() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_row_names_its_food_in_the_readers_own_language_and_measures() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -15007,7 +14984,6 @@ async fn a_row_names_its_food_in_the_readers_own_language_and_measures() {
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "language": "en",
             "title": "Yogurt Flatbread",
             "ingredients": [{ "kind": "ingredient", "text": "2 cups flour" }],
@@ -15018,7 +14994,6 @@ async fn a_row_names_its_food_in_the_readers_own_language_and_measures() {
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "language": "fr",
             "title": "Pâte à pizza",
             "ingredients": [{ "kind": "ingredient", "text": "500 g farine" }],
@@ -15075,7 +15050,7 @@ async fn a_row_names_its_food_in_the_readers_own_language_and_measures() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_line_with_no_food_to_merge_under_is_kept_exactly_as_written() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     // Real corpus text: the Crouton export keeps whole paragraphs inside
     // ingredient entries, and no reading of one is honest. There is no Food to
@@ -15085,7 +15060,6 @@ async fn a_line_with_no_food_to_merge_under_is_kept_exactly_as_written() {
         "create_recipe",
         Some(&key),
         &json!({
-            "kitchen_id": kitchen_id,
             "title": "Gochujang And Halloumi Orzo Pasta",
             "ingredients": [
                 { "kind": "ingredient", "text": "Can I substitute the wine as I don’t drink alcohol? Yes you can just use water instead" },
@@ -15118,13 +15092,13 @@ async fn a_line_carrying_no_quantity_says_some_and_no_yield_ever_moves_it() {
     // not an edge: dropping such a line means coming home short, and scaling
     // one means inventing an amount nobody wrote (ADR 0002).
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (_chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (_chicken, coq) = two_real_recipes(&app, &key);
     let (status, list) = app.post_op(
         "add_to_shopping_list",
         Some(&key),
@@ -15164,13 +15138,13 @@ async fn a_line_with_no_reading_at_all_still_reaches_the_list_and_the_yield_leav
     // line Kamosu *did* read and found no Food in; this one covers the slot
     // being empty outright, which is a different branch of the same `else`.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (chicken, _coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (chicken, _coq) = two_real_recipes(&app, &key);
 
     // Kamosu read `Some cooking oil (for deep frying)` and found a Food in it.
     // She disagrees, and clears the Reading — an ordinary correction, which
@@ -15220,8 +15194,8 @@ async fn a_line_with_no_reading_at_all_still_reaches_the_list_and_the_yield_leav
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn one_list_in_one_order_whatever_a_row_was_made_from() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, coq) = two_real_recipes(&app, &key);
     for branch in [&chicken, &coq] {
         app.post_op(
             "add_to_shopping_list",
@@ -15267,7 +15241,6 @@ async fn one_list_in_one_order_whatever_a_row_was_made_from() {
 fn recipe_with(
     app: &support::TestApp,
     key: &str,
-    kitchen_id: &str,
     title: &str,
     made: Option<(&str, &str)>,
     ingredients: Value,
@@ -15276,7 +15249,7 @@ fn recipe_with(
     let (status, created) = app.post_op(
         "create_recipe",
         Some(key),
-        &json!({ "kitchen_id": kitchen_id, "title": title }).to_string(),
+        &json!({ "title": title }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
@@ -15360,7 +15333,7 @@ fn components_of(app: &support::TestApp, key: &str, branch_id: &str) -> Vec<Valu
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_component_is_an_ingredient_whose_reading_names_a_recipe_and_it_arrives_scaled() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     // A metric kitchen, so the halved amounts read as ADR 0008's own example
     // writes them. A Component's lines are worded by exactly the code every
     // other Ingredient Line's slot uses, so they convert for the reader too.
@@ -15374,7 +15347,6 @@ async fn a_component_is_an_ingredient_whose_reading_names_a_recipe_and_it_arrive
     let (_dough, dough_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Neapolitan Pizza Dough",
         Some(("1", "kg")),
         json!([
@@ -15389,7 +15361,6 @@ async fn a_component_is_an_ingredient_whose_reading_names_a_recipe_and_it_arrive
     let (pizza, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([
@@ -15495,11 +15466,10 @@ async fn a_component_is_an_ingredient_whose_reading_names_a_recipe_and_it_arrive
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_save_carries_a_component_forward_onto_the_version_it_writes() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_dough_branch, dough_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Dough",
         Some(("1", "kg")),
         json!([{ "kind": "ingredient", "text": "600 g flour" }]),
@@ -15508,7 +15478,6 @@ async fn a_save_carries_a_component_forward_onto_the_version_it_writes() {
     let (pizza_branch, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([
@@ -15589,11 +15558,10 @@ async fn a_save_carries_a_component_forward_onto_the_version_it_writes() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_component_is_made_over_a_read_line_and_un_made_without_losing_the_amount() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_dough_branch, dough_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Dough",
         Some(("1", "kg")),
         json!([{ "kind": "ingredient", "text": "600 g flour" }]),
@@ -15602,7 +15570,6 @@ async fn a_component_is_made_over_a_read_line_and_un_made_without_losing_the_amo
     let (pizza_branch, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "500 g pizza dough" }]),
@@ -15695,11 +15662,10 @@ async fn a_component_is_made_over_a_read_line_and_un_made_without_losing_the_amo
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_component_whose_recipe_is_not_here_still_reads_and_says_so() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (pizza, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
@@ -15757,11 +15723,10 @@ async fn a_component_whose_recipe_is_not_here_still_reads_and_says_so() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_component_whose_recipe_has_no_yield_is_shown_as_written_and_admits_it() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (_dough, dough_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Versatile Pizza Dough",
         None, // no Yield: nothing to divide by
         json!([{ "kind": "ingredient", "text": "600 g AP flour" }]),
@@ -15770,7 +15735,6 @@ async fn a_component_whose_recipe_has_no_yield_is_shown_as_written_and_admits_it
     let (pizza, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
@@ -15811,7 +15775,6 @@ async fn a_component_whose_recipe_has_no_yield_is_shown_as_written_and_admits_it
     let (_starter, starter_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Starter",
         Some(("1", "kg")),
         json!([{ "kind": "ingredient", "text": "500 g flour" }]),
@@ -15820,7 +15783,6 @@ async fn a_component_whose_recipe_has_no_yield_is_shown_as_written_and_admits_it
     let (bread, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Bread",
         Some(("1", "loaf")),
         json!([{ "kind": "ingredient", "text": "2 handfuls of starter" }]),
@@ -15852,11 +15814,10 @@ async fn a_component_whose_recipe_has_no_yield_is_shown_as_written_and_admits_it
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cycle_is_never_refused_and_unfolding_stops_at_the_repeat() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (noodles, noodles_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Dan Dan Noodles",
         Some(("4", "servings")),
         json!([{ "kind": "ingredient", "text": "3 tbsp chilli oil" }]),
@@ -15865,7 +15826,6 @@ async fn a_cycle_is_never_refused_and_unfolding_stops_at_the_repeat() {
     let (oil, oil_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Chilli Oil",
         Some(("250", "ml")),
         json!([{ "kind": "ingredient", "text": "2 tbsp Dan Dan sauce, for the colour" }]),
@@ -15942,11 +15902,10 @@ async fn a_cycle_is_never_refused_and_unfolding_stops_at_the_repeat() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_readings_target_is_a_food_or_a_lineage_and_never_both() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (pizza, lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
@@ -15997,11 +15956,10 @@ async fn a_readings_target_is_a_food_or_a_lineage_and_never_both() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_component_travels_as_a_passenger_without_its_own_visibility_changing() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (dough, dough_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Neapolitan Pizza Dough",
         Some(("1", "kg")),
         json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
@@ -16010,7 +15968,6 @@ async fn a_component_travels_as_a_passenger_without_its_own_visibility_changing(
     let (pizza, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
@@ -16100,7 +16057,7 @@ async fn a_component_travels_as_a_passenger_without_its_own_visibility_changing(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn scaling_the_outer_recipe_carries_into_how_much_of_the_component_is_wanted() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     let (status, _) = app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -16111,7 +16068,6 @@ async fn scaling_the_outer_recipe_carries_into_how_much_of_the_component_is_want
     let (_dough, dough_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Neapolitan Pizza Dough",
         Some(("1", "kg")),
         json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
@@ -16120,7 +16076,6 @@ async fn scaling_the_outer_recipe_carries_into_how_much_of_the_component_is_want
     let (pizza, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
@@ -16276,15 +16231,10 @@ fn versions_on_no_branch(app: &support::TestApp) -> i64 {
 /// A pizza, its dough, and the Component that joins them — the worked example
 /// ADR 0008 itself uses. Answers the pizza's Branch, the dough's Branch and
 /// the dough's Lineage, which is what a Component actually names.
-fn a_pizza_on_a_dough(
-    app: &support::TestApp,
-    key: &str,
-    kitchen_id: &str,
-) -> (String, String, String) {
+fn a_pizza_on_a_dough(app: &support::TestApp, key: &str) -> (String, String, String) {
     let (dough, dough_lineage) = recipe_with(
         app,
         key,
-        kitchen_id,
         "Neapolitan Pizza Dough",
         Some(("1", "kg")),
         json!([
@@ -16296,7 +16246,6 @@ fn a_pizza_on_a_dough(
     let (pizza, _) = recipe_with(
         app,
         key,
-        kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([
@@ -16328,13 +16277,13 @@ async fn choosing_a_recipe_buys_the_ingredients_of_the_recipes_inside_it() {
     // flour and water at all. Now the dough contributes its Foods and no line
     // of its own, and its flour merges with the pizza's.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key);
 
     let (status, list) = app.post_op(
         "add_to_shopping_list",
@@ -16402,7 +16351,7 @@ async fn the_factor_compounds_through_nested_components_and_the_shopping_yield_s
     // the starter. The Shopping Yield is the outer scale on top of all of it,
     // exactly as the cooking Yield is on the recipe page.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -16411,13 +16360,12 @@ async fn the_factor_compounds_through_nested_components_and_the_shopping_yield_s
     let (_starter, starter_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Levain",
         Some(("400", "g")),
         json!([{ "kind": "ingredient", "text": "200 g rye flour" }]),
         json!([{ "kind": "step", "text": "Feed it." }]),
     );
-    let (pizza, dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (pizza, dough, _lineage) = a_pizza_on_a_dough(&app, &key);
     // 200 g of a starter that makes 400 g: half of it, inside a dough the
     // pizza takes half of. A quarter of the starter reaches the pizza.
     let (status, saved) = app.post_op(
@@ -16491,13 +16439,13 @@ async fn a_component_kamosu_cannot_measure_puts_its_foods_on_the_list_unmeasured
     // the dough's flour or inventing a figure for it, the list carries it in
     // the *some* bucket ADR 0024 already gives a line written with no quantity.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (pizza, _dough, dough_lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (pizza, _dough, dough_lineage) = a_pizza_on_a_dough(&app, &key);
     // A quantity in nobody's units, against a Yield in kilos.
     make_component(
         &app,
@@ -16569,7 +16517,7 @@ async fn once_a_components_share_is_lost_everything_under_it_is_unmeasured_too()
     // out. Picking the inner chain's arithmetic back up would put a figure on
     // the list that rests on a guess Kamosu declined to make.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -16578,13 +16526,12 @@ async fn once_a_components_share_is_lost_everything_under_it_is_unmeasured_too()
     let (_starter, starter_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Levain",
         Some(("400", "g")),
         json!([{ "kind": "ingredient", "text": "200 g rye flour" }]),
         json!([{ "kind": "step", "text": "Feed it." }]),
     );
-    let (pizza, dough, dough_lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (pizza, dough, dough_lineage) = a_pizza_on_a_dough(&app, &key);
     let (status, saved) = app.post_op(
         "save_recipe_version",
         Some(&key),
@@ -16653,7 +16600,7 @@ async fn a_component_that_unfolds_to_nothing_keeps_its_written_line() {
     // would say nothing about its dough. ADR 0024's rule does not care how the
     // disappearing happened.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
@@ -16662,13 +16609,12 @@ async fn a_component_that_unfolds_to_nothing_keeps_its_written_line() {
     let (_empty, empty_lineage) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Sourdough Starter",
         Some(("1", "kg")),
         json!([{ "kind": "section", "text": "Nothing to buy" }]),
         json!([{ "kind": "step", "text": "Keep feeding what you already have." }]),
     );
-    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key);
     make_component(
         &app,
         &key,
@@ -16703,13 +16649,13 @@ async fn a_component_whose_recipe_is_missing_keeps_its_written_line_on_the_list(
     // Bundle received without its dough, or a sharing withdrawn. ADR 0008
     // needs no cascade and no ceremony for it, and neither does a list.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (pizza, _dough, _lineage) = a_pizza_on_a_dough(&app, &key);
     make_component(
         &app,
         &key,
@@ -16763,13 +16709,13 @@ async fn a_loop_of_components_stops_at_the_first_repeat_and_says_nothing_alarmin
     // rather than at the door — and a shopping list meeting one simply stops
     // rather than refusing to draw or warning about a thing nobody did wrong.
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (pizza, dough, _lineage) = a_pizza_on_a_dough(&app, &key, &kitchen_id);
+    let (pizza, dough, _lineage) = a_pizza_on_a_dough(&app, &key);
     let pizza_lineage = app
         .post_op(
             "get_recipe",
@@ -16863,8 +16809,9 @@ async fn every_version_a_door_writes_fingerprints_to_its_own_id() {
     let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edited.to_string());
     assert_eq!(status, 200, "{saved}");
 
-    // The same recipe edited by a second Kitchen, which starts a Copy.
-    let (_, other_key, other_kitchen) = person_with_kitchen(&app, "Marc");
+    // The same recipe edited by a Kitchen-mate, which starts a Copy in his
+    // own Cookbook.
+    let (_, other_key, _) = person_with_kitchen(&app, "Marc");
     let (_, invited) = app.post_op(
         "invite_to_kitchen",
         Some(&key),
@@ -16878,7 +16825,6 @@ async fn every_version_a_door_writes_fingerprints_to_its_own_id() {
     );
     let mut theirs = katsu_as_written();
     theirs["branch_id"] = json!(branch_id);
-    theirs["kitchen_id"] = json!(other_kitchen);
     theirs["steps"][2]["text"] = json!("Servir avec le riz et du chou");
     let (status, copied) =
         app.post_op("save_recipe_version", Some(&other_key), &theirs.to_string());
@@ -17478,9 +17424,9 @@ async fn promotion_keeps_the_name_a_version_was_given_and_never_un_names_it() {
 
 /// Camille's Branch of Aurélien's recipe, as it arrives back on his shelf: she
 /// receives his Bundle, changes it (a Copy of her own), and sends hers back.
-/// It lands in Aurélien's Home Kitchen under the Hand of the Kitchen that wrote
-/// it, which is how a Branch his Kitchen holds but did not write comes about
-/// (#100: a Branch no Kitchen of his holds is not his to promote into at all).
+/// It lands in Aurélien's Cookbook as an arrived Branch under the Hand that
+/// wrote it, which is how a Branch his Cookbook holds but does not write comes
+/// about: saving onto it starts a Copy (#131).
 fn camilles_branch_arrived_back(app: &support::TestApp, his_key: &str, branch_id: &str) -> String {
     let (_camille, camille_key, _) = person_with_kitchen(app, "Camille");
     let report = receive(app, &camille_key, &bundle_of(app, his_key, branch_id));
@@ -17552,37 +17498,34 @@ async fn promoting_into_a_branch_your_kitchen_did_not_write_takes_a_copy() {
     );
 }
 
-/// A promotion never lands in a Kitchen it names. It lands on a Branch one of
-/// the cook's Kitchens holds (#100), as an edit of it or as a Copy beside it in
-/// that same Kitchen, so there is never another Kitchen to put it in. Whether
-/// one recipe may be put into a second Kitchen of yours is #125's question, not
-/// something a promotion answers by the back door. Both promotions still accept
-/// `kitchen_id`, so a client that sends it is not refused.
+/// A promotion follows the rule a save follows (#131, question 8): onto a
+/// Branch the cook's Cookbook writes it is an edit, and onto anybody else's —
+/// here one that arrived — it starts a Branch in the cook's own Cookbook.
+/// Neither promotion takes a Kitchen or a Cookbook to name, because there is
+/// never anywhere else for it to go.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_promotion_ignores_the_kitchen_it_names() {
+async fn a_promotion_lands_on_your_own_recipe_or_in_your_own_cookbook() {
     let app = support::spawn_app();
-    let (key, branch_id, _lineage, kitchen) = recipe_ready_to_cook(&app, "Aurélien");
-    let (status, club) = app.post_op(
-        "create_kitchen",
-        Some(&key),
-        &json!({ "name": "Supper Club" }).to_string(),
-    );
-    assert_eq!(status, 200, "{club}");
-    let club = club["result"]["id"].as_str().unwrap().to_string();
+    let (key, branch_id, _lineage, _) = recipe_ready_to_cook(&app, "Aurélien");
     let hers = camilles_branch_arrived_back(&app, &key, &branch_id);
 
-    let kitchen_of = |branch: &str| {
+    let cookbook_of_branch = |branch: &str| {
         let (_, read) = app.post_op(
             "get_recipe",
             Some(&key),
             &json!({ "branch_id": branch }).to_string(),
         );
-        read["result"]["kitchen_id"].clone()
+        read["result"]["cookbook"]["id"].clone()
     };
-    let arrived_in = kitchen_of(&hers);
+    let own = cookbook_of_branch(&branch_id);
+    assert_eq!(
+        cookbook_of_branch(&hers),
+        own,
+        "hers arrived in his own Cookbook"
+    );
 
-    // A cooking's photograph, made the recipe's on her Branch: a Copy, kept in
-    // the Kitchen her Branch arrived in rather than the one named.
+    // A cooking's photograph, made the recipe's on her Branch: a Copy, in his
+    // own Cookbook, since her Branch is hers to write.
     let plated = upload_a_picture(&app, &key, 77);
     let attempt = cook_it(&app, &key, &branch_id, json!({ "photographs": [plated] }));
     let (status, promoted) = app.post_op(
@@ -17592,19 +17535,18 @@ async fn a_promotion_ignores_the_kitchen_it_names() {
             "attempt_id": attempt,
             "photograph_id": plated,
             "branch_id": hers,
-            "kitchen_id": club,
         })
         .to_string(),
     );
     assert_eq!(status, 200, "{promoted}");
     assert_eq!(promoted["result"]["copied"], json!(true), "{promoted}");
     assert_eq!(
-        kitchen_of(promoted["result"]["branch_id"].as_str().unwrap()),
-        arrived_in,
-        "the Copy is held where her Branch is, not by the Kitchen named"
+        cookbook_of_branch(promoted["result"]["branch_id"].as_str().unwrap()),
+        own,
+        "the Copy is his own"
     );
 
-    // Named on his own recipe, the Kitchen is dropped: an edit, on his Branch.
+    // On his own recipe: an edit, on his Branch.
     backdate_branch_head(&app, &branch_id);
     let again = upload_a_picture(&app, &key, 78);
     let second = cook_it(&app, &key, &branch_id, json!({ "photographs": [again] }));
@@ -17615,14 +17557,12 @@ async fn a_promotion_ignores_the_kitchen_it_names() {
             "attempt_id": second,
             "photograph_id": again,
             "branch_id": branch_id,
-            "kitchen_id": club,
         })
         .to_string(),
     );
     assert_eq!(status, 200, "{edited}");
     assert_eq!(edited["result"]["copied"], json!(false), "{edited}");
     assert_eq!(edited["result"]["branch_id"], json!(branch_id));
-    assert_eq!(kitchen_of(&branch_id), json!(kitchen));
 
     // What was cooked, kept onto her Branch: the same answer, the same place.
     let cooking = cooking_katsu(&app, &key, &branch_id);
@@ -17637,13 +17577,13 @@ async fn a_promotion_ignores_the_kitchen_it_names() {
     let (status, kept) = app.post_op(
         "promote_as_cooked",
         Some(&key),
-        &json!({ "attempt_id": cooking, "branch_id": hers, "kitchen_id": club }).to_string(),
+        &json!({ "attempt_id": cooking, "branch_id": hers}).to_string(),
     );
     assert_eq!(status, 200, "{kept}");
     assert_eq!(kept["result"]["copied"], json!(true), "{kept}");
     assert_eq!(
-        kitchen_of(kept["result"]["branch_id"].as_str().unwrap()),
-        arrived_in
+        cookbook_of_branch(kept["result"]["branch_id"].as_str().unwrap()),
+        own
     );
 }
 
@@ -17968,7 +17908,7 @@ fn names_held(app: &support::TestApp, key: &str) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_backup_is_one_archive_of_the_database_and_the_photographs() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
 
     // A recipe with a picture, so there is something in both halves of the
     // archive — and a Display Copy drawn, so the test can prove it stayed out.
@@ -17976,8 +17916,7 @@ async fn a_backup_is_one_archive_of_the_database_and_the_photographs() {
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Katsu", "main_photo": photograph })
-            .to_string(),
+        &json!({ "title": "Katsu", "main_photo": photograph }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     let (card_status, _, _) =
@@ -18018,11 +17957,11 @@ async fn a_backup_is_one_archive_of_the_database_and_the_photographs() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_database_inside_a_backup_is_a_working_kamosu_database() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Tonkatsu" }).to_string(),
+        &json!({ "title": "Tonkatsu" }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
 
@@ -18065,11 +18004,11 @@ fn restore(app: &support::TestApp, name: &str) -> kamosu::db::Db {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_backup_taken_during_writes_restores_to_a_consistent_database() {
     let app = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&app);
+    let (key, _) = operator_with_kitchen(&app);
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Under the knife" }).to_string(),
+        &json!({ "title": "Under the knife" }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
@@ -18332,7 +18271,6 @@ fn a_pizza_worth_sending(
     let (dough, dough_lineage) = recipe_with(
         app,
         &key,
-        &kitchen_id,
         "Neapolitan Pizza Dough",
         Some(("1", "kg")),
         json!([{ "kind": "ingredient", "text": "600 g tipo 00 flour" }]),
@@ -18344,7 +18282,7 @@ fn a_pizza_worth_sending(
     let (status, created) = app.post_op(
         "create_recipe",
         Some(&key),
-        &json!({ "kitchen_id": kitchen_id, "title": "Pizza Margherita" }).to_string(),
+        &json!({ "title": "Pizza Margherita" }).to_string(),
     );
     assert_eq!(status, 200, "{created}");
     let pizza = created["result"]["branch_id"].as_str().unwrap().to_string();
@@ -18412,7 +18350,7 @@ fn a_pizza_worth_sending(
     );
     assert_eq!(status, 200, "{weighed}");
 
-    let tag = tag_in(app, &key, &kitchen_id, "en", "Weekend");
+    let tag = tag_in(app, &key, "en", "Weekend");
     file_under(app, &key, &pizza, &tag, true);
 
     let mut french = written("125 g de mozzarella");
@@ -18827,14 +18765,13 @@ async fn a_bundle_carries_each_branchs_origin_as_it_stands_and_invents_none() {
 async fn a_copys_bundle_carries_the_chain_it_forked_from_under_each_hand() {
     let app = support::spawn_app();
     let (key, kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
-    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+    let (_marc, marc_key, _) = person_with_kitchen(&app, "Marc");
     ask_into_kitchen(&app, &key, &kitchen, &marc_key);
     let (status, copied) = app.post_op(
         "save_recipe_version",
         Some(&marc_key),
         &json!({
             "branch_id": pizza,
-            "kitchen_id": marc_kitchen,
             "title": "Pizza Margherita",
             "ingredients": [{ "kind": "ingredient", "text": "A lot more basil" }],
             "name": "Marc's",
@@ -19131,11 +19068,11 @@ async fn a_bundle_arrives_whole_under_the_senders_ids_and_hands() {
         .mint_access_key(&nadia, "browser", false)
         .unwrap()
         .secret;
-    let nadia_kitchen = home_kitchen_of(&here, &nadia);
+    let nadia_cookbook = cookbook_of(&here, &nadia);
 
     let report = receive(&here, &nadia_key, &bytes);
     assert_eq!(report["source_kind"], json!("bundle"), "{report}");
-    assert_eq!(report["kitchen_id"], json!(nadia_kitchen));
+    assert_eq!(report["cookbook_id"], json!(nadia_cookbook));
     assert_eq!(report["unreadable"], json!([]), "{report}");
     for (branch, subject) in [(&pizza, true), (&french, true), (&dough, false)] {
         let row = arrived_row(&report, branch);
@@ -19160,8 +19097,8 @@ async fn a_bundle_arrives_whole_under_the_senders_ids_and_hands() {
     assert_eq!(status, 200, "{held}");
     let held = &held["result"];
     assert_eq!(
-        held["kitchen_id"],
-        json!(nadia_kitchen),
+        held["cookbook"]["id"],
+        json!(nadia_cookbook),
         "held by a Kitchen here"
     );
     assert_eq!(held["lineage_id"], json!(lineage));
@@ -19227,18 +19164,14 @@ async fn a_bundle_arrives_whole_under_the_senders_ids_and_hands() {
     assert_eq!(food["result"]["cup_weight_grams"], Value::Null, "{food}");
 
     // The Tag lands in the receiving Kitchen's own list, and files the recipe.
-    let (_, tags) = here.post_op(
-        "list_tags",
-        Some(&nadia_key),
-        &json!({ "kitchen_id": nadia_kitchen }).to_string(),
-    );
+    let (_, tags) = here.post_op("list_tags", Some(&nadia_key), &json!({}).to_string());
     let weekend = tags["result"]["tags"]
         .as_array()
         .unwrap()
         .iter()
         .find(|tag| tag["name"] == json!("Weekend"))
         .unwrap_or_else(|| panic!("the Tag arrived: {tags}"));
-    assert_eq!(weekend["kitchen_id"], json!(nadia_kitchen));
+    assert_eq!(weekend["cookbook_id"], json!(nadia_cookbook));
 
     // The Hands' names travel on: resharing names Aurélien, not Nadia. So does
     // the Branch id — a reshare carries the sender's, never the local row id,
@@ -19253,7 +19186,11 @@ async fn a_bundle_arrives_whole_under_the_senders_ids_and_hands() {
         .iter()
         .find(|b| b["branch_id"] == json!(pizza))
         .unwrap();
-    assert_eq!(record["hand"]["name"], json!("Aurélien's Kitchen"));
+    assert_eq!(
+        record["hand"]["name"],
+        json!("Aurélien"),
+        "his Cookbook's Hand, named after him"
+    );
     assert_eq!(record["versions"][0]["hand"]["name"], json!("Aurélien"));
     assert_eq!(record["origin_address"], json!("https://aurelien.example"));
 }
@@ -19275,7 +19212,7 @@ async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
         .mint_access_key(&nadia, "browser", false)
         .unwrap()
         .secret;
-    let nadia_kitchen = home_kitchen_of(&here, &nadia);
+    let nadia_cookbook = cookbook_of(&here, &nadia);
     let report = receive(&here, &nadia_key, &bytes);
     // Nadia's own row ids for what arrived; both still travel under
     // Aurélien's (#90).
@@ -19330,10 +19267,10 @@ async fn receiving_makes_no_branch_of_your_own_and_changing_it_does() {
     );
     assert_eq!(
         copy["result"]["hand_id"],
-        json!(nadia_kitchen),
+        json!(nadia_cookbook),
         "yours from then on"
     );
-    assert_eq!(copy["result"]["kitchen_id"], json!(nadia_kitchen));
+    assert_eq!(copy["result"]["cookbook"]["id"], json!(nadia_cookbook));
     assert_eq!(
         copy["result"]["versions"].as_array().unwrap().len(),
         before["result"]["versions"].as_array().unwrap().len() + 1,
@@ -19518,15 +19455,15 @@ async fn two_kitchens_here_each_receive_the_same_senders_bundle_and_keep_it_apar
         .mint_access_key(&aurelien, "browser", false)
         .unwrap()
         .secret;
-    let aurelien_kitchen = home_kitchen_of(&here, &aurelien);
+    let aurelien_cookbook = cookbook_of(&here, &aurelien);
     let nadia = here.core.create_person("Nadia").expect("person");
     let nadia_key = here
         .core
         .mint_access_key(&nadia, "browser", false)
         .unwrap()
         .secret;
-    let nadia_kitchen = home_kitchen_of(&here, &nadia);
-    assert_ne!(aurelien_kitchen, nadia_kitchen, "separate households");
+    let nadia_cookbook = cookbook_of(&here, &nadia);
+    assert_ne!(aurelien_cookbook, nadia_cookbook, "separate households");
 
     // Aurélien first, then Nadia — the very same file.
     let to_aurelien = receive(&here, &aurelien_key, &first);
@@ -19545,7 +19482,7 @@ async fn two_kitchens_here_each_receive_the_same_senders_bundle_and_keep_it_apar
     // Nothing either report says mentions the other household, or that a
     // Kitchen the reader does not cook in exists at all.
     let said = to_nadia.to_string();
-    assert!(!said.contains(&aurelien_kitchen), "{to_nadia}");
+    assert!(!said.contains(&aurelien_cookbook), "{to_nadia}");
     assert!(
         !said.contains("Kitchen you do not cook in"),
         "the refusal that leaked the other household is gone: {to_nadia}"
@@ -19556,8 +19493,8 @@ async fn two_kitchens_here_each_receive_the_same_senders_bundle_and_keep_it_apar
     let nadia_pizza = landed_as(&to_nadia, &pizza);
     assert_ne!(aurelien_pizza, nadia_pizza, "a copy each");
     for (key, branch, kitchen) in [
-        (&aurelien_key, &aurelien_pizza, &aurelien_kitchen),
-        (&nadia_key, &nadia_pizza, &nadia_kitchen),
+        (&aurelien_key, &aurelien_pizza, &aurelien_cookbook),
+        (&nadia_key, &nadia_pizza, &nadia_cookbook),
     ] {
         let (status, held) = here.post_op(
             "get_recipe",
@@ -19565,7 +19502,7 @@ async fn two_kitchens_here_each_receive_the_same_senders_bundle_and_keep_it_apar
             &json!({ "branch_id": branch }).to_string(),
         );
         assert_eq!(status, 200, "{held}");
-        assert_eq!(held["result"]["kitchen_id"], json!(kitchen), "{held}");
+        assert_eq!(held["result"]["cookbook"]["id"], json!(kitchen), "{held}");
         assert_eq!(held["result"]["lineage_id"], json!(lineage));
     }
 
@@ -19675,11 +19612,9 @@ async fn a_bundle_that_left_here_and_came_back_extends_and_never_conflicts() {
         .mint_access_key(&aurelien, "browser", false)
         .unwrap()
         .secret;
-    let kitchen = home_kitchen_of(&here, &aurelien);
     let (pizza, lineage) = recipe_with(
         &here,
         &key,
-        &kitchen,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "250 g mozzarella" }]),
@@ -19767,37 +19702,21 @@ async fn a_bundle_that_left_here_and_came_back_extends_and_never_conflicts() {
     );
 }
 
-/// **A Bundle is received into your Home Kitchen, and that is which Kitchen
-/// the question is about** (#90). Aurélien cooks in two: he exports a recipe
-/// from the second one and imports the file back. Since a Branch is held per
-/// Kitchen, his Home Kitchen genuinely did not have that recipe, so it arrives
-/// there as its own copy rather than finding the original — which stays exactly
-/// as it was, in the Kitchen that holds it.
-///
-/// Pinned because it is the one place the per-Kitchen rule is visible to a
-/// person with more than one Kitchen, and because before #90 the same import
-/// answered "unchanged" and placed nothing.
+/// **A Bundle is received into your own Cookbook, and that is which holding
+/// the question is about** (#90, ADR 0041). Aurélien exports one of his own
+/// recipes and imports the file back: his Cookbook holds that Branch already,
+/// under the very Travelling id the file carries, so nothing new is placed and
+/// the original is exactly as it was — there is no second Kitchen of his for
+/// it to arrive in as a stranger any more.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_bundle_from_another_of_your_kitchens_arrives_in_your_home_one() {
+async fn a_bundle_of_your_own_recipe_coming_home_finds_the_original() {
     let here = support::spawn_app();
-    let (_person, key, second_kitchen) = person_with_kitchen(&here, "Aurélien");
-    let person = here
-        .core
-        .db()
-        .with_conn(|conn| {
-            conn.query_row("SELECT id FROM people WHERE name = 'Aurélien'", [], |row| {
-                row.get::<_, String>(0)
-            })
-            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
-        })
-        .unwrap();
-    let home_kitchen = home_kitchen_of(&here, &person);
-    assert_ne!(home_kitchen, second_kitchen, "he cooks in two");
+    let (person, key, _) = person_with_kitchen(&here, "Aurélien");
+    let own = cookbook_of(&here, &person);
 
-    let (pizza, lineage) = recipe_with(
+    let (pizza, _lineage) = recipe_with(
         &here,
         &key,
-        &second_kitchen,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "250 g mozzarella" }]),
@@ -19810,45 +19729,33 @@ async fn a_bundle_from_another_of_your_kitchens_arrives_in_your_home_one() {
     );
 
     let report = receive(&here, &key, &bundle_of(&here, &key, &pizza));
-    assert_eq!(report["kitchen_id"], json!(home_kitchen), "{report}");
+    assert_eq!(report["cookbook_id"], json!(own), "{report}");
     assert_eq!(
         arrived_row(&report, &pizza)["status"],
-        json!("created"),
-        "his Home Kitchen did not hold it: {report}"
+        json!("unchanged"),
+        "his Cookbook holds it already: {report}"
     );
-    let at_home = landed_as(&report, &pizza);
-    assert_ne!(at_home, pizza, "its own copy, with its own Local id");
-
-    let (_, landed) = here.post_op(
-        "get_recipe",
-        Some(&key),
-        &json!({ "branch_id": at_home }).to_string(),
-    );
-    assert_eq!(landed["result"]["kitchen_id"], json!(home_kitchen));
-    assert_eq!(landed["result"]["lineage_id"], json!(lineage));
+    assert_eq!(landed_as(&report, &pizza), pizza, "the original, found");
 
     let (_, after) = here.post_op(
         "get_recipe",
         Some(&key),
         &json!({ "branch_id": pizza }).to_string(),
     );
-    assert_eq!(
-        after["result"], before["result"],
-        "the Kitchen that holds the original is untouched"
-    );
-
-    // And his Home Kitchen's copy travels under the same Travelling id, so
-    // sending both to a friend is still one Branch rather than two.
-    let files = unzip(&bundle_of(&here, &key, &at_home));
-    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
-    assert!(
-        sidecar["branches"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|record| record["branch_id"] == json!(pizza)),
-        "{sidecar}"
-    );
+    assert_eq!(after["result"], before["result"], "untouched");
+    let held: i64 = here
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = ?1",
+                rusqlite::params![own],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(held, 1, "no second copy of his own recipe");
 }
 
 /// **A damaged Bundle keeps the dinner and loses the provenance** (ADR 0020):
@@ -19893,7 +19800,7 @@ async fn a_damaged_bundle_keeps_the_words_as_a_new_recipe_and_says_so() {
             .mint_access_key(&nadia, "browser", false)
             .unwrap()
             .secret;
-        let nadia_kitchen = home_kitchen_of(&here, &nadia);
+        let nadia_cookbook = cookbook_of(&here, &nadia);
 
         let report = receive(&here, &nadia_key, &mangled);
         assert!(
@@ -19945,7 +19852,7 @@ async fn a_damaged_bundle_keeps_the_words_as_a_new_recipe_and_says_so() {
             json!(nadia),
             "{damage}: a recipe of your own"
         );
-        assert_eq!(recipe["hand_id"], json!(nadia_kitchen));
+        assert_eq!(recipe["hand_id"], json!(nadia_cookbook));
         assert_eq!(
             versions[0]["content"]["ingredients"][3]["text"],
             json!("125 g mozzarella")
@@ -20100,8 +20007,8 @@ async fn a_bundle_without_its_sidecar_is_read_back_from_its_notes() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggestion() {
     let there = support::spawn_app();
-    let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&there, "Marc");
-    let bread = read_a_word(&there, &marc_key, &marc_kitchen, "fr", "farine");
+    let (_marc, marc_key, _) = person_with_kitchen(&there, "Marc");
+    let bread = read_a_word(&there, &marc_key, "fr", "farine");
     let farine = food_named(&there, &marc_key, "fr", "farine");
     let (status, named) = there.post_op(
         "set_food_name",
@@ -20112,9 +20019,9 @@ async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggesti
     let bytes = bundle_of(&there, &marc_key, &bread);
 
     let here = support::spawn_app();
-    let (key, kitchen_id) = operator_with_kitchen(&here);
-    read_a_word(&here, &key, &kitchen_id, "fr", "farine");
-    read_a_word(&here, &key, &kitchen_id, "en", "flour");
+    let (key, _) = operator_with_kitchen(&here);
+    read_a_word(&here, &key, "fr", "farine");
+    read_a_word(&here, &key, "en", "flour");
     let ours_fr = food_named(&here, &key, "fr", "farine");
     let ours_en = food_named(&here, &key, "en", "flour");
 
@@ -20608,12 +20515,8 @@ mod crouton {
         names
     }
 
-    fn kitchen_tags(app: &support::TestApp, key: &str, kitchen_id: &Value) -> Vec<Value> {
-        let (status, listed) = app.post_op(
-            "list_tags",
-            Some(key),
-            &json!({ "kitchen_id": kitchen_id }).to_string(),
-        );
+    fn cookbook_tags(app: &support::TestApp, key: &str) -> Vec<Value> {
+        let (status, listed) = app.post_op("list_tags", Some(key), &json!({}).to_string());
         assert_eq!(status, 200, "{listed}");
         listed["result"]["tags"].as_array().unwrap().clone()
     }
@@ -20631,13 +20534,13 @@ mod crouton {
         let (person, key) = a_person(&app);
         // The Kitchen already files by "hearty": that Tag is reused, compared
         // on the fold, and keeps the spelling it was made with.
-        let kitchen = home_kitchen_of(&app, &person);
-        let hearty = tag_in(&app, &key, &kitchen, "en", "hearty");
+        let cookbook = cookbook_of(&app, &person);
+        let hearty = tag_in(&app, &key, "en", "hearty");
 
         let report = import_crouton(&app, &key, &a_tagged_library(true));
-        assert_eq!(report["kitchen_id"], json!(kitchen));
+        assert_eq!(report["cookbook_id"], json!(cookbook));
 
-        let tags = kitchen_tags(&app, &key, &report["kitchen_id"]);
+        let tags = cookbook_tags(&app, &key);
         let mut listed: Vec<(&str, &str)> = tags
             .iter()
             .map(|tag| {
@@ -20682,8 +20585,7 @@ mod crouton {
 
         // The library as the 20 August export had it: nothing tagged.
         let untagged = import_crouton(&app, &key, &a_tagged_library(false));
-        let kitchen = untagged["kitchen_id"].clone();
-        assert!(kitchen_tags(&app, &key, &kitchen).is_empty());
+        assert!(cookbook_tags(&app, &key).is_empty());
         let dal = branch_of(&untagged, "DAL");
         let heads = |report: &Value| -> Vec<Value> {
             ["DAL", "BOEUF", "TOAST"]
@@ -20694,7 +20596,7 @@ mod crouton {
         let heads_before = heads(&untagged);
 
         // Filing done in Kamosu, which the export knows nothing about.
-        let weekend = tag_in(&app, &key, kitchen.as_str().unwrap(), "en", "weekend");
+        let weekend = tag_in(&app, &key, "en", "weekend");
         file_under(&app, &key, &dal, &weekend, true);
 
         // The same recipes, now tagged in Crouton: matched through the ledger,
@@ -20709,11 +20611,11 @@ mod crouton {
             tag_names(&app, &key, &branch_of(&tagged, "BOEUF")),
             ["Hearty"]
         );
-        assert_eq!(kitchen_tags(&app, &key, &kitchen).len(), 3);
+        assert_eq!(cookbook_tags(&app, &key).len(), 3);
 
         // Once more: no new Tag, no second filing.
         import_crouton(&app, &key, &a_tagged_library(true));
-        assert_eq!(kitchen_tags(&app, &key, &kitchen).len(), 3);
+        assert_eq!(cookbook_tags(&app, &key).len(), 3);
         assert_eq!(tag_names(&app, &key, &dal), ["Hearty", "Vegan", "weekend"]);
 
         // And back to the untagged export: nothing is taken away.
@@ -20954,10 +20856,10 @@ mod crouton {
         assert_eq!(listed["imports"], json!([]), "{listed}");
     }
 
-    /// An Import is held in the Home Kitchen of whoever asked for it
+    /// An Import is held in the Cookbook of whoever asked for it
     /// (CONTEXT.md, and `import_each` alike), so joining somebody else's
     /// Kitchen does not put their channel in your list. `imports` is unique per
-    /// `(kitchen_id, source_kind)`, so without this the answer would carry two
+    /// `(cookbook_id, source_kind)`, so without this the answer would carry two
     /// `crouton` entries and this Person's own arrivals would attach to
     /// whichever sorted first (#108).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -20966,8 +20868,9 @@ mod crouton {
         let (_, key) = a_person(&app);
         let mine = import_crouton(&app, &key, &a_library());
 
-        // Marc imports a Crouton library into HIS Home Kitchen, then invites
-        // Aurélien into it. Two Kitchens now each hold a `crouton` Import.
+        // Marc imports a Crouton library into HIS Cookbook, then invites
+        // Aurélien into a Kitchen with him. Two Cookbooks now each hold a
+        // `crouton` Import, and both are seen in that Kitchen.
         let marc = app.core.create_person("Marc").expect("person");
         let marc_key = app
             .core
@@ -20977,19 +20880,13 @@ mod crouton {
         let his = import_crouton(&app, &marc_key, &a_library());
         assert_ne!(
             his["import_id"], mine["import_id"],
-            "same Kitchen after all"
+            "same Cookbook after all"
         );
 
-        let marc_home = app
-            .core
-            .list_kitchens(&marc)
-            .unwrap()
-            .into_iter()
-            .find(|kitchen| kitchen["is_home"] == json!(true))
-            .expect("Marc's Home Kitchen");
+        let marc_kitchen = app.core.create_kitchen(&marc, "Chez Marc").unwrap();
         let (_, secret) = app
             .core
-            .invite_to_kitchen(&marc, marc_home["id"].as_str().unwrap())
+            .invite_to_kitchen(&marc, marc_kitchen["id"].as_str().unwrap())
             .unwrap();
         let (_, joined) = app.post_op(
             "accept_kitchen_invite",
@@ -21938,8 +21835,8 @@ async fn a_picture_taken_on_one_device_never_erases_one_taken_on_another() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_last_device_to_write_a_shopping_list_wins() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let (chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (chicken, coq) = two_real_recipes(&app, &key);
 
     // Yesterday, with no signal, the phone chose the chicken and typed a line.
     let yesterday = minutes_ago(&app, 24 * 60);
@@ -22012,13 +21909,13 @@ async fn the_last_device_to_write_a_shopping_list_wins() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipes_shopping_basis_is_what_its_rows_are_added_up_from() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
     app.post_op(
         "set_reading_preferences",
         Some(&key),
         &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
     );
-    let (_chicken, coq) = two_real_recipes(&app, &key, &kitchen_id);
+    let (_chicken, coq) = two_real_recipes(&app, &key);
 
     let (status, basis) = app.post_op(
         "shopping_basis",
@@ -22173,8 +22070,8 @@ async fn a_deleted_recipe_leaves_the_shelf_the_search_and_home_for_everyone_in_i
         &json!({ "secret": secret }).to_string(),
     );
 
-    let doomed = shelve(&app, &key, &kitchen_id, "Soba with walnut miso");
-    let kept = shelve(&app, &key, &kitchen_id, "Tarte aux pommes");
+    let doomed = shelve(&app, &key, "Soba with walnut miso");
+    let kept = shelve(&app, &key, "Tarte aux pommes");
 
     // Opened, so it stands on Home's *lately* shelf before it goes.
     app.post_op(
@@ -22259,12 +22156,11 @@ async fn a_deleted_recipe_leaves_the_shelf_the_search_and_home_for_everyone_in_i
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deleting_one_branch_of_a_lineage_leaves_its_translation_whole() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let english = shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({
             "title": "Chocolate mousse",
             "ingredients": [{ "kind": "ingredient", "text": "200 g dark chocolate" }],
@@ -22325,8 +22221,8 @@ async fn deleting_one_branch_of_a_lineage_leaves_its_translation_whole() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deleted_recipe_keeps_every_cooking_it_was_ever_made_for() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let branch_id = shelve(&app, &key, &kitchen_id, "Soba with walnut miso");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = shelve(&app, &key, "Soba with walnut miso");
 
     let picture = upload_a_picture(&app, &key, 7);
     let attempt_id = cook_it(
@@ -22370,12 +22266,11 @@ async fn a_deleted_recipe_keeps_every_cooking_it_was_ever_made_for() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deleted_recipe_stays_on_the_shopping_list_and_says_it_cannot_be_read() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let branch_id = shelve_recipe(
         &app,
         &key,
-        &kitchen_id,
         json!({
             "title": "Ratatouille aux anchois",
             "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
@@ -22429,42 +22324,38 @@ async fn a_deleted_recipe_stays_on_the_shopping_list_and_says_it_cannot_be_read(
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deleting_a_recipe_deletes_no_version_and_no_other_branchs_reading() {
     let app = support::spawn_app();
-    let (person, key, kitchen_a) = person_with_kitchen(&app, "Aurélien");
-    let kitchen_b = home_kitchen_of(&app, &person);
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
     let mine = shelve_recipe(
         &app,
         &key,
-        &kitchen_a,
         json!({
             "title": "Korean fried chicken",
             "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
         }),
     );
 
-    // A Copy: saving into a *different* Kitchen the same Person cooks in
-    // starts a second Branch holding the very same Version. That shared row is
-    // the trap this test exists for.
-    backdate_branch_head(&app, &mine);
+    // A variation of it, changed: a second Branch holding the very same first
+    // Version. That shared row is the trap this test exists for.
+    let (_, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": mine, "name": "Baked" }).to_string(),
+    );
+    let theirs = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &theirs);
     let (status, copied) = app.post_op(
         "save_recipe_version",
         Some(&key),
         &json!({
-            "branch_id": mine,
-            "kitchen_id": kitchen_b,
+            "branch_id": theirs,
             "title": "Korean fried chicken, baked",
             "ingredients": [{ "kind": "ingredient", "text": "2 tbsp soy sauce" }],
         })
         .to_string(),
     );
     assert_eq!(status, 200, "{copied}");
-    let theirs = copied["result"]["branch_id"].as_str().unwrap().to_string();
-    assert_eq!(
-        copied["result"]["copied"],
-        json!(true),
-        "that was not a Copy: {copied}"
-    );
-    assert_ne!(theirs, mine, "that was not a Copy: {copied}");
+    assert_ne!(theirs, mine, "that was not a second Branch: {copied}");
 
     let shared_version = count_of(
         &app,
@@ -22524,8 +22415,8 @@ async fn deleting_a_recipe_deletes_no_version_and_no_other_branchs_reading() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deleted_recipes_share_link_stops_resolving() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
-    let branch_id = shelve(&app, &key, &kitchen_id, "Soba with walnut miso");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let branch_id = shelve(&app, &key, "Soba with walnut miso");
 
     let (status, shared) = app.post_op(
         "share_recipe",
@@ -22564,7 +22455,7 @@ async fn a_deleted_recipes_share_link_stops_resolving() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deleting_a_recipe_lets_the_importer_bring_it_back_as_new() {
     let app = support::spawn_app();
-    // The importer lands a recipe in the Home Kitchen of whoever asked, so the
+    // The importer lands a recipe in the Cookbook of whoever asked, so the
     // Kitchen made above is not named here.
     let (_person, key, _kitchen_id) = person_with_kitchen(&app, "Aurélien");
 
@@ -22617,9 +22508,9 @@ async fn deleting_a_recipe_lets_the_importer_bring_it_back_as_new() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_component_line_naming_a_deleted_recipe_still_reads_and_says_what_happened() {
     let app = support::spawn_app();
-    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
-    let dough = shelve(&app, &key, &kitchen_id, "Pizza dough");
+    let dough = shelve(&app, &key, "Pizza dough");
     let (_, read_dough) = app.post_op(
         "get_recipe",
         Some(&key),
@@ -22633,7 +22524,6 @@ async fn a_component_line_naming_a_deleted_recipe_still_reads_and_says_what_happ
     let (pizza, _) = recipe_with(
         &app,
         &key,
-        &kitchen_id,
         "Pizza Margherita",
         Some(("2", "pizzas")),
         json!([{ "kind": "ingredient", "text": "Dough for 2 pizzas" }]),
@@ -22690,4 +22580,1389 @@ async fn a_component_line_naming_a_deleted_recipe_still_reads_and_says_what_happ
         json!(dough_lineage),
         "the pointer is kept, so the dough arriving again later needs nothing done"
     );
+}
+
+// --- Cookbooks (#131, ADR 0041) -----------------------------------------------
+
+/// Read one value out of the database, for the few facts no Operation answers
+/// in the shape a test needs to check.
+fn scalar<T: rusqlite::types::FromSql>(app: &support::TestApp, sql: &str) -> T {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(sql, [], |row| row.get(0))
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .unwrap_or_else(|e| panic!("{sql}: {e}"))
+}
+
+/// **Moving over loses nothing and moves no Version id** (#131, question 9).
+///
+/// A database at the schema just before Cookbooks, holding every awkward case
+/// the move has to settle: a Home Kitchen of one, a second Kitchen of one
+/// Person's holding a Copy of the first's recipe, a Kitchen two People share
+/// holding a Copy of his recipe that she changed there, a Bundle of hers that
+/// arrived in a third Person's Home Kitchen nobody was left in,
+/// the same friend's Bundle received into two Kitchens of one Person, Tags
+/// that become one word in one Cookbook, an Attempt, a Related Recipe, two
+/// import ledgers and a Share Link. After the move every Branch, Attempt, Tag
+/// filing and Share Link is still there, each Branch is in the Cookbook of
+/// whoever started it, and every Version still hashes to the id it sits under.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn moving_to_cookbooks_loses_nothing_and_moves_no_version_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    {
+        let before_cookbooks: &[Migration] = &db::MIGRATIONS[..35];
+        let old = db::Db::open_with_migrations(&data_dir, before_cookbooks)
+            .expect("the schema before Cookbooks");
+        old.with_conn(|conn| {
+            conn.execute_batch(
+                r#"
+                INSERT INTO people (id, name, home_kitchen_id, is_operator, created_at)
+                    VALUES ('p_a', 'Aurélien', 'k_a', 1, '2026-01-01T00:00:00.000Z'),
+                           ('p_h', 'Hélène', 'k_h', 0, '2026-01-02T00:00:00.000Z'),
+                           ('p_n', 'Nadia', 'k_n', 0, '2026-01-03T00:00:00.000Z');
+                INSERT INTO instance_setup (singleton, operator_person_id) VALUES (1, 'p_a');
+                INSERT INTO kitchens (id, name, hand_id) VALUES
+                    ('k_a', 'Aurélien''s Home Kitchen', 'k_a'),
+                    ('k_h', 'Hélène''s Home Kitchen', 'k_h'),
+                    ('k_l', 'Live 118', 'k_l'),
+                    ('k_f', 'Family', 'k_f'),
+                    ('k_n', 'Nadia''s Home Kitchen', 'k_n');
+                INSERT INTO kitchen_members (kitchen_id, person_id) VALUES
+                    ('k_a', 'p_a'), ('k_h', 'p_h'), ('k_l', 'p_a'),
+                    ('k_f', 'p_a'), ('k_f', 'p_h');
+                INSERT INTO lineages (id) VALUES ('l_1'), ('l_3'), ('l_4');
+                INSERT INTO versions (id, content) VALUES
+                    (version_fingerprint('{"title":"Tartiflette"}'), '{"title":"Tartiflette"}'),
+                    (version_fingerprint('{"title":"Tartiflette, less wine"}'), '{"title":"Tartiflette, less wine"}'),
+                    (version_fingerprint('{"title":"Pot-au-feu"}'), '{"title":"Pot-au-feu"}'),
+                    (version_fingerprint('{"title":"Marc''s Pizza"}'), '{"title":"Marc''s Pizza"}'),
+                    (version_fingerprint('{"title":"Tartiflette, Hélène''s"}'), '{"title":"Tartiflette, Hélène''s"}');
+                INSERT INTO branches (id, lineage_id, kitchen_id, hand_id, language, head_version_id, created_at, travelling_id) VALUES
+                    ('b_1', 'l_1', 'k_a', 'k_a', 'en', version_fingerprint('{"title":"Tartiflette"}'), '2026-02-01T00:00:00.000Z', NULL),
+                    ('b_2', 'l_1', 'k_l', 'k_l', 'en', version_fingerprint('{"title":"Tartiflette, less wine"}'), '2026-02-02T00:00:00.000Z', NULL),
+                    ('b_3', 'l_3', 'k_f', 'k_f', 'en', version_fingerprint('{"title":"Pot-au-feu"}'), '2026-02-03T00:00:00.000Z', NULL),
+                    ('b_4', 'l_4', 'k_a', 'k_remote', 'en', version_fingerprint('{"title":"Marc''s Pizza"}'), '2026-02-04T00:00:00.000Z', 'b_remote'),
+                    ('b_5', 'l_4', 'k_l', 'k_remote', 'en', version_fingerprint('{"title":"Marc''s Pizza"}'), '2026-02-05T00:00:00.000Z', 'b_remote'),
+                    ('b_6', 'l_1', 'k_f', 'k_f', 'en', version_fingerprint('{"title":"Tartiflette, Hélène''s"}'), '2026-03-01T00:00:00.000Z', NULL),
+                    ('b_7', 'l_3', 'k_n', 'k_h', 'en', version_fingerprint('{"title":"Pot-au-feu"}'), '2026-03-05T00:00:00.000Z', 'b_3');
+                INSERT INTO branch_versions (branch_id, sequence, version_id, parent_version_id, hand_id) VALUES
+                    ('b_1', 1, version_fingerprint('{"title":"Tartiflette"}'), NULL, 'p_a'),
+                    ('b_2', 1, version_fingerprint('{"title":"Tartiflette"}'), NULL, 'p_a'),
+                    ('b_2', 2, version_fingerprint('{"title":"Tartiflette, less wine"}'), version_fingerprint('{"title":"Tartiflette"}'), 'p_a'),
+                    ('b_3', 1, version_fingerprint('{"title":"Pot-au-feu"}'), NULL, 'p_h'),
+                    ('b_4', 1, version_fingerprint('{"title":"Marc''s Pizza"}'), NULL, 'p_remote'),
+                    ('b_5', 1, version_fingerprint('{"title":"Marc''s Pizza"}'), NULL, 'p_remote');
+                INSERT INTO branch_versions (branch_id, sequence, version_id, parent_version_id, hand_id, created_at) VALUES
+                    ('b_6', 1, version_fingerprint('{"title":"Tartiflette"}'), NULL, 'p_a', '2026-02-01T00:00:00.000Z'),
+                    ('b_6', 2, version_fingerprint('{"title":"Tartiflette, Hélène''s"}'), version_fingerprint('{"title":"Tartiflette"}'), 'p_h', '2026-03-02T00:00:00.000Z'),
+                    ('b_7', 1, version_fingerprint('{"title":"Pot-au-feu"}'), NULL, 'p_h', '2026-02-03T00:00:00.000Z');
+                INSERT INTO tags (id, kitchen_id) VALUES ('t_1', 'k_a'), ('t_2', 'k_l'), ('t_3', 'k_f'), ('t_4', 'k_a');
+                INSERT INTO tag_names (tag_id, kitchen_id, language, name, name_folded) VALUES
+                    ('t_1', 'k_a', 'en', 'Dessert', 'dessert'),
+                    ('t_2', 'k_l', 'en', 'dessert', 'dessert'),
+                    ('t_3', 'k_f', 'en', 'Weeknight', 'weeknight'),
+                    ('t_4', 'k_a', 'en', 'Unused', 'unused');
+                INSERT INTO branch_tags (branch_id, tag_id) VALUES ('b_1', 't_1'), ('b_2', 't_2'), ('b_3', 't_3');
+                INSERT INTO attempts (id, lineage_id, person_id, version_id) VALUES
+                    ('at_1', 'l_1', 'p_h', version_fingerprint('{"title":"Tartiflette"}'));
+                INSERT INTO related_recipes (kitchen_id, lineage_a_id, lineage_b_id, lineage_a_name, lineage_b_name)
+                    VALUES ('k_a', 'l_1', 'l_4', 'Tartiflette', 'Marc''s Pizza');
+                INSERT INTO imports (id, kitchen_id, source_kind) VALUES ('imp_a', 'k_a', 'crouton'), ('imp_l', 'k_l', 'crouton');
+                INSERT INTO import_ledger (import_id, foreign_id, lineage_id, branch_id) VALUES
+                    ('imp_a', 'crouton-1', 'l_1', 'b_1'), ('imp_l', 'crouton-2', 'l_1', 'b_2');
+                INSERT INTO share_links (id, branch_id, secret_hash, shared_by) VALUES ('sl_1', 'b_3', 'a hash', 'p_h');
+                "#,
+            )
+            .map_err(|e| kamosu::OpError::internal(e.to_string()))
+        })
+        .expect("a library as it stood before Cookbooks");
+    }
+
+    let app = support::spawn_app_in(&data_dir);
+    let cookbook_a = cookbook_of(&app, "p_a");
+    let cookbook_h = cookbook_of(&app, "p_h");
+    assert_ne!(cookbook_a, cookbook_h, "one Cookbook each");
+
+    // Nothing lost, nothing re-fingerprinted.
+    assert_eq!(scalar::<i64>(&app, "SELECT COUNT(*) FROM versions"), 5);
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)"
+        ),
+        0,
+        "the migration moves no Version id"
+    );
+    assert_eq!(scalar::<i64>(&app, "SELECT COUNT(*) FROM branches"), 7);
+    assert_eq!(
+        scalar::<i64>(&app, "SELECT COUNT(*) FROM branch_versions"),
+        9
+    );
+    assert_eq!(scalar::<i64>(&app, "SELECT COUNT(*) FROM attempts"), 1);
+    assert_eq!(
+        scalar::<i64>(&app, "SELECT COUNT(*) FROM branch_tags"),
+        3,
+        "no Tag filing lost"
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            "SELECT COUNT(*) FROM share_links WHERE branch_id = 'b_3'"
+        ),
+        1
+    );
+    assert_eq!(scalar::<i64>(&app, "SELECT COUNT(*) FROM import_ledger"), 2);
+
+    // Each Branch went to the Cookbook of whoever started it.
+    let cookbook = |branch: &str| -> String {
+        scalar(
+            &app,
+            &format!("SELECT cookbook_id FROM branches WHERE id = '{branch}'"),
+        )
+    };
+    for branch in ["b_1", "b_2", "b_4", "b_5"] {
+        assert_eq!(cookbook(branch), cookbook_a, "{branch} is Aurélien's");
+    }
+    assert_eq!(
+        cookbook("b_3"),
+        cookbook_h,
+        "Hélène wrote the Family's pot-au-feu"
+    );
+    // A Copy is started by whoever first changed it, not whoever wrote the
+    // chain it carried: his Tartiflette as she changed it in their Kitchen.
+    assert_eq!(cookbook("b_6"), cookbook_h, "Hélène started the Copy");
+    // A Branch that arrived is started by whoever received it, never its
+    // sender: Hélène's pot-au-feu, received in Nadia's Home Kitchen.
+    assert_eq!(
+        cookbook("b_7"),
+        cookbook_of(&app, "p_n"),
+        "Nadia received it"
+    );
+
+    // The Copy his second Kitchen held is a variation named after that
+    // Kitchen, so his Cookbook keeps one unnamed Tartiflette.
+    assert_eq!(
+        scalar::<Option<String>>(&app, "SELECT name FROM branches WHERE id = 'b_1'"),
+        None
+    );
+    assert_eq!(
+        scalar::<Option<String>>(&app, "SELECT name FROM branches WHERE id = 'b_2'"),
+        Some("Live 118".to_string())
+    );
+    // The same friend's Bundle received twice is two Branches still, one
+    // travelling on under a new id; both remain the friend's writing.
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            "SELECT COUNT(DISTINCT COALESCE(travelling_id, id)) FROM branches WHERE id IN ('b_4', 'b_5')"
+        ),
+        2
+    );
+    assert_eq!(scalar::<i64>(&app, "SELECT SUM(arrived) FROM branches"), 3);
+
+    // "dessert" and "Dessert" are one word in one Cookbook, filing both.
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM tag_names WHERE cookbook_id = '{cookbook_a}' AND name_folded = 'dessert'"
+            )
+        ),
+        1
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            "SELECT COUNT(DISTINCT tag_id) FROM branch_tags WHERE branch_id IN ('b_1', 'b_2')"
+        ),
+        1
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT COUNT(*) FROM tags WHERE cookbook_id = '{cookbook_a}'")
+        ),
+        2,
+        "Dessert, and the unused Tag kept rather than lost"
+    );
+    assert_eq!(
+        scalar::<String>(&app, "SELECT cookbook_id FROM related_recipes"),
+        cookbook_a
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT COUNT(*) FROM imports WHERE cookbook_id = '{cookbook_a}'")
+        ),
+        1,
+        "one crouton Import per Cookbook, holding both ledger rows"
+    );
+
+    // The Home Kitchens of one go; the Kitchens people share, or that were
+    // made on purpose, stay as the groups they are.
+    let kitchens: Vec<String> = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            let mut statement = conn.prepare("SELECT id FROM kitchens ORDER BY id").unwrap();
+            let ids = statement
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<String>, _>>()
+                .unwrap();
+            Ok(ids)
+        })
+        .unwrap();
+    assert_eq!(kitchens, vec!["k_f".to_string(), "k_l".to_string()]);
+
+    // And through a real Door: each sees the other's recipes in the Kitchen
+    // they share, writes only their own, and the Home Kitchen is nowhere.
+    let key_a = app
+        .core
+        .mint_access_key("p_a", "test", false)
+        .unwrap()
+        .secret;
+    let key_h = app
+        .core
+        .mint_access_key("p_h", "test", false)
+        .unwrap()
+        .secret;
+    let (status, pot) = app.post_op("get_recipe", Some(&key_a), r#"{"branch_id":"b_3"}"#);
+    assert_eq!(status, 200, "{pot}");
+    assert_eq!(pot["result"]["writes"], json!(false));
+    let (status, tart) = app.post_op("get_recipe", Some(&key_h), r#"{"branch_id":"b_1"}"#);
+    assert_eq!(status, 200, "{tart}");
+    assert_eq!(
+        tart["result"]["cookbook"]["authors"][0]["name"],
+        json!("Aurélien")
+    );
+    let (_, listed) = app.post_op("list_kitchens", Some(&key_a), "{}");
+    assert!(!listed.to_string().contains("Home Kitchen"), "{listed}");
+    // Her cooking of his Tartiflette is hers to see still, and his.
+    let (_, thread) = app.post_op("get_thread", Some(&key_a), r#"{"branch_id":"b_1"}"#);
+    assert_eq!(
+        thread["result"]["attempts"].as_array().unwrap().len(),
+        1,
+        "{thread}"
+    );
+}
+
+/// A Person and a Credential acting as them.
+fn someone(app: &support::TestApp, name: &str) -> (String, String) {
+    let person = app.core.create_person(name).expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser", false)
+        .unwrap()
+        .secret;
+    (person, key)
+}
+
+/// A Kitchen `host` makes, with every one of `guests` asked into it.
+fn kitchen_of(app: &support::TestApp, host_key: &str, name: &str, guests: &[&str]) -> String {
+    let (status, made) = app.post_op(
+        "create_kitchen",
+        Some(host_key),
+        &json!({ "name": name }).to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    let kitchen = made["result"]["id"].as_str().unwrap().to_string();
+    for guest in guests {
+        ask_into_kitchen(app, host_key, &kitchen, guest);
+    }
+    kitchen
+}
+
+/// A recipe in its writer's own Cookbook, by its Branch id.
+fn written(app: &support::TestApp, key: &str, title: &str) -> String {
+    let (status, made) = app.post_op(
+        "create_recipe",
+        Some(key),
+        &json!({ "title": title }).to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    made["result"]["branch_id"].as_str().unwrap().to_string()
+}
+
+/// What a Person reads a recipe as, or the refusal they get.
+fn read_as(app: &support::TestApp, key: &str, branch_id: &str) -> (u16, Value) {
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    (status, read["result"].clone())
+}
+
+/// The titles a Person's whole shelf shows, sorted.
+fn shelf_titles(app: &support::TestApp, key: &str) -> Vec<String> {
+    let mut titles: Vec<String> = shelf(app, key, json!({}))
+        .iter()
+        .map(|entry| entry["title"].as_str().unwrap().to_string())
+        .collect();
+    titles.sort();
+    titles
+}
+
+/// **A recipe is seen, live, in every Kitchen any of its Co-authors cooks in,
+/// and nowhere else except through its Share Link** (ADR 0041).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cookbook_is_seen_live_in_every_kitchen_its_co_authors_cook_in_and_nowhere_else() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (_, camille) = someone(&app, "Camille");
+    let (_, helene) = someone(&app, "Hélène");
+    let (_, tom) = someone(&app, "Tom");
+    let (_, nadia) = someone(&app, "Nadia");
+    kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    kitchen_of(&app, &camille, "Supper club", &[&tom]);
+
+    // Camille writes it, then joins her Cookbook to Aurélien's.
+    let gratin = written(&app, &camille, "Gratin");
+    write_together(&app, &aurelien, &camille);
+
+    // Seen in the Kitchen of either Co-author: Hélène cooks with Aurélien, Tom
+    // with Camille, and neither Kitchen was asked.
+    for (who, reader) in [("Hélène", &helene), ("Tom", &tom)] {
+        let (status, seen) = read_as(&app, reader, &gratin);
+        assert_eq!(status, 200, "{who} sees it: {seen}");
+        assert_eq!(seen["writes"], json!(false), "{who} does not write it");
+    }
+    // Live: a change by a Co-author is what everyone reads next.
+    backdate_branch_head(&app, &gratin);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&aurelien),
+        &json!({ "branch_id": gratin, "title": "Gratin dauphinois" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(
+        saved["result"]["copied"],
+        json!(false),
+        "a Co-author writes it"
+    );
+    let (_, seen) = read_as(&app, &tom, &gratin);
+    assert_eq!(seen["head_version_id"], saved["result"]["version_id"]);
+
+    // Nowhere else: Nadia cooks with nobody here.
+    let (status, refused) = read_as(&app, &nadia, &gratin);
+    assert_eq!(status, 404, "{refused}");
+    assert!(shelf_titles(&app, &nadia).is_empty());
+
+    // Except through its Share Link, which anybody holding it may read.
+    let (status, shared) = app.post_op(
+        "share_recipe",
+        Some(&helene),
+        &json!({ "branch_id": gratin, "public_address": "https://kamosu.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "a reader may share what they see: {shared}");
+    let token = shared["result"]["url"]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_string();
+    let (status, page) = app.post_op(
+        "read_shared_recipe",
+        None,
+        &json!({ "token": token }).to_string(),
+    );
+    assert_eq!(status, 200, "{page}");
+}
+
+/// **Joining two Cookbooks** (#131, questions 5 and 6): a one-use Invite,
+/// read before it is accepted, after which everything either held is one
+/// Cookbook both change. An unnamed Branch the joiner brings of a recipe
+/// already held is named after the joiner; the same word is one Tag.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn joining_cookbooks_makes_one_that_both_change() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (camille_id, camille) = someone(&app, "Camille");
+    kitchen_of(&app, &aurelien, "Family", &[&camille]);
+
+    let tartiflette = written(&app, &aurelien, "Tartiflette");
+    written(&app, &camille, "Quiche");
+    // Camille changed his Tartiflette once: her own unnamed Branch of it.
+    let (_, hers) = app.post_op(
+        "save_recipe_version",
+        Some(&camille),
+        &json!({ "branch_id": tartiflette, "title": "Tartiflette, moins de vin" }).to_string(),
+    );
+    let her_tartiflette = hers["result"]["branch_id"].as_str().unwrap().to_string();
+    let dessert_a = tag_in(&app, &aurelien, "en", "Dessert");
+    let dessert_c = tag_in(&app, &camille, "en", "dessert");
+    file_under(&app, &camille, &her_tartiflette, &dessert_c, true);
+
+    let (status, invite) = app.post_op("invite_to_cookbook", Some(&aurelien), "{}");
+    assert_eq!(status, 200, "{invite}");
+    let secret = invite["result"]["secret"].clone();
+
+    // Read first: whose, and how many recipes on each side.
+    let (status, read) = app.post_op(
+        "read_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read["result"]["their_recipes"], json!(1));
+    assert_eq!(read["result"]["your_recipes"], json!(2));
+    // Her Tartiflette is a version of his: one recipe, so two in all, not three.
+    assert_eq!(read["result"]["together_recipes"], json!(2));
+    assert_eq!(
+        read["result"]["cookbook"]["authors"][0]["name"],
+        json!("Aurélien")
+    );
+
+    let (status, joined) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let cookbook = &joined["result"];
+    assert_eq!(
+        cookbook["authors"],
+        json!([
+            { "person_id": aurelien_id, "name": "Aurélien" },
+            { "person_id": camille_id, "name": "Camille" },
+        ])
+    );
+    assert_eq!(cookbook["recipe_count"], json!(2), "Tartiflette and Quiche");
+    assert_eq!(
+        cookbook_of(&app, &aurelien_id),
+        cookbook_of(&app, &camille_id)
+    );
+
+    // Spent on use.
+    let (status, refused) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+
+    // Her unnamed Tartiflette met his, so hers is named after her.
+    let (_, hers_now) = read_as(&app, &aurelien, &her_tartiflette);
+    assert_eq!(hers_now["name"], json!("Camille"));
+    let (_, his_now) = read_as(&app, &aurelien, &tartiflette);
+    assert_eq!(his_now["name"], json!(null));
+
+    // Both change both, with no Copy.
+    for (who, branch) in [(&camille, &tartiflette), (&aurelien, &her_tartiflette)] {
+        backdate_branch_head(&app, branch);
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(who),
+            &json!({ "branch_id": branch, "title": "Tartiflette, ensemble" }).to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        assert_eq!(saved["result"]["copied"], json!(false), "{saved}");
+    }
+
+    // One word, one Tag, filing what either filed under it.
+    let (_, tags) = app.post_op("list_tags", Some(&aurelien), "{}");
+    let tags = tags["result"]["tags"].as_array().unwrap();
+    assert_eq!(tags.len(), 1, "{tags:?}");
+    assert_eq!(tags[0]["id"], json!(dessert_a));
+    assert_eq!(tags[0]["recipes"], json!(1));
+
+    // Named after its Co-authors until one of them names it; either may.
+    let (status, renamed) = app.post_op(
+        "rename_cookbook",
+        Some(&camille),
+        &json!({ "name": "Chez nous" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+    let (_, seen) = app.post_op("get_cookbook", Some(&aurelien), "{}");
+    assert_eq!(seen["result"]["name"], json!("Chez nous"));
+    app.post_op("rename_cookbook", Some(&aurelien), r#"{"name":"  "}"#);
+    let (_, seen) = app.post_op("get_cookbook", Some(&camille), "{}");
+    assert_eq!(
+        seen["result"]["name"],
+        json!(null),
+        "cleared, it is named after them again"
+    );
+
+    // An Invite nobody has used can be ended, and then opens nothing.
+    let (_, another) = app.post_op("invite_to_cookbook", Some(&aurelien), "{}");
+    let (_, listed) = app.post_op("get_cookbook", Some(&camille), "{}");
+    assert_eq!(
+        listed["result"]["invites"].as_array().unwrap().len(),
+        1,
+        "{listed}"
+    );
+    let (status, ended) = app.post_op(
+        "cancel_cookbook_invite",
+        Some(&camille),
+        &json!({ "invite_id": another["result"]["invite_id"] }).to_string(),
+    );
+    assert_eq!(status, 200, "a Co-author may end it: {ended}");
+    let (_, nadia) = someone(&app, "Nadia");
+    let (status, refused) = app.post_op(
+        "read_cookbook_invite",
+        Some(&nadia),
+        &json!({ "secret": another["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+/// **Leaving gives a joiner their own recipes back as their own** (#131,
+/// answers 6 and 7). Joining named her soupe after her, since his Cookbook
+/// already held one unnamed; leaving, the soupe she wrote is her unnamed one
+/// again and opens from her shelf, and her copy of his is named after his
+/// Cookbook. Found in live acceptance of #131.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_a_cookbook_opens_your_own_recipes_again() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (camille_id, camille) = someone(&app, "Camille");
+    kitchen_of(&app, &aurelien, "Family", &[&camille]);
+    let his = written(&app, &aurelien, "Soupe");
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&camille),
+        &json!({ "branch_id": his, "title": "Soupe, with chervil" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let hers = saved["result"]["branch_id"].as_str().unwrap().to_string();
+
+    write_together(&app, &aurelien, &camille);
+    assert_eq!(
+        scalar::<Option<String>>(
+            &app,
+            &format!("SELECT name FROM branches WHERE id = '{hers}'")
+        ),
+        Some("Camille".to_string()),
+        "joined, hers is named after her"
+    );
+
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(
+        scalar::<Option<String>>(
+            &app,
+            &format!("SELECT name FROM branches WHERE id = '{hers}'")
+        ),
+        None,
+        "left, the soupe she wrote is her own unnamed one again"
+    );
+    let opened = shelf(&app, &camille, json!({ "query": "Soupe" }));
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert_eq!(opened[0]["branch_id"], json!(hers));
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = '{}' AND name = 'Aurélien'",
+                cookbook_of(&app, &camille_id)
+            )
+        ),
+        1,
+        "her copy of his is named after his Cookbook"
+    );
+}
+
+/// **Writing together again brings back no second copy of anything.** A
+/// Co-author who left took a copy of every recipe; joining again, each copy
+/// nobody changed since folds back into the Branch it was copied from. Without
+/// it, every leave and join again would add a copy of the whole library.
+/// Found in live acceptance of #131.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn joining_again_folds_the_copies_leaving_took() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (_, camille) = someone(&app, "Camille");
+    let soupe = written(&app, &aurelien, "Soupe");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&aurelien),
+        &json!({ "branch_id": soupe, "name": "Spicy" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    write_together(&app, &aurelien, &camille);
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    write_together(&app, &aurelien, &camille);
+
+    let joined = cookbook_of(&app, &aurelien_id);
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = '{joined}' AND name = 'Spicy'"
+            )
+        ),
+        1,
+        "one Spicy, not two"
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = '{joined}' AND name IS NULL"
+            )
+        ),
+        1,
+        "one unnamed soupe"
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT COUNT(*) FROM branches WHERE cookbook_id = '{joined}'")
+        ),
+        2,
+        "the soupe and Spicy: her unchanged copies fold into them, so leaving and joining again copies nothing"
+    );
+
+    // And leaving a second time leaves him exactly what he started with.
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT COUNT(*) FROM branches WHERE cookbook_id = '{joined}'")
+        ),
+        2,
+        "no copy of his own recipes handed back to him"
+    );
+}
+
+/// **Leaving and joining again, over and over, holds steady.** Her own changed
+/// copy of his recipe goes with her each time she leaves and he keeps a copy
+/// of it; each time she joins again that copy folds back into her Branch, and
+/// her copy of his original folds back into his. Found in live acceptance.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_and_joining_again_twice_adds_nothing() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (_, camille) = someone(&app, "Camille");
+    kitchen_of(&app, &aurelien, "Family", &[&camille]);
+    let his = written(&app, &aurelien, "Soupe");
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&camille),
+        &json!({ "branch_id": his, "title": "Soupe, with chervil" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    // Hers is shared, so the link goes with her each time (screen choice 2).
+    let hers = saved["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, shared) = app.post_op(
+        "share_recipe",
+        Some(&camille),
+        &json!({ "branch_id": hers, "public_address": "https://kamosu.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "{shared}");
+    let lineage: String = scalar(
+        &app,
+        &format!("SELECT lineage_id FROM branches WHERE id = '{his}'"),
+    );
+    let his_cookbook = cookbook_of(&app, &aurelien_id);
+    let held_by_him = || -> i64 {
+        scalar(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = '{his_cookbook}' AND lineage_id = '{lineage}'"
+            ),
+        )
+    };
+    let mut after = Vec::new();
+    for _ in 0..2 {
+        write_together(&app, &aurelien, &camille);
+        let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+        assert_eq!(status, 200, "{left}");
+        after.push(held_by_him());
+    }
+    assert_eq!(after, [2, 2], "his soupe and his copy of hers, every time");
+}
+
+/// **Joining never folds your original into a copy of it** (#131, answer 7).
+/// He received her quiche as a Bundle before they wrote together; the two
+/// hold the same history under one Travelling id. Joining keeps the quiche
+/// she wrote, with its id, and folds his received copy into it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn joining_keeps_the_original_over_a_received_copy_of_it() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (_, camille) = someone(&app, "Camille");
+    let quiche = written(&app, &camille, "Quiche");
+    receive(&app, &aurelien, &bundle_of(&app, &camille, &quiche));
+    let lineage: String = scalar(
+        &app,
+        &format!("SELECT lineage_id FROM branches WHERE id = '{quiche}'"),
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT COUNT(*) FROM branches WHERE lineage_id = '{lineage}'")
+        ),
+        2,
+        "hers, and the one he received"
+    );
+
+    write_together(&app, &aurelien, &camille);
+    let joined = cookbook_of(&app, &aurelien_id);
+    assert_eq!(
+        scalar::<String>(
+            &app,
+            &format!("SELECT cookbook_id FROM branches WHERE id = '{quiche}'")
+        ),
+        joined,
+        "her quiche is still there, under its own id"
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT arrived FROM branches WHERE id = '{quiche}'")
+        ),
+        0
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT COUNT(*) FROM branches WHERE lineage_id = '{lineage}'")
+        ),
+        1,
+        "his received copy folded into it"
+    );
+}
+
+/// **A variation cooked after it changed is kept as well** (#131, answer 2):
+/// she cooked the soupe and then his changed Spicy, so leaving keeps her a
+/// Branch of each, since no one Branch holds both Versions she cooked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_a_kitchen_keeps_a_changed_variation_that_was_cooked() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (helene_id, helene) = someone(&app, "Hélène");
+    let family = kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    let soupe = written(&app, &aurelien, "Soupe");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&aurelien),
+        &json!({ "branch_id": soupe, "name": "Spicy" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let spicy = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &spicy);
+    let (status, changed) = app.post_op(
+        "save_recipe_version",
+        Some(&aurelien),
+        &json!({ "branch_id": spicy, "title": "Soupe, with chilli" }).to_string(),
+    );
+    assert_eq!(status, 200, "{changed}");
+    cook_it(&app, &helene, &soupe, json!({}));
+    cook_it(&app, &helene, &spicy, json!({}));
+
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&helene),
+        &json!({ "kitchen_id": family, "person_id": helene_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = '{}'",
+                cookbook_of(&app, &helene_id)
+            )
+        ),
+        2,
+        "the soupe and the Spicy she cooked"
+    );
+}
+
+/// **Leaving a Kitchen keeps one Branch of each recipe cooked** (#131, answer
+/// 2): an unchanged variation holds the Version she cooked too, and she keeps
+/// a Branch of the recipe, not one of every Branch that holds it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_a_kitchen_keeps_one_branch_of_each_recipe_cooked() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (helene_id, helene) = someone(&app, "Hélène");
+    let family = kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    let soupe = written(&app, &aurelien, "Soupe");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&aurelien),
+        &json!({ "branch_id": soupe, "name": "Spicy" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    cook_it(&app, &helene, &soupe, json!({}));
+
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&helene),
+        &json!({ "kitchen_id": family, "person_id": helene_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+    let hers = cookbook_of(&app, &helene_id);
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!("SELECT COUNT(*) FROM branches WHERE cookbook_id = '{hers}'")
+        ),
+        1,
+        "one soupe, the unnamed one, not Spicy as well"
+    );
+    assert_eq!(
+        scalar::<Option<String>>(
+            &app,
+            &format!("SELECT name FROM branches WHERE cookbook_id = '{hers}'")
+        ),
+        None
+    );
+}
+
+/// **Separating loses no recipe and no Version** (ADR 0041, #131 question 7).
+/// Each Co-author leaves with a Branch of every recipe, its whole history
+/// behind it; whoever started a recipe keeps the Branch itself, with its id
+/// and its Share Link, and the other side a Copy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn separating_leaves_each_co_author_a_branch_of_every_recipe() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (camille_id, camille) = someone(&app, "Camille");
+    let his = written(&app, &aurelien, "Tartiflette");
+    let hers = written(&app, &camille, "Quiche");
+    write_together(&app, &aurelien, &camille);
+    for (who, branch, title) in [
+        (&camille, &his, "Tartiflette, v2"),
+        (&aurelien, &hers, "Quiche, v2"),
+    ] {
+        backdate_branch_head(&app, branch);
+        let (status, saved) = app.post_op(
+            "save_recipe_version",
+            Some(who),
+            &json!({ "branch_id": branch, "title": title }).to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+    }
+    let (status, shared) = app.post_op(
+        "share_recipe",
+        Some(&camille),
+        &json!({ "branch_id": hers, "public_address": "https://kamosu.example" }).to_string(),
+    );
+    assert_eq!(status, 200, "{shared}");
+    let versions_before: i64 = scalar(&app, "SELECT COUNT(*) FROM versions");
+
+    // Alone, there is nobody to separate from.
+    let (_, nadia) = someone(&app, "Nadia");
+    let (status, refused) = app.post_op("leave_cookbook", Some(&nadia), "{}");
+    assert_eq!(status, 400, "{refused}");
+
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(
+        left["result"]["authors"],
+        json!([{ "person_id": camille_id, "name": "Camille" }])
+    );
+    assert_ne!(
+        cookbook_of(&app, &aurelien_id),
+        cookbook_of(&app, &camille_id)
+    );
+
+    // Both shelves hold both recipes.
+    for who in [&aurelien, &camille] {
+        assert_eq!(shelf_titles(&app, who), ["Quiche, v2", "Tartiflette, v2"]);
+    }
+    // Whoever started a recipe keeps the Branch itself …
+    let (status, kept) = read_as(&app, &camille, &hers);
+    assert_eq!(status, 200, "{kept}");
+    assert_eq!(kept["writes"], json!(true));
+    assert_eq!(kept["cookbook"]["authors"][0]["name"], json!("Camille"));
+    let (_, link) = app.post_op(
+        "get_share_link",
+        Some(&camille),
+        &json!({ "branch_id": hers }).to_string(),
+    );
+    assert_eq!(
+        link["result"]["shared"],
+        json!(true),
+        "with its Share Link: {link}"
+    );
+    let (status, _) = read_as(&app, &aurelien, &hers);
+    assert_eq!(status, 404, "no longer his to see: they share no Kitchen");
+    // … and the other side a Copy with the whole history behind it.
+    let copy_of = |who: &str, title: &str| -> Value {
+        let entry = shelf(&app, who, json!({ "query": title }))
+            .into_iter()
+            .next()
+            .unwrap();
+        read_as(&app, who, entry["branch_id"].as_str().unwrap()).1
+    };
+    let his_quiche = copy_of(&aurelien, "Quiche");
+    assert_ne!(his_quiche["branch_id"], json!(hers));
+    assert_eq!(
+        his_quiche["versions"].as_array().unwrap().len(),
+        2,
+        "the whole chain"
+    );
+    let her_tartiflette = copy_of(&camille, "Tartiflette");
+    assert_ne!(her_tartiflette["branch_id"], json!(his));
+    assert_eq!(her_tartiflette["versions"].as_array().unwrap().len(), 2);
+    assert_eq!(her_tartiflette["writes"], json!(true), "hers to change now");
+
+    assert_eq!(
+        scalar::<i64>(&app, "SELECT COUNT(*) FROM versions"),
+        versions_before,
+        "no Version lost, none made"
+    );
+
+    // Removing somebody is separating them, exactly as leaving is.
+    let (_, tom) = someone(&app, "Tom");
+    let (tom_id, _) = (
+        app.core
+            .db()
+            .with_conn(|conn| {
+                conn.query_row("SELECT id FROM people WHERE name = 'Tom'", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+            })
+            .unwrap(),
+        (),
+    );
+    write_together(&app, &aurelien, &tom);
+    let (status, removed) = app.post_op(
+        "remove_cookbook_author",
+        Some(&aurelien),
+        &json!({ "person_id": tom_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+    assert_eq!(removed["result"]["authors"].as_array().unwrap().len(), 1);
+    assert_eq!(shelf_titles(&app, &tom), ["Quiche, v2", "Tartiflette, v2"]);
+}
+
+/// **Leaving a Kitchen costs nobody a recipe they cooked, and gives nobody
+/// anything else** (ADR 0041, #131 question 2). Each member who stays keeps a
+/// Branch of what they cooked of the leaver's; the leaver keeps one of what
+/// they cooked of the others'; a Shopping List entry follows to the Branch
+/// kept (question 12). The preview says the same numbers first.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_a_kitchen_keeps_each_side_a_branch_of_what_they_cooked() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (helene_id, helene) = someone(&app, "Hélène");
+    let family = kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    let cooked_by_her = written(&app, &aurelien, "Tartiflette");
+    written(&app, &aurelien, "Gratin");
+    let cooked_by_him = written(&app, &helene, "Pot-au-feu");
+    written(&app, &helene, "Tarte aux pommes");
+    cook_it(&app, &helene, &cooked_by_her, json!({}));
+    cook_it(&app, &aurelien, &cooked_by_him, json!({}));
+    let (status, listed) = app.post_op(
+        "add_to_shopping_list",
+        Some(&helene),
+        &json!({ "branch_id": cooked_by_her }).to_string(),
+    );
+    assert_eq!(status, 200, "{listed}");
+
+    let rows_before: i64 = scalar(&app, "SELECT COUNT(*) FROM branches");
+    let (status, preview) = app.post_op(
+        "preview_leaving_kitchen",
+        Some(&helene),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(preview["result"], json!({ "they_keep": 1, "you_keep": 1 }));
+    assert_eq!(
+        scalar::<i64>(&app, "SELECT COUNT(*) FROM branches"),
+        rows_before,
+        "a preview keeps nothing"
+    );
+
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&helene),
+        &json!({ "kitchen_id": family, "person_id": helene_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+
+    assert_eq!(
+        shelf_titles(&app, &aurelien),
+        ["Gratin", "Pot-au-feu", "Tartiflette"],
+        "his own, and a Branch of what he cooked of hers — not her tart"
+    );
+    assert_eq!(
+        shelf_titles(&app, &helene),
+        ["Pot-au-feu", "Tarte aux pommes", "Tartiflette"],
+        "hers, and a Branch of what she cooked of his — not his gratin"
+    );
+    let (status, _) = read_as(&app, &helene, &cooked_by_her);
+    assert_eq!(status, 404, "his own Branch left with his Cookbook");
+
+    // Her list follows the recipe to the Branch she kept.
+    let (_, list) = app.post_op("get_shopping_list", Some(&helene), "{}");
+    let text = list.to_string();
+    assert!(!text.contains(&cooked_by_her), "{list}");
+    let kept = shelf(&app, &helene, json!({ "query": "Tartiflette" }))[0]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(text.contains(&kept), "{list}");
+}
+
+/// **What you already copied, you do not get twice.** A cook who saved her
+/// own Copy of a recipe after cooking it already holds the Version she
+/// cooked; leaving the Kitchen keeps her a Branch of it, and that Branch is
+/// the one she has. Found in live acceptance of #131.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn leaving_a_kitchen_copies_nothing_you_already_hold() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (helene_id, helene) = someone(&app, "Hélène");
+    let family = kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    let soupe = written(&app, &aurelien, "Soupe");
+    cook_it(&app, &helene, &soupe, json!({}));
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&helene),
+        &json!({ "branch_id": soupe, "title": "Soupe, with chervil" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["copied"], json!(true));
+
+    let (_, preview) = app.post_op(
+        "preview_leaving_kitchen",
+        Some(&helene),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(preview["result"], json!({ "they_keep": 0, "you_keep": 0 }));
+    let (status, left) = app.post_op(
+        "remove_kitchen_member",
+        Some(&helene),
+        &json!({ "kitchen_id": family, "person_id": helene_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(shelf_titles(&app, &helene), ["Soupe, with chervil"]);
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = '{}'",
+                cookbook_of(&app, &helene_id)
+            )
+        ),
+        1,
+        "one Branch of the soupe, the one she wrote"
+    );
+}
+
+/// **A variation is started on purpose, unchanged, and needs a name** (ADR
+/// 0041). It shows under that name beside your own, in your own Cookbook, and
+/// its name travels in a Bundle (#131, question 10).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_variation_starts_unchanged_under_the_name_it_is_given() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let tartiflette = written(&app, &aurelien, "Tartiflette");
+
+    let (status, refused) = app.post_op(
+        "start_variation",
+        Some(&aurelien),
+        &json!({ "branch_id": tartiflette, "name": " " }).to_string(),
+    );
+    assert_eq!(status, 400, "a name is required: {refused}");
+
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&aurelien),
+        &json!({ "branch_id": tartiflette, "name": "Vegetarian" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegetarian = &varied["result"];
+    let (_, original) = read_as(&app, &aurelien, &tartiflette);
+    assert_eq!(vegetarian["name"], json!("Vegetarian"));
+    assert_eq!(
+        vegetarian["head_version_id"], original["head_version_id"],
+        "unchanged"
+    );
+    assert_eq!(vegetarian["writes"], json!(true));
+    assert_eq!(
+        vegetarian["cookbook"], original["cookbook"],
+        "in your own Cookbook"
+    );
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&aurelien),
+        &json!({ "branch_id": tartiflette }).to_string(),
+    );
+    let names: Vec<&Value> = thread["result"]["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|branch| &branch["name"])
+        .collect();
+    assert_eq!(
+        names,
+        [&json!(null), &json!("Vegetarian")],
+        "the switch shows it by name"
+    );
+
+    // A Cookbook keeps one unnamed Branch of a recipe in each Language.
+    let vegetarian_id = vegetarian["branch_id"].as_str().unwrap().to_string();
+    let (status, refused) = app.post_op(
+        "rename_branch",
+        Some(&aurelien),
+        &json!({ "branch_id": vegetarian_id, "name": null }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let (status, renamed) = app.post_op(
+        "rename_branch",
+        Some(&aurelien),
+        &json!({ "branch_id": vegetarian_id, "name": "Végétarienne" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+
+    // Its name travels, and lands with it.
+    let files = unzip(&bundle_of(&app, &aurelien, &vegetarian_id));
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    assert_eq!(
+        sidecar["branches"][0]["name"],
+        json!("Végétarienne"),
+        "{sidecar}"
+    );
+    let (_, marc) = someone(&app, "Marc");
+    let report = receive(&app, &marc, &bundle_of(&app, &aurelien, &vegetarian_id));
+    let landed = landed_as(&report, &vegetarian_id);
+    let (_, arrived) = read_as(&app, &marc, &landed);
+    assert_eq!(arrived["name"], json!("Végétarienne"));
+}
+
+/// **Whose cooking a reader sees** (#131, question 1): an Attempt shows to
+/// the people its cook cooks with, not everywhere its recipe is seen. A
+/// mother's note on her son's recipe is the family Kitchen's to read, not his
+/// supper club's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_attempt_is_seen_by_the_people_its_cook_cooks_with() {
+    let app = support::spawn_app();
+    let (_, son) = someone(&app, "Aurélien");
+    let (_, mother) = someone(&app, "Hélène");
+    let (_, tom) = someone(&app, "Tom");
+    kitchen_of(&app, &son, "Family", &[&mother]);
+    kitchen_of(&app, &son, "Supper club", &[&tom]);
+    let tartiflette = written(&app, &son, "Tartiflette");
+    cook_it(&app, &mother, &tartiflette, json!({ "rating": "tweak" }));
+
+    let cooked = |who: &str| -> (Value, usize) {
+        let (_, recipe) = read_as(&app, who, &tartiflette);
+        let (_, thread) = app.post_op(
+            "get_thread",
+            Some(who),
+            &json!({ "branch_id": tartiflette }).to_string(),
+        );
+        (
+            recipe["cooked"]["count"].clone(),
+            thread["result"]["attempts"].as_array().unwrap().len(),
+        )
+    };
+    assert_eq!(cooked(&son), (json!(1), 1), "the family sees her cooking");
+    assert_eq!(cooked(&tom), (json!(0), 0), "his supper club does not");
+}
+
+/// **Deleting a recipe others cooked leaves each of them a Branch of it**
+/// (#131, question 11), as its Cookbook leaving their Kitchen would.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_recipe_leaves_its_cooks_a_branch_of_it() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (_, helene) = someone(&app, "Hélène");
+    let (_, tom) = someone(&app, "Tom");
+    kitchen_of(&app, &aurelien, "Family", &[&helene, &tom]);
+    let tartiflette = written(&app, &aurelien, "Tartiflette");
+    cook_it(&app, &helene, &tartiflette, json!({}));
+
+    let (status, deleted) = app.post_op(
+        "delete_recipe",
+        Some(&aurelien),
+        &json!({ "branch_id": tartiflette }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    let (status, _) = read_as(&app, &helene, &tartiflette);
+    assert_eq!(status, 404, "his Branch is gone");
+    assert_eq!(
+        shelf_titles(&app, &helene),
+        ["Tartiflette"],
+        "she cooked it, so she keeps it"
+    );
+    let kept = shelf(&app, &helene, json!({}))[0]["branch_id"].clone();
+    let (_, hers) = read_as(&app, &helene, kept.as_str().unwrap());
+    assert_eq!(hers["writes"], json!(true), "hers, in her own Cookbook");
+    // Aurélien and Tom see her kept Branch through the Kitchen they share —
+    // hers, not one of their own.
+    for who in [&aurelien, &tom] {
+        let seen = shelf(&app, who, json!({}));
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0]["branch_id"], kept);
+    }
+    assert_eq!(
+        scalar::<i64>(&app, "SELECT COUNT(*) FROM branches"),
+        1,
+        "only the cook who cooked it kept one"
+    );
+}
+
+/// **A shelf mixing several Cookbooks filters by a word, not by a Tag**
+/// (#131, question 3): "Dessert" from two Cookbooks is one filter, finding
+/// what each filed under it. And a Related Recipe may reach into another
+/// Cookbook the reader sees.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_word_filters_a_shelf_across_every_cookbook_on_it() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (_, helene) = someone(&app, "Hélène");
+    kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    let mousse = written(&app, &aurelien, "Mousse");
+    let tarte = written(&app, &helene, "Tarte");
+    written(&app, &helene, "Soupe");
+    let his = tag_in(&app, &aurelien, "en", "Dessert");
+    let hers = tag_in(&app, &helene, "en", "dessert");
+    file_under(&app, &aurelien, &mousse, &his, true);
+    file_under(&app, &helene, &tarte, &hers, true);
+
+    let (_, words) = app.post_op("list_tags", Some(&aurelien), r#"{"everywhere":true}"#);
+    let words = words["result"]["tags"].as_array().unwrap();
+    assert_eq!(words.len(), 1, "one word, one entry: {words:?}");
+    let filtered = shelf(&app, &aurelien, json!({ "tag_id": words[0]["id"] }));
+    let mut titles: Vec<&str> = filtered
+        .iter()
+        .map(|e| e["title"].as_str().unwrap())
+        .collect();
+    titles.sort();
+    assert_eq!(titles, ["Mousse", "Tarte"]);
+
+    // His Mousse goes well with her Tarte: a link his Cookbook keeps.
+    let (status, related) = app.post_op(
+        "set_related_recipe",
+        Some(&aurelien),
+        &json!({ "branch_id": mousse, "related_branch_id": tarte, "related": true }).to_string(),
+    );
+    assert_eq!(status, 200, "{related}");
+    assert_eq!(
+        related["result"]["related_recipes"][0]["branch_id"],
+        json!(tarte)
+    );
+}
+
+/// **A client from before #131 is not refused.** A phone still running the
+/// interface it cached names a Kitchen when it makes a recipe; the Kitchen is
+/// ignored and the recipe lands in the maker's own Cookbook.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recipe_made_naming_a_kitchen_lands_in_your_own_cookbook() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (_, helene) = someone(&app, "Hélène");
+    let family = kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    let (status, made) = app.post_op(
+        "create_recipe",
+        Some(&helene),
+        &json!({ "kitchen_id": family, "title": "Pot-au-feu" }).to_string(),
+    );
+    assert_eq!(status, 200, "{made}");
+    assert_eq!(made["result"]["writes"], json!(true), "{made}");
+    assert_eq!(
+        made["result"]["cookbook"]["authors"][0]["name"],
+        json!("Hélène"),
+        "{made}"
+    );
+}
+
+/// **A Kitchen's words are its Cookbooks' words** (#131, answer 3): asked
+/// for one Kitchen, `list_tags` answers every word filed by the Cookbooks seen
+/// there, one per word, so a shelf filtered to that Kitchen offers a word even
+/// where the same word is also filed somewhere the Kitchen does not see.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kitchen_offers_every_word_its_cookbooks_file_by() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (_, helene) = someone(&app, "Hélène");
+    let (_, ines) = someone(&app, "Inès");
+    // Inès files under "Soup" first, in a Kitchen Hélène is not in.
+    kitchen_of(&app, &aurelien, "Club", &[&ines]);
+    let family = kitchen_of(&app, &aurelien, "Family", &[&helene]);
+    let hers_first = tag_in(&app, &ines, "en", "Soup");
+    let potage = written(&app, &ines, "Potage");
+    file_under(&app, &ines, &potage, &hers_first, true);
+    let soupe = written(&app, &helene, "Soupe");
+    let helenes = tag_in(&app, &helene, "en", "soup");
+    file_under(&app, &helene, &soupe, &helenes, true);
+
+    let (status, words) = app.post_op(
+        "list_tags",
+        Some(&aurelien),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(status, 200, "{words}");
+    let words = words["result"]["tags"].as_array().unwrap();
+    assert_eq!(words.len(), 1, "{words:?}");
+    assert_eq!(
+        words[0]["id"],
+        json!(helenes),
+        "Family's own word, not Inès's"
+    );
+    let filtered = shelf(
+        &app,
+        &aurelien,
+        json!({ "tag_id": words[0]["id"], "kitchen_id": family }),
+    );
+    let titles: Vec<&str> = filtered
+        .iter()
+        .map(|e| e["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["Soupe"]);
+
+    // Not a Kitchen of yours: refused, as filtering a shelf by it is.
+    let (_, stranger) = someone(&app, "Marc");
+    let (status, refused) = app.post_op(
+        "list_tags",
+        Some(&stranger),
+        &json!({ "kitchen_id": family }).to_string(),
+    );
+    assert_eq!(status, 401, "{refused}");
+}
+
+/// **The Home Kitchen is gone from the Catalogue** (ADR 0041): no Operation
+/// takes one, answers one, or says a Kitchen is one.
+#[test]
+fn no_operation_mentions_a_home_kitchen() {
+    let declared = serde_json::to_string(
+        &kamosu::catalogue::OPERATIONS
+            .iter()
+            .map(|op| json!([op.name, op.summary, op.input_schema, op.output_schema]))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    for word in ["is_home", "home_kitchen", "Home Kitchen"] {
+        assert!(!declared.contains(word), "the Catalogue still says {word}");
+    }
+    // A client that still names a Kitchen is not refused, and the Kitchen it
+    // names decides nothing: everything written lands in your own Cookbook.
+    for recipe_op in [
+        "create_recipe",
+        "save_recipe_version",
+        "start_translation",
+        "create_tag",
+        "promote_as_cooked",
+        "promote_attempt_photograph",
+    ] {
+        let op = kamosu::catalogue::OPERATIONS
+            .iter()
+            .find(|op| op.name == recipe_op)
+            .unwrap();
+        let said = op.input_schema["properties"]["kitchen_id"]["description"]
+            .as_str()
+            .unwrap_or_default();
+        assert!(
+            said.starts_with("Ignored."),
+            "{recipe_op} still takes a Kitchen"
+        );
+    }
 }

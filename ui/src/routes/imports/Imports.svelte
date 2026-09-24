@@ -79,8 +79,8 @@
 			<Empty>{m.imports_none()}</Empty>
 		{:else}
 			<!-- Keyed on source kind, which `list_imports` guarantees is unique: an
-			     Import is unique per `(kitchen_id, source_kind)` and the answer
-			     holds one Kitchen's, the caller's Home Kitchen. Two rows of one
+			     Import is unique per `(cookbook_id, source_kind)` and the answer
+			     holds one Cookbook's, the caller's own (#131). Two rows of one
 			     kind would be a duplicate key AND two identical hrefs. -->
 			<ul class="grid gap-2">
 				{#each imports as source (source.source_kind)}

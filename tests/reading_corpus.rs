@@ -224,8 +224,6 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
         .mint_access_key(&person, "corpus reading", false)
         .unwrap()
         .secret;
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     let mut total = 0usize;
     let mut without_quantity = 0usize;
@@ -243,8 +241,7 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
         let (status, created) = app.post_op(
             "create_recipe",
             Some(&key),
-            &json!({ "kitchen_id": kitchen_id, "title": title, "ingredients": ingredients })
-                .to_string(),
+            &json!({ "title": title, "ingredients": ingredients }).to_string(),
         );
         assert_eq!(status, 200, "creating {title}: {created}");
         let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();

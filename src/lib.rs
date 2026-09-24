@@ -11,6 +11,7 @@ pub mod backups;
 pub mod bundles;
 pub mod catalogue;
 pub mod config;
+pub mod cookbook_migration;
 pub mod core;
 pub mod cover;
 pub mod cover_faces;

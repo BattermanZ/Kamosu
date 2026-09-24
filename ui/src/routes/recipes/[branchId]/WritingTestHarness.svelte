@@ -13,7 +13,8 @@
 	interface Props {
 		client: KamosuClient;
 		content: GetRecipeOutput['versions'][number]['content'];
-		kitchenId: string;
+		/** Whether the reader writes this recipe's Cookbook; a Copy is saved where not. */
+		writes?: boolean;
 		/** The lines that already name a Recipe, as the Core unfolds them (#87). */
 		components?: GetRecipeOutput['versions'][number]['components'];
 		photograph?: (file: Blob) => Promise<string>;
@@ -32,7 +33,7 @@
 	let {
 		client,
 		content,
-		kitchenId,
+		writes = true,
 		components = [],
 		photograph,
 		translatingInto,
@@ -45,7 +46,7 @@
 	<Writing
 		branchId="mine"
 		lineageId="l_1"
-		{kitchenId}
+		{writes}
 		{content}
 		{components}
 		{translatingInto}

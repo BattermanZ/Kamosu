@@ -94,8 +94,6 @@ async fn the_corpus_produces_zero_duplicate_photographs_and_zero_step_photos() {
         .mint_access_key(&person, "corpus import", false)
         .unwrap()
         .secret;
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     let mut photograph_ids = HashSet::new();
     let mut branch_ids = Vec::new();
@@ -128,7 +126,6 @@ async fn the_corpus_produces_zero_duplicate_photographs_and_zero_step_photos() {
         }
 
         let create = json!({
-            "kitchen_id": kitchen_id,
             "title": name,
             "main_photo": main_photo_id,
         });

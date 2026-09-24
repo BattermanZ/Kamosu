@@ -177,12 +177,27 @@ impl Core {
 
 /// One Branch as the shelf holds it while it works out which Lineage it belongs
 /// to and which of its Branches the card opens. Nothing here reaches the
-/// answer: a shelf entry names no Kitchen and no head Version.
+/// answer: a shelf entry names no Cookbook and no head Version.
 pub(super) struct ShelfBranch {
     pub(super) branch_id: String,
     pub(super) lineage_id: String,
     language: String,
     pub(super) head_version_id: String,
+    /// Held in the reader's own Cookbook, arrived there or written there,
+    /// rather than in somebody else's: the same test as `own_first`.
+    own: bool,
+    /// Not a variation: the Branch a Cookbook keeps of a recipe without a name.
+    unnamed: bool,
+}
+
+impl ShelfBranch {
+    /// How strongly the card should open this Branch, largest first: the
+    /// reader's Language, then their own, then an unnamed one before a
+    /// variation — `own_first`'s order with the Language put ahead of it.
+    /// Ties go to the oldest, which is the order the Branches arrive in.
+    fn claim(&self, reading_language: &str) -> (bool, bool, bool) {
+        (self.language == reading_language, self.own, self.unnamed)
+    }
 }
 
 /// A shelf before anything is asked of it: the Lineages in the order their
@@ -190,8 +205,9 @@ pub(super) struct ShelfBranch {
 /// opens kept first.
 type Shelf = (Vec<String>, HashMap<String, Vec<ShelfBranch>>);
 
-/// Everything the Kitchens this Person cooks in hold, gathered into one entry
-/// per Lineage — the shelf itself, before anybody has asked anything of it.
+/// Every Cookbook this Person may see — their own, and every one in a Kitchen
+/// they cook in — gathered into one entry per Lineage: the shelf itself,
+/// before anybody has asked anything of it (ADR 0027, ADR 0041).
 ///
 /// Answers the Lineages in the order their oldest Branch was created, and for
 /// each of them **every** Branch it has, the one the card opens kept first.
@@ -201,10 +217,13 @@ type Shelf = (Vec<String>, HashMap<String, Vec<ShelfBranch>>);
 /// The card opens the Branch written in the reader's own Language; where the
 /// Lineage has none, the oldest Branch answers and the entry says it fell back
 /// — a Language preference must never hide a recipe from its owner (ADR 0006).
-/// Filtered to one Kitchen this is that Kitchen's Branch alone, because no
-/// other was selected.
+/// Within a Language it opens **the reader's own** Branch — the unnamed one,
+/// before any variation — and otherwise the original, the oldest (ADR 0041).
+/// Never the most recently changed, for the reason ADR 0027 refused
+/// reordering behind your back. Filtered to one Kitchen this is the Cookbooks
+/// seen in that Kitchen alone, because no other was selected.
 ///
-/// Kitchen membership is the whole boundary on a shelf and the only one
+/// Who may see a Cookbook is the whole boundary on a shelf and the only one
 /// (ADR 0026), which is why neither caller asks a permission question again
 /// further down: everything this returns is already what the reader may see.
 pub(super) fn shelf_of(
@@ -214,15 +233,19 @@ pub(super) fn shelf_of(
     reading_language: &str,
 ) -> Result<Shelf, OpError> {
     let mut statement = conn
-        .prepare(
-            "SELECT DISTINCT branches.id, branches.lineage_id, branches.language, \
-                    branches.head_version_id \
+        .prepare(&format!(
+            "SELECT branches.id, branches.lineage_id, branches.language, \
+                    branches.head_version_id, \
+                    branches.cookbook_id IN \
+                        (SELECT cookbook_id FROM cookbook_authors WHERE person_id = ?1), \
+                    branches.name IS NULL \
                FROM branches \
-               JOIN kitchen_members ON kitchen_members.kitchen_id = branches.kitchen_id \
-              WHERE kitchen_members.person_id = ?1 \
-                AND (?2 IS NULL OR branches.kitchen_id = ?2) \
+              WHERE {} \
+                AND (?2 IS NULL OR branches.cookbook_id IN ({})) \
               ORDER BY branches.created_at ASC, branches.id ASC",
-        )
+            visible_to("branches", "?1"),
+            cookbooks_seen_in("?2"),
+        ))
         .map_err(|e| OpError::internal(format!("cannot read the shelf: {e}")))?;
     let held: Vec<ShelfBranch> = statement
         .query_map(params![person_id, kitchen_id], |row| {
@@ -231,6 +254,8 @@ pub(super) fn shelf_of(
                 lineage_id: row.get(1)?,
                 language: row.get(2)?,
                 head_version_id: row.get(3)?,
+                own: row.get(4)?,
+                unnamed: row.get(5)?,
             })
         })
         .map_err(|e| OpError::internal(format!("cannot read the shelf: {e}")))?
@@ -246,11 +271,11 @@ pub(super) fn shelf_of(
             Vec::new()
         });
         // The Branch that opens the card is kept first, so choosing it is this
-        // one comparison rather than a second pass.
-        if branch.language == reading_language
-            && of_lineage
-                .first()
-                .is_some_and(|first| first.language != reading_language)
+        // one comparison rather than a second pass. Only a strictly stronger
+        // claim moves it, so among equals the oldest keeps its place.
+        if of_lineage
+            .first()
+            .is_some_and(|first| branch.claim(reading_language) > first.claim(reading_language))
         {
             of_lineage.insert(0, branch);
         } else {

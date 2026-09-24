@@ -13,21 +13,31 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
 import { standIn } from '$lib/api/stand-in';
 import { renderScreen } from '../../testing/render';
 import ShelfTestHarness from './ShelfTestHarness.svelte';
-import type { ListKitchensOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
 
-const kitchen = {
-	id: 'k_home',
+const kitchen = kitchenAnswer('k_home', {
 	name: 'Maison',
-	nickname: null,
-	hand_id: 'h_1',
-	is_home: true,
 	members: [{ person_id: 'p_1', name: 'Aurélien' }],
-};
+});
+
+/**
+ * Marc's Kitchen, which sees his Cookbook as well as Aurélien's: the shelf's
+ * Kitchen filter narrows to whatever Cookbooks the chosen Kitchen sees.
+ */
+const marcsKitchen = kitchenAnswer('k_marc', {
+	name: 'Chez Marc',
+	members: [
+		{ person_id: 'p_1', name: 'Aurélien' },
+		{ person_id: 'p_marc', name: 'Marc' },
+	],
+	cookbooks: [cookbookLabel(), cookbookLabel('c_marc', ['Marc'])],
+});
 
 /**
  * Meaning Search as most instances have it: never asked about, so the offer is
@@ -67,10 +77,10 @@ const entry = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** One of a Kitchen's tags, with everything the Catalogue requires present. */
-const shelfTag = (id: string, name: string, recipes: number) => ({
+/** One of a Cookbook's tags, with everything the Catalogue requires present. */
+const shelfTag = (id: string, name: string, recipes: number, cookbook_id = 'c_1') => ({
 	id,
-	kitchen_id: 'k_home',
+	cookbook_id,
 	name,
 	language: 'en',
 	names: [{ language: 'en', name }],
@@ -262,7 +272,9 @@ describe('the recipes screen', () => {
 			create_recipe: {
 				branch_id: 'b_new',
 				lineage_id: 'l_new',
-				kitchen_id: 'k_home',
+				cookbook: cookbookLabel(),
+				name: null,
+				writes: true,
 				hand_id: 'h_1',
 				language: 'en',
 				origin_address: null,
@@ -280,128 +292,48 @@ describe('the recipes screen', () => {
 		);
 
 		// A recipe needs only a title (#6), so the query is the whole recipe:
-		// it is made in the Home Kitchen and opened, with no screen in between.
+		// it is made in the writer's own Cookbook and opened, with no screen
+		// in between.
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
-			expect(asked?.input).toMatchObject({ kitchen_id: 'k_home', title: 'osso buco' });
+			expect(asked?.input).toEqual({ title: 'osso buco' });
 		});
 	});
 
-	describe('asks whose recipe it is, of a cook in several Kitchens (#111)', () => {
-		const made = {
-			branch_id: 'b_new',
-			lineage_id: 'l_new',
-			kitchen_id: 'k_marc',
-			hand_id: 'h_1',
-			language: 'en',
-			origin_address: null,
-			head_version_id: 'v_new',
-			versions: [],
-			translation: null,
-			tags: [],
-			related_recipes: [],
-			cooked: { count: 0, last_cooked_at: null, ratings: [] },
-		};
-		const other = (id: string, name: string, who: string) => ({
-			...kitchen,
-			id,
-			name,
-			is_home: false,
-			members: [
-				{ person_id: 'p_1', name: 'Aurélien' },
-				{ person_id: `p_${id}`, name: who },
-			],
+	it('asks nothing of a cook in several Kitchens: a new recipe is always their own (#131)', async () => {
+		// Before #131 a cook in several Kitchens was asked whose recipe it was
+		// (#111). A recipe now lives in the Cookbook of whoever writes it, and
+		// every Kitchen they cook in sees that, so there is nothing to ask.
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen, marcsKitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: 'osso buco', closest: false, recipes: [] },
+			create_recipe: {
+				branch_id: 'b_new',
+				lineage_id: 'l_new',
+				cookbook: cookbookLabel(),
+				name: null,
+				writes: true,
+				hand_id: 'h_1',
+				language: 'en',
+				origin_address: null,
+				head_version_id: 'v_new',
+				versions: [],
+				translation: null,
+				tags: [],
+				related_recipes: [],
+				cooked: { count: 0, last_cooked_at: null, ratings: [] },
+			},
 		});
-		const two = [kitchen, other('k_marc', 'Chez Marc', 'Marc')];
-		const six = [
-			other('k_marc', 'Chez Marc', 'Marc'),
-			other('k_elodie', 'Chez Élodie', 'Élodie'),
-			other('k_chalet', 'Le Chalet', 'Paul'),
-			other('k_papi', 'Chez Papi', 'Papi'),
-			other('k_marie', 'Chez Marie', 'Marie'),
-			// Last from the Core, and still listed first: the Home Kitchen says
-			// which it is and has no other standing.
-			kitchen,
-		];
-
-		function adding(kitchens: ListKitchensOutput['kitchens']) {
-			return renderScreen(Recipes, {
-				list_tags: { tags: [] },
-				list_kitchens: { kitchens },
-				meaning_search_status: meaningOff(),
-				search_recipes: { query: 'osso buco', closest: false, recipes: [] },
-				create_recipe: made,
-			});
-		}
-
-		it('never asks a cook in one Kitchen', async () => {
-			const { kamosu } = adding([kitchen]);
-			await fireEvent.click(
-				await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
-			);
-			expect(screen.queryByRole('dialog')).toBeNull();
-			await vi.waitFor(() =>
-				expect(kamosu.calls.map((call) => call.operation)).toContain('create_recipe'),
-			);
-		});
-
-		for (const [count, kitchens] of [
-			['two', two],
-			['six', six],
-		] as const) {
-			it(`asks a cook in ${count}, picks nothing for them, and writes where they chose`, async () => {
-				const { kamosu } = adding([...kitchens]);
-				await fireEvent.click(
-					await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
-				);
-
-				const sheet = await screen.findByRole('dialog', { name: 'Whose recipe is this?' });
-				const choices = within(sheet).getAllByRole('radio');
-				expect(choices).toHaveLength(kitchens.length);
-				// Nothing picked — not even the Home Kitchen, which is listed first.
-				expect(choices.every((choice) => !(choice as HTMLInputElement).checked)).toBe(true);
-				expect(choices[0]).toHaveAccessibleName(/Maison/);
-				expect(within(sheet).getByText('Aurélien · your Home Kitchen')).toBeInTheDocument();
-				const go = within(sheet).getByRole('button', { name: 'Choose a Kitchen first' });
-				expect(go).toBeDisabled();
-				expect(kamosu.calls.map((call) => call.operation)).not.toContain('create_recipe');
-
-				await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
-				await fireEvent.click(within(sheet).getByRole('button', { name: 'Write it in Chez Marc' }));
-				await vi.waitFor(() => {
-					const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
-					expect(asked?.input).toEqual({ kitchen_id: 'k_marc', title: 'osso buco' });
-				});
-			});
-		}
-
-		it('names a Kitchen by the Nickname the cook gave it', async () => {
-			adding([kitchen, { ...other('k_marc', 'Chez Marc', 'Marc'), nickname: 'Marc & Léa' }]);
-			await fireEvent.click(
-				await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
-			);
-			const sheet = await screen.findByRole('dialog');
-			await fireEvent.click(within(sheet).getByRole('radio', { name: /Marc & Léa/ }));
-			expect(within(sheet).queryByText('Chez Marc')).toBeNull();
-			expect(within(sheet).getByRole('button', { name: 'Write it in Marc & Léa' })).toBeEnabled();
-		});
-
-		it('remembers nothing: asked again, nothing is picked', async () => {
-			adding(two);
-			const add = await screen.findByRole('button', { name: /Add a recipe called .osso buco./ });
-			await fireEvent.click(add);
-			let sheet = await screen.findByRole('dialog');
-			await fireEvent.click(within(sheet).getByRole('radio', { name: /Chez Marc/ }));
-			await fireEvent.click(within(sheet).getByRole('button', { name: 'Back' }));
-			expect(screen.queryByRole('dialog')).toBeNull();
-
-			await fireEvent.click(add);
-			sheet = await screen.findByRole('dialog');
-			expect(
-				within(sheet)
-					.getAllByRole('radio')
-					.some((choice) => (choice as HTMLInputElement).checked),
-			).toBe(false);
+		await fireEvent.click(
+			await screen.findByRole('button', { name: /Add a recipe called .osso buco./ }),
+		);
+		expect(screen.queryByRole('dialog')).toBeNull();
+		expect(screen.queryAllByRole('radio')).toHaveLength(0);
+		await vi.waitFor(() => {
+			const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
+			expect(asked?.input).toEqual({ title: 'osso buco' });
 		});
 	});
 
@@ -423,7 +355,7 @@ describe('the recipes screen', () => {
 				updated_at: '2026-08-28T20:00:01.000Z',
 				result: {
 					import_id: 'i_1',
-					kitchen_id: 'k_home',
+					cookbook_id: 'c_1',
 					source_kind: 'web',
 					arrived: [
 						{
@@ -560,7 +492,7 @@ describe('the recipes screen', () => {
 				tags: [
 					{
 						id: 't_weeknight',
-						kitchen_id: 'k_home',
+						cookbook_id: 'c_1',
 						name: 'weeknight',
 						language: 'en',
 						names: [{ language: 'en', name: 'weeknight' }],
@@ -638,7 +570,7 @@ describe('the recipes screen', () => {
 		const { kamosu } = renderScreen(Recipes, {
 			list_tags: { tags: [] },
 			list_kitchens: {
-				kitchens: [kitchen, { ...kitchen, id: 'k_marc', name: 'Chez Marc', is_home: false }],
+				kitchens: [kitchen, marcsKitchen],
 			},
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: null, closest: false, recipes: [entry()] },
@@ -665,7 +597,7 @@ describe('the recipes screen', () => {
 	// instance and was this project's own on the day it imported 86 recipes; a
 	// handful; and a full shelf with one tag named in another Language.
 
-	it('draws no tag row at all where no Kitchen files by anything yet', async () => {
+	it('draws no tag row at all where no Cookbook files by anything yet', async () => {
 		renderScreen(Recipes, {
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
@@ -689,7 +621,7 @@ describe('the recipes screen', () => {
 					// Named only in French, read by somebody reading English.
 					{
 						id: 't_mijote',
-						kitchen_id: 'k_home',
+						cookbook_id: 'c_1',
 						name: 'mijoté',
 						language: 'fr',
 						names: [{ language: 'fr', name: 'mijoté' }],
@@ -751,43 +683,82 @@ describe('the recipes screen', () => {
 		expect(await screen.findByText('Nothing is tagged to try yet.')).toBeInTheDocument();
 	});
 
-	it('offers only the Kitchen’s own tags once a Kitchen filter is held, and lets the narrowing go with them', async () => {
-		// The chips follow the Kitchen chip: a tag of a Kitchen you have just
-		// filtered away can only ever find nothing, and worse, left lit it
-		// narrows the shelf to nothing with no chip on screen to turn off.
-		const marc = { ...kitchen, id: 'k_marc', name: 'Chez Marc', is_home: false };
-		const { kamosu } = renderScreen(Recipes, {
-			list_tags: {
-				tags: [
-					shelfTag('t_spicy', 'spicy', 14),
-					{ ...shelfTag('t_marc', 'from Marc', 3), kitchen_id: 'k_marc' },
-				],
+	it('offers each Kitchen the words its own Cookbooks file by, and lets the narrowing go with them', async () => {
+		// The chips follow the Kitchen chip: a word no Cookbook in that Kitchen
+		// files by can only ever find nothing, and worse, left lit it narrows
+		// the shelf to nothing with no chip on screen to turn off. Each
+		// Kitchen's words are its own list, read once (#131): the one-per-word
+		// list keeps ONE Tag per word, and that Tag may belong to a Cookbook the
+		// Kitchen does not see.
+		const ines = kitchenAnswer('k_ines', {
+			name: 'Chez Inès',
+			cookbooks: [cookbookLabel(), cookbookLabel('c_ines', ['Inès'])],
+		});
+		const everywhere = [
+			shelfTag('t_spicy', 'spicy', 14),
+			shelfTag('t_marc', 'from Marc', 3, 'c_marc'),
+			shelfTag('t_ines', 'from Inès', 2, 'c_ines'),
+		];
+		const kamosu = standIn({
+			list_tags: () => {
+				const asked = kamosu.calls.filter((call) => call.operation === 'list_tags').at(-1)
+					?.input as { kitchen_id?: string } | undefined;
+				if (asked?.kitchen_id === 'k_marc') {
+					return { tags: [everywhere[0]!, everywhere[1]!] };
+				}
+				if (asked?.kitchen_id) return { tags: [everywhere[0]!, everywhere[2]!] };
+				return { tags: everywhere };
 			},
-			list_kitchens: { kitchens: [kitchen, marc] },
+			list_kitchens: { kitchens: [kitchen, marcsKitchen, ines] },
 			meaning_search_status: meaningOff(),
 			search_recipes: { query: null, closest: false, recipes: [entry()] },
 		});
+		render(ShelfTestHarness, { props: { client: kamosu.client, tag: null } });
 
-		// Both Kitchens' words to begin with, because the shelf is both Kitchens.
-		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
+		// Every word to begin with, because the shelf is every Kitchen.
+		await fireEvent.click(await screen.findByRole('button', { name: /from Inès/ }));
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
-			expect(asked.at(-1)?.input).toMatchObject({ tag_id: 't_spicy' });
+			expect(asked.at(-1)?.input).toMatchObject({ tag_id: 't_ines' });
 		});
 		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+		expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(4);
 
-		// Filtering to Marc's Kitchen takes the home Kitchen's word away, and
-		// the narrowing goes with it rather than stranding an invisible filter.
+		// Filtering to Marc's Kitchen offers his Kitchen's words: Inès's goes,
+		// and the narrowing goes with it rather than stranding an invisible
+		// filter. Aurélien's own words stay: his Cookbook is seen there too.
 		await fireEvent.click(screen.getByRole('button', { name: 'Chez Marc' }));
 
 		await vi.waitFor(() => {
-			expect(screen.queryByRole('button', { name: /spicy/ })).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /from Inès/ })).not.toBeInTheDocument();
 		});
 		expect(screen.getByRole('button', { name: /from Marc/ })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /spicy/ })).toBeInTheDocument();
 		await vi.waitFor(() => {
 			const asked = kamosu.calls.filter((call) => call.operation === 'search_recipes');
 			expect(asked.at(-1)?.input).toMatchObject({ kitchen_id: 'k_marc', tag_id: null });
 		});
+	});
+
+	it('asks once for every word on the shelf, and once for each Kitchen’s (#131)', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [shelfTag('t_spicy', 'spicy', 14)] },
+			list_kitchens: { kitchens: [kitchen, marcsKitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: { query: null, closest: false, recipes: [entry()] },
+		});
+		expect(await screen.findByRole('button', { name: /spicy/ })).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.filter((call) => call.operation === 'list_tags')).toHaveLength(3),
+		);
+		const asked = kamosu.calls
+			.filter((call) => call.operation === 'list_tags')
+			.map((call) => call.input);
+		expect(asked).toEqual([
+			{ everywhere: true },
+			{ kitchen_id: kitchen.id },
+			{ kitchen_id: 'k_marc' },
+		]);
 	});
 
 	it('shows the shelf rather than a failure when ?tag= names a tag that is not here', async () => {

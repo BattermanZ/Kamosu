@@ -99,13 +99,10 @@ async fn a_quarter_of_the_real_steps_offer_a_timer_and_none_of_the_rest_is_inven
         .mint_access_key(&person, "corpus cooking", false)
         .unwrap()
         .secret;
-    let (_, kitchen) = app.post_op("create_kitchen", Some(&key), r#"{"name":"Corpus Kitchen"}"#);
-    let kitchen_id = kitchen["result"]["id"].as_str().unwrap().to_string();
 
     let mut branch_ids = Vec::new();
     for recipe in &recipes {
-        let mut input = recipe.clone();
-        input["kitchen_id"] = json!(kitchen_id);
+        let input = recipe.clone();
         let (status, created) = app.post_op("create_recipe", Some(&key), &input.to_string());
         assert_eq!(status, 200, "{} — {created}", recipe["title"]);
         branch_ids.push(created["result"]["branch_id"].as_str().unwrap().to_string());
