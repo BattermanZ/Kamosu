@@ -8,6 +8,7 @@
 //! a permission check written inside a Door is a bug.
 
 pub mod backups;
+pub mod browser_policy;
 pub mod bundles;
 pub mod catalogue;
 pub mod config;
@@ -66,6 +67,9 @@ pub fn app(core: Arc<core::Core>) -> axum::Router {
         .merge(design_tokens::router())
         .merge(share_page::router(core_for_shares))
         .merge(interface::router())
+        // Over everything merged above, the fallback included: no answer
+        // leaves without the browser safety headers (#139).
+        .layer(axum::middleware::map_response(browser_policy::stamp))
 }
 
 /// The MCP revision this build speaks: stateless, no handshake.

@@ -2429,3 +2429,113 @@ async fn a_photograph_is_seen_only_by_whoever_can_already_see_it() {
     let (status, _, _) = app.get_bytes(&format!("/s/{token}/photo/{main}"), None);
     assert_eq!(status, 404, "an ended link still hands out the picture");
 }
+
+// --- Every answer tells the browser what the page may do (#139) --------------
+
+/// The inline scripts a page carries, each as the `'sha256-…'` source a
+/// Content-Security-Policy must name for the browser to run it.
+///
+/// A second copy of what `interface.rs` does, on purpose: this one reads the
+/// page as it was served, so the test catches a policy worked out from a
+/// different shell than the one the browser got.
+fn inline_script_hashes(html: &str) -> Vec<String> {
+    use base64::Engine;
+    use sha2::Digest;
+    let mut hashes = Vec::new();
+    let mut rest = html;
+    while let Some(open) = rest.find("<script") {
+        let tag_end = open + rest[open..].find('>').expect("a closed tag");
+        let close = tag_end + rest[tag_end..].find("</script>").expect("a closing tag");
+        if !rest[open..tag_end].contains("src=") {
+            let digest = sha2::Sha256::digest(&rest.as_bytes()[tag_end + 1..close]);
+            hashes.push(format!(
+                "'sha256-{}'",
+                base64::engine::general_purpose::STANDARD.encode(digest)
+            ));
+        }
+        rest = &rest[close..];
+    }
+    hashes
+}
+
+/// Content-Security-Policy, nosniff and a same-origin Referrer-Policy ride on
+/// every kind of answer Kamosu gives, from one layer over the whole app. Each
+/// backs up a defence that already holds (SameSite cookies, no raw HTML,
+/// re-encoded pictures), for the day one of those slips. And the one inline
+/// script the interface's shell carries is named by its hash, so the policy
+/// that forbids inline script still lets the app start.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_answer_carries_the_browser_safety_headers() {
+    let app = support::spawn_app();
+    let (_person, key) = operator(&app);
+    let (token, branch_id) = a_shared_recipe(&app, &key);
+    let photograph = an_upload(&app, &key, 1);
+    save_version(
+        &app,
+        &key,
+        json!({ "branch_id": branch_id, "title": "Tarte aux pommes", "main_photo": photograph }),
+    );
+
+    let shell = kamosu::http_min::get(app.addr, "/").expect("the shell");
+    let deep = kamosu::http_min::get(app.addr, "/recipes").expect("a screen");
+    let share = kamosu::http_min::get(app.addr, &format!("/s/{token}")).expect("a Share Link");
+    let operation =
+        kamosu::http_min::post_json(app.addr, "/api/op/list_kitchens", Some(&key), "{}")
+            .expect("an Operation");
+    let picture = kamosu::http_min::get_with_bearer(
+        app.addr,
+        &format!("/api/photographs/{photograph}"),
+        Some(&key),
+    )
+    .expect("a Photograph");
+    let stylesheet = kamosu::http_min::get(app.addr, "/assets/app.css").expect("the stylesheet");
+
+    for (what, reply) in [
+        ("the interface's index.html", &shell),
+        ("a screen served from the shell", &deep),
+        ("a Share Link page", &share),
+        ("an Operation's answer", &operation),
+        ("a Photograph", &picture),
+        ("the stylesheet", &stylesheet),
+    ] {
+        assert_eq!(reply.status, 200, "{what}: {}", reply.text());
+        assert_eq!(
+            reply.header("x-content-type-options"),
+            Some("nosniff"),
+            "{what}"
+        );
+        assert_eq!(
+            reply.header("referrer-policy"),
+            Some("same-origin"),
+            "{what}"
+        );
+        let policy = reply
+            .header("content-security-policy")
+            .unwrap_or_else(|| panic!("{what} carries no Content-Security-Policy"));
+        let directives: Vec<&str> = policy.split(';').map(str::trim).collect();
+        for wanted in [
+            "default-src 'self'",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ] {
+            assert!(directives.contains(&wanted), "{what}: {policy}");
+        }
+        let scripts = directives
+            .iter()
+            .find(|d| d.starts_with("script-src "))
+            .unwrap_or_else(|| panic!("{what}: no script-src in {policy}"));
+        assert!(scripts.contains("'self'"), "{what}: {policy}");
+        assert!(!scripts.contains("unsafe"), "{what}: {policy}");
+    }
+
+    // The shell's bootstrap is inline; without its hash in the policy the
+    // browser would refuse it and the app would never start.
+    let wanted = inline_script_hashes(&shell.text());
+    assert!(!wanted.is_empty(), "the shell carries its bootstrap inline");
+    let policy = shell.header("content-security-policy").unwrap();
+    for hash in wanted {
+        assert!(policy.contains(&hash), "{hash} missing from {policy}");
+    }
+}

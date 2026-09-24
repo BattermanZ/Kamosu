@@ -126,6 +126,10 @@ network.
 Uploaded pictures are checked by their header before anything decodes them. SVG
 is refused, being a document that can carry script rather than a picture.
 
+Every answer tells the browser to run only Kamosu's own scripts, to refuse to
+show Kamosu inside another site's frame, and to pass none of a link's address,
+a Share Link's secret included, to the site it leads to.
+
 `tests/defences.rs` asserts all of the above against a running instance.
 
 ## Development

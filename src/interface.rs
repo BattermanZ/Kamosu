@@ -90,6 +90,46 @@ fn shell() -> Response {
     }
 }
 
+/// Every inline `<script>` the shell carries, as the `'sha256-…'` source a
+/// Content-Security-Policy names to let it run (#139). SvelteKit writes one,
+/// the bootstrap that starts the app and registers the service worker; its
+/// text changes with every build, so it is read off the build rather than
+/// written down.
+///
+/// SvelteKit's own `csp` option would put the same hash in a `<meta>` tag, but
+/// a page under two policies must satisfy both, and `frame-ancestors` works
+/// only in a header. One policy, the header, is simpler to reason about.
+pub fn shell_script_hashes() -> Vec<String> {
+    Built::get(SHELL)
+        .map(|file| inline_script_hashes(&String::from_utf8_lossy(&file.data)))
+        .unwrap_or_default()
+}
+
+fn inline_script_hashes(html: &str) -> Vec<String> {
+    use base64::Engine;
+    use sha2::Digest;
+
+    let mut hashes = Vec::new();
+    let mut rest = html;
+    while let Some(open) = rest.find("<script") {
+        let Some(tag_end) = rest[open..].find('>').map(|at| open + at) else {
+            break;
+        };
+        let Some(close) = rest[tag_end..].find("</script>").map(|at| tag_end + at) else {
+            break;
+        };
+        if !rest[open..tag_end].contains("src=") {
+            let digest = sha2::Sha256::digest(&rest.as_bytes()[tag_end + 1..close]);
+            hashes.push(format!(
+                "'sha256-{}'",
+                base64::engine::general_purpose::STANDARD.encode(digest)
+            ));
+        }
+        rest = &rest[close..];
+    }
+    hashes
+}
+
 /// Content types for what SvelteKit actually emits. A short explicit list beats
 /// a mime-guessing dependency: anything absent from it is a file this build
 /// does not produce.
@@ -148,6 +188,16 @@ mod tests {
     #[test]
     fn the_service_worker_is_always_asked_for_again() {
         assert_eq!(cache_control_for("service-worker.js"), "no-cache");
+    }
+
+    #[test]
+    fn an_inline_script_is_hashed_byte_for_byte_and_a_linked_one_is_not() {
+        let html = "<script src=\"/a.js\"></script><div><script>\n\tgo();\n</script></div>";
+        // printf '\n\tgo();\n' | openssl dgst -sha256 -binary | base64
+        assert_eq!(
+            inline_script_hashes(html),
+            vec!["'sha256-xj9YuTmCkcsDlTElO175sY8/zZ12Vrk/HOFIya0fkOI='".to_string()]
+        );
     }
 
     #[test]

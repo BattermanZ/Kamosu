@@ -30,11 +30,16 @@ pub struct Response {
 }
 
 impl Response {
-    /// The first Content-Type header, lowercased, if any.
+    /// The first Content-Type header, if any.
     pub fn content_type(&self) -> Option<&str> {
+        self.header("content-type")
+    }
+
+    /// The first header of this name, whatever case the server wrote it in.
+    pub fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .find(|(n, _)| n.eq_ignore_ascii_case(name))
             .map(|(_, value)| value.as_str())
     }
 
