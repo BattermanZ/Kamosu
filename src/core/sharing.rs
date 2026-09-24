@@ -2016,6 +2016,7 @@ fn write_carried_readings(
 /// Keep the name each Hand a Bundle carried arrived under (CONTEXT.md,
 /// "Hand"): the Kitchen's on the Branch, and the Person's on each Version.
 /// A Hand minted here is named live and is never renamed by what arrives.
+/// Neither is a deleted Kitchen's, kept here once its row is gone (#129).
 fn remember_arrived_hands(conn: &Connection, record: &Value) -> Result<(), OpError> {
     let hands = std::iter::once(&record["hand"]).chain(
         record["versions"]
@@ -2037,7 +2038,8 @@ fn remember_arrived_hands(conn: &Connection, record: &Value) -> Result<(), OpErr
               WHERE NOT EXISTS (SELECT 1 FROM people WHERE id = ?1) \
                 AND NOT EXISTS (SELECT 1 FROM kitchens WHERE hand_id = ?1) \
                 AND NOT EXISTS (SELECT 1 FROM cookbook_hands WHERE hand_id = ?1) \
-             ON CONFLICT (hand_id) DO UPDATE SET name = excluded.name",
+             ON CONFLICT (hand_id) DO UPDATE SET name = excluded.name \
+              WHERE arrived_hands.minted_here = 0",
             params![id, name],
         )
         .map_err(|e| OpError::internal(format!("cannot keep a Hand's name: {e}")))?;

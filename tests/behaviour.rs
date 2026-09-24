@@ -514,9 +514,8 @@ async fn an_operator_may_delete_a_kitchen_nobody_is_left_in_and_nothing_else() {
     );
     assert_eq!(status, 400, "{refused}");
 
-    // A Kitchen reaches zero members only the way account deletion (issue #39)
-    // will empty one: not through `remove_kitchen_member`, which refuses to
-    // strip a Kitchen's last member. Test plumbing stands in for that cascade.
+    // Test plumbing empties the Kitchen. The last member leaving through
+    // `remove_kitchen_member` does the same, which the next test covers.
     app.core
         .db()
         .with_conn(|conn| {
@@ -545,6 +544,162 @@ async fn an_operator_may_delete_a_kitchen_nobody_is_left_in_and_nothing_else() {
     );
     assert_eq!(status, 200, "{deleted}");
     assert_eq!(deleted["result"]["deleted"], json!(true));
+}
+
+/// #129: a Kitchen that ever issued an Invite could not be deleted, because
+/// its invites still pointed at it. They go with it now, and the Hand it
+/// once wrote under keeps its name.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_a_kitchen_takes_its_invites_and_keeps_its_hands_name() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "a password only its person knows", "session_name": "test browser" });
+    let (_, created) = app.post_auth("/auth/first-person", &first.to_string());
+    let operator_id = created["result"]["person"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let operator_key = app
+        .core
+        .mint_access_key(&operator_id, "agent", false)
+        .unwrap()
+        .secret;
+    let key_for = |name: &str| {
+        let person = app.core.create_person(name).expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "browser", false)
+            .unwrap()
+            .secret;
+        (person, key)
+    };
+    let (marie, marie_key) = key_for("Marie");
+    let (bob, bob_key) = key_for("Bob");
+    let (_, carol_key) = key_for("Carol");
+
+    let (_, created) = app.post_op(
+        "create_kitchen",
+        Some(&marie_key),
+        &json!({ "name": "Supper Club" }).to_string(),
+    );
+    let kitchen_id = created["result"]["id"].as_str().unwrap().to_string();
+    let invite = || {
+        let (status, minted) = app.post_op(
+            "invite_to_kitchen",
+            Some(&marie_key),
+            &json!({ "kitchen_id": kitchen_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{minted}");
+        minted["result"]["secret"].as_str().unwrap().to_string()
+    };
+    // One Invite spent, one still waiting.
+    let spent = invite();
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&bob_key),
+        &json!({ "secret": spent }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let waiting = invite();
+
+    // Before #131 a Kitchen wrote Versions under its own Hand. Test plumbing
+    // puts Marie's recipe back in that state, as the dev instance still has.
+    let (_, recipe) = app.post_op(
+        "create_recipe",
+        Some(&marie_key),
+        &json!({ "title": "Soupe" }).to_string(),
+    );
+    let branch_id = recipe["result"]["branch_id"].as_str().unwrap().to_string();
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute_batch(&format!(
+                "UPDATE branches SET hand_id = (SELECT hand_id FROM kitchens WHERE id = '{kitchen_id}') \
+                  WHERE id = '{branch_id}';
+                 UPDATE branch_versions SET hand_id = (SELECT hand_id FROM kitchens WHERE id = '{kitchen_id}') \
+                  WHERE branch_id = '{branch_id}';"
+            ))
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("write the recipe under the Kitchen's Hand");
+    let writers = || {
+        let (status, thread) = app.post_op(
+            "get_thread",
+            Some(&marie_key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{thread}");
+        let result = &thread["result"];
+        let mut names: Vec<Value> = result["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["hand_name"].clone())
+            .collect();
+        names.extend(
+            result["versions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v["hand_name"].clone()),
+        );
+        names
+    };
+    // A Bundle sent now carries the Hand under the name it has today, and the
+    // Kitchen is renamed after it left.
+    let bundle = bundle_of(&app, &marie_key, &branch_id);
+    let (status, renamed) = app.post_op(
+        "rename_kitchen",
+        Some(&marie_key),
+        &json!({ "kitchen_id": kitchen_id, "name": "Dinner Club" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+    let before = writers();
+    assert_eq!(before, [json!("Dinner Club"), json!("Dinner Club")]);
+
+    // Everybody leaves, the last member included.
+    for (person, key) in [(&bob, &bob_key), (&marie, &marie_key)] {
+        let (status, left) = app.post_op(
+            "remove_kitchen_member",
+            Some(key),
+            &json!({ "kitchen_id": kitchen_id, "person_id": person }).to_string(),
+        );
+        assert_eq!(status, 200, "{left}");
+    }
+
+    // Only an Operator deletes it, and only once.
+    let delete = |key: &str| {
+        app.post_op(
+            "delete_kitchen",
+            Some(key),
+            &json!({ "kitchen_id": kitchen_id }).to_string(),
+        )
+    };
+    let (status, refused) = delete(&marie_key);
+    assert_eq!(status, 401, "{refused}");
+    let (status, deleted) = delete(&operator_key);
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(deleted["result"]["deleted"], json!(true));
+    let (status, gone) = delete(&operator_key);
+    assert_eq!(status, 404, "{gone}");
+
+    // Its writer reads as it did, even once that Bundle comes back carrying
+    // the old name: the Hand was minted here, and nothing arriving renames it.
+    assert_eq!(writers(), before);
+    receive(&app, &carol_key, &bundle);
+    assert_eq!(writers(), before);
+
+    // The waiting Invite is refused exactly as one that never existed.
+    let redeem = |secret: &str| {
+        app.post_op(
+            "accept_kitchen_invite",
+            Some(&carol_key),
+            &json!({ "secret": secret }).to_string(),
+        )
+    };
+    let (status, refused) = redeem(&waiting);
+    let (unknown_status, unknown) = redeem("an Invite nobody ever minted");
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!((status, &refused), (unknown_status, &unknown));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

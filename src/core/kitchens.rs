@@ -206,6 +206,9 @@ impl Core {
     /// The Operator's one power over a Kitchen: deleting one nobody is left in.
     pub fn delete_kitchen(&self, caller_person_id: &str, kitchen_id: &str) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
             let is_operator: bool = conn
                 .query_row(
                     "SELECT is_operator FROM people WHERE id = ?1",
@@ -244,8 +247,29 @@ impl Core {
                     "a Kitchen may be deleted only once nobody is left in it",
                 ));
             }
+            // Before #131 a Kitchen wrote Versions under its own Hand, and the
+            // Kitchen row is what names that Hand (CONTEXT.md, "Hand"). Its
+            // name moves to where a Hand this instance no longer mints is
+            // named, so everything it wrote keeps its writer (#129). It was
+            // minted here, so no Bundle that carries it back renames it.
+            conn.execute(
+                "INSERT INTO arrived_hands (hand_id, name, minted_here) \
+                 SELECT hand_id, name, 1 FROM kitchens WHERE id = ?1",
+                params![kitchen_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot keep the Kitchen's Hand: {e}")))?;
+            // Its invites go with it, spent or waiting: one still waiting now
+            // names no Kitchen, and is refused as any unknown Invite is.
+            conn.execute(
+                "DELETE FROM kitchen_invites WHERE kitchen_id = ?1",
+                params![kitchen_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot delete Kitchen Invites: {e}")))?;
             conn.execute("DELETE FROM kitchens WHERE id = ?1", params![kitchen_id])
                 .map_err(|e| OpError::internal(format!("cannot delete Kitchen: {e}")))?;
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot commit: {e}")))?;
             Ok(())
         })
     }

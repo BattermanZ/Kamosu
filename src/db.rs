@@ -1534,6 +1534,19 @@ pub const MIGRATIONS: &[Migration] = &[
         foreign_keys_off: true,
         then: Some(crate::cookbook_migration::move_to_cookbooks),
     },
+    Migration {
+        version: 37,
+        description: "a deleted Kitchen's Hand keeps its name (#129)",
+        sql: r#"
+        -- Deleting a Kitchen moves the name of the Hand it once wrote under
+        -- here, since no `kitchens` row names it any more (#129). That Hand
+        -- was still minted on this instance, so a returning Bundle that
+        -- carries it does not get to rename it: the one exception to this
+        -- table holding only names that arrived.
+        ALTER TABLE arrived_hands ADD COLUMN minted_here INTEGER NOT NULL DEFAULT 0;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
