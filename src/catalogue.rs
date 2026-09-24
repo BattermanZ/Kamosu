@@ -259,7 +259,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "delete_account",
-            summary: "Delete an account while preserving its Hand in history.",
+            summary: "Delete an account while preserving its Hand in history. \
+                      The Person's name is freed for somebody new to sign in \
+                      with; what they wrote keeps their Hand and the name \
+                      they had. Disabling an account keeps the name.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,

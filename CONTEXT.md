@@ -33,7 +33,7 @@ _Avoid_: Semantic search, vector search, embeddings, AI search, similarity searc
 ### People and access
 
 **Person**:
-Someone with an account on this instance. Writes in exactly one Cookbook, cooks in any number of Kitchens, keeps their own Attempts, mints their own Access Keys, reads Kamosu in their Reading Language and writes under a Hand. An agent is never a Person — it acts as one, under that Person's Hand.
+Someone with an account on this instance. Writes in exactly one Cookbook, cooks in any number of Kitchens, keeps their own Attempts, mints their own Access Keys, reads Kamosu in their Reading Language and writes under a Hand. An agent is never a Person — it acts as one, under that Person's Hand. Deleting a Person's account frees their name for somebody new, while what they wrote keeps their Hand. Disabling an account does not free the name.
 _Avoid_: User, member, profile, actor, account
 
 **Cookbook**:

@@ -1328,6 +1328,24 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     },
+    Migration {
+        version: 35,
+        description: "deleting an account frees its Name (#101)",
+        sql: r#"
+        -- A name is a reminder, not an identity (ADR 0015): the permanent
+        -- Person id is what keeps a deleted Marc's history apart from a new
+        -- Marc's. So a deleted Person stops holding their name. A live or
+        -- disabled one keeps it.
+        --
+        -- Narrowing the index rather than clearing the deleted rows' passwords
+        -- frees every Name deleted before this step as well, with no row
+        -- touched. It only ever drops rows from the index, so it cannot fail
+        -- on a database that satisfied the old one.
+        DROP INDEX people_login_names_unique;
+        CREATE UNIQUE INDEX people_login_names_unique
+            ON people(name) WHERE password_hash IS NOT NULL AND deleted = 0;
+        "#,
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

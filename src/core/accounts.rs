@@ -245,8 +245,9 @@ impl Core {
     /// the permanent Person id and render this current value when read.
     ///
     /// It is also the name this Person signs in with, which is why two people
-    /// here cannot hold one: migration 4's index refuses it, and the refusal
-    /// is said in words rather than passed on as SQLite's.
+    /// here cannot hold one: migration 35's index refuses it, and the refusal
+    /// is said in words rather than passed on as SQLite's. A deleted Person
+    /// holds no name (#101), so a name they left behind may be taken.
     pub fn rename_person(&self, person_id: &str, name: &str) -> Result<String, OpError> {
         let name = required_text(name, "name")?;
         self.db().with_conn(|conn| {
@@ -254,12 +255,7 @@ impl Core {
                 "UPDATE people SET name = ?1 WHERE id = ?2",
                 params![name, person_id],
             )
-            .map_err(|e| match e.sqlite_error_code() {
-                Some(rusqlite::ErrorCode::ConstraintViolation) => OpError::bad_request(format!(
-                    "somebody here already signs in as {name}; choose another name"
-                )),
-                _ => OpError::internal(format!("cannot rename this Person: {e}")),
-            })?;
+            .map_err(|e| refusal_for_a_taken_name(e, name, "cannot rename this Person"))?;
             Ok(())
         })?;
         Ok(name.to_string())
@@ -430,7 +426,7 @@ impl Core {
                 let role: Option<i64> = conn.query_row("SELECT is_operator FROM account_links WHERE secret_hash=?1 AND kind='invite' AND spent=0 AND revoked=0", params![hash_secret(secret)], |r| r.get(0)).optional().map_err(|e| OpError::internal(e.to_string()))?;
                 let role = role.ok_or_else(|| OpError::unauthorized("this Invite has already been spent or revoked"))?;
                 conn.execute("UPDATE account_links SET spent=1 WHERE secret_hash=?1", params![hash_secret(secret)]).map_err(|e| OpError::internal(e.to_string()))?;
-                conn.execute("INSERT INTO people (id,name,password_hash,home_kitchen_id,is_operator) VALUES (?1,?2,?3,?4,?5)", params![person_id,name,password_hash,kitchen_id,role]).map_err(|e| OpError::bad_request(e.to_string()))?;
+                conn.execute("INSERT INTO people (id,name,password_hash,home_kitchen_id,is_operator) VALUES (?1,?2,?3,?4,?5)", params![person_id,name,password_hash,kitchen_id,role]).map_err(|e| refusal_for_a_taken_name(e, name, "cannot create this Person"))?;
                 insert_kitchen_with_member(conn, &kitchen_id, &format!("{name}'s Home Kitchen"), &person_id)?;
                 conn.execute("INSERT INTO sessions (id,secret_hash,person_id,name) VALUES (?1,?2,?3,?4)", params![session.id,hash_secret(&session.secret),person_id,session_name]).map_err(|e| OpError::internal(e.to_string()))?;
                 Ok(role != 0)
@@ -493,8 +489,8 @@ impl Core {
     /// Attempt or a Kitchen, rather than by a screen choosing not to ask.
     ///
     /// Only password-bearing rows are people who can sign in — the unique
-    /// index of migration 4 is on exactly those — so the list matches what
-    /// `disable_account` and its siblings can act on by name.
+    /// index of migration 35 is on exactly those, less the deleted, so the
+    /// list matches what `disable_account` and its siblings can act on by name.
     pub fn list_accounts(&self, caller_person_id: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let mut statement = conn
@@ -534,20 +530,15 @@ impl Core {
             conn.execute_batch("BEGIN IMMEDIATE")
                 .map_err(|e| OpError::internal(e.to_string()))?;
             let result = (|| -> Result<Value, OpError> {
+                let person_id = undeleted_person_named(conn, name)?;
                 if !is_operator {
-                    ensure_an_operator_remains(conn, name, "standing them down")?;
+                    ensure_an_operator_remains(conn, &person_id, name, "standing them down")?;
                 }
-                let changed = conn
-                    .execute(
-                        "UPDATE people SET is_operator = ?1 WHERE name = ?2 AND deleted = 0",
-                        params![is_operator as i64, name],
-                    )
-                    .map_err(|e| {
-                        OpError::internal(format!("cannot change who administers: {e}"))
-                    })?;
-                if changed == 0 {
-                    return Err(OpError::not_found(format!("no active Person '{name}'")));
-                }
+                conn.execute(
+                    "UPDATE people SET is_operator = ?1 WHERE id = ?2",
+                    params![is_operator as i64, person_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot change who administers: {e}")))?;
                 Ok(json!({ "name": name, "is_operator": is_operator }))
             })();
             match result {
@@ -569,6 +560,9 @@ impl Core {
         self.db().with_conn(|conn| {
             conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| OpError::internal(e.to_string()))?;
             let result = (|| -> Result<(), OpError> {
+                // #101: a deleted namesake may share this Name, so the Person
+                // is found once and every write below is keyed on their id.
+                let person_id = undeleted_person_named(conn, name)?;
                 // #103: an instance whose last Operator is ended can never
                 // appoint another, because every Operation that could is one
                 // only an Operator may call. Guarded here in the Core, where
@@ -576,6 +570,7 @@ impl Core {
                 // the refusal.
                 ensure_an_operator_remains(
                     conn,
+                    &person_id,
                     name,
                     if deleted {
                         "deleting the account"
@@ -583,12 +578,11 @@ impl Core {
                         "disabling their account"
                     },
                 )?;
-                let changed = conn.execute("UPDATE people SET disabled = 1, deleted = CASE WHEN ?1 THEN 1 ELSE deleted END WHERE name = ?2 AND deleted = 0", params![deleted as i64, name])
+                conn.execute("UPDATE people SET disabled = 1, deleted = CASE WHEN ?1 THEN 1 ELSE deleted END WHERE id = ?2", params![deleted as i64, person_id])
                     .map_err(|e| OpError::internal(format!("cannot end account: {e}")))?;
-                if changed == 0 { return Err(OpError::not_found(format!("no active Person '{name}'"))); }
-                conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
-                conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?;
-                if deleted { conn.execute("DELETE FROM kitchen_members WHERE person_id = (SELECT id FROM people WHERE name = ?1)", params![name]).map_err(|e| OpError::internal(e.to_string()))?; }
+                conn.execute("UPDATE sessions SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
+                if deleted { conn.execute("DELETE FROM kitchen_members WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?; }
                 Ok(())
             })();
             match result {
@@ -655,29 +649,32 @@ impl Core {
 /// than walk its owner into.
 ///
 /// `act` names what was being attempted, so the refusal reads as a sentence
-/// about what they did rather than a rule number.
-fn ensure_an_operator_remains(conn: &Connection, name: &str, act: &str) -> Result<(), OpError> {
-    let is_operator: Option<bool> = conn
+/// about what they did rather than a rule number, and `name` is what the
+/// Operator called them.
+fn ensure_an_operator_remains(
+    conn: &Connection,
+    person_id: &str,
+    name: &str,
+    act: &str,
+) -> Result<(), OpError> {
+    let is_operator: bool = conn
         .query_row(
-            "SELECT is_operator FROM people WHERE name = ?1 AND deleted = 0",
-            params![name],
+            "SELECT is_operator FROM people WHERE id = ?1",
+            params![person_id],
             |row| row.get::<_, i64>(0).map(|held| held != 0),
         )
-        .optional()
         .map_err(|e| {
             OpError::internal(format!("cannot read whether '{name}' is an Operator: {e}"))
         })?;
-    // Somebody who is not an Operator, and somebody who is not here at all,
-    // are both no threat to the last one. The second is left to the caller's
-    // own "no active Person" answer rather than pre-empted here.
-    if is_operator != Some(true) {
+    // Somebody who is not an Operator is no threat to the last one.
+    if !is_operator {
         return Ok(());
     }
     let others: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM people \
-              WHERE is_operator = 1 AND disabled = 0 AND deleted = 0 AND name <> ?1",
-            params![name],
+              WHERE is_operator = 1 AND disabled = 0 AND deleted = 0 AND id <> ?1",
+            params![person_id],
             |row| row.get(0),
         )
         .map_err(|e| OpError::internal(format!("cannot count this instance's Operators: {e}")))?;
@@ -689,6 +686,40 @@ fn ensure_an_operator_remains(conn: &Connection, name: &str, act: &str) -> Resul
         )));
     }
     Ok(())
+}
+
+/// The one Person an Operator means by `name`: the one with that name who has
+/// not been deleted. Deleting frees a name (#101), so a deleted namesake may
+/// sit beside them, and anything acting "on Marc" has to find this id once and
+/// act on it rather than on the name again.
+fn undeleted_person_named(conn: &Connection, name: &str) -> Result<String, OpError> {
+    conn.query_row(
+        "SELECT id FROM people WHERE name = ?1 AND deleted = 0",
+        params![name],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read Person '{name}': {e}")))?
+    .ok_or_else(|| OpError::not_found(format!("no active Person '{name}'")))
+}
+
+/// Turn a failed write to `people` into what the caller is told. A unique
+/// constraint there can only be migration 35's index on sign-in names, so it
+/// becomes a sentence saying somebody here already signs in as `name`, never
+/// SQLite's own `UNIQUE constraint failed: people.name` (#101). A live or
+/// disabled Person holds their name; a deleted one does not. Any other
+/// failure, another kind of constraint included, is ours and not theirs.
+fn refusal_for_a_taken_name(error: rusqlite::Error, name: &str, doing: &str) -> OpError {
+    match &error {
+        rusqlite::Error::SqliteFailure(failure, _)
+            if failure.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
+        {
+            OpError::bad_request(format!(
+                "somebody here already signs in as {name}; choose another name"
+            ))
+        }
+        _ => OpError::internal(format!("{doing}: {error}")),
+    }
 }
 
 /// A Person's own Reading Language — the first thing consulted whenever

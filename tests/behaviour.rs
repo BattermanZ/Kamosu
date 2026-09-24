@@ -5629,6 +5629,320 @@ async fn the_accounts_list_names_who_is_here_and_nothing_they_cooked() {
     }
 }
 
+// --- A deleted account's name (issue #101) ------------------------------------
+
+/// Accept a fresh Invite as `name`, minted by the Operator holding `operator`.
+fn join_by_invite(
+    app: &support::TestApp,
+    operator: &str,
+    name: &str,
+) -> kamosu::http_min::Response {
+    let (status, minted) = app.post_op("mint_invite", Some(operator), "{}");
+    assert_eq!(status, 200, "{minted}");
+    app.post_auth_response(
+        "/auth/invite",
+        &json!({ "link": minted["result"]["link"], "name": name,
+                 "password": "their own password", "session_name": "their phone" })
+        .to_string(),
+    )
+}
+
+/// The body of a reply at the authentication boundary, parsed.
+fn reply_of(reply: &kamosu::http_min::Response) -> serde_json::Value {
+    serde_json::from_str(&reply.text()).expect("a JSON reply")
+}
+
+/// The words a refusal of a taken name must never say: SQLite's, which name a
+/// table and a column to whoever typed into a form.
+fn assert_said_in_words(refusal: &serde_json::Value) {
+    let said = refusal["error"]["message"].as_str().unwrap_or_default();
+    assert!(!said.is_empty(), "a refusal says something: {refusal}");
+    for database_talk in ["UNIQUE", "constraint", "people", "people.name"] {
+        assert!(
+            !said.contains(database_talk),
+            "the refusal is the database talking ('{database_talk}'): {said}"
+        );
+    }
+}
+
+/// **Deleting an account frees its name, and keeps its Hand** (#101, ADR 0015).
+///
+/// A name is a reminder; the Person's permanent id is what keeps a deleted
+/// Marc's history apart from a new Marc's. So the name goes back into
+/// circulation, and what the first holder wrote stays theirs: same Hand, still
+/// shown by the name they had, reachable by nobody new.
+///
+/// The reporter's sequence runs twice, because a second run is what failed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleting_an_account_frees_its_name_and_keeps_its_hand() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    assert_eq!(operator.status, 200, "{}", operator.text());
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
+
+    // The first "Delete probe" writes a recipe in a Kitchen the Operator also
+    // cooks in, so it is still readable once its writer is gone.
+    let (status, shared) = app.post_op(
+        "create_kitchen",
+        Some(operator_secret),
+        r#"{"name":"Shared"}"#,
+    );
+    assert_eq!(status, 200, "{shared}");
+    let kitchen_id = shared["result"]["id"].as_str().unwrap().to_string();
+
+    let joined = join_by_invite(&app, operator_secret, "Delete probe");
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    let first_probe = reply_of(&joined)["result"]["person"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let first_secret = support::session_cookie_secret(&joined);
+    ask_into_kitchen(&app, operator_secret, &kitchen_id, &first_secret);
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&first_secret),
+        &json!({ "kitchen_id": kitchen_id, "title": "Soupe" }).to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let mut earlier = vec![first_probe.clone()];
+    for run in 1..=2 {
+        let (status, deleted) = app.post_op(
+            "delete_account",
+            Some(operator_secret),
+            r#"{"name":"Delete probe"}"#,
+        );
+        assert_eq!(status, 200, "run {run}: {deleted}");
+        assert_eq!(deleted["result"]["deleted"], json!(true));
+
+        let again = join_by_invite(&app, operator_secret, "Delete probe");
+        assert_eq!(again.status, 200, "run {run}: {}", again.text());
+        let new_probe = reply_of(&again)["result"]["person"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            !earlier.contains(&new_probe),
+            "run {run}: a freed name makes a new Person, not the old one back"
+        );
+        earlier.push(new_probe);
+
+        // What the first holder wrote is still theirs, under the name they
+        // had: the Thread is where a Version's Hand is named.
+        let (status, read) = app.post_op(
+            "get_thread",
+            Some(operator_secret),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "run {run}: {read}");
+        let version = &read["result"]["versions"][0];
+        assert_eq!(
+            version["hand_id"],
+            json!(first_probe),
+            "run {run}: no Hand moves"
+        );
+        assert_eq!(version["hand_name"], json!("Delete probe"), "{read}");
+    }
+
+    // A later "Delete probe" was never asked into the Kitchen, and a
+    // borrowed name does not ask them in.
+    let camille = join_by_invite(&app, operator_secret, "Camille");
+    assert_eq!(camille.status, 200, "{}", camille.text());
+    let (status, deleted) = app.post_op(
+        "delete_account",
+        Some(operator_secret),
+        r#"{"name":"Delete probe"}"#,
+    );
+    assert_eq!(status, 200, "{deleted}");
+    let latest = join_by_invite(&app, operator_secret, "Delete probe");
+    let latest_secret = support::session_cookie_secret(&latest);
+    let (status, refused) = app.post_op(
+        "get_recipe",
+        Some(&latest_secret),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        status, 404,
+        "a new holder of the name inherits nothing: {refused}"
+    );
+
+    // And an existing Person may take a freed name by renaming, too.
+    let (status, deleted) = app.post_op(
+        "delete_account",
+        Some(operator_secret),
+        r#"{"name":"Delete probe"}"#,
+    );
+    assert_eq!(status, 200, "{deleted}");
+    let camille_secret = support::session_cookie_secret(&camille);
+    let (status, renamed) = app.post_op(
+        "rename_person",
+        Some(&camille_secret),
+        r#"{"name":"Delete probe"}"#,
+    );
+    assert_eq!(status, 200, "{renamed}");
+}
+
+/// **A disabled account still holds its name, and says so in words** (#101).
+///
+/// Only deleting frees a name; a live or disabled account keeps its own. The
+/// refusal is a sentence, and it does not spend the Invite it refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_name_still_held_is_refused_in_words_and_spends_no_invite() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
+
+    for (who, ending) in [("Camille", Some("disable_account")), ("Marie", None)] {
+        let joined = join_by_invite(&app, operator_secret, who);
+        assert_eq!(joined.status, 200, "{}", joined.text());
+        if let Some(ending) = ending {
+            let (status, ended) = app.post_op(
+                ending,
+                Some(operator_secret),
+                &json!({ "name": who }).to_string(),
+            );
+            assert_eq!(status, 200, "{ended}");
+        }
+
+        let (_, minted) = app.post_op("mint_invite", Some(operator_secret), "{}");
+        let link = minted["result"]["link"].clone();
+        let taken = app.post_auth_response(
+            "/auth/invite",
+            &json!({ "link": link, "name": who, "password": "a password", "session_name": "a phone" })
+                .to_string(),
+        );
+        assert_eq!(taken.status, 400, "{who}: {}", taken.text());
+        let refusal = reply_of(&taken);
+        assert_said_in_words(&refusal);
+        assert!(
+            refusal["error"]["message"].as_str().unwrap().contains(who),
+            "the refusal names the name it refused: {refusal}"
+        );
+
+        // The failed attempt rolled back, so the same link still works.
+        let other = app.post_auth_response(
+            "/auth/invite",
+            &json!({ "link": link, "name": format!("{who} B"), "password": "a password", "session_name": "a phone" })
+                .to_string(),
+        );
+        assert_eq!(
+            other.status,
+            200,
+            "{who}: the Invite must not be spent: {}",
+            other.text()
+        );
+    }
+}
+
+/// **Ending an account ends the one it names** (#101).
+///
+/// Once a name can repeat, a deleted "Marc" and a live "Marc" sit side by
+/// side. Disabling "Marc" means the live one: it is their Sessions and Access
+/// Keys that stop working, never the deleted namesake's long-dead ones.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ending_an_account_ends_the_live_namesake_not_a_deleted_one() {
+    let app = support::spawn_app();
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    let operator_secret = support::session_cookie_secret(&operator);
+    let operator_secret = operator_secret.as_str();
+
+    let gone = join_by_invite(&app, operator_secret, "Marc");
+    assert_eq!(gone.status, 200, "{}", gone.text());
+    let (status, deleted) = app.post_op(
+        "delete_account",
+        Some(operator_secret),
+        r#"{"name":"Marc"}"#,
+    );
+    assert_eq!(status, 200, "{deleted}");
+
+    let live = join_by_invite(&app, operator_secret, "Marc");
+    assert_eq!(live.status, 200, "{}", live.text());
+    let live_session = support::session_cookie_secret(&live);
+    let (status, key) = app.post_op(
+        "mint_access_key",
+        Some(&live_session),
+        r#"{"name":"an agent"}"#,
+    );
+    assert_eq!(status, 200, "{key}");
+    let live_key = key["result"]["secret"].as_str().unwrap().to_string();
+    for credential in [&live_session, &live_key] {
+        assert_eq!(app.post_op("list_jobs", Some(credential), "{}").0, 200);
+    }
+
+    let (status, disabled) = app.post_op(
+        "disable_account",
+        Some(operator_secret),
+        r#"{"name":"Marc"}"#,
+    );
+    assert_eq!(status, 200, "{disabled}");
+    for credential in [&live_session, &live_key] {
+        let (status, body) = app.post_op("list_jobs", Some(credential), "{}");
+        assert_eq!(
+            status, 401,
+            "the live Marc's Credentials end with them: {body}"
+        );
+    }
+    // The raw revocation, not only the disabled flag the Credential check
+    // also reads: the live Marc's rows were the ones revoked.
+    let live_marc = reply_of(&live)["result"]["person"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let unrevoked: i64 = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM sessions WHERE person_id = ?1 AND revoked = 0) \
+                      + (SELECT COUNT(*) FROM access_keys WHERE person_id = ?1 AND revoked = 0)",
+                rusqlite::params![live_marc],
+                |row| row.get(0),
+            )
+            .map_err(|e| kamosu::OpError::internal(e.to_string()))
+        })
+        .unwrap();
+    assert_eq!(unrevoked, 0, "every Credential of the live Marc is revoked");
+}
+
+/// **An account deleted before #101 frees its name too.** A database carried
+/// forward from the schema before the fix holds a deleted Person whose row
+/// still bears a password; the name must be free once it has migrated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_account_deleted_before_the_fix_frees_its_name_once_migrated() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    {
+        let earlier: &[Migration] = &db::MIGRATIONS[..34];
+        let old = db::Db::open_with_migrations(&data_dir, earlier).expect("the earlier schema");
+        old.with_conn(|conn| {
+            conn.execute_batch(
+                "INSERT INTO people (id, name, password_hash, home_kitchen_id, disabled, deleted) \
+                     VALUES ('p_gone', 'Delete probe', 'a hash that no longer opens anything', 'k_gone', 1, 1);
+                 INSERT INTO kitchens (id, name, hand_id) VALUES ('k_gone', 'Delete probe''s Home Kitchen', 'k_gone');",
+            )
+            .map_err(|e| kamosu::OpError::internal(e.to_string()))
+        })
+        .expect("an account deleted before #101");
+    }
+
+    let app = support::spawn_app_in(&data_dir);
+    let first = json!({ "name": "Aurélien", "password": "operator password", "session_name": "operator browser" });
+    let operator = app.post_auth_response("/auth/first-person", &first.to_string());
+    assert_eq!(operator.status, 200, "{}", operator.text());
+    let operator_secret = support::session_cookie_secret(&operator);
+
+    let joined = join_by_invite(&app, &operator_secret, "Delete probe");
+    assert_eq!(joined.status, 200, "{}", joined.text());
+    assert_ne!(reply_of(&joined)["result"]["person"]["id"], json!("p_gone"));
+}
+
 // --- The Attempt and In Progress (issue #57) ----------------------------------
 
 /// A Recipe with real Ingredients and Steps to advance through, in a fresh

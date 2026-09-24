@@ -83,7 +83,7 @@ export type DisableAccountOutput = {
 	disabled: boolean;
 };
 
-/** Delete an account while preserving its Hand in history. */
+/** Delete an account while preserving its Hand in history. The Person's name is freed for somebody new to sign in with; what they wrote keeps their Hand and the name they had. Disabling an account keeps the name. */
 export type DeleteAccountInput = {
 	name: string;
 };
@@ -4531,7 +4531,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "delete_account",
-		"summary": "Delete an account while preserving its Hand in history.",
+		"summary": "Delete an account while preserving its Hand in history. The Person's name is freed for somebody new to sign in with; what they wrote keeps their Hand and the name they had. Disabling an account keeps the name.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -22508,7 +22508,7 @@ export interface KamosuClient {
 	mintInvite(input: MintInviteInput): Promise<Answer<'mint_invite'>>;
 	/** Disable an account so it can no longer obtain a Credential. */
 	disableAccount(input: DisableAccountInput): Promise<Answer<'disable_account'>>;
-	/** Delete an account while preserving its Hand in history. */
+	/** Delete an account while preserving its Hand in history. The Person's name is freed for somebody new to sign in with; what they wrote keeps their Hand and the name they had. Disabling an account keeps the name. */
 	deleteAccount(input: DeleteAccountInput): Promise<Answer<'delete_account'>>;
 	/** Mint a one-use recovery link for a Person who forgot their password. */
 	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
