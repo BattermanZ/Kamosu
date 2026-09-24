@@ -113,7 +113,7 @@
 			type="button"
 			onclick={add}
 			disabled={adding || bringing}
-			class="min-h-12 rounded-sm bg-accent px-4 py-3 text-left font-display text-body text-on-accent disabled:opacity-60"
+			class="min-h-12 rounded-sm bg-accent px-4 py-3 text-center font-display text-body text-on-accent disabled:opacity-60"
 		>
 			{m.recipes_nothing_add({ query: title })}
 		</button>
