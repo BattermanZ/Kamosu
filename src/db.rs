@@ -1755,27 +1755,41 @@ fn run_step(conn: &Connection, step: &Migration) -> Result<(), String> {
     outcome
 }
 
-/// Copy the database file aside under `/data`, naming the span of versions it
-/// undoes. WAL is checkpointed first so the one file is complete on its own.
+/// Copy the database aside under `/data`, naming the span of versions it
+/// undoes.
+///
+/// The copy is SQLite's own, never a file copy (#130). Opening `kamosu.db`
+/// behind SQLite's back and closing it again drops every lock this process
+/// holds on the file, SQLite's included, and SQLite is not told: the next
+/// process to open and close the database then takes itself for the last one
+/// and deletes the WAL this connection is still writing into. `VACUUM INTO`
+/// reads through this connection, WAL and all, so the Snapshot is the database
+/// as it stands, whole in one file, whether or not a checkpoint could run.
+/// A Backup copies the database with the same statement and is still a
+/// separate thing (ADR 0039): what they share is SQLite's way of copying, not
+/// when a copy is taken, what it holds or how long it is kept.
 fn write_snapshot(
     conn: &Connection,
     data_dir: &Path,
     from: i64,
     to: i64,
 ) -> Result<PathBuf, OpError> {
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
-        .map_err(|e| OpError::internal(format!("cannot checkpoint before snapshot: {e}")))?;
     let seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let dest = data_dir.join(format!("kamosu-snapshot-v{from}-to-v{to}-{seconds}.db"));
-    std::fs::copy(data_dir.join(DATABASE_FILE), &dest).map_err(|e| {
-        OpError::internal(format!(
-            "cannot write the pre-migration Snapshot to {}: {e}",
-            dest.display()
-        ))
-    })?;
+    // `VACUUM INTO` refuses a file that already exists. One here is a Snapshot
+    // of the same span taken in the same second, by a start whose migration
+    // then failed and changed nothing, so it holds what this one would.
+    let _ = std::fs::remove_file(&dest);
+    conn.execute("VACUUM INTO ?1", [dest.to_string_lossy().as_ref()])
+        .map_err(|e| {
+            OpError::internal(format!(
+                "cannot write the pre-migration Snapshot to {}: {e}",
+                dest.display()
+            ))
+        })?;
     Ok(dest)
 }
 

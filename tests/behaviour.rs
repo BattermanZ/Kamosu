@@ -8300,6 +8300,145 @@ fn a_failing_migration_refuses_to_serve_and_leaves_a_restorable_snapshot() {
     assert_eq!(stored_schema_version(&data_dir), db::LATEST_SCHEMA_VERSION);
 }
 
+/// **Taking the Snapshot leaves the server holding its lock** (#130).
+///
+/// On Linux, closing any descriptor to a file drops every POSIX lock the
+/// process holds on it, SQLite's included. A Snapshot copied with an ordinary
+/// file copy did exactly that, so the next process to open and close the
+/// database believed it was the last one, and deleted the WAL the server was
+/// still writing into.
+///
+/// The other process is the `sqlite3` command-line tool, as it was when this
+/// broke the dev database. It has to be a separate process, because a second
+/// connection inside this one shares SQLite's lock bookkeeping. And it has to
+/// be an older SQLite than the one Kamosu bundles: newer SQLite also checks the
+/// shared-memory file before deleting the WAL, which hides the lost lock from
+/// `kamosu status` without putting it back. So the test also reads
+/// `/proc/locks` for the lock itself, whatever SQLite the tool happens to be.
+#[test]
+fn another_process_opening_the_database_after_a_migration_loses_no_write() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    build_v1_database(&data_dir);
+    let db_path = data_dir.join(db::DATABASE_FILE);
+
+    // A migration is owed, so opening writes a Snapshot first.
+    let server = db::Db::open(&data_dir).expect("the migrated database");
+
+    let inode = std::fs::metadata(&db_path).unwrap().ino();
+    let pid = std::process::id();
+    let locks = std::fs::read_to_string("/proc/locks").unwrap();
+    assert!(
+        locks.lines().any(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            fields.get(4) == Some(&pid.to_string().as_str())
+                && fields
+                    .get(5)
+                    .is_some_and(|file| file.ends_with(&format!(":{inode}")))
+        }),
+        "this process must still hold its lock on the database file:\n{locks}"
+    );
+
+    let other = std::process::Command::new("sqlite3")
+        .arg(&db_path)
+        .arg("SELECT COUNT(*) FROM meta;")
+        .output()
+        .expect("this test needs the sqlite3 command-line tool installed");
+    assert!(
+        other.status.success(),
+        "sqlite3 failed: {}",
+        String::from_utf8_lossy(&other.stderr)
+    );
+
+    server
+        .with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('written_after', 'still here')",
+                [],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("the server writes");
+
+    let wal = data_dir.join(format!("{}-wal", db::DATABASE_FILE));
+    assert!(
+        wal.exists(),
+        "the other process must not have deleted the live WAL"
+    );
+    let fresh = rusqlite::Connection::open(&db_path).unwrap();
+    let seen: Option<String> = fresh
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'written_after'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    assert_eq!(
+        seen.as_deref(),
+        Some("still here"),
+        "a fresh connection must see what the server wrote"
+    );
+    drop(server);
+}
+
+/// The Snapshot a migration writes is a whole database on its own: it passes
+/// SQLite's integrity check and holds the schema and rows from before the
+/// migration, including a row still sitting in the WAL when it was taken (#130).
+#[test]
+fn a_migrations_snapshot_is_a_sound_copy_of_the_database_before_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let data_dir = dir.path().join("data");
+    build_v1_database(&data_dir);
+
+    // Held open, so the row stays in the WAL rather than being checkpointed
+    // into the file when the connection closes.
+    let writer = rusqlite::Connection::open(data_dir.join(db::DATABASE_FILE)).unwrap();
+    writer
+        .execute(
+            "INSERT INTO people (id, name) VALUES ('p_1', 'Aurélien')",
+            [],
+        )
+        .unwrap();
+
+    db::Db::open(&data_dir).expect("the migrated database");
+    drop(writer);
+
+    let prefix = format!("kamosu-snapshot-v1-to-v{}-", db::LATEST_SCHEMA_VERSION);
+    let snapshot = std::fs::read_dir(&data_dir)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(&prefix))
+        })
+        .expect("a Snapshot beside the database");
+
+    let copy = rusqlite::Connection::open_with_flags(
+        &snapshot,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let integrity: String = copy
+        .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
+    let version: String = copy
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'schema_version'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(version, "1", "the Snapshot holds the schema from before");
+    let name: String = copy
+        .query_row("SELECT name FROM people WHERE id = 'p_1'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(name, "Aurélien");
+}
+
 #[test]
 fn an_older_binary_against_a_newer_database_refuses_loudly() {
     let dir = tempfile::tempdir().unwrap();

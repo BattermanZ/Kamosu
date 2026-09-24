@@ -111,6 +111,11 @@ Open the 5174 URL. Both ports are fixed with no environment variable — 5173 is
 taken on the dev host, and vite runs with `--strictPort` so a silent fallback to
 another port cannot happen. `dev-start` is always safe to re-run for both.
 
+**`just test` needs Linux and the `sqlite3` command-line tool on the path.**
+One behaviour test runs `sqlite3` as the other process that opens the database
+beside a running Kamosu, and reads `/proc/locks` (#130). The SQLite Kamosu
+bundles hides the fault that test looks for, and an older one does not.
+
 `dev-clean` deletes `target/` to reclaim build cache; the next build is a full
 rebuild. Dev state lives in gitignored `.dev/`.
 

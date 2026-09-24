@@ -27,6 +27,12 @@ vite_port := "5174"
 vite_pid_file := dev_dir + "/vite.pid"
 vite_log_file := dev_dir + "/vite.log"
 
+# How long a stopping process group gets to exit on its own before it is killed
+# outright. The server can take a while: it finishes slow work it already began
+# before its process ends, and a first Meaning Search build of 86 recipes took
+# several minutes on the dev host. Stopping is meant to wait for that (#130).
+stop_timeout_seconds := "300"
+
 # The cargo target directory — respect CARGO_TARGET_DIR where a host sets one.
 target_dir := env_var_or_default("CARGO_TARGET_DIR", "target")
 
@@ -46,8 +52,8 @@ binary := target_dir + "/debug/kamosu"
 dev-start:
     #!/usr/bin/env bash
     set -euo pipefail
-    just _free-port {{backend_port}} {{pid_file}}
-    just _free-port {{vite_port}} {{vite_pid_file}}
+    just _free-port {{backend_port}} {{pid_file}} "the server"
+    just _free-port {{vite_port}} {{vite_pid_file}} "vite"
 
     mkdir -p "{{dev_dir}}"
 
@@ -73,21 +79,21 @@ dev-start:
     just _warn-cache-size
 
 # Internal: make a port free and keep it that way. Stops whatever a previous
-# dev-start tracked there (the whole process group), kills anything else holding
-# it — including something started by hand — and waits for the port to actually
-# free. Always safe to re-run, which is the property the whole ritual rests on.
-_free-port port pid_file:
+# dev-start tracked there (the whole process group, waited on until it has
+# exited), stops anything else holding it, including something started by hand,
+# and waits for the port to actually free. Always safe to re-run, which is the
+# property the whole ritual rests on.
+_free-port port pid_file what:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ -f "{{pid_file}}" ]]; then
-        pgid="$(cat "{{pid_file}}")"
-        kill -TERM -- "-${pgid}" 2>/dev/null || true
-        rm -f "{{pid_file}}"
-    fi
+    just _stop-group "{{pid_file}}" "{{what}}" quiet
     squatters="$(ss -ltnp 2>/dev/null | grep ':{{port}} ' | grep -oP 'pid=\K[0-9]+' | sort -u || true)"
     for pid in ${squatters}; do
-        echo "killing stray process on {{port}} (pid ${pid})"
+        echo "stopping stray process on {{port}} (pid ${pid})"
         kill "${pid}" 2>/dev/null || true
+    done
+    for pid in ${squatters}; do
+        just _await-exit pid "${pid}" "stray process ${pid}"
     done
     for _ in $(seq 1 100); do
         if ! ss -ltn 2>/dev/null | grep -q ':{{port}} '; then break; fi
@@ -97,6 +103,53 @@ _free-port port pid_file:
         echo "error: port {{port}} is still busy after waiting" >&2
         exit 1
     fi
+
+# Internal: stop the process group a pidfile tracks, and return only once every
+# process in it has exited (#130). A freed port is not enough: the server drops
+# its listener at once, then finishes slow work it already began before its
+# process ends, and all that while it can still write to the database. A new
+# server started beside it would be a second writer. `quiet` leaves out the
+# lines about nothing having been there to stop.
+_stop-group pid_file what quiet="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ ! -f "{{pid_file}}" ]]; then
+        [[ -n "{{quiet}}" ]] || echo "{{what}} is not tracked (nothing to stop)"
+        exit 0
+    fi
+    pgid="$(cat "{{pid_file}}")"
+    if ! kill -0 -- "-${pgid}" 2>/dev/null; then
+        rm -f "{{pid_file}}"
+        [[ -n "{{quiet}}" ]] || echo "{{what}} was not running"
+        exit 0
+    fi
+    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    just _await-exit group "${pgid}" "{{what}} (process group ${pgid})"
+    rm -f "{{pid_file}}"
+    echo "stopped {{what}} (process group ${pgid})"
+
+# Internal: wait for a process (`pid`) or a whole process group (`group`) that
+# has already been asked to stop to be gone. Past the timeout it is killed
+# outright, and says so; one that outlives even that is an error.
+_await-exit kind id what:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="{{id}}"
+    [[ "{{kind}}" == group ]] && target="-{{id}}"
+    for tick in $(seq 1 $(( {{stop_timeout_seconds}} * 10 ))); do
+        kill -0 -- "${target}" 2>/dev/null || exit 0
+        # A long wait should not look like a hang.
+        (( tick == 20 )) && echo "waiting for {{what}} to exit (up to {{stop_timeout_seconds}}s)..."
+        sleep 0.1
+    done
+    echo "{{what}} did not exit within {{stop_timeout_seconds}}s; killing it" >&2
+    kill -KILL -- "${target}" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+        kill -0 -- "${target}" 2>/dev/null || exit 0
+        sleep 0.1
+    done
+    echo "error: {{what}} is still running after SIGKILL" >&2
+    exit 1
 
 # Internal: wait for something to actually answer on a port. A silent failure
 # must not look like success, so the last log lines come with the error.
@@ -112,25 +165,15 @@ _await-port port log what:
     exit 1
 
 # Stop both — each as a whole process group, not just the top PID, so neither
-# vite's workers nor the server's threads outlive the recipe.
+# vite's workers nor the server's threads outlive the recipe. Returns only once
+# both groups have exited.
 dev-stop:
     #!/usr/bin/env bash
-    set -euo pipefail
-    for pair in "the server|{{pid_file}}" "vite|{{vite_pid_file}}"; do
-        what="${pair%%|*}"; file="${pair#*|}"
-        if [[ -f "${file}" ]]; then
-            pgid="$(cat "${file}")"
-            if kill -0 -- "-${pgid}" 2>/dev/null; then
-                kill -TERM -- "-${pgid}"
-                echo "stopped ${what} (process group ${pgid})"
-            else
-                echo "${what} was not running"
-            fi
-            rm -f "${file}"
-        else
-            echo "${what} is not tracked (nothing to stop)"
-        fi
-    done
+    set -uo pipefail
+    failed=0
+    just _stop-group "{{pid_file}}" "the server" || failed=1
+    just _stop-group "{{vite_pid_file}}" "vite" || failed=1
+    exit "${failed}"
 
 # Report whether each half is running and since when, and how big the build
 # cache is — always, warning or not.
