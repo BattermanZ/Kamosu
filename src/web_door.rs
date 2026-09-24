@@ -536,6 +536,26 @@ fn image_response(bytes: Vec<u8>) -> Response {
 /// leave the fault in place while looking fixed.
 const SESSION_COOKIE_ATTRIBUTES: &str = "Path=/; HttpOnly; Secure; SameSite=Lax";
 
+/// How long a browser keeps the Session cookie: 400 days, the most RFC 6265bis
+/// lets a cookie ask for and the cap Chrome enforces. Without it the cookie
+/// lasts only as long as the browser's own session, which on an iPhone ends
+/// whenever iOS closes the app (#137). Kept out of `SESSION_COOKIE_ATTRIBUTES`
+/// so the expiring cookie never carries two `Max-Age`s.
+const SESSION_COOKIE_MAX_AGE: &str = "Max-Age=34560000";
+
+/// The `Set-Cookie` that hands a browser its Session, or hands it back renewed.
+fn issued_session_cookie(secret: &str) -> HeaderValue {
+    let cookie =
+        format!("kamosu_session={secret}; {SESSION_COOKIE_ATTRIBUTES}; {SESSION_COOKIE_MAX_AGE}");
+    HeaderValue::from_str(&cookie).expect("safe session cookie")
+}
+
+/// The `Set-Cookie` that takes a Session cookie back (#91).
+fn expired_session_cookie() -> HeaderValue {
+    let expired = format!("kamosu_session=; {SESSION_COOKIE_ATTRIBUTES}; Max-Age=0");
+    HeaderValue::from_str(&expired).expect("safe expiring session cookie")
+}
+
 /// Answer a request that carries no Credential of this Door's making: the
 /// `/auth/…` routes, which mint a Credential rather than present one, and the
 /// reply to an Operation name the Catalogue does not declare. The empty headers
@@ -556,14 +576,24 @@ fn respond_to(headers: &HeaderMap, result: Result<Value, OpError>) -> Response {
                 .as_object_mut()
                 .and_then(|object| object.remove("_session_secret"))
                 .and_then(|secret| secret.as_str().map(str::to_owned));
+            // Otherwise, a cookie the Core just accepted is set again with a
+            // fresh lifetime, so a browser opened at least once every 400 days
+            // is never signed out (#137). The Secret is the one it sent. Only
+            // the cookie is renewed: a bearer token wins over it when both
+            // arrive, and a bearer token is not this Door's to touch. Signing
+            // out renews too, harmlessly — the next request is refused and the
+            // refusal below takes the cookie back.
+            let session_secret = session_secret.or_else(|| {
+                secret_came_from_cookie(headers)
+                    .then(|| session_cookie(headers))
+                    .flatten()
+            });
             let mut response =
                 (StatusCode::OK, Json(json!({ "ok": true, "result": value }))).into_response();
             if let Some(secret) = session_secret {
-                let cookie = format!("kamosu_session={secret}; {SESSION_COOKIE_ATTRIBUTES}");
-                response.headers_mut().insert(
-                    header::SET_COOKIE,
-                    HeaderValue::from_str(&cookie).expect("safe session cookie"),
-                );
+                response
+                    .headers_mut()
+                    .insert(header::SET_COOKIE, issued_session_cookie(&secret));
             }
             response
         }
@@ -581,11 +611,9 @@ fn respond_to(headers: &HeaderMap, result: Result<Value, OpError>) -> Response {
             // token is not this Door's to take back — so a refused one leaves
             // even a cookie sitting beside it exactly as it was.
             if err.credential_names_nobody && secret_came_from_cookie(headers) {
-                let expired = format!("kamosu_session=; {SESSION_COOKIE_ATTRIBUTES}; Max-Age=0");
-                response.headers_mut().insert(
-                    header::SET_COOKIE,
-                    HeaderValue::from_str(&expired).expect("safe expiring session cookie"),
-                );
+                response
+                    .headers_mut()
+                    .insert(header::SET_COOKIE, expired_session_cookie());
             }
             response
         }

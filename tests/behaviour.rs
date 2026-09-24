@@ -857,6 +857,23 @@ fn set_cookies(headers: &[(String, String)]) -> Vec<&str> {
         .collect()
 }
 
+/// Assert one `Set-Cookie` hands over a Session the way #137 needs: for the
+/// 400 days a browser allows, with the attributes the expiring cookie matches.
+fn assert_lasting_session_cookie(set_cookie: &str) {
+    for attribute in [
+        "Max-Age=34560000",
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Lax",
+    ] {
+        assert!(
+            set_cookie.contains(attribute),
+            "the Session cookie must carry {attribute}: {set_cookie}"
+        );
+    }
+}
+
 /// A Session that has ended takes its cookie with it (#91).
 ///
 /// Ending a Session revoked it on the server and left the browser holding the
@@ -878,13 +895,14 @@ async fn an_ended_session_takes_its_cookie_with_it() {
     let cookie = format!("kamosu_session={secret}");
 
     // While the Session lives, the cookie is a Credential like any other and
-    // nothing about it is taken back.
+    // nothing about it is taken back — it is only renewed (#137).
     let (status, headers, body) =
         app.post_op_with_headers_reply("instance_status", &[("Cookie", &cookie)], "{}");
     assert_eq!(status, 200, "{body}");
+    let renewed = set_cookies(&headers);
     assert!(
-        set_cookies(&headers).is_empty(),
-        "a living Session's cookie is left alone: {headers:?}"
+        renewed.len() == 1 && renewed[0].starts_with(&format!("{cookie};")),
+        "a living Session's cookie keeps its Secret: {headers:?}"
     );
 
     let (status, revoked) = app.post_op(
@@ -939,6 +957,84 @@ async fn an_ended_session_takes_its_cookie_with_it() {
     assert!(
         set_cookies(&headers).is_empty(),
         "a refused bearer token must expire no cookie: {headers:?}"
+    );
+}
+
+/// A Session cookie outlives the browser that holds it (#137).
+///
+/// A cookie with no `Max-Age` is thrown away whenever the browser decides its
+/// session is over — on an iPhone, every time iOS closes the app — so the
+/// Session lived on in the database while the phone forgot it. The cookie now
+/// lasts the 400 days browsers allow, and every Operation it is accepted for
+/// starts that count again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_cookie_lasts_and_renews_on_use() {
+    let app = support::spawn_app();
+    let create = json!({ "name": "Aurélien", "password": "the right password", "session_name": "this phone" });
+    let signed_in = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(signed_in.status, 200, "{}", signed_in.text());
+    let set = set_cookies(&signed_in.headers);
+    assert_eq!(
+        set.len(),
+        1,
+        "exactly one Set-Cookie: {:?}",
+        signed_in.headers
+    );
+    assert_lasting_session_cookie(set[0]);
+
+    // Signing in again, as a returning phone does, hands over the same kind.
+    let login = json!({ "name": "Aurélien", "password": "the right password", "session_name": "this phone again" });
+    let logged_in = app.post_auth_response("/auth/login", &login.to_string());
+    assert_eq!(logged_in.status, 200, "{}", logged_in.text());
+    let set = set_cookies(&logged_in.headers);
+    assert_eq!(
+        set.len(),
+        1,
+        "exactly one Set-Cookie: {:?}",
+        logged_in.headers
+    );
+    assert_lasting_session_cookie(set[0]);
+    let secret = support::session_cookie_secret(&signed_in);
+    let cookie = format!("kamosu_session={secret}");
+
+    // Used through the cookie alone, the answer sets the same Secret again with
+    // a fresh lifetime.
+    let (status, headers, body) =
+        app.post_op_with_headers_reply("list_jobs", &[("Cookie", &cookie)], "{}");
+    assert_eq!(status, 200, "{body}");
+    let renewed = set_cookies(&headers);
+    assert_eq!(renewed.len(), 1, "exactly one Set-Cookie: {headers:?}");
+    assert!(
+        renewed[0].starts_with(&format!("{cookie};")),
+        "the Secret does not change on renewal: {}",
+        renewed[0]
+    );
+    assert_lasting_session_cookie(renewed[0]);
+
+    // A bearer token is never this Door's to set a cookie for, whether or not
+    // the browser's cookie sits beside it.
+    let bearer = format!("Bearer {secret}");
+    for presented in [
+        vec![("Authorization", bearer.as_str())],
+        vec![
+            ("Authorization", bearer.as_str()),
+            ("Cookie", cookie.as_str()),
+        ],
+    ] {
+        let (status, headers, body) = app.post_op_with_headers_reply("list_jobs", &presented, "{}");
+        assert_eq!(status, 200, "{body}");
+        assert!(
+            set_cookies(&headers).is_empty(),
+            "a bearer token sets no cookie: {presented:?} → {headers:?}"
+        );
+    }
+
+    // A stranger has no cookie to renew.
+    let (status, headers, body) = app.post_op_with_headers_reply("instance_status", &[], "{}");
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        set_cookies(&headers).is_empty(),
+        "a stranger is set no cookie: {headers:?}"
     );
 }
 
