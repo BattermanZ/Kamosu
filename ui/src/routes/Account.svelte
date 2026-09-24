@@ -41,6 +41,8 @@
 	const kamosu = useKamosu();
 	const auth = useAuth();
 	let setupComplete = $state<boolean | undefined>(undefined);
+	/** The shortest password Kamosu accepts where one is set, as it says (#138). */
+	let passwordMinimum = $state(0);
 	/**
 	 * Whether this screen has given up learning the instance's state. Three
 	 * states, not two: still asking, answered, and asking failed. Collapsing the
@@ -51,12 +53,19 @@
 	let name = $state('');
 	let password = $state('');
 	let failed = $state<string | undefined>(undefined);
+	/**
+	 * Seconds until this name may be tried again, counted down in the line
+	 * where a refusal shows, which it replaces until it reaches zero (#138).
+	 */
+	let waiting = $state(0);
 	let busy = $state(false);
 	const invite = $derived(link?.startsWith('/invite/') ? link : undefined);
 	const recovery = $derived(link?.startsWith('/recover/') ? link : undefined);
 	const mode = $derived(
 		invite ? 'invite' : recovery ? 'recover' : setupComplete ? 'login' : 'first-person',
 	);
+	/** Every form but login sets a password, and says how long it must be. */
+	const settingAPassword = $derived(mode !== 'login');
 
 	/** Which ask is the current one, so a slow answer to an abandoned one is dropped. */
 	let latestAsk = 0;
@@ -80,7 +89,10 @@
 		for (let attempt = 0; attempt < 2; attempt++) {
 			try {
 				const status = await kamosu.instanceStatus();
-				if (mine === latestAsk) setupComplete = status.setup_complete;
+				if (mine === latestAsk) {
+					setupComplete = status.setup_complete;
+					passwordMinimum = status.password_minimum;
+				}
 				return;
 			} catch (error) {
 				// Anything at all, not refusals alone. Whatever went wrong, the
@@ -102,9 +114,24 @@
 		};
 	});
 
+	$effect(() => {
+		if (waiting <= 0) return;
+		const tick = setTimeout(() => (waiting -= 1), 1000);
+		return () => clearTimeout(tick);
+	});
+
 	async function submit() {
-		busy = true;
 		failed = undefined;
+		waiting = 0;
+		// Counted as Kamosu counts: characters, not UTF-16 units, of the password
+		// with its outer spaces off. Refused here so it can be said in the
+		// reader's Language; Kamosu refuses it too, in English, for a caller
+		// that is not this screen.
+		if (settingAPassword && [...password.trim()].length < passwordMinimum) {
+			failed = m.account_password_too_short({ count: passwordMinimum });
+			return;
+		}
+		busy = true;
 		try {
 			await auth.authenticate(mode, {
 				name: recovery ? undefined : name,
@@ -120,10 +147,13 @@
 			onSignedIn?.();
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
-			failed = error.message;
+			if (error.kind === 'busy' && error.retryAfterSeconds) waiting = error.retryAfterSeconds;
+			else failed = error.message;
 		} finally {
 			busy = false;
-			password = '';
+			// A try refused for its wait was never checked, so what was typed
+			// is kept for when the wait is over (#138).
+			if (waiting === 0) password = '';
 		}
 	}
 </script>
@@ -175,17 +205,28 @@
 					/>
 				</label>
 			{/if}
-			<label class="grid gap-1 text-body text-ink">
-				{m.account_password()}
-				<input
-					class="min-h-12 rounded-sm border border-rule bg-card px-3"
-					type="password"
-					bind:value={password}
-					required
-					autocomplete={mode === 'login' ? 'current-password' : 'new-password'}
-				/>
-			</label>
-			{#if failed}
+			<div class="grid gap-1">
+				<label class="grid gap-1 text-body text-ink">
+					{m.account_password()}
+					<input
+						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						type="password"
+						bind:value={password}
+						required
+						autocomplete={mode === 'login' ? 'current-password' : 'new-password'}
+						aria-describedby={settingAPassword ? 'password-minimum' : undefined}
+					/>
+				</label>
+				<!-- Said before anything is typed, where it is needed (#138, choice A). -->
+				{#if settingAPassword}
+					<p id="password-minimum" class="text-read text-ink-2">
+						{m.account_password_minimum({ count: passwordMinimum })}
+					</p>
+				{/if}
+			</div>
+			{#if waiting > 0}
+				<p class="text-body text-accent" role="alert">{m.account_wait({ seconds: waiting })}</p>
+			{:else if failed}
 				<p class="text-body text-accent" role="alert">{failed}</p>
 			{/if}
 			<button

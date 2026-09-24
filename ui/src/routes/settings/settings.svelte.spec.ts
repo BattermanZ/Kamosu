@@ -104,7 +104,7 @@ const readsInAmerican: Answers = {
 describe('the settings screen', () => {
 	it('asks the instance what it is, and says so', async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 		});
 
@@ -115,7 +115,7 @@ describe('the settings screen', () => {
 
 	it("offers the Operator's screen only to somebody who administers the instance", async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 		});
 		expect(await screen.findByText(/Version 0\.1\.0/)).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe('the settings screen', () => {
 
 	it("shows the way into the Operator's screen to an Operator", async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 			list_accounts: {
 				accounts: [
@@ -148,7 +148,7 @@ describe('the settings screen', () => {
 
 	it('says setup has not happened when it has not', async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: false },
+			instance_status: { version: '0.1.0', setup_complete: false, password_minimum: 15 },
 			...anonymous,
 		});
 
@@ -166,7 +166,7 @@ describe('the settings screen', () => {
 
 	it('offers every language Paraglide compiled, with the current one pressed', () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 		});
 
@@ -178,7 +178,7 @@ describe('the settings screen', () => {
 
 	it('shows nothing about Access when the visitor is not signed in', async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 		});
 
@@ -188,7 +188,7 @@ describe('the settings screen', () => {
 
 	it("lists a signed-in Person's Sessions and Access Keys together, each ending on its own", async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_accounts: { refuse: 'unauthorized' },
 			list_sessions: {
 				sessions: [
@@ -235,7 +235,7 @@ describe('the settings screen', () => {
 
 	it('offers Reading Measures on the account, defaulting to American', async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -261,7 +261,7 @@ describe('the settings screen', () => {
 
 	it("shows a minted Access Key's secret once, then never again", async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -287,7 +287,7 @@ describe('the settings screen', () => {
 
 	it("lists a signed-in Person's Kitchens, whose recipes each shows, and lets a member be removed", async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -342,7 +342,7 @@ describe('the settings screen', () => {
 				members: members.map(([person_id, name]) => ({ person_id, name })),
 			});
 		const signedIn = (kitchens: ReturnType<typeof kitchen>[], over: Answers = {}): Answers => ({
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -451,7 +451,7 @@ describe('the settings screen', () => {
 
 	it('creates a Kitchen from the form', async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -479,7 +479,7 @@ describe('the settings screen', () => {
 
 	it('mints a Kitchen Invite and shows its secret once', async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -510,7 +510,7 @@ describe('the settings screen', () => {
 
 	it('joins a Kitchen through a pasted Invite', async () => {
 		const { kamosu } = renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -545,7 +545,7 @@ describe('the settings screen', () => {
 		// opens onto still says *Settings* and still carries the one name that
 		// makes the card grow into it.
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			...readsInAmerican,
@@ -582,7 +582,7 @@ describe('the settings screen', () => {
 
 	it('keeps the "not right now" facts once their cards are put away (#76)', async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 		});
 		// The test browser is not a secure page, so this phone can keep nothing.
@@ -600,7 +600,7 @@ describe('the settings screen', () => {
 
 	/** One signed-in Person with one Kitchen and a Cookbook of their own, the ordinary case. */
 	const withKitchen: Answers = {
-		instance_status: { version: '0.1.0', setup_complete: true },
+		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		list_sessions: { sessions: [] },
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
@@ -800,7 +800,7 @@ describe('the settings screen', () => {
 	 */
 	it('offers the way into the Foods, to every Person and not only an Operator', async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
 			list_access_keys: { access_keys: [] },
 			list_kitchens: { kitchens: [] },
@@ -822,7 +822,7 @@ describe('the Reading Language (#112)', () => {
 	 * Kamosu in one Language and their recipes in another.
 	 */
 	const signedIn = (reading_language: 'en' | 'fr' | 'es'): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true },
+		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		list_sessions: { sessions: [] },
 		list_access_keys: { access_keys: [] },
 		list_kitchens: { kitchens: [] },
@@ -1019,7 +1019,7 @@ describe('the Reading Language (#112)', () => {
 
 	it('tells a stranger only what the words control does, since there is no account to follow', async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 		});
 
@@ -1056,7 +1056,7 @@ describe('your own name (#113)', () => {
 	});
 
 	const signedIn = (over: Answers = {}): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true },
+		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		list_sessions: { sessions: [] },
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
@@ -1183,7 +1183,7 @@ describe('your own name (#113)', () => {
 
 	it('shows a stranger no name to change', async () => {
 		renderScreen(Settings, {
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			...anonymous,
 		});
 
@@ -1211,7 +1211,7 @@ describe('telling your Sessions apart (#114)', () => {
 	];
 
 	const signedIn = (over: Answers = {}): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true },
+		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		list_sessions: { sessions: three },
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
@@ -1351,7 +1351,7 @@ describe('telling your Sessions apart (#114)', () => {
 // one-use link that makes it a Cookbook you write with somebody.
 describe('your Cookbook (#131)', () => {
 	const signedIn = (over: Answers = {}): Answers => ({
-		instance_status: { version: '0.1.0', setup_complete: true },
+		instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		list_sessions: { sessions: [] },
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,

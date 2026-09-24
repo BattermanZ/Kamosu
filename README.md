@@ -75,6 +75,15 @@ because an expiry fires on a phone that spent a fortnight offline at the stove
 rather than on a thief. End the session from another device instead. That works
 immediately, which a timer would not have.
 
+**Someone who knows your name here can keep you from signing in while they keep
+guessing.** Each wrong password makes the next try at that name wait, up to 30
+seconds, and a try that arrives during the wait is refused rather than checked.
+That keeps their guesses slow however many they send at once, and it means yours
+wait too. A crowd of tries at made-up names can do the same to everyone's login
+at once, for as long as the crowd keeps coming, because only two passwords are
+checked at a time. Devices already signed in are untouched, and an Operator can
+send you a recovery link.
+
 **An agent does what it is told, including by text it reads.** This one is
 Kamosu's own, and it comes straight from making an agent a first-class user. An
 agent holding your Access Key reads recipe pages and recipe files that other
@@ -101,10 +110,13 @@ so Kamosu on its open port with no proxy at all is exactly as safe as Kamosu
 behind one, minus encryption in transit.
 
 Every secret is 256 bits, stored only as a hash, shown once when it is made,
-revocable one at a time, and on no clock. Wrong passwords slow the door and
-never shut it, because a lockout is a weapon handed to anyone who knows an
-account name. Nothing else is throttled, since 256 bits cannot be guessed and
-pretending otherwise would imply the number was too small.
+revocable one at a time, and on no clock. A new password needs at least 15
+characters. A wrong one makes the next try at that name wait, up to 30 seconds,
+and one try at a time is checked, so guesses sent together are no faster than
+guesses sent in turn. The right password clears the count, and waiting holds
+nothing, so a crowd of wrong passwords cannot slow anything else down.
+Nothing else is throttled, since 256 bits cannot be guessed and pretending
+otherwise would imply the number was too small.
 
 When Kamosu fetches a URL you gave it, it connects only to public addresses,
 checked against the address actually dialled and re-checked on every redirect.

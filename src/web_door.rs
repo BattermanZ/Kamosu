@@ -35,26 +35,34 @@ pub fn router(core: Arc<Core>) -> Router {
         // every Operation, then the cookie becomes the Credential the Door carries.
         .route(
             "/auth/first-person",
-            post(move |body: Option<Json<Value>>| async move {
-                respond(authenticate_first_person(&first_core, body))
+            post(move |body: Option<Json<Value>>| {
+                with_a_password(first_core.clone(), move |core| {
+                    authenticate_first_person(core, body)
+                })
             }),
         )
         .route(
             "/auth/login",
-            post(move |body: Option<Json<Value>>| async move {
-                respond(authenticate_login(&login_core, body))
+            post(move |body: Option<Json<Value>>| {
+                with_a_password(login_core.clone(), move |core| {
+                    authenticate_login(core, body)
+                })
             }),
         )
         .route(
             "/auth/invite",
-            post(move |body: Option<Json<Value>>| async move {
-                respond(authenticate_invite(&invite_core, body))
+            post(move |body: Option<Json<Value>>| {
+                with_a_password(invite_core.clone(), move |core| {
+                    authenticate_invite(core, body)
+                })
             }),
         )
         .route(
             "/auth/recover",
-            post(move |body: Option<Json<Value>>| async move {
-                respond(authenticate_recovery(&recovery_core, body))
+            post(move |body: Option<Json<Value>>| {
+                with_a_password(recovery_core.clone(), move |core| {
+                    authenticate_recovery(core, body)
+                })
             }),
         );
     // Photographs travel out of band, authenticated with the same Credential
@@ -163,6 +171,20 @@ const MAX_BODY_BYTES: usize = 40 * 1024 * 1024;
 /// Catalogue does not declare. Naming it back is the whole of the answer.
 async fn unknown_operation(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
     respond(Err(OpError::unknown_operation(&name)))
+}
+
+/// Run an `/auth/…` route off the request workers (#138). Every one hashes or
+/// checks a password, ~20 MiB of Argon2 each, and may wait for one of the few
+/// threads allowed to; on a Tokio worker either would stall every other
+/// request that worker carries. The blocking pool is where that belongs.
+async fn with_a_password(
+    core: Arc<Core>,
+    route: impl FnOnce(&Core) -> Result<Value, OpError> + Send + 'static,
+) -> Response {
+    let answer = tokio::task::spawn_blocking(move || route(&core))
+        .await
+        .unwrap_or_else(|e| Err(OpError::internal(format!("the password work stopped: {e}"))));
+    respond(answer)
 }
 
 fn authenticate_first_person(core: &Core, body: Option<Json<Value>>) -> Result<Value, OpError> {
@@ -599,6 +621,11 @@ fn respond_to(headers: &HeaderMap, result: Result<Value, OpError>) -> Response {
         }
         Err(err) => {
             let mut response = (status_for(err.kind), Json(error_body(&err))).into_response();
+            if let Some(seconds) = err.retry_after_seconds {
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+            }
             // A Session that has ended leaves the browser still holding its
             // cookie, and holding it is what makes even a Public Operation come
             // back refused — so without this the browser waits on the sign-in
@@ -621,13 +648,14 @@ fn respond_to(headers: &HeaderMap, result: Result<Value, OpError>) -> Response {
 }
 
 fn error_body(err: &OpError) -> Value {
-    json!({
-        "ok": false,
-        "error": {
-            "kind": kind_name(err.kind),
-            "message": err.to_sentence(),
-        },
-    })
+    let mut error = json!({
+        "kind": kind_name(err.kind),
+        "message": err.to_sentence(),
+    });
+    if let Some(seconds) = err.retry_after_seconds {
+        error["retry_after_seconds"] = json!(seconds);
+    }
+    json!({ "ok": false, "error": error })
 }
 
 fn status_for(kind: ErrorKind) -> StatusCode {

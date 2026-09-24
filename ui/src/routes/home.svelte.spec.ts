@@ -168,7 +168,7 @@ describe('Home', () => {
 		// and the answer is the form. There is no cookie read anywhere here.
 		renderScreen(Page, {
 			home_shelves: { refuse: 'unauthorized' },
-			instance_status: { version: '0.1.0', setup_complete: true },
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();

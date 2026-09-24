@@ -1510,7 +1510,7 @@ async fn renaming_yourself_reaches_every_version_you_wrote_and_moves_no_id() {
     // told so in words rather than in SQLite's.
     let (_, minted) = app.post_op("mint_invite", Some(secret), "{}");
     let link = minted["result"]["link"].as_str().expect("invite link");
-    let join = json!({ "link": link, "name": "Marie", "password": "Marie's own", "session_name": "Marie's phone" });
+    let join = json!({ "link": link, "name": "Marie", "password": "Marie's own password", "session_name": "Marie's phone" });
     let joined = app.post_auth_response("/auth/invite", &join.to_string());
     assert_eq!(joined.status, 200, "{}", joined.text());
     let marie = support::session_cookie_secret(&joined);
@@ -4964,21 +4964,29 @@ async fn login_throttling_slows_guesses_but_a_correct_password_clears_it() {
         json!({ "name": "Aurélien", "password": "wrong", "session_name": "laptop" }).to_string();
     assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
     assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    // The third guess waits a second, and is refused rather than held while
+    // it does (#138): the answer comes at once and says how long.
     let started = Instant::now();
-    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    let (status, refused) = app.post_auth("/auth/login", &wrong);
+    assert_eq!(status, 503, "the third guess must wait: {refused}");
+    assert_eq!(
+        refused["error"]["retry_after_seconds"],
+        json!(1),
+        "{refused}"
+    );
     assert!(
-        started.elapsed() >= Duration::from_secs(1),
-        "the third guess must wait"
+        started.elapsed() < Duration::from_secs(1),
+        "the wait holds nothing"
     );
 
+    std::thread::sleep(Duration::from_millis(1100));
     let correct =
         json!({ "name": "Aurélien", "password": "the right password", "session_name": "laptop" })
             .to_string();
     assert_eq!(app.post_auth("/auth/login", &correct).0, 200);
-    let started = Instant::now();
-    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
-    assert!(
-        started.elapsed() < Duration::from_secs(1),
+    assert_eq!(
+        app.post_auth("/auth/login", &wrong).0,
+        401,
         "a correct password clears the throttle"
     );
 }
@@ -5607,7 +5615,7 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     let operator_secret = operator_secret.as_str();
 
     let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
-    let marie = json!({ "link": invite["result"]["link"], "name": "Marie", "password": "old password", "session_name": "Marie’s browser" });
+    let marie = json!({ "link": invite["result"]["link"], "name": "Marie", "password": "her old password", "session_name": "Marie’s browser" });
     assert_eq!(app.post_auth("/auth/invite", &marie.to_string()).0, 200);
 
     let (_, recovery) = app.post_op(
@@ -5615,7 +5623,7 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
         Some(operator_secret),
         r#"{"name":"Marie"}"#,
     );
-    let recovered = json!({ "link": recovery["result"]["link"], "password": "new password", "session_name": "replacement browser" });
+    let recovered = json!({ "link": recovery["result"]["link"], "password": "her new password", "session_name": "replacement browser" });
     let recovery_session = app.post_auth_response("/auth/recover", &recovered.to_string());
     assert_eq!(recovery_session.status, 200, "{}", recovery_session.text());
     assert_eq!(
@@ -5626,7 +5634,7 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     assert_eq!(
         app.post_auth(
             "/auth/login",
-            &json!({ "name":"Marie", "password":"new password", "session_name":"laptop" })
+            &json!({ "name":"Marie", "password":"her new password", "session_name":"laptop" })
                 .to_string()
         )
         .0,
@@ -5642,7 +5650,7 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     assert_eq!(
         app.post_auth(
             "/auth/login",
-            &json!({ "name":"Marie", "password":"new password", "session_name":"laptop" })
+            &json!({ "name":"Marie", "password":"her new password", "session_name":"laptop" })
                 .to_string()
         )
         .0,
@@ -5651,7 +5659,7 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     );
 
     let (_, second_invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
-    let zoe = json!({ "link": second_invite["result"]["link"], "name": "Zoé", "password": "her password", "session_name": "Zoé’s browser" });
+    let zoe = json!({ "link": second_invite["result"]["link"], "name": "Zoé", "password": "her own password", "session_name": "Zoé’s browser" });
     assert_eq!(app.post_auth("/auth/invite", &zoe.to_string()).0, 200);
     let (status, deleted) =
         app.post_op("delete_account", Some(operator_secret), r#"{"name":"Zoé"}"#);
@@ -5659,7 +5667,7 @@ async fn an_operator_can_disable_delete_and_recover_accounts_without_reading_the
     assert_eq!(
         app.post_auth(
             "/auth/login",
-            &json!({ "name":"Zoé", "password":"her password", "session_name":"laptop" })
+            &json!({ "name":"Zoé", "password":"her own password", "session_name":"laptop" })
                 .to_string()
         )
         .0,
@@ -5685,7 +5693,7 @@ async fn the_last_operator_cannot_be_stood_down_disabled_or_deleted() {
     // A second Person who is not an Operator changes nothing: the instance
     // still has exactly one Person who can administer it.
     let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
-    let marie = json!({ "link": invite["result"]["link"], "name": "Marie", "password": "her password", "session_name": "Marie’s browser" });
+    let marie = json!({ "link": invite["result"]["link"], "name": "Marie", "password": "her own password", "session_name": "Marie’s browser" });
     assert_eq!(app.post_auth("/auth/invite", &marie.to_string()).0, 200);
 
     for (op, body) in [
@@ -5736,7 +5744,7 @@ async fn an_operator_may_step_down_once_somebody_else_administers() {
     let operator_secret = operator_secret.as_str();
 
     let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
-    let noor = json!({ "link": invite["result"]["link"], "name": "Noor", "password": "her password", "session_name": "Noor’s browser" });
+    let noor = json!({ "link": invite["result"]["link"], "name": "Noor", "password": "her own password", "session_name": "Noor’s browser" });
     let joined = app.post_auth_response("/auth/invite", &noor.to_string());
     assert_eq!(joined.status, 200, "{}", joined.text());
     let noor_secret = support::session_cookie_secret(&joined);
@@ -5796,7 +5804,7 @@ async fn the_accounts_list_names_who_is_here_and_nothing_they_cooked() {
 
     for who in ["Camille", "Théo"] {
         let (_, invite) = app.post_op("mint_invite", Some(operator_secret), "{}");
-        let joining = json!({ "link": invite["result"]["link"], "name": who, "password": "their password", "session_name": "a browser" });
+        let joining = json!({ "link": invite["result"]["link"], "name": who, "password": "their own password", "session_name": "a browser" });
         assert_eq!(app.post_auth("/auth/invite", &joining.to_string()).0, 200);
     }
     assert_eq!(
@@ -6059,7 +6067,7 @@ async fn a_name_still_held_is_refused_in_words_and_spends_no_invite() {
         let link = minted["result"]["link"].clone();
         let taken = app.post_auth_response(
             "/auth/invite",
-            &json!({ "link": link, "name": who, "password": "a password", "session_name": "a phone" })
+            &json!({ "link": link, "name": who, "password": "a long enough password", "session_name": "a phone" })
                 .to_string(),
         );
         assert_eq!(taken.status, 400, "{who}: {}", taken.text());
@@ -6073,7 +6081,7 @@ async fn a_name_still_held_is_refused_in_words_and_spends_no_invite() {
         // The failed attempt rolled back, so the same link still works.
         let other = app.post_auth_response(
             "/auth/invite",
-            &json!({ "link": link, "name": format!("{who} B"), "password": "a password", "session_name": "a phone" })
+            &json!({ "link": link, "name": format!("{who} B"), "password": "a long enough password", "session_name": "a phone" })
                 .to_string(),
         );
         assert_eq!(

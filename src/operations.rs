@@ -28,9 +28,11 @@ use serde_json::json;
 use crate::core::{Caller, Core, Invocation, OpError, Reading, RelatedSide};
 use crate::jobs;
 
-/// The instance status: the version and whether setup has happened.
+/// The instance status: the version, whether setup has happened, and the
+/// shortest password a sign-in screen should ask for (#138).
 ///
-/// Input: `{}` (declared in the Catalogue). Output: `{ version, setup_complete }`.
+/// Input: `{}` (declared in the Catalogue). Output: `{ version, setup_complete,
+/// password_minimum }`.
 pub fn instance_status(
     core: &Core,
     _invocation: &Invocation,
@@ -39,6 +41,7 @@ pub fn instance_status(
     Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "setup_complete": core.setup_complete()?,
+        "password_minimum": crate::core::PASSWORD_MINIMUM,
     }))
 }
 

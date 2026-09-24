@@ -15,7 +15,9 @@ import RecoverRoute from './recover/[secret]/+page.svelte';
 describe('the account screen', () => {
 	const user = userEvent.setup();
 	it('offers the first visitor account creation', async () => {
-		renderScreen(Account, { instance_status: { version: '0.1.0', setup_complete: false } });
+		renderScreen(Account, {
+			instance_status: { version: '0.1.0', setup_complete: false, password_minimum: 15 },
+		});
 
 		expect(await screen.findByRole('heading', { name: 'Set up Kamosu' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Create my account' })).toBeInTheDocument();
@@ -24,7 +26,9 @@ describe('the account screen', () => {
 	});
 
 	it('offers login once the first person exists', async () => {
-		renderScreen(Account, { instance_status: { version: '0.1.0', setup_complete: true } });
+		renderScreen(Account, {
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Log in' })).toBeInTheDocument();
@@ -39,7 +43,7 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'unauthorized', message: 'this Credential does not name anyone' }
-					: { version: '0.1.0', setup_complete: true },
+					: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		});
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
@@ -82,7 +86,7 @@ describe('the account screen', () => {
 			instance_status: () =>
 				++asked === 1
 					? { refuse: 'internal', message: 'the database is unreadable' }
-					: { version: '0.1.0', setup_complete: true },
+					: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		});
 
 		await user.click(await screen.findByRole('button', { name: 'Try again' }));
@@ -117,7 +121,9 @@ describe('the account screen', () => {
 			render(Harness, {
 				props: {
 					component: Account,
-					client: standIn({ instance_status: { version: '0.1.0', setup_complete: true } }).client,
+					client: standIn({
+						instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+					}).client,
 					auth: { authenticate },
 				},
 			});
@@ -141,6 +147,84 @@ describe('the account screen', () => {
 		});
 	});
 
+	// A password being set has a minimum, said before anything is typed; a
+	// wrong one at login makes the name wait, and the screen counts it down
+	// (#138, choices A and A).
+	describe('the password minimum and the wait (#138)', () => {
+		afterEach(() => vi.useRealTimers());
+
+		function signInWith(setupComplete: boolean, authenticate: AuthClient['authenticate']) {
+			render(Harness, {
+				props: {
+					component: Account,
+					client: standIn({
+						instance_status: {
+							version: '0.1.0',
+							setup_complete: setupComplete,
+							password_minimum: 15,
+						},
+					}).client,
+					auth: { authenticate },
+				},
+			});
+		}
+
+		it('says the minimum under the password while one is being set', async () => {
+			signInWith(false, async () => {});
+
+			const password = await screen.findByLabelText('Password');
+			expect(password).toHaveAccessibleDescription('At least 15 characters.');
+		});
+
+		it('says nothing about length at login', async () => {
+			signInWith(true, async () => {});
+
+			const password = await screen.findByLabelText('Password');
+			expect(password).not.toHaveAccessibleDescription();
+			expect(screen.queryByText('At least 15 characters.')).not.toBeInTheDocument();
+		});
+
+		it('refuses a password that is too short in words, without asking Kamosu', async () => {
+			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+			signInWith(false, authenticate);
+
+			await user.type(await screen.findByLabelText('Name'), 'Aurélien');
+			await user.type(screen.getByLabelText('Password'), 'fourteen chars');
+			await user.click(screen.getByRole('button', { name: 'Create my account' }));
+
+			expect(screen.getByRole('alert')).toHaveTextContent(
+				'Your new password needs at least 15 characters.',
+			);
+			expect(authenticate).not.toHaveBeenCalled();
+		});
+
+		it('counts the wait down, and takes the line away at zero', async () => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			signInWith(true, async () => {
+				throw new OperationError(
+					'authentication',
+					'busy',
+					'too many wrong passwords for this name — try again in 2 s',
+					{ retryAfterSeconds: 2 },
+				);
+			});
+
+			await user.type(await screen.findByLabelText('Name'), 'Aurélien');
+			await user.type(screen.getByLabelText('Password'), 'a guess');
+			await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+			expect(await screen.findByRole('alert')).toHaveTextContent(
+				'Too many wrong passwords for this name. Try again in 2 s.',
+			);
+			// Nothing was checked, so nothing typed is thrown away.
+			expect(screen.getByLabelText('Password')).toHaveValue('a guess');
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(screen.getByRole('alert')).toHaveTextContent('Try again in 1 s.');
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		});
+	});
+
 	// An Invite and a recovery link each open a page of their own. Until #126
 	// neither existed, and both addresses opened Not Found: the form knew what to
 	// do with a link, but no route ever showed it one.
@@ -155,7 +239,9 @@ describe('the account screen', () => {
 				props: {
 					route,
 					secret,
-					client: standIn({ instance_status: { version: '0.1.0', setup_complete: true } }).client,
+					client: standIn({
+						instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+					}).client,
 					auth: { authenticate },
 				},
 			});
@@ -167,7 +253,7 @@ describe('the account screen', () => {
 
 			expect(await screen.findByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
 			await user.type(screen.getByLabelText('Name'), 'Camille');
-			await user.type(screen.getByLabelText('Password'), 'a password');
+			await user.type(screen.getByLabelText('Password'), 'a password long enough');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			// The whole path, prefix and all: the Core strips `/invite/` itself.
@@ -176,7 +262,7 @@ describe('the account screen', () => {
 				expect.objectContaining({
 					link: '/invite/8f2c1a94e07b',
 					name: 'Camille',
-					password: 'a password',
+					password: 'a password long enough',
 				}),
 			);
 			expect(went).toHaveBeenCalledWith('/');
@@ -191,12 +277,15 @@ describe('the account screen', () => {
 			).toBeInTheDocument();
 			// The link already says whose password this is.
 			expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
-			await user.type(screen.getByLabelText('Password'), 'a new password');
+			await user.type(screen.getByLabelText('Password'), 'a new password, long enough');
 			await user.click(screen.getByRole('button', { name: 'Set new password' }));
 
 			expect(authenticate).toHaveBeenCalledWith(
 				'recover',
-				expect.objectContaining({ link: '/recover/3b71d0ae5c92', password: 'a new password' }),
+				expect.objectContaining({
+					link: '/recover/3b71d0ae5c92',
+					password: 'a new password, long enough',
+				}),
 			);
 			expect(authenticate).not.toHaveBeenCalledWith(
 				'recover',
@@ -217,7 +306,7 @@ describe('the account screen', () => {
 			});
 
 			await user.type(await screen.findByLabelText('Name'), 'Camille');
-			await user.type(screen.getByLabelText('Password'), 'a password');
+			await user.type(screen.getByLabelText('Password'), 'a password long enough');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
 			expect(await screen.findByRole('alert')).toHaveTextContent(

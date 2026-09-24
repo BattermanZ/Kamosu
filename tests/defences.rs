@@ -643,54 +643,74 @@ async fn ending_one_secret_leaves_every_other_one_working() {
 
 // --- Throttling only where the secret is human-chosen (ADR 0031) -------------
 
-/// A password is short and chosen by a person, so a wrong one slows the next
-/// try. Every other Secret is 256 bits, which cannot be guessed, so throttling
-/// one would defend a door with no handle while implying the size was not
-/// enough. Nothing but the password path may slow down.
+/// A login body for the Operator `operator` creates, with the password given.
+fn login_as_the_operator(password: &str) -> String {
+    json!({
+        "name": "Aurélien",
+        "password": password,
+        "session_name": "somewhere else",
+    })
+    .to_string()
+}
+
+/// The seconds a `busy` refusal says to wait, which the sign-in screen counts
+/// down (#138). Absent means the refusal was not the throttle's.
+fn seconds_to_wait(refused: &Value) -> Option<u64> {
+    refused["error"]["retry_after_seconds"].as_u64()
+}
+
+/// A password is short and chosen by a person, so a wrong one makes the next
+/// try for that name wait. Every other Secret is 256 bits, which cannot be
+/// guessed, so throttling one would defend a door with no handle while
+/// implying the size was not enough. Nothing but the password path may slow
+/// down.
+///
+/// The wait holds nothing (#138). A try that arrives before it is over is
+/// refused at once as busy, saying how long is left, rather than parked on a
+/// thread until then — so a crowd of tries cannot freeze the instance, and
+/// the throttle limits them however many arrive together.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn throttling_exists_only_where_the_secret_is_human_chosen() {
     let app = support::spawn_app();
     let (_person, _key) = operator(&app);
+    let wrong = login_as_the_operator("not the password");
+    let right = login_as_the_operator("a password only its person knows");
 
-    // Wrong passwords: the door slows. Two misses are free, then the delay
-    // doubles from one second, so four wrong answers cost at least three
-    // seconds in total.
-    let wrong = json!({
-        "name": "Aurélien",
-        "password": "not the password",
-        "session_name": "somewhere else",
-    })
-    .to_string();
-    let started = std::time::Instant::now();
-    for _ in 0..4 {
-        assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    // Two misses are free.
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+
+    // The third, straight after, is refused unchecked: the name waits a
+    // second first. Even the right password waits it out, which is the narrow
+    // lockout ADR 0031 accepts: devices already signed in keep their Session.
+    for body in [&wrong, &right] {
+        let (status, refused) = app.post_auth("/auth/login", body);
+        assert_eq!(status, 503, "{refused}");
+        assert_eq!(refused["error"]["kind"], "busy", "{refused}");
+        assert_eq!(seconds_to_wait(&refused), Some(1), "{refused}");
     }
-    let slowed = started.elapsed();
-    assert!(
-        slowed >= std::time::Duration::from_secs(3),
-        "wrong passwords must slow the door, took {slowed:?}"
-    );
 
-    // A correct password is always accepted. The door slows, it never shuts,
-    // because a lockout is a weapon handed to whoever knows an account name.
-    // The delay already accrued is still paid on the way through; what the
-    // right password buys is that the *next* try is free again.
-    let right = json!({
-        "name": "Aurélien",
-        "password": "a password only its person knows",
-        "session_name": "laptop",
-    })
-    .to_string();
+    // Once the second has passed, the next try is checked, and a miss doubles
+    // the wait.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    let (status, refused) = app.post_auth("/auth/login", &right);
+    assert_eq!(status, 503, "{refused}");
+    assert_eq!(seconds_to_wait(&refused), Some(2), "{refused}");
+
+    // The right password after the wait gets in, and clears the count: the
+    // try after it is free again.
+    std::thread::sleep(std::time::Duration::from_millis(2100));
     assert_eq!(
         app.post_auth("/auth/login", &right).0,
         200,
-        "wrong guesses must never lock the household out"
+        "wrong guesses must never lock the household out for longer than the wait"
     );
-    let started = std::time::Instant::now();
-    assert_eq!(app.post_auth("/auth/login", &right).0, 200);
-    assert!(
-        started.elapsed() < std::time::Duration::from_secs(1),
-        "a correct password clears the count: the next login must be free again"
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    assert_eq!(
+        app.post_auth("/auth/login", &right).0,
+        200,
+        "a correct password clears the count"
     );
 
     // Wrong bearer Secrets: refused at full speed, however many times. A
@@ -719,6 +739,146 @@ async fn throttling_exists_only_where_the_secret_is_human_chosen() {
         enumerating < std::time::Duration::from_secs(3),
         "Share Link lookups must not be throttled, 30 tries took {enumerating:?}"
     );
+}
+
+/// Wrong passwords sent together, more of them than the runtime has workers,
+/// leave every other request answering (#138). The wait used to sleep on a
+/// request worker, so four tries at a throttled name froze the instance for
+/// everyone for thirty seconds; and checking a password is ~20 MiB of Argon2
+/// that used to run on those same workers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wrong_passwords_in_a_crowd_leave_every_other_request_answering() {
+    let app = support::spawn_app();
+    operator(&app);
+    let wrong = login_as_the_operator("not the password");
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+
+    // The name now waits. Eight more tries at it, and eight at names nobody
+    // holds, each of which is checked against a password all the same.
+    let strangers: Vec<String> = (0..8)
+        .map(|n| {
+            json!({ "name": format!("nobody {n}"), "password": "a guess at it", "session_name": "x" })
+                .to_string()
+        })
+        .collect();
+    std::thread::scope(|scope| {
+        let crowd: Vec<_> = std::iter::repeat_n(&wrong, 8)
+            .chain(strangers.iter())
+            .map(|body| scope.spawn(|| app.post_auth("/auth/login", body).0))
+            .collect();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let started = std::time::Instant::now();
+        let (status, answer) = app.post_op("instance_status", None, "{}");
+        let took = started.elapsed();
+        assert_eq!(status, 200, "{answer}");
+        assert!(
+            took < std::time::Duration::from_secs(1),
+            "a crowd of wrong passwords froze an unrelated request for {took:?}"
+        );
+        for attempt in crowd {
+            let status = attempt.join().expect("a sign-in attempt");
+            assert!(
+                matches!(status, 401 | 503),
+                "a wrong password answered {status}"
+            );
+        }
+    });
+}
+
+/// However many tries at one name arrive together, at most one is checked
+/// (#138, choice A). The rest are refused at once as busy, with the seconds
+/// left to wait — so sending guesses in parallel buys nothing over sending
+/// them one at a time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tries_at_one_name_sent_together_are_checked_one_at_a_time() {
+    let app = support::spawn_app();
+    operator(&app);
+    let wrong = login_as_the_operator("not the password");
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    assert_eq!(app.post_auth("/auth/login", &wrong).0, 401);
+    // Past the one-second wait, so exactly one of what follows may be checked.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+
+    let answers: Vec<(u16, Value)> = std::thread::scope(|scope| {
+        let tries: Vec<_> = (0..12)
+            .map(|_| scope.spawn(|| app.post_auth("/auth/login", &wrong)))
+            .collect();
+        tries
+            .into_iter()
+            .map(|t| t.join().expect("a try"))
+            .collect()
+    });
+    let checked = answers.iter().filter(|(status, _)| *status == 401).count();
+    assert_eq!(checked, 1, "exactly one try is checked: {answers:?}");
+    for (status, answer) in answers.iter().filter(|(status, _)| *status != 401) {
+        assert_eq!(*status, 503, "{answer}");
+        assert_eq!(answer["error"]["kind"], "busy", "{answer}");
+        let seconds = seconds_to_wait(answer).expect("a busy refusal says how long");
+        assert!((1..=2).contains(&seconds), "{answer}");
+    }
+}
+
+/// A new password has a minimum length, NIST SP 800-63B-4's fifteen
+/// characters, wherever one is set (#138). The refusal names the number.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_password_must_be_fifteen_characters() {
+    let app = support::spawn_app();
+    let short = "fourteen chars";
+    assert_eq!(short.chars().count(), 14);
+
+    let (status, refused) = app.post_auth(
+        "/auth/first-person",
+        &json!({ "name": "Aurélien", "password": short, "session_name": "x" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused["error"]["message"].as_str().unwrap().contains("15"),
+        "{refused}"
+    );
+
+    operator(&app);
+    let invite = app.core.mint_invite(false).expect("an Invite");
+    let (status, refused) = app.post_auth(
+        "/auth/invite",
+        &json!({ "link": invite, "name": "Marie", "password": short, "session_name": "x" })
+            .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused["error"]["message"].as_str().unwrap().contains("15"),
+        "{refused}"
+    );
+
+    let recovery = app
+        .core
+        .mint_recovery_link("Aurélien")
+        .expect("a recovery link");
+    let (status, refused) = app.post_auth(
+        "/auth/recover",
+        &json!({ "link": recovery, "password": short, "session_name": "x" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused["error"]["message"].as_str().unwrap().contains("15"),
+        "{refused}"
+    );
+
+    // Neither link was spent by a refusal: fifteen characters goes through.
+    let long_enough = "fifteen charact";
+    assert_eq!(long_enough.chars().count(), 15);
+    let (status, answer) = app.post_auth(
+        "/auth/invite",
+        &json!({ "link": invite, "name": "Marie", "password": long_enough, "session_name": "x" })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{answer}");
+    let (status, answer) = app.post_auth(
+        "/auth/recover",
+        &json!({ "link": recovery, "password": long_enough, "session_name": "x" }).to_string(),
+    );
+    assert_eq!(status, 200, "{answer}");
 }
 
 // --- A stranger causes work, never work that scales (ADR 0032) ---------------
@@ -871,6 +1031,11 @@ fn the_honest_list_is_shipped_whole_in_both_places() {
             "a stolen phone",
             "is a logged-in phone",
             "settings_stolen_phone",
+        ),
+        (
+            "a name held off",
+            "keep you from signing in",
+            "settings_name_held_off",
         ),
         (
             "an agent",

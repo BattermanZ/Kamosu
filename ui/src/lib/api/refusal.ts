@@ -31,17 +31,23 @@ export class OperationError extends Error {
 	 * not been asked yet.
 	 */
 	readonly reached: boolean;
+	/**
+	 * How many seconds to wait before asking again, where Kamosu said: a
+	 * sign-in tried while its name still waits out wrong passwords (#138).
+	 */
+	readonly retryAfterSeconds: number | undefined;
 
 	constructor(
 		operation: string,
 		kind: ErrorKind,
 		message: string,
-		options?: ErrorOptions & { reached?: boolean },
+		options?: ErrorOptions & { reached?: boolean; retryAfterSeconds?: number },
 	) {
 		super(message, options);
 		this.name = 'OperationError';
 		this.kind = kind;
 		this.operation = operation;
 		this.reached = options?.reached ?? true;
+		this.retryAfterSeconds = options?.retryAfterSeconds;
 	}
 }

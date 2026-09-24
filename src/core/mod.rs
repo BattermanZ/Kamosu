@@ -99,6 +99,11 @@ pub struct OpError {
     /// cookie it set (#91) — but the distinction is drawn here, once, as every
     /// authorisation decision is.
     pub credential_names_nobody: bool,
+    /// How many seconds to wait before asking again, on the one refusal that
+    /// knows: a sign-in tried while its name is still waiting (#138). The web
+    /// door carries it as `retry_after_seconds` and a `Retry-After` header, and
+    /// the sign-in screen counts it down.
+    pub retry_after_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +132,7 @@ impl OpError {
             kind,
             message: message.into(),
             credential_names_nobody: false,
+            retry_after_seconds: None,
         }
     }
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -158,6 +164,14 @@ impl OpError {
             ErrorKind::Busy,
             "Kamosu is busy right now — try again in a moment",
         )
+    }
+    /// Busy for a known while: this name's sign-in is waiting out a wrong
+    /// password, or another try at it is being checked (#138).
+    pub fn wait(seconds: u64, message: impl Into<String>) -> Self {
+        OpError {
+            retry_after_seconds: Some(seconds),
+            ..OpError::of(ErrorKind::Busy, message)
+        }
     }
     pub fn internal(message: impl Into<String>) -> Self {
         OpError::of(ErrorKind::Internal, message)
@@ -228,6 +242,9 @@ pub struct Core {
     /// (ADR 0029). Nothing branches on that outside the two places that must:
     /// the search itself, and the Operations that turn it on.
     meaning: Arc<crate::meaning::MeaningSearch>,
+    /// Whose login is waiting, and the few threads that may hash or check a
+    /// password at once (#138).
+    passwords: accounts::Passwords,
 }
 
 impl Core {
@@ -238,7 +255,12 @@ impl Core {
         let meaning = Arc::new(crate::meaning::MeaningSearch::new(
             db.data_dir().to_path_buf(),
         ));
-        Core { db, lanes, meaning }
+        Core {
+            db,
+            lanes,
+            meaning,
+            passwords: accounts::Passwords::default(),
+        }
     }
 
     /// Open the database *and* start carrying Jobs: both Doors share this entry.
@@ -250,7 +272,13 @@ impl Core {
         let meaning = Arc::new(crate::meaning::MeaningSearch::new(
             db.data_dir().to_path_buf(),
         ));
-        let core = Core { db, lanes, meaning };
+        let core = Core {
+            db,
+            lanes,
+            meaning,
+            passwords: accounts::Passwords::default(),
+        };
+        core.passwords.prepare();
         let core = Arc::new(core);
         jobs::spawn_workers(core.clone(), receivers);
         spawn_orphan_sweep(core.clone());

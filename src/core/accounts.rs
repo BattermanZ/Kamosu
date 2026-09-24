@@ -2,6 +2,9 @@
 //! Keys, invites, recovery links, a Person's Reading Language, and who is
 //! Operator.
 
+use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
+use std::time::{Duration, Instant};
+
 use super::*;
 
 /// The answer to minting an Access Key: the raw Secret, shown once and never
@@ -94,8 +97,16 @@ impl Core {
         session_name: &str,
     ) -> Result<Value, OpError> {
         let name = required_text(name, "name")?;
-        let password_hash = hash_password(password)?;
         let session_name = required_text(session_name, "session_name")?;
+        // Refused before the hash, which is the costly part (#138). The
+        // reservation below still decides it, so two racing requests still
+        // make one Operator.
+        if self.setup_complete()? {
+            return Err(OpError::unauthorized(
+                "this instance already has its first Person",
+            ));
+        }
+        let password_hash = self.passwords.work.hash(new_password(password)?)?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
@@ -157,46 +168,38 @@ impl Core {
     }
 
     /// Check a human-chosen password and mint the browser Session it unlocks.
+    ///
+    /// One try per name is checked at a time, and none while the name waits
+    /// out its wrong passwords: those are refused at once as busy, with the
+    /// seconds left (#138). Nothing here sleeps.
     pub fn log_in(&self, name: &str, password: &str, session_name: &str) -> Result<Value, OpError> {
         let name = required_text(name, "name")?;
         let session_name = required_text(session_name, "session_name")?;
-        self.throttle_login(name)?;
-        let password_hash: Option<String> = self.db().with_conn(|conn| {
+        let turn = self.passwords.take_turn(name)?;
+        let person: Option<(String, String)> = self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT password_hash FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0",
+                "SELECT id, password_hash FROM people \
+                  WHERE name = ?1 AND password_hash IS NOT NULL AND disabled = 0 AND deleted = 0",
                 params![name],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
             .map_err(|e| OpError::internal(format!("cannot read Person for login: {e}")))
         })?;
-        let verified = password_hash.as_deref().is_some_and(|encoded| {
-            PasswordHash::new(encoded)
-                .ok()
-                .and_then(|parsed| {
-                    Argon2::default()
-                        .verify_password(password.as_bytes(), &parsed)
-                        .ok()
-                })
-                .is_some()
-        });
-        if !verified {
-            self.record_login_failure(name)?;
+        let verified = self
+            .passwords
+            .work
+            .verify(password, person.as_ref().map(|(_, hash)| hash.as_str()))?;
+        let Some((person_id, _)) = person.filter(|_| verified) else {
+            turn.missed(self.record_login_failure(name)?);
             return Err(OpError::unauthorized("that name and password do not match"));
-        }
+        };
         self.db().with_conn(|conn| {
             conn.execute("DELETE FROM login_failures WHERE name = ?1", params![name])
                 .map_err(|e| OpError::internal(format!("cannot clear login throttle: {e}")))?;
             Ok(())
         })?;
-        let person_id: String = self.db().with_conn(|conn| {
-            conn.query_row(
-                "SELECT id FROM people WHERE name = ?1 AND disabled = 0 AND deleted = 0",
-                params![name],
-                |r| r.get(0),
-            )
-            .map_err(|e| OpError::internal(format!("cannot read logged-in Person: {e}")))
-        })?;
+        turn.matched();
         let session = self.mint_session(&person_id, session_name)?;
         Ok(json!({ "session_id": session.id, "_session_secret": session.secret }))
     }
@@ -354,36 +357,19 @@ impl Core {
         Ok(Session { id, secret })
     }
 
-    /// A wrong password slows only the next attempt for this name: two free
-    /// misses, then 1, 2, 4… seconds capped at 30. A correct password deletes
-    /// the counter, so a stranger cannot lock an account out (ADR 0031).
-    fn throttle_login(&self, name: &str) -> Result<(), OpError> {
-        let failures: i64 = self.db().with_conn(|conn| {
+    /// Count one more wrong password for this name, and answer how many there
+    /// have been since its last right one. A correct password deletes the
+    /// count (ADR 0031).
+    fn record_login_failure(&self, name: &str) -> Result<i64, OpError> {
+        self.db().with_conn(|conn| {
             conn.query_row(
-                "SELECT consecutive_failures FROM login_failures WHERE name = ?1",
+                "INSERT INTO login_failures(name, consecutive_failures) VALUES (?1, 1) \
+                 ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1 \
+                 RETURNING consecutive_failures",
                 params![name],
                 |row| row.get(0),
             )
-            .optional()
-            .map(|count| count.unwrap_or(0))
-            .map_err(|e| OpError::internal(format!("cannot read login throttle: {e}")))
-        })?;
-        let seconds = if failures < 2 {
-            0
-        } else {
-            1u64 << (failures - 2).min(5)
-        };
-        if seconds > 0 {
-            std::thread::sleep(std::time::Duration::from_secs(seconds));
-        }
-        Ok(())
-    }
-
-    fn record_login_failure(&self, name: &str) -> Result<(), OpError> {
-        self.db().with_conn(|conn| {
-            conn.execute("INSERT INTO login_failures(name, consecutive_failures) VALUES (?1, 1) ON CONFLICT(name) DO UPDATE SET consecutive_failures = consecutive_failures + 1", params![name])
-                .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))?;
-            Ok(())
+            .map_err(|e| OpError::internal(format!("cannot record login failure: {e}")))
         })
     }
 
@@ -409,8 +395,14 @@ impl Core {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| OpError::bad_request("Invite link is invalid"))?;
         let name = required_text(name, "name")?;
-        let password_hash = hash_password(password)?;
         let session_name = required_text(session_name, "session_name")?;
+        // Refused before the hash (#138); the transaction below looks again.
+        if !self.link_is_live(secret, "invite")? {
+            return Err(OpError::unauthorized(
+                "this Invite has already been spent or revoked",
+            ));
+        }
+        let password_hash = self.passwords.work.hash(new_password(password)?)?;
         let person_id = format!("p_{}", hex::encode(random_bytes(8)));
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
@@ -432,6 +424,24 @@ impl Core {
         Ok(
             json!({"person":{"id":person_id,"name":name,"hand_id":person_id,"cookbook_id":cookbook_id,"reading_language":"en","reading_measures":"us","is_operator":operator},"session_id":session.id,"_session_secret":session.secret}),
         )
+    }
+
+    /// Whether an Invite or recovery link can still be spent: unspent,
+    /// unrevoked, and for recovery, its Person still active. Read before any
+    /// password is hashed, so a wrong link costs a lookup and nothing more.
+    fn link_is_live(&self, secret: &str, kind: &str) -> Result<bool, OpError> {
+        self.db().with_conn(|conn| {
+            conn.query_row(
+                "SELECT 1 FROM account_links LEFT JOIN people ON people.id = account_links.person_id \
+                  WHERE secret_hash = ?1 AND kind = ?2 AND spent = 0 AND revoked = 0 \
+                    AND (kind = 'invite' OR (people.disabled = 0 AND people.deleted = 0))",
+                params![hash_secret(secret), kind],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|found| found.is_some())
+            .map_err(|e| OpError::internal(format!("cannot read this link: {e}")))
+        })
     }
 
     pub fn mint_recovery_link(&self, name: &str) -> Result<String, OpError> {
@@ -457,8 +467,14 @@ impl Core {
             .strip_prefix("/recover/")
             .filter(|s| !s.is_empty())
             .ok_or_else(|| OpError::bad_request("recovery link is invalid"))?;
-        let password_hash = hash_password(password)?;
         let session_name = required_text(session_name, "session_name")?;
+        // Refused before the hash (#138); the transaction below looks again.
+        if !self.link_is_live(secret, "recovery")? {
+            return Err(OpError::unauthorized(
+                "this recovery link has already been spent or revoked",
+            ));
+        }
+        let password_hash = self.passwords.work.hash(new_password(password)?)?;
         let session = Session {
             id: format!("s_{}", hex::encode(random_bytes(8))),
             secret: generate_secret(),
@@ -821,10 +837,258 @@ pub fn generate_secret() -> String {
     hex::encode(random_bytes(32))
 }
 
-/// Passwords are short human-chosen secrets, not Secrets: Argon2id salts and
-/// hashes them separately at the cost ADR 0031 names (20 MiB, roughly a tenth s).
-fn hash_password(password: &str) -> Result<String, OpError> {
-    let password = required_text(password, "password")?;
+/// The shortest password Kamosu accepts where one is set (#138): NIST SP
+/// 800-63B-4 requires fifteen characters of a password that is the only
+/// factor, and a Kamosu password is. Login never checks it, so a password set
+/// before the minimum keeps working.
+pub const PASSWORD_MINIMUM: usize = 15;
+
+/// How many passwords may be hashed or checked at once (#138). Each is ~20 MiB
+/// and roughly a tenth of a second of Argon2id (ADR 0031), so a burst of
+/// sign-ins costs at most this many cores, and never a request worker.
+const PASSWORD_WORKERS: usize = 2;
+
+/// How many more may wait for one of those. A sign-in that finds every worker
+/// busy **waits its turn**, because two people signing in at the same moment
+/// is ordinary; one that finds this line full too is refused as busy, because
+/// a line that grows without end is a crowd holding threads.
+const PASSWORD_LINE: usize = 32;
+
+/// The longest a name waits after its wrong passwords, per ADR 0031.
+const LONGEST_WAIT: Duration = Duration::from_secs(30);
+
+/// Password state that is not in the database: whose login tries are waiting
+/// or being checked right now, and the few threads allowed to hash or check a
+/// password.
+#[derive(Default)]
+pub(super) struct Passwords {
+    names: Mutex<HashMap<String, NameGate>>,
+    work: PasswordWork,
+}
+
+/// One name's place in the throttle (ADR 0031, #138).
+///
+/// Kept in memory, not in `login_failures`: the count of misses is durable,
+/// but when this name may next be tried is not, so a restart lets one more try
+/// through at the wait the count already earned. A restart is not something a
+/// stranger at the door can cause.
+struct NameGate {
+    /// A try at this name is being checked now.
+    checking: bool,
+    /// The earliest the next try at this name is checked.
+    open_at: Instant,
+}
+
+impl Passwords {
+    /// The name gates. A panic while holding them leaves nothing half-written
+    /// that matters, so a poisoned lock is simply taken.
+    fn names(&self) -> std::sync::MutexGuard<'_, HashMap<String, NameGate>> {
+        self.names.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Start making the stand-in hash at startup, so the first unknown name
+    /// is not the one that pays for it and is slower than a known one. Made
+    /// beside the startup rather than in it: nothing waits for it but a login.
+    pub(super) fn prepare(&self) {
+        std::thread::spawn(|| LazyLock::force(&STAND_IN_HASH));
+    }
+
+    /// Take this name's one turn to be checked, or be refused at once with
+    /// the seconds left. At most one try per name is ever being checked, and
+    /// none while it waits, so guesses sent together are no faster than
+    /// guesses sent one at a time. The cost is the narrow lockout ADR 0031
+    /// accepts: someone hammering one exact name keeps its sign-in refused
+    /// while they do.
+    fn take_turn<'a>(&'a self, name: &str) -> Result<Turn<'a>, OpError> {
+        let mut names = self.names();
+        let now = Instant::now();
+        if let Some(gate) = names.get_mut(name) {
+            if gate.checking {
+                // Said apart from a wait, since this name may have no wrong
+                // password against it at all. The screen says the wait's words
+                // for both: the second of two taps a tenth of a second apart
+                // is the only way a browser meets this.
+                return Err(OpError::wait(
+                    1,
+                    "another try at this name is being checked — try again in 1 s",
+                ));
+            }
+            if gate.open_at > now {
+                let seconds = whole_seconds(gate.open_at - now);
+                return Err(OpError::wait(
+                    seconds,
+                    format!("too many wrong passwords for this name — try again in {seconds} s"),
+                ));
+            }
+            gate.checking = true;
+        } else {
+            // A crowd of made-up names would otherwise grow this forever; a
+            // gate whose wait is over holds nothing worth keeping.
+            if names.len() >= 1024 {
+                names.retain(|_, gate| gate.checking || gate.open_at > now);
+            }
+            names.insert(
+                name.to_string(),
+                NameGate {
+                    checking: true,
+                    open_at: now,
+                },
+            );
+        }
+        Ok(Turn {
+            passwords: self,
+            name: name.to_string(),
+        })
+    }
+}
+
+/// A name's turn at being checked. Ended by `missed` or `matched`; dropped
+/// without either (the database failed, say), the name is free again at the
+/// wait it had.
+struct Turn<'a> {
+    passwords: &'a Passwords,
+    name: String,
+}
+
+impl Turn<'_> {
+    /// A wrong password: this name waits before its next try, as long as the
+    /// misses so far have earned. Two are free, then 1, 2, 4, 8, 16 and 30
+    /// seconds (ADR 0031).
+    fn missed(self, failures: i64) {
+        let wait = if failures < 2 {
+            Duration::ZERO
+        } else {
+            Duration::from_secs(1 << (failures - 2).min(5)).min(LONGEST_WAIT)
+        };
+        let mut names = self.passwords.names();
+        if let Some(gate) = names.get_mut(&self.name) {
+            gate.open_at = Instant::now() + wait;
+        }
+    }
+
+    /// The right password: the name owes nothing.
+    fn matched(self) {
+        let mut names = self.passwords.names();
+        names.remove(&self.name);
+    }
+}
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        let mut names = self.passwords.names();
+        if let Some(gate) = names.get_mut(&self.name) {
+            gate.checking = false;
+        }
+    }
+}
+
+/// Seconds to say, rounded up, and never zero: a refusal that says "try again
+/// in 0 s" invites the very try it just refused.
+fn whole_seconds(left: Duration) -> u64 {
+    left.as_secs() + u64::from(left.subsec_nanos() > 0)
+}
+
+/// The threads allowed to hash or check a password: `PASSWORD_WORKERS` at
+/// once, and a line of `PASSWORD_LINE` behind them. The web door calls
+/// sign-in on the blocking pool, so waiting here holds no request worker.
+#[derive(Default)]
+struct PasswordWork {
+    line: Mutex<PasswordLine>,
+    freed: Condvar,
+}
+
+#[derive(Default)]
+struct PasswordLine {
+    running: usize,
+    waiting: usize,
+    /// Passwords hashed and passwords checked since this Core opened. Read
+    /// only by the tests, which prove with them that a refused sign-in did no
+    /// password work and an unknown name did the same work as a known one.
+    hashed: u64,
+    verified: u64,
+}
+
+impl PasswordWork {
+    fn run<T>(
+        &self,
+        count: impl FnOnce(&mut PasswordLine),
+        work: impl FnOnce() -> T,
+    ) -> Result<T, OpError> {
+        let mut line = self.line.lock().unwrap_or_else(PoisonError::into_inner);
+        if line.running >= PASSWORD_WORKERS {
+            if line.waiting >= PASSWORD_LINE {
+                return Err(OpError::busy());
+            }
+            line.waiting += 1;
+            while line.running >= PASSWORD_WORKERS {
+                line = self
+                    .freed
+                    .wait(line)
+                    .unwrap_or_else(PoisonError::into_inner);
+            }
+            line.waiting -= 1;
+        }
+        line.running += 1;
+        count(&mut line);
+        drop(line);
+        // Released on the way out whatever happens, a panic in Argon2 included,
+        // or one crash would shrink the pool for good.
+        struct Release<'a>(&'a PasswordWork);
+        impl Drop for Release<'_> {
+            fn drop(&mut self) {
+                let mut line = self.0.line.lock().unwrap_or_else(PoisonError::into_inner);
+                line.running -= 1;
+                self.0.freed.notify_one();
+            }
+        }
+        let _release = Release(self);
+        Ok(work())
+    }
+
+    /// Salt and hash a new password.
+    fn hash(&self, password: &str) -> Result<String, OpError> {
+        self.run(|line| line.hashed += 1, || argon2_hash(password))?
+    }
+
+    /// Whether `password` matches `encoded`. With no hash to check against,
+    /// because no Person has this name, it checks against a stand-in hashed
+    /// the same way and answers no: an unknown name costs what a known one
+    /// does, so the time taken does not say who has an account here
+    /// (ADR 0031).
+    fn verify(&self, password: &str, encoded: Option<&str>) -> Result<bool, OpError> {
+        self.run(
+            |line| line.verified += 1,
+            || {
+                let stand_in = STAND_IN_HASH
+                    .as_deref()
+                    .map_err(|e| OpError::internal(e.clone()))?;
+                // A stored hash that cannot be read matches nothing, as it
+                // always has: it is a wrong password, counted like one.
+                let real = encoded.and_then(|encoded| PasswordHash::new(encoded).ok());
+                let checked = match &real {
+                    Some(parsed) => parsed.clone(),
+                    None => PasswordHash::new(stand_in).map_err(|e| {
+                        OpError::internal(format!("cannot read the stand-in hash: {e}"))
+                    })?,
+                };
+                let matched = Argon2::default()
+                    .verify_password(password.as_bytes(), &checked)
+                    .is_ok();
+                Ok(matched && real.is_some())
+            },
+        )?
+    }
+}
+
+/// What an unknown name's password is checked against. Made once, at the same
+/// cost as every real one, of a password nobody chose.
+static STAND_IN_HASH: LazyLock<Result<String, String>> =
+    LazyLock::new(|| argon2_hash(&generate_secret()).map_err(|e| e.message));
+
+/// Argon2id at the cost ADR 0031 names: 20 MiB, two passes, roughly a tenth of
+/// a second. Passwords are short human-chosen secrets, not Secrets, so each is
+/// salted and hashed on its own. Called only through `PasswordWork`.
+fn argon2_hash(password: &str) -> Result<String, OpError> {
     let params = Params::new(20 * 1024, 2, 1, None)
         .map_err(|e| OpError::internal(format!("cannot configure password hashing: {e}")))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
@@ -834,4 +1098,138 @@ fn hash_password(password: &str) -> Result<String, OpError> {
         .hash_password(password.as_bytes(), &salt)
         .map(|hash| hash.to_string())
         .map_err(|e| OpError::internal(format!("cannot hash password: {e}")))
+}
+
+/// A password being set, checked for its length first: that is free, and the
+/// hash is not.
+fn new_password(password: &str) -> Result<&str, OpError> {
+    let password = required_text(password, "password")?;
+    if password.chars().count() < PASSWORD_MINIMUM {
+        return Err(OpError::bad_request(format!(
+            "a password needs at least {PASSWORD_MINIMUM} characters"
+        )));
+    }
+    Ok(password)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Core on a fresh database of its own, with nobody in it yet.
+    fn a_core() -> (tempfile::TempDir, Core) {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(Db::open(dir.path()).unwrap());
+        (dir, Core::open(db))
+    }
+
+    /// Passwords hashed and checked so far: how a test sees password work
+    /// without timing it, since a timed test flakes on a busy machine.
+    fn work(core: &Core) -> (u64, u64) {
+        let line = core.passwords.work.line.lock().unwrap();
+        (line.hashed, line.verified)
+    }
+
+    const PASSWORD: &str = "a password only its person knows";
+
+    /// Every door that sets a password refuses a request it will refuse
+    /// anyway before hashing anything (#138): first-person on an instance
+    /// already set up, and an Invite or recovery link that is wrong or spent.
+    #[test]
+    fn a_refused_door_hashes_nothing() {
+        let (_dir, core) = a_core();
+        core.create_first_person("cook", PASSWORD, "laptop")
+            .unwrap();
+        assert_eq!(work(&core), (1, 0));
+
+        let refused = core
+            .create_first_person("stranger", PASSWORD, "x")
+            .unwrap_err();
+        assert_eq!(refused.kind, ErrorKind::Unauthorized, "{refused}");
+        let refused = core
+            .redeem_invite("/invite/not-a-real-one", "stranger", PASSWORD, "x")
+            .unwrap_err();
+        assert_eq!(refused.kind, ErrorKind::Unauthorized, "{refused}");
+        let refused = core
+            .redeem_recovery("/recover/not-a-real-one", PASSWORD, "x")
+            .unwrap_err();
+        assert_eq!(refused.kind, ErrorKind::Unauthorized, "{refused}");
+
+        // A spent link is refused unhashed too.
+        let invite = core.mint_invite(false).unwrap();
+        core.redeem_invite(&invite, "Marie", PASSWORD, "x").unwrap();
+        assert_eq!(work(&core), (2, 0));
+        let refused = core
+            .redeem_invite(&invite, "Paul", PASSWORD, "x")
+            .unwrap_err();
+        assert_eq!(refused.kind, ErrorKind::Unauthorized, "{refused}");
+        assert_eq!(work(&core), (2, 0), "no refusal above hashed a password");
+    }
+
+    /// A name nobody holds is checked against a password exactly as a real
+    /// one is, so the time a wrong answer takes does not say who has an
+    /// account here (ADR 0031, #138).
+    #[test]
+    fn an_unknown_name_is_checked_like_a_known_one() {
+        let (_dir, core) = a_core();
+        core.create_first_person("cook", PASSWORD, "laptop")
+            .unwrap();
+        let before = work(&core).1;
+        core.log_in("cook", "not the password", "x").unwrap_err();
+        assert_eq!(work(&core).1, before + 1, "a known name is checked once");
+        let refused = core
+            .log_in("nobody here", "not the password", "x")
+            .unwrap_err();
+        assert_eq!(
+            work(&core).1,
+            before + 2,
+            "an unknown name is checked once too"
+        );
+        assert_eq!(refused.message, "that name and password do not match");
+        // And the stand-in never lets anyone in, whatever they type.
+        core.log_in("nobody at all", "", "x").unwrap_err();
+    }
+
+    /// The minimum is for a password being set. One set before it existed
+    /// still signs in, because login never measures a password (#138).
+    #[test]
+    fn a_short_password_set_before_the_minimum_still_signs_in() {
+        let (_dir, core) = a_core();
+        core.create_first_person("cook", PASSWORD, "laptop")
+            .unwrap();
+        let old = argon2_hash("short").unwrap();
+        core.db()
+            .with_conn(|conn| {
+                conn.execute("UPDATE people SET password_hash = ?1", params![old])
+                    .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        core.log_in("cook", "short", "phone").unwrap();
+    }
+
+    /// A stored hash that cannot be read is a wrong password, counted and
+    /// checked like one, not a failure of Kamosu's own.
+    #[test]
+    fn an_unreadable_hash_is_a_wrong_password() {
+        let (_dir, core) = a_core();
+        core.create_first_person("cook", PASSWORD, "laptop")
+            .unwrap();
+        core.db()
+            .with_conn(|conn| {
+                conn.execute("UPDATE people SET password_hash = 'not a hash'", [])
+                    .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        let refused = core.log_in("cook", PASSWORD, "phone").unwrap_err();
+        assert_eq!(refused.kind, ErrorKind::Unauthorized, "{refused}");
+        assert_eq!(work(&core).1, 1);
+    }
+
+    /// Never "try again in 0 s": a part of a second left is a whole one.
+    #[test]
+    fn the_wait_is_said_in_whole_seconds_rounded_up() {
+        assert_eq!(whole_seconds(Duration::from_millis(1)), 1);
+        assert_eq!(whole_seconds(Duration::from_secs(2)), 2);
+        assert_eq!(whole_seconds(Duration::from_millis(2001)), 3);
+    }
 }

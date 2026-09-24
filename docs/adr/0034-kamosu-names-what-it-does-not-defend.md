@@ -7,6 +7,7 @@ Kamosu ships a plainly written list of the things it does **not** protect you fr
 - **A Share Link, once passed on, cannot be recalled.** Ending it stops new arrivals and reaches no copy already sent ([ADR 0018](./0018-a-share-begins-at-the-beginning-and-there-is-no-unsay.md)).
 - **A stranger holding a Share Link can make another stranger wait.** The lane bounds it to latency ([ADR 0032](./0032-a-stranger-may-cause-work-never-work-that-scales-with-them.md)); it does not remove it.
 - **A stolen unlocked phone is a logged-in phone.** The answer is ending that session, not a timer that would have fired too late anyway.
+- **Someone who knows your name here can keep you from signing in while they keep guessing.** A try at a name still waiting out its wrong passwords is refused, not checked ([ADR 0031](./0031-a-secret-is-spent-or-revoked-never-on-a-clock.md), #138). A crowd of tries at made-up names can hold off everyone's login the same way while it lasts, since two passwords are checked at a time and a full line is refused. Devices already signed in are untouched, and a recovery link from an Operator gets round it.
 - **An agent does what it is told, including by text it reads.** An agent holding your **Access Key** reads recipe pages and Bundles written by other people, and Kamosu cannot tell an instruction from an ingredient. A read-only Key limits the blast; nothing prevents it.
 - **Kamosu has not been audited by anyone.** It is a recipe app written for one household and shared.
 

@@ -8,10 +8,11 @@
 
 import type { JobAsk } from './job';
 
-/** The version of this Kamosu and whether setup has happened. */
+/** The version of this Kamosu, whether setup has happened, and the shortest password it accepts. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
+	password_minimum: number;
 	setup_complete: boolean;
 	version: string;
 };
@@ -4737,7 +4738,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "The version of this Kamosu and whether setup has happened.",
+		"summary": "The version of this Kamosu, whether setup has happened, and the shortest password it accepts.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -4748,6 +4749,10 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"password_minimum": {
+					"minimum": 1,
+					"type": "integer"
+				},
 				"setup_complete": {
 					"type": "boolean"
 				},
@@ -4757,7 +4762,8 @@ export const CATALOGUE = [
 			},
 			"required": [
 				"version",
-				"setup_complete"
+				"setup_complete",
+				"password_minimum"
 			],
 			"type": "object"
 		}
@@ -25127,7 +25133,7 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** The version of this Kamosu and whether setup has happened. */
+	/** The version of this Kamosu, whether setup has happened, and the shortest password it accepts. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;

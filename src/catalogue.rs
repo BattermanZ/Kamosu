@@ -105,7 +105,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
     let mut operations = vec![
         Operation {
             name: "instance_status",
-            summary: "The version of this Kamosu and whether setup has happened.",
+            summary: "The version of this Kamosu, whether setup has happened, and the shortest password it accepts.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -117,8 +117,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "properties": {
                     "version": { "type": "string" },
                     "setup_complete": { "type": "boolean" },
+                    "password_minimum": { "type": "integer", "minimum": 1 },
                 },
-                "required": ["version", "setup_complete"],
+                "required": ["version", "setup_complete", "password_minimum"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::instance_status,

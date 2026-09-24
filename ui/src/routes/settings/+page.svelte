@@ -1509,6 +1509,7 @@
 			<li>{m.settings_share_no_unsay()}</li>
 			<li>{m.settings_stranger_waits()}</li>
 			<li>{m.settings_stolen_phone()}</li>
+			<li>{m.settings_name_held_off()}</li>
 			<li>{m.settings_agent_reads()}</li>
 			<li>{m.settings_unaudited()}</li>
 		</ul>
