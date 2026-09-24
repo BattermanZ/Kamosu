@@ -85,13 +85,20 @@
 				add();
 			}}
 		>
+			<!--
+				`w-full` is load-bearing. Without a width, Safari sizes a text field
+				at twenty of the font's average character, and Zen Kaku Gothic New
+				is a Japanese face whose average character is a full em. That made
+				the field about 340px wide on an iPhone and pushed this whole card
+				past the edge of the screen (24 September 2026).
+			-->
 			<label class="grid gap-1 text-read text-ink-2">
 				{m.add_title()}
 				<input
 					type="text"
 					bind:value={typed}
 					required
-					class="min-h-12 rounded-sm border border-rule bg-card px-3 text-body text-ink"
+					class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
 				/>
 			</label>
 			<button

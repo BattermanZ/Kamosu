@@ -198,7 +198,7 @@
 				<label class="grid gap-1 text-body text-ink">
 					{m.account_name()}
 					<input
-						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
 						bind:value={name}
 						required
 						autocomplete="username"
@@ -209,7 +209,7 @@
 				<label class="grid gap-1 text-body text-ink">
 					{m.account_password()}
 					<input
-						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
 						type="password"
 						bind:value={password}
 						required

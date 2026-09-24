@@ -217,7 +217,7 @@
 				bind:value={link}
 				required
 				placeholder="https://"
-				class="min-h-12 rounded-sm border border-rule bg-card px-3 text-body text-ink"
+				class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
 			/>
 		</label>
 		<button

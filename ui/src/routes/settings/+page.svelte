@@ -660,7 +660,7 @@
 					<label class="grid gap-1 text-body text-ink">
 						{m.you_name_label()}
 						<input
-							class="min-h-12 min-w-0 rounded-sm border border-rule bg-card px-3"
+							class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
 							bind:value={draftName}
 							required
 							{@attach (node) => node.focus()}
@@ -894,7 +894,7 @@
 									<label class="grid gap-1 text-read text-ink-2">
 										{m.sessions_name_label()}
 										<input
-											class="min-h-12 min-w-0 rounded-sm border border-rule bg-ground px-3 text-body text-ink"
+											class="min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body text-ink"
 											bind:value={draftSessionName}
 											required
 											{@attach (node) => node.focus()}
@@ -1005,7 +1005,7 @@
 				<label class="grid gap-1 text-body text-ink">
 					{m.access_key_name()}
 					<input
-						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
 						bind:value={newKeyName}
 						required
 					/>
@@ -1323,7 +1323,7 @@
 				<label class="grid gap-1 text-body text-ink">
 					{m.kitchen_create_name_label()}
 					<input
-						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
 						bind:value={newKitchenName}
 						required
 					/>
@@ -1344,7 +1344,7 @@
 				<label class="grid gap-1 text-body text-ink">
 					{m.kitchen_join_secret_label()}
 					<input
-						class="min-h-12 rounded-sm border border-rule bg-card px-3"
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
 						bind:value={joinSecret}
 						required
 					/>

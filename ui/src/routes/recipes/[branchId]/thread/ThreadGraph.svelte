@@ -255,7 +255,7 @@
 					<label class="grid gap-1 text-body text-ink">
 						{m.thread_name_label()}
 						<input
-							class="min-h-12 min-w-0 rounded-sm border border-rule bg-card px-3 text-body text-ink"
+							class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
 							bind:value={draft}
 							placeholder={m.thread_name_placeholder()}
 							{@attach (node) => node.focus()}
