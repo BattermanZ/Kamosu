@@ -471,6 +471,11 @@ tokens-fresh: _check-tokens-fresh
 docker-build: _check-tokens-fresh _check-client-fresh
     docker build --load -t kamosu .
 
+# The same image built by Podman. `--format docker` keeps the HEALTHCHECK,
+# which the OCI format Podman defaults to has no field for.
+podman-build: _check-tokens-fresh _check-client-fresh
+    podman build --format docker -t localhost/kamosu .
+
 # Run the image as the one-mount-one-port install: ./kamosu-data holds the truth,
 # 5266 serves the world. Ctrl-C stops it.
 docker-run:

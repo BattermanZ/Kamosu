@@ -8,3 +8,6 @@ samples/
 ui/node_modules/
 ui/build/
 ui/.svelte-kit/
+
+# Machine-local secrets: never in a build context
+.env
