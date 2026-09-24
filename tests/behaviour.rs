@@ -23876,6 +23876,72 @@ async fn a_variation_starts_unchanged_under_the_name_it_is_given() {
     assert_eq!(arrived["name"], json!("Végétarienne"));
 }
 
+/// **Naming a Branch is not saving a Version** (#134). The recipe page, which
+/// calls a Branch a version, tells a cook that renaming changes nothing in the
+/// recipe and adds nothing to its History, so naming, renaming and clearing a
+/// Branch's name must leave the Thread's Versions exactly as they were: the
+/// same ids, on the same Branches.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn naming_a_branch_writes_no_version_and_moves_no_id() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let tartiflette = written(&app, &aurelien, "Tartiflette");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&aurelien),
+        &json!({ "branch_id": tartiflette, "name": "Vegetarian" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let vegetarian = varied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let versions = || -> (Vec<Value>, Vec<Value>) {
+        let (_, thread) = app.post_op(
+            "get_thread",
+            Some(&aurelien),
+            &json!({ "branch_id": tartiflette }).to_string(),
+        );
+        let occurrences = thread["result"]["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|each| json!([each["branch_id"], each["sequence"], each["version_id"]]))
+            .collect();
+        let names = thread["result"]["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|each| json!([each["branch_id"], each["name"]]))
+            .collect();
+        (occurrences, names)
+    };
+    let (before, _) = versions();
+    let rows = scalar::<i64>(&app, "SELECT COUNT(*) FROM versions");
+
+    for (branch, name) in [
+        (&vegetarian, json!("Veggie")),
+        (&tartiflette, json!("Classic")),
+        (&tartiflette, json!(null)),
+    ] {
+        let (status, renamed) = app.post_op(
+            "rename_branch",
+            Some(&aurelien),
+            &json!({ "branch_id": branch, "name": name }).to_string(),
+        );
+        assert_eq!(status, 200, "{renamed}");
+        let (after, names) = versions();
+        assert_eq!(after, before, "renaming {branch} to {name} moved a Version");
+        assert!(
+            names.contains(&json!([branch, name])),
+            "the Thread names it: {names:?}"
+        );
+    }
+    assert_eq!(
+        scalar::<i64>(&app, "SELECT COUNT(*) FROM versions"),
+        rows,
+        "no Version was written"
+    );
+}
+
 /// **Whose cooking a reader sees** (#131, question 1): an Attempt shows to
 /// the people its cook cooks with, not everywhere its recipe is seen. A
 /// mother's note on her son's recipe is the family Kitchen's to read, not his

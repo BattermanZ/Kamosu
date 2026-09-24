@@ -140,6 +140,7 @@
 	import RelatedRecipes from './RelatedRecipes.svelte';
 	import Language from './Language.svelte';
 	import LanguageSheet from './LanguageSheet.svelte';
+	import RenameSheet from './RenameSheet.svelte';
 	import LanguageOffer from './LanguageOffer.svelte';
 	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
 	import Confirm from '$lib/Confirm.svelte';
@@ -335,6 +336,25 @@
 	 * why they are here among the acts and not up beside the Tags row.
 	 */
 	let sayingLanguage = $state(false);
+	/**
+	 * The sheet naming this version is open (#134): a Branch's name, which its
+	 * chip in the strip and the line under the title both show.
+	 */
+	let renaming = $state(false);
+	/**
+	 * Whether to offer naming this version at all. Only a Co-author may, so
+	 * only where the reader writes it. An unnamed version is offered a name only
+	 * once the strip shows, since a recipe on its own has nothing to tell apart
+	 * (the default stated with #134's options); a named one can always be
+	 * renamed or cleared.
+	 */
+	const offersRename = $derived(
+		recipe !== undefined && recipe.writes && (recipe.name !== null || versions.length > 1),
+	);
+	/** What that line says, and what the sheet it opens is called. */
+	const renameLabel = $derived(
+		recipe?.name ? m.recipe_version_rename() : m.recipe_version_name_it(),
+	);
 	/**
 	 * Translating into this Language: the writing screen opens on this
 	 * recipe's own words, to be replaced. Undefined is the ordinary edit.
@@ -2061,6 +2081,24 @@
 				/>
 			{/if}
 			<!--
+			Naming this version (#134, Aurélien's choice B of 24 September 2026):
+			a line among the acts, directly below Language, opening a small
+			sheet. `RenameSheet.svelte` holds why it says "version" and what it
+			promises about the History.
+
+			`NeedsServer` because a Branch's name is on the server's side of the
+			line and never queued, like every change to what a recipe is.
+		-->
+			{#if offersRename && recipe}
+				<NeedsServer
+					label={renameLabel}
+					waiting={m.offline_waits_version_name()}
+					onclick={() => (renaming = true)}
+					shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
+					lookClass="border border-rule text-accent"
+				/>
+			{/if}
+			<!--
 			Into the share screen (#65, ADR 0026). A link rather than a switch
 			here on purpose: turning sharing on is one deliberate act taken on a
 			screen that says what it means, not a toggle brushed past on the way
@@ -2290,6 +2328,24 @@
 			<p class="text-body text-support">{m.recipe_delete_share_unknown()}</p>
 		{/if}
 	</Confirm>
+{/if}
+
+<!--
+	The sheet naming this version (#134). What landed is read back rather than
+	patched in, so the chip and the line under the title say what the Core now
+	holds.
+-->
+{#if renaming && recipe}
+	<RenameSheet
+		branchId={recipe.branch_id}
+		name={recipe.name}
+		title={renameLabel}
+		onRenamed={() => {
+			renaming = false;
+			reread += 1;
+		}}
+		onClose={() => (renaming = false)}
+	/>
 {/if}
 
 <!--

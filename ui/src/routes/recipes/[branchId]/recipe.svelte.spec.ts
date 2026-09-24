@@ -12,9 +12,10 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, fireEvent } from '@testing-library/svelte';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
+import { OperationError } from '$lib/api/client';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
@@ -2472,5 +2473,227 @@ describe('the Language offer on the recipe', () => {
 
 		expect(await screen.findByText('Saved.')).toBeInTheDocument();
 		expect(screen.queryByText(/but it reads as/)).not.toBeInTheDocument();
+	});
+});
+
+/**
+ * Naming a version of the recipe from its page (#134, Aurélien's choice B): a
+ * line among the actions opening a small sheet. A "version" here is a Branch,
+ * the thing the strip at the top counts, and never one saved Version.
+ */
+describe('naming a version (#134)', () => {
+	/** The Core's own sentence for clearing a second unnamed version, said as it came. */
+	const SECOND_UNNAMED =
+		'another version of this recipe in your Cookbook already goes without a name, so this one needs one';
+
+	/**
+	 * Your own recipe and a variation of it, both in your Cookbook, with the
+	 * page open on one of them. Both parted from one root, so both are versions
+	 * in the strip.
+	 */
+	function withAVariation(
+		onPage: 'mine' | 'veg',
+		names: { mine: string | null; veg: string | null },
+	): Answers {
+		const base = forked().get_recipe as GetRecipeOutput;
+		return forked({
+			get_recipe: { ...base, branch_id: onPage, name: names[onPage] },
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [
+					{ ...MINE_IN_THREAD, name: names.mine },
+					threadBranch('veg', { cookbook: MY_COOKBOOK, name: names.veg }),
+				],
+				versions: [
+					occurrenceOf('mine', 1, 'v_root', null),
+					occurrenceOf('mine', 2, 'v_mine', 'v_root'),
+					occurrenceOf('veg', 1, 'v_root', null),
+					occurrenceOf('veg', 2, 'v_veg', 'v_root'),
+				],
+				attempts: [],
+			},
+		});
+	}
+
+	/** Tap the line among the actions, and wait for the sheet it opens. */
+	async function openTheSheet(label: string) {
+		await fireEvent.click(await screen.findByRole('button', { name: label }));
+		return screen.findByRole('dialog', { name: label });
+	}
+
+	/** The name set under the title, which is a paragraph; the chip's is inside a link. */
+	const nameUnderTitle = (name: string) =>
+		screen.queryAllByText(name).find((element) => element.tagName === 'P');
+
+	it('renames a named version, and both the line under the title and its chip say so', async () => {
+		const { kamosu } = renderRecipe(
+			withAVariation('veg', { mine: null, veg: 'Vegetarian' }),
+			'veg',
+		);
+		const sheet = await openTheSheet('Rename this version');
+		const field = within(sheet).getByLabelText('Name for this version');
+		expect(field).toHaveValue('Vegetarian');
+		expect(sheet).toHaveTextContent(
+			'Nothing in the recipe changes, and nothing is added to its History.',
+		);
+
+		// What the Core holds after the rename, read back rather than patched in.
+		const after = withAVariation('veg', { mine: null, veg: 'Veggie' });
+		kamosu.answer('rename_branch', { branch_id: 'veg', name: 'Veggie' });
+		kamosu.answer('get_recipe', after.get_recipe);
+		kamosu.answer('get_thread', after.get_thread);
+		await fireEvent.input(field, { target: { value: '  Veggie ' } });
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+		await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(kamosu.calls.find((call) => call.operation === 'rename_branch')?.input).toEqual({
+			branch_id: 'veg',
+			name: 'Veggie',
+		});
+		await vi.waitFor(() => expect(nameUnderTitle('Veggie')).toBeDefined());
+		expect(await screen.findByRole('link', { name: /Veggie/ })).toHaveAttribute(
+			'href',
+			'/recipes/veg',
+		);
+		expect(nameUnderTitle('Vegetarian')).toBeUndefined();
+	});
+
+	it('names your own unnamed version, which then shows its name in both places', async () => {
+		const { kamosu } = renderRecipe(withAVariation('mine', { mine: null, veg: 'Vegetarian' }));
+		const sheet = await openTheSheet('Name this version');
+		const field = within(sheet).getByLabelText('Name for this version');
+		expect(field).toHaveValue('');
+		// It has no name, so there is none to remove.
+		expect(within(sheet).queryByRole('button', { name: 'Remove the name' })).toBeNull();
+
+		const after = withAVariation('mine', { mine: 'Classic', veg: 'Vegetarian' });
+		kamosu.answer('rename_branch', { branch_id: 'mine', name: 'Classic' });
+		kamosu.answer('get_recipe', after.get_recipe);
+		kamosu.answer('get_thread', after.get_thread);
+		await fireEvent.input(field, { target: { value: 'Classic' } });
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+		await vi.waitFor(() => expect(nameUnderTitle('Classic')).toBeDefined());
+		expect(await screen.findByRole('link', { name: /Classic/ })).toHaveAttribute(
+			'href',
+			'/recipes/mine',
+		);
+		// Named now, so the line offers a rename rather than a name.
+		expect(screen.getByRole('button', { name: 'Rename this version' })).toBeInTheDocument();
+	});
+
+	it('clears a name where another version of yours has one', async () => {
+		const { kamosu } = renderRecipe(
+			withAVariation('veg', { mine: 'Classic', veg: 'Vegetarian' }),
+			'veg',
+		);
+		const sheet = await openTheSheet('Rename this version');
+
+		const after = withAVariation('veg', { mine: 'Classic', veg: null });
+		kamosu.answer('rename_branch', { branch_id: 'veg', name: null });
+		kamosu.answer('get_recipe', after.get_recipe);
+		kamosu.answer('get_thread', after.get_thread);
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Remove the name' }));
+
+		await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(kamosu.calls.find((call) => call.operation === 'rename_branch')?.input).toEqual({
+			branch_id: 'veg',
+			name: null,
+		});
+		await vi.waitFor(() => expect(nameUnderTitle('Vegetarian')).toBeUndefined());
+		expect(await screen.findByRole('link', { name: /Yours/ })).toHaveAttribute(
+			'href',
+			'/recipes/veg',
+		);
+	});
+
+	it('saves no name of only spaces, which would quietly clear it', async () => {
+		const { kamosu } = renderRecipe(
+			withAVariation('veg', { mine: null, veg: 'Vegetarian' }),
+			'veg',
+		);
+		const sheet = await openTheSheet('Rename this version');
+		const field = within(sheet).getByLabelText('Name for this version');
+		await fireEvent.input(field, { target: { value: '   ' } });
+
+		await fireEvent.submit(field.closest('form')!);
+
+		expect(kamosu.calls.some((call) => call.operation === 'rename_branch')).toBe(false);
+		expect(screen.getByRole('dialog', { name: 'Rename this version' })).toBe(sheet);
+		expect(field).toHaveValue('');
+	});
+
+	it('says the Core’s refusal as it came, keeps what was typed, and changes no name', async () => {
+		const { kamosu } = renderRecipe(
+			withAVariation('veg', { mine: null, veg: 'Vegetarian' }),
+			'veg',
+		);
+		const sheet = await openTheSheet('Rename this version');
+		const field = within(sheet).getByLabelText('Name for this version');
+		await fireEvent.input(field, { target: { value: 'Veg' } });
+		kamosu.answer('rename_branch', { refuse: 'bad_request', message: SECOND_UNNAMED });
+		const reads = kamosu.calls.filter((call) => call.operation === 'get_recipe').length;
+
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Remove the name' }));
+
+		expect(await within(sheet).findByRole('alert')).toHaveTextContent(SECOND_UNNAMED);
+		expect(screen.getByRole('dialog', { name: 'Rename this version' })).toBe(sheet);
+		expect(field).toHaveValue('Veg');
+		expect(nameUnderTitle('Vegetarian')).toBeDefined();
+		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe')).toHaveLength(reads);
+	});
+
+	it('says plainly that the name could not be saved when Kamosu was not reached', async () => {
+		const { kamosu } = renderRecipe(
+			withAVariation('veg', { mine: null, veg: 'Vegetarian' }),
+			'veg',
+		);
+		const sheet = await openTheSheet('Rename this version');
+		const field = within(sheet).getByLabelText('Name for this version');
+		await fireEvent.input(field, { target: { value: 'Veggie' } });
+		kamosu.answer('rename_branch', () => {
+			throw new OperationError('rename_branch', 'internal', 'Kamosu could not be reached.', {
+				reached: false,
+			});
+		});
+
+		await fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+		expect(await within(sheet).findByRole('alert')).toHaveTextContent(
+			'The name could not be saved. Try again.',
+		);
+		expect(field).toHaveValue('Veggie');
+	});
+
+	it('offers no rename on a version you do not write', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
+
+		expect(screen.queryByRole('button', { name: 'Rename this version' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Name this version' })).toBeNull();
+	});
+
+	it('offers a name only once there is another version to tell it from', async () => {
+		const alone = (name: string | null) =>
+			forked({
+				get_recipe: { ...(forked().get_recipe as GetRecipeOutput), name },
+				get_thread: {
+					lineage_id: 'l_1',
+					branches: [{ ...MINE_IN_THREAD, name }],
+					versions: [occurrenceOf('mine', 1, 'v_mine', null)],
+					attempts: [],
+				},
+			});
+
+		renderRecipe(alone(null));
+		// The count under History comes from the same read of the Thread that
+		// says how many versions there are, so the page knows by then.
+		expect(await screen.findByText(/^Saved once/)).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Name this version' })).toBeNull();
+		cleanup();
+
+		// A version with a name can always lose or change it, alone or not.
+		renderRecipe(alone('Classic'));
+		expect(await screen.findByRole('button', { name: 'Rename this version' })).toBeInTheDocument();
 	});
 });

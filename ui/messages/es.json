@@ -982,5 +982,15 @@
   "cookbook_invite_waiting": "Hay una invitación para escribirlo contigo esperando a que la abran.",
   "cookbook_remove_title": "¿Dejar de escribir con {name}?",
   "cookbook_remove_said": "{name} se lleva su propia copia de las {count} recetas, con toda su historia. Tú te quedas con las tuyas.",
-  "cookbook_remove_do": "Quitar a {name}"
+  "cookbook_remove_do": "Quitar a {name}",
+  "offline_waits_version_name": "Cambiar el nombre espera al servidor",
+  "recipe_version_name_cancel": "Cancelar",
+  "recipe_version_name_failed": "No se pudo guardar el nombre. Inténtalo de nuevo.",
+  "recipe_version_name_it": "Poner nombre a esta versión",
+  "recipe_version_name_label": "Nombre de esta versión",
+  "recipe_version_name_placeholder": "Entre semana",
+  "recipe_version_name_remove": "Quitar el nombre",
+  "recipe_version_name_save": "Guardar",
+  "recipe_version_name_what": "Aparece en la etiqueta de esta versión, arriba de la receta. Nada cambia en la receta y nada se añade a su Historial.",
+  "recipe_version_rename": "Cambiar el nombre de esta versión"
 }

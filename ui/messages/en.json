@@ -982,5 +982,15 @@
   "cookbook_invite_waiting": "An invite to write it with you is waiting to be opened.",
   "cookbook_remove_title": "Stop writing with {name}?",
   "cookbook_remove_said": "{name} takes their own copy of all {count} recipes, with their whole history. You keep yours.",
-  "cookbook_remove_do": "Remove {name}"
+  "cookbook_remove_do": "Remove {name}",
+  "offline_waits_version_name": "Renaming waits for the server",
+  "recipe_version_name_cancel": "Cancel",
+  "recipe_version_name_failed": "The name could not be saved. Try again.",
+  "recipe_version_name_it": "Name this version",
+  "recipe_version_name_label": "Name for this version",
+  "recipe_version_name_placeholder": "Weeknight",
+  "recipe_version_name_remove": "Remove the name",
+  "recipe_version_name_save": "Save",
+  "recipe_version_name_what": "It shows on this version’s chip at the top of the recipe. Nothing in the recipe changes, and nothing is added to its History.",
+  "recipe_version_rename": "Rename this version"
 }
