@@ -259,7 +259,7 @@ describe('the settings screen', () => {
 		expect(screen.getByRole('button', { name: 'Metric' })).toHaveAttribute('aria-pressed', 'true');
 	});
 
-	it("shows a minted Access Key's secret once, then never again", async () => {
+	it("shows a minted Access Key's secret where the form was, once, then never again (#142)", async () => {
 		const { kamosu } = renderScreen(Settings, {
 			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 			list_sessions: { sessions: [] },
@@ -278,11 +278,53 @@ describe('the settings screen', () => {
 		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
 
-		expect(await screen.findByText('the-one-time-secret')).toBeInTheDocument();
+		const secret = await screen.findByText('the-one-time-secret');
 		expect(kamosu.calls.map((call) => call.operation)).toContain('mint_access_key');
+
+		// In the form's place, under the list, not at the top of the section:
+		// the key is where the eye already is when Create is pressed.
+		const heading = screen.getByRole('heading', { name: 'Access Keys' });
+		expect(heading.compareDocumentPosition(secret) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Create Access Key' })).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Copy' })).toHaveFocus();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Done, I copied it' }));
 		expect(screen.queryByText('the-one-time-secret')).not.toBeInTheDocument();
+		expect(screen.getByLabelText('Name')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Create Access Key' })).toBeInTheDocument();
+	});
+
+	it('copies a minted Access Key, and still shows it when the browser will not copy (#142)', async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			list_sessions: { sessions: [] },
+			list_access_keys: { access_keys: [] },
+			...readsInAmerican,
+			mint_access_key: {
+				id: 'ak_new',
+				name: 'a new agent',
+				read_only: false,
+				secret: 'the-one-time-secret',
+			},
+			list_kitchens: { kitchens: [] },
+		});
+		const writeText = vi.fn(async () => {});
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+		await screen.findByText('No Access Keys yet.');
+		await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'a new agent' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Create Access Key' }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
+
+		expect(writeText).toHaveBeenCalledWith('the-one-time-secret');
+		expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+
+		writeText.mockRejectedValueOnce(new Error('not allowed'));
+		await fireEvent.click(screen.getByRole('button', { name: 'Copied' }));
+		expect(await screen.findByRole('button', { name: 'Copy' })).toBeInTheDocument();
+		expect(screen.getByText('the-one-time-secret')).toBeInTheDocument();
+		Reflect.deleteProperty(navigator, 'clipboard');
 	});
 
 	it("lists a signed-in Person's Kitchens, whose recipes each shows, and lets a member be removed", async () => {
@@ -503,6 +545,13 @@ describe('the settings screen', () => {
 
 		expect(await screen.findByText('the-invite-secret')).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).toContain('invite_to_kitchen');
+
+		const writeText = vi.fn(async () => {});
+		Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+		await fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+		expect(writeText).toHaveBeenCalledWith('the-invite-secret');
+		expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+		Reflect.deleteProperty(navigator, 'clipboard');
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Done, I copied it' }));
 		expect(screen.queryByText('the-invite-secret')).not.toBeInTheDocument();

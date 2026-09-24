@@ -20,6 +20,8 @@
 	import ImportCrouton from './ImportCrouton.svelte';
 	import Tags from './Tags.svelte';
 	import Confirm from '$lib/Confirm.svelte';
+	import OneTimeSecret from '$lib/OneTimeSecret.svelte';
+	import { copyText } from '$lib/clipboard';
 	import {
 		cookbookCalled,
 		cookbookPlainName,
@@ -597,13 +599,8 @@
 
 	async function copyCookbookLink() {
 		if (!cookbookLink) return;
-		try {
-			await navigator.clipboard.writeText(cookbookLink.url);
-			copied = true;
-		} catch {
-			// A browser that will not copy still shows the link to select by hand.
-			copied = false;
-		}
+		// A browser that will not copy still shows the link to select by hand.
+		copied = await copyText(cookbookLink.url);
 	}
 
 	async function answerCookbookAsk() {
@@ -855,22 +852,6 @@
 
 	{#if signedIn}
 		<Section heading={m.settings_access()}>
-			{#if mintedSecret}
-				<div class="mb-4 rounded-sm border border-accent bg-card p-3" role="alert">
-					<p class="text-body font-semibold text-ink">{m.access_key_secret_once()}</p>
-					<code class="mt-2 block overflow-x-auto rounded-sm bg-ground p-2 text-read"
-						>{mintedSecret}</code
-					>
-					<button
-						type="button"
-						class="mt-2 text-label text-accent underline"
-						onclick={() => (mintedSecret = undefined)}
-					>
-						{m.access_key_secret_dismiss()}
-					</button>
-				</div>
-			{/if}
-
 			<h3 class="mb-2 text-body font-semibold text-ink">{m.settings_sessions()}</h3>
 			{#if sessions.length === 0}
 				<p class="mb-6 text-body text-ink-2">{m.access_sessions_empty()}</p>
@@ -995,35 +976,53 @@
 				</ul>
 			{/if}
 
-			<form
-				class="grid gap-3"
-				onsubmit={(event) => {
-					event.preventDefault();
-					mintKey();
-				}}
-			>
-				<label class="grid gap-1 text-body text-ink">
-					{m.access_key_name()}
-					<input
-						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
-						bind:value={newKeyName}
-						required
-					/>
-				</label>
-				<label class="flex items-center gap-2 text-body text-ink">
-					<input type="checkbox" bind:checked={newKeyReadOnly} />
-					{m.access_key_read_only_label()}
-				</label>
-				{#if accessError}
-					<p class="text-body text-accent" role="alert">{accessError}</p>
-				{/if}
-				<button
-					class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-					disabled={minting}
+			<!--
+				A new key takes the form's place rather than appearing at the top of
+				the section: Create sits at the foot, so on a phone a key shown up
+				there was off-screen with nothing saying it existed (#142, choice 1).
+				The form comes back with Done, and the key never does.
+			-->
+			{#if mintedSecret}
+				<OneTimeSecret
+					secret={mintedSecret}
+					once={m.access_key_secret_once()}
+					copy={m.access_key_secret_copy()}
+					copied={m.access_key_secret_copied()}
+					dismiss={m.access_key_secret_dismiss()}
+					ondismiss={() => (mintedSecret = undefined)}
+					focus
+				/>
+			{:else}
+				<form
+					class="grid gap-3"
+					onsubmit={(event) => {
+						event.preventDefault();
+						mintKey();
+					}}
 				>
-					{m.access_key_mint()}
-				</button>
-			</form>
+					<label class="grid gap-1 text-body text-ink">
+						{m.access_key_name()}
+						<input
+							class="min-h-12 w-full rounded-sm border border-rule bg-card px-3"
+							bind:value={newKeyName}
+							required
+						/>
+					</label>
+					<label class="flex items-center gap-2 text-body text-ink">
+						<input type="checkbox" bind:checked={newKeyReadOnly} />
+						{m.access_key_read_only_label()}
+					</label>
+					{#if accessError}
+						<p class="text-body text-accent" role="alert">{accessError}</p>
+					{/if}
+					<button
+						class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
+						disabled={minting}
+					>
+						{m.access_key_mint()}
+					</button>
+				</form>
+			{/if}
 		</Section>
 
 		<!--
@@ -1276,19 +1275,19 @@
 							</p>
 						{/if}
 
+						<!-- No focus move: the invite appears where Invite someone was,
+						     already under the finger that pressed it. -->
 						{#if mintedInvite?.kitchenId === kitchen.id}
-							<div class="mt-3 rounded-sm border border-accent bg-ground p-3" role="alert">
-								<p class="text-body font-semibold text-ink">{m.kitchen_invite_secret_once()}</p>
-								<code class="mt-2 block overflow-x-auto rounded-sm bg-card p-2 text-read"
-									>{mintedInvite.secret}</code
-								>
-								<button
-									type="button"
-									class="mt-2 text-label text-accent underline"
-									onclick={() => (mintedInvite = undefined)}
-								>
-									{m.kitchen_invite_secret_dismiss()}
-								</button>
+							<div class="mt-3">
+								<OneTimeSecret
+									secret={mintedInvite.secret}
+									once={m.kitchen_invite_secret_once()}
+									copy={m.kitchen_invite_secret_copy()}
+									copied={m.kitchen_invite_secret_copied()}
+									dismiss={m.kitchen_invite_secret_dismiss()}
+									ondismiss={() => (mintedInvite = undefined)}
+									onCard
+								/>
 							</div>
 						{:else}
 							<button

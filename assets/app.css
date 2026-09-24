@@ -1151,6 +1151,10 @@
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
+  .select-all {
+    -webkit-user-select: all;
+    user-select: all;
+  }
   .select-none {
     -webkit-user-select: none;
     user-select: none;
