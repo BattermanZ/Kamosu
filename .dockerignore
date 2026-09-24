@@ -8,6 +8,11 @@ samples/
 ui/node_modules/
 ui/build/
 ui/.svelte-kit/
+# Paraglide's output is generated and gitignored. Copied in from a working
+# machine, whichever layout the dev server last wrote went into the image, and
+# how many files the build had to write depended on it. Left out, the image
+# builds from ui/messages/ alone.
+ui/src/lib/paraglide/
 
 # Machine-local secrets: never in a build context
 .env

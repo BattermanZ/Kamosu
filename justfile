@@ -483,9 +483,11 @@ docker-build: _check-tokens-fresh _check-client-fresh
     docker build --load -t kamosu .
 
 # The same image built by Podman. `--format docker` keeps the HEALTHCHECK,
-# which the OCI format Podman defaults to has no field for.
+# which the OCI format Podman defaults to has no field for. `--ulimit` because
+# Podman allows a build step 1024 open files, and the Paraglide compile writes
+# ~2000 at once, dropping the ones refused without an error.
 podman-build: _check-tokens-fresh _check-client-fresh
-    podman build --format docker -t localhost/kamosu .
+    podman build --format docker --ulimit nofile=65536:65536 -t localhost/kamosu .
 
 # Run the image as the one-mount-one-port install: ./kamosu-data holds the truth,
 # 5266 serves the world. Ctrl-C stops it.

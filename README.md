@@ -19,8 +19,10 @@ docker run -d --name kamosu -v /srv/kamosu:/data -p 5266:5266 kamosu
 ```
 
 Kamosu runs as user 65532, not root, so the folder you mount has to belong
-to that user. With rootless Podman, build with `podman build --format docker`
-(the default format drops the health check) and hand the folder over with
+to that user. With rootless Podman, build with
+`podman build --format docker --ulimit nofile=65536:65536` (the default format
+drops the health check, and the default limit of 1024 open files is too few
+for the interface build) and hand the folder over with
 `podman unshare chown 65532:65532 /srv/kamosu` instead of `sudo chown`.
 
 Open it, and the first person to arrive becomes the Operator. There is no
