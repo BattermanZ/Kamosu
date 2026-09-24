@@ -129,8 +129,9 @@ async fn asking_for_a_job_returns_an_id_at_once_and_the_result_is_read_at_both_d
         "method": "tools/call",
         "params": { "name": "probe_job", "arguments": {} },
     });
-    let (_, refused) = app.post_mcp(&bare_call.to_string(), None);
-    assert_eq!(refused["error"]["code"], json!(-32003), "{refused}");
+    let (refused_status, refused) = app.post_mcp(&bare_call.to_string(), None);
+    assert_eq!(refused_status, 400, "{refused}");
+    assert_eq!(refused["error"]["code"], json!(-32021), "{refused}");
     assert!(
         refused["error"]["data"]["requiredCapabilities"]["extensions"]
             .get("io.modelcontextprotocol/tasks")
@@ -141,7 +142,7 @@ async fn asking_for_a_job_returns_an_id_at_once_and_the_result_is_read_at_both_d
         r#"{"jsonrpc":"2.0","id":2,"method":"tasks/get","params":{"taskId":"whatever"}}"#,
         None,
     );
-    assert_eq!(tasks_get_refused["error"]["code"], json!(-32003));
+    assert_eq!(tasks_get_refused["error"]["code"], json!(-32021));
 
     // Polling reaches completion, carrying the result in CallToolResult shape.
     let poll = json!({
@@ -5083,6 +5084,191 @@ async fn the_mcp_door_speaks_one_revision_stateless_with_no_handshake() {
     );
 }
 
+/// `server/discover` is the one method the revision says every server MUST
+/// answer, and the first a client sends: Claude Code opens with it, and on an
+/// error falls back to `initialize`, which this door refuses (#143). It asks
+/// for no Credential, because nothing it says depends on who is asking.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_mcp_door_answers_server_discover_with_what_it_serves() {
+    let app = support::spawn_app();
+
+    let discover = json!({
+        "jsonrpc": "2.0",
+        "id": "discover-1",
+        "method": "server/discover",
+        "params": { "_meta": {
+            "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+            "io.modelcontextprotocol/clientInfo": { "name": "behaviour", "version": "0" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+        } },
+    });
+    let (status, body) = app.post_mcp_with_headers(
+        &discover.to_string(),
+        &[
+            ("MCP-Protocol-Version", MCP_PROTOCOL_VERSION),
+            ("Mcp-Method", "server/discover"),
+        ],
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["id"], json!("discover-1"), "{body}");
+    let result = &body["result"];
+    assert_eq!(result["resultType"], json!("complete"), "{body}");
+    assert_eq!(result["supportedVersions"], json!([MCP_PROTOCOL_VERSION]));
+    assert!(result["capabilities"]["tools"].is_object(), "{body}");
+    assert!(
+        result["capabilities"]["extensions"]
+            .get(kamosu::MCP_TASKS_EXTENSION)
+            .is_some_and(Value::is_object),
+        "the tasks extension the door carries is declared: {body}"
+    );
+    assert!(
+        result["capabilities"].get("resources").is_none()
+            && result["capabilities"].get("prompts").is_none(),
+        "nothing the door does not serve is claimed: {body}"
+    );
+    let server_info = &result["_meta"]["io.modelcontextprotocol/serverInfo"];
+    assert_eq!(server_info["name"], json!("kamosu"));
+    assert_eq!(server_info["version"], json!(env!("CARGO_PKG_VERSION")));
+    assert!(result["ttlMs"].as_u64().is_some(), "{body}");
+    assert_eq!(result["cacheScope"], json!("public"), "{body}");
+
+    // The listing carries the same caching hints, scoped to the Credential,
+    // since a read-only Access Key sees fewer tools (ADR 0031).
+    let (_, listed) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        None,
+    );
+    assert_eq!(
+        listed["result"]["resultType"],
+        json!("complete"),
+        "{listed}"
+    );
+    assert!(listed["result"]["ttlMs"].as_u64().is_some(), "{listed}");
+    assert_eq!(listed["result"]["cacheScope"], json!("private"), "{listed}");
+
+    let (_, called) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"instance_status","arguments":{}}}"#,
+        None,
+    );
+    assert_eq!(
+        called["result"]["resultType"],
+        json!("complete"),
+        "{called}"
+    );
+}
+
+/// The Streamable HTTP rules a modern client reads to tell a modern server
+/// from a legacy one: which HTTP status carries which JSON-RPC error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_mcp_door_answers_protocol_faults_with_the_statuses_the_revision_names() {
+    let app = support::spawn_app();
+
+    // A method the door does not serve is a 404 carrying -32601.
+    let (status, body) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":1,"method":"prompts/list","params":{}}"#,
+        None,
+    );
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32601), "{body}");
+
+    // A version this build does not speak, in the body's _meta.
+    let old = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/list",
+        "params": { "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "1900-01-01",
+            "io.modelcontextprotocol/clientCapabilities": {},
+        } },
+    });
+    let (status, body) = app.post_mcp(&old.to_string(), None);
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32022), "{body}");
+    assert_eq!(
+        body["error"]["data"],
+        json!({ "supported": [MCP_PROTOCOL_VERSION], "requested": "1900-01-01" })
+    );
+
+    // The same version named only in the header is refused the same way.
+    let (status, body) = app.post_mcp_with_headers(
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}"#,
+        &[("MCP-Protocol-Version", "1900-01-01")],
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32022), "{body}");
+
+    // A header that disagrees with the body is a HeaderMismatch, whichever
+    // header it is.
+    let current = json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "instance_status",
+            "arguments": {},
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+                "io.modelcontextprotocol/clientCapabilities": {},
+            },
+        },
+    })
+    .to_string();
+    for headers in [
+        [
+            ("MCP-Protocol-Version", "2025-11-25"),
+            ("Mcp-Method", "tools/call"),
+        ],
+        [
+            ("MCP-Protocol-Version", MCP_PROTOCOL_VERSION),
+            ("Mcp-Method", "tools/list"),
+        ],
+        [("Mcp-Method", "tools/call"), ("Mcp-Name", "get_job")],
+    ] {
+        let (status, body) = app.post_mcp_with_headers(&current, &headers);
+        assert_eq!(status, 400, "{headers:?}: {body}");
+        assert_eq!(body["error"]["code"], json!(-32020), "{headers:?}: {body}");
+    }
+    // A name carried in the Base64 sentinel is decoded before it is compared.
+    let (status, body) = app.post_mcp_with_headers(
+        &current,
+        &[
+            ("MCP-Protocol-Version", MCP_PROTOCOL_VERSION),
+            ("Mcp-Method", "tools/call"),
+            ("Mcp-Name", "=?base64?aW5zdGFuY2Vfc3RhdHVz?="),
+        ],
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["isError"], json!(false), "{body}");
+
+    // A legacy initialize is a 400 whose message names the version spoken.
+    let (status, body) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":5,"method":"initialize","params":{}}"#,
+        None,
+    );
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains(MCP_PROTOCOL_VERSION)),
+        "{body}"
+    );
+
+    // An id may not be null in MCP, unlike in plain JSON-RPC.
+    let (_, body) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":null,"method":"tools/list","params":{}}"#,
+        None,
+    );
+    assert_eq!(body["error"]["code"], json!(-32600), "{body}");
+
+    // A notification carries no id and is answered 202 with no body.
+    let (status, body) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{}}"#,
+        None,
+    );
+    assert_eq!(status, 202, "{body}");
+    assert_eq!(body, Value::Null, "a notification's answer has no body");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn everything_durable_lives_under_one_data_directory() {
     let app = support::spawn_app();
@@ -5463,6 +5649,38 @@ async fn cancelling_a_task_is_acknowledged_and_honoured_while_it_waits_in_line()
     });
     let (_, ack) = app.post_mcp(&cancel.to_string(), None);
     assert_eq!(ack["result"]["resultType"], json!("complete"), "{ack}");
+
+    // tasks/update is the extension's third method. Kamosu never asks a task
+    // for input, so there is nothing to apply, but a known task is acknowledged
+    // and an unknown one refused, as the extension says (#143).
+    let update = json!({
+        "jsonrpc": "2.0",
+        "id": 30,
+        "method": "tasks/update",
+        "params": {
+            "taskId": busy_task,
+            "inputResponses": {},
+            "_meta": tasks_meta()["_meta"],
+        },
+    });
+    let (_, updated) = app.post_mcp(&update.to_string(), None);
+    assert_eq!(
+        updated["result"]["resultType"],
+        json!("complete"),
+        "{updated}"
+    );
+    let mut stray = update.clone();
+    stray["params"]["taskId"] = json!("j_nothing");
+    let (_, stray) = app.post_mcp(&stray.to_string(), None);
+    assert_eq!(stray["error"]["code"], json!(-32602), "{stray}");
+    let mut bare = update.clone();
+    bare["params"]["_meta"] = json!({});
+    let (status, bare) = app.post_mcp(&bare.to_string(), None);
+    assert_eq!(
+        (status, &bare["error"]["code"]),
+        (400, &json!(-32021)),
+        "{bare}"
+    );
 
     // An unknown taskId is refused, not acknowledged.
     let unknown = json!({

@@ -1,7 +1,9 @@
 //! The MCP door: built by walking the Catalogue, like the web door.
 //!
 //! Speaks MCP revision `2026-07-28` only — stateless, no handshake. A legacy
-//! `initialize` receives a courteous error naming the version this door speaks.
+//! `initialize` receives a courteous error naming the version this door speaks,
+//! and `server/discover`, which that revision requires of every server, says
+//! the same thing to a modern client before it asks for anything else (#143).
 //!
 //! It carries the standard long-running-task extension
 //! (`io.modelcontextprotocol/tasks`): asking for an Operation declared `Kind::Job`
@@ -52,12 +54,35 @@ async fn handle(
         .unwrap_or("")
         .to_string();
 
+    // A notification carries no id and wants no answer. None changes anything
+    // at this door, so each is accepted and nothing is done.
+    if id.is_none() && !method.is_empty() {
+        return StatusCode::ACCEPTED.into_response();
+    }
+    // MCP narrows JSON-RPC here: a request's id is never null.
+    if id.as_ref().is_some_and(Value::is_null) {
+        return json_rpc_error_response(
+            None,
+            json_rpc_error(-32600, "Invalid Request: 'id' may not be null"),
+        );
+    }
+
+    // The handshake is retired in this revision: requests are self-contained.
+    // Answered before the metadata is read, since a legacy client sends none.
+    if method == "initialize" {
+        return json_rpc_error_response(id, courteous_initialize_refusal(request.get("params")));
+    }
+    if let Err(fault) = check_request_metadata(&headers, &request, &method) {
+        return json_rpc_error_response(id, fault);
+    }
+
     let result = match method.as_str() {
-        // The handshake is retired in this revision: requests are self-contained.
-        "initialize" => Err(courteous_initialize_refusal()),
+        // Needs no Credential: nothing it says depends on who is asking.
+        "server/discover" => Ok(server_discover()),
         "tools/list" => Ok(tools_list(&core, &headers)),
         "tools/call" => tools_call(&core, &headers, request.get("params")),
         "tasks/get" => tasks_get(&core, &headers, request.get("params")),
+        "tasks/update" => tasks_update(&core, &headers, request.get("params")),
         "tasks/cancel" => tasks_cancel(&core, &headers, request.get("params")),
         "" => Err(json_rpc_error(
             -32600,
@@ -75,14 +100,145 @@ async fn handle(
     }
 }
 
-fn courteous_initialize_refusal() -> Value {
-    json_rpc_error(
-        -32000,
+/// An `initialize` is how a legacy client asks for its own revision, so it is
+/// refused as an unsupported version: the one refusal a legacy client can show
+/// its person, and one a modern client recognises and does not fall back from.
+fn courteous_initialize_refusal(params: Option<&Value>) -> Value {
+    let requested = params
+        .and_then(|params| params.get("protocolVersion"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    unsupported_version(
+        requested,
         format!(
             "Kamosu speaks MCP revision {MCP_PROTOCOL_VERSION} only: stateless, with no \
              handshake. Send each request on its own — no initialize is needed or spoken."
         ),
     )
+}
+
+fn unsupported_version(requested: &str, message: impl Into<String>) -> Value {
+    json_rpc_error_with_data(
+        UNSUPPORTED_PROTOCOL_VERSION,
+        message,
+        json!({ "supported": [MCP_PROTOCOL_VERSION], "requested": requested }),
+    )
+}
+
+/// The revision a request names, in its `_meta` or its header, must be this
+/// one, and every header mirroring the body must agree with it.
+///
+/// Only what is present is checked. The revision also makes the version, the
+/// `Mcp-Method` and `Mcp-Name` headers and the `_meta` fields required, but
+/// every caller written before #143 sends none of them, and refusing their
+/// absence is its own decision.
+fn check_request_metadata(headers: &HeaderMap, request: &Value, method: &str) -> Result<(), Value> {
+    let header = |name: &str| -> Result<Option<&str>, Value> {
+        headers
+            .get(name)
+            .map(|value| {
+                value
+                    .to_str()
+                    .map_err(|_| header_mismatch(format!("the {name} header is not plain text")))
+            })
+            .transpose()
+    };
+    let params = request.get("params");
+
+    let body_version = params
+        .and_then(|params| params.pointer("/_meta/io.modelcontextprotocol~1protocolVersion"))
+        .and_then(Value::as_str);
+    let header_version = header("MCP-Protocol-Version")?;
+    if let (Some(body), Some(header)) = (body_version, header_version)
+        && body != header
+    {
+        return Err(header_mismatch(format!(
+            "MCP-Protocol-Version header value '{header}' does not match body value '{body}'"
+        )));
+    }
+    if let Some(requested) = body_version.or(header_version)
+        && requested != MCP_PROTOCOL_VERSION
+    {
+        return Err(unsupported_version(
+            requested,
+            "Unsupported protocol version",
+        ));
+    }
+
+    if let Some(named) = header("Mcp-Method")?
+        && named != method
+    {
+        return Err(header_mismatch(format!(
+            "Mcp-Method header value '{named}' does not match body value '{method}'"
+        )));
+    }
+
+    if let Some(named) = header("Mcp-Name")? {
+        let named = decode_header_value(named)
+            .ok_or_else(|| header_mismatch("the Mcp-Name header's Base64 does not decode"))?;
+        // A tool's name, a resource's uri, or a task's id (the tasks extension).
+        let body = params.and_then(|params| {
+            ["name", "uri", "taskId"]
+                .iter()
+                .find_map(|field| params.get(field).and_then(Value::as_str))
+        });
+        if body != Some(named.as_str()) {
+            return Err(header_mismatch(format!(
+                "Mcp-Name header value '{named}' does not match body value '{}'",
+                body.unwrap_or("")
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A header value as sent, or decoded out of the `=?base64?…?=` sentinel a
+/// client uses for anything that is not plain ASCII.
+fn decode_header_value(value: &str) -> Option<String> {
+    use base64::Engine;
+    match value
+        .strip_prefix("=?base64?")
+        .and_then(|rest| rest.strip_suffix("?="))
+    {
+        Some(encoded) => base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok()),
+        None => Some(value.to_string()),
+    }
+}
+
+fn header_mismatch(message: impl Into<String>) -> Value {
+    json_rpc_error(
+        HEADER_MISMATCH,
+        format!("Header mismatch: {}", message.into()),
+    )
+}
+
+/// How long a client may keep the discovery answer and the tool listing before
+/// asking again. Both change only when a new build ships, so five minutes costs
+/// an upgrade nothing a person would notice.
+const LISTING_TTL_MS: u64 = 5 * 60 * 1000;
+
+/// `server/discover`: what this door serves, read off the Catalogue it walks
+/// rather than kept by hand. The tasks extension is claimed only because some
+/// Operation is a Job; without one the door would never answer with a task.
+fn server_discover() -> Value {
+    let mut capabilities = json!({ "tools": {} });
+    if catalogue::OPERATIONS
+        .iter()
+        .any(|op| op.kind == catalogue::Kind::Job)
+    {
+        capabilities["extensions"] = json!({ MCP_TASKS_EXTENSION: {} });
+    }
+    json!({
+        "resultType": "complete",
+        "supportedVersions": [MCP_PROTOCOL_VERSION],
+        "capabilities": capabilities,
+        "ttlMs": LISTING_TTL_MS,
+        // The same answer for every caller, Credential or none.
+        "cacheScope": "public",
+    })
 }
 
 /// The listing itself is not an Operation and carries no permission check, but
@@ -105,7 +261,13 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
             })
         })
         .collect();
-    json!({ "tools": tools })
+    json!({
+        "resultType": "complete",
+        "tools": tools,
+        "ttlMs": LISTING_TTL_MS,
+        // What a read-only Access Key is shown differs from the rest.
+        "cacheScope": "private",
+    })
 }
 
 fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {
@@ -145,14 +307,11 @@ fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Resul
                     .ok_or_else(|| json_rpc_error(-32603, "the Job vanished as it was created"))?;
                 Ok(create_task_result(&record))
             } else {
-                Ok(json!({
-                    "content": [{ "type": "text", "text": serde_json::to_string_pretty(&result).expect("serialisable result") }],
-                    "structuredContent": result,
-                    "isError": false,
-                }))
+                Ok(call_tool_result(result))
             }
         }
         Err(err) => Ok(json!({
+            "resultType": "complete",
             "content": [{ "type": "text", "text": err.to_sentence() }],
             "isError": true,
         })),
@@ -170,20 +329,11 @@ fn declares_tasks_capability(params: &Value) -> bool {
 }
 
 fn missing_tasks_capability_error() -> Value {
-    // Same envelope as json_rpc_error: the handle() plumbing unwraps ["error"].
-    json!({
-        "error": {
-            "code": -32003,
-            "message": "Missing required client capability",
-            "data": {
-                "requiredCapabilities": {
-                    "extensions": {
-                        MCP_TASKS_EXTENSION: {},
-                    },
-                },
-            },
-        },
-    })
+    json_rpc_error_with_data(
+        MISSING_REQUIRED_CLIENT_CAPABILITY,
+        "Missing required client capability",
+        json!({ "requiredCapabilities": { "extensions": { MCP_TASKS_EXTENSION: {} } } }),
+    )
 }
 
 /// The `CreateTaskResult`: the seed state of the task, sent only after the row
@@ -219,6 +369,23 @@ fn tasks_get(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result
 
     let job = read_job_for_task(core, headers, task_id)?;
     Ok(detailed_task(&job))
+}
+
+/// `tasks/update`: the client answering what a task asked of it. No Operation
+/// asks anything mid-work, so there is never an answer to apply, but the
+/// extension still has a known task acknowledged and an unknown one refused.
+fn tasks_update(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Result<Value, Value> {
+    let params = params.cloned().unwrap_or(Value::Null);
+    if !declares_tasks_capability(&params) {
+        return Err(missing_tasks_capability_error());
+    }
+    let task_id = params
+        .get("taskId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| json_rpc_error(-32602, "params.taskId is required"))?;
+
+    read_job_for_task(core, headers, task_id)?;
+    Ok(json!({ "resultType": "complete" }))
 }
 
 /// `tasks/cancel`: signal intent to cancel. Acknowledged either way; honoured
@@ -319,6 +486,7 @@ fn detailed_task(job: &Value) -> Value {
 
 fn call_tool_result(structured: Value) -> Value {
     json!({
+        "resultType": "complete",
         "content": [{
             "type": "text",
             "text": serde_json::to_string_pretty(&structured).unwrap_or_default(),
@@ -330,23 +498,49 @@ fn call_tool_result(structured: Value) -> Value {
 
 // --- JSON-RPC plumbing -------------------------------------------------------
 
+/// The three codes the revision allocates itself. Each is answered 400, which
+/// is how a client knows it reached a modern server that refused the request,
+/// rather than a legacy one that did not understand it.
+const HEADER_MISMATCH: i64 = -32020;
+const MISSING_REQUIRED_CLIENT_CAPABILITY: i64 = -32021;
+const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
+
 fn json_rpc_error(code: i64, message: impl Into<String>) -> Value {
     json!({
         "error": { "code": code, "message": message.into() },
     })
 }
 
-fn json_rpc_success(id: Option<Value>, payload: Value) -> Response {
+fn json_rpc_error_with_data(code: i64, message: impl Into<String>, data: Value) -> Value {
+    let mut error = json_rpc_error(code, message);
+    error["error"]["data"] = data;
+    error
+}
+
+fn json_rpc_success(id: Option<Value>, mut payload: Value) -> Response {
+    // Every result names the server that gave it, since no handshake did.
+    payload["_meta"]["io.modelcontextprotocol/serverInfo"] =
+        json!({ "name": env!("CARGO_PKG_NAME"), "version": env!("CARGO_PKG_VERSION") });
     let envelope = json!({ "jsonrpc": "2.0", "id": id.unwrap_or(Value::Null), "result": payload });
-    send(envelope)
+    send(StatusCode::OK, envelope)
 }
 
 fn json_rpc_error_response(id: Option<Value>, payload: Value) -> Response {
-    let envelope = json!({ "jsonrpc": "2.0", "id": id.unwrap_or(Value::Null), "error": payload["error"].clone() });
-    send(envelope)
+    let error = payload["error"].clone();
+    // The HTTP status is how a client tells a modern server from a legacy one
+    // without reading further, so the revision names it for these codes.
+    let status = match error["code"].as_i64() {
+        Some(-32601) => StatusCode::NOT_FOUND,
+        Some(
+            HEADER_MISMATCH | MISSING_REQUIRED_CLIENT_CAPABILITY | UNSUPPORTED_PROTOCOL_VERSION,
+        ) => StatusCode::BAD_REQUEST,
+        _ => StatusCode::OK,
+    };
+    let envelope = json!({ "jsonrpc": "2.0", "id": id.unwrap_or(Value::Null), "error": error });
+    send(status, envelope)
 }
 
-fn send(envelope: Value) -> Response {
+fn send(status: StatusCode, envelope: Value) -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(
         axum::http::header::CONTENT_TYPE,
@@ -356,5 +550,5 @@ fn send(envelope: Value) -> Response {
         "MCP-Protocol-Version",
         MCP_PROTOCOL_VERSION.parse().unwrap(),
     );
-    (StatusCode::OK, headers, Json(envelope)).into_response()
+    (status, headers, Json(envelope)).into_response()
 }
