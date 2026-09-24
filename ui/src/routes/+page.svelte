@@ -9,12 +9,9 @@
 	and a refusal *is* the answer that nobody is signed in. One round trip does
 	both jobs, so a signed-in Person never sees the login form flash first.
 
-	An Invite or a recovery link goes straight to the form without asking, since
-	the whole point of one is that you are not signed in yet — and asking would
-	spend a request to be told what the address already says.
+	An Invite or a recovery link opens a route of its own, not this one (#126).
 -->
 <script lang="ts">
-	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -31,10 +28,6 @@
 	/** Bumped when the form reports a sign-in, which re-runs the ask below. */
 	let asked = $state(0);
 
-	const arriving = $derived(
-		page.url.pathname.startsWith('/invite/') || page.url.pathname.startsWith('/recover/'),
-	);
-
 	/** The form says it worked: forget the refusal and ask again. */
 	function signedIn() {
 		home = undefined;
@@ -42,7 +35,6 @@
 	}
 
 	$effect(() => {
-		if (arriving) return;
 		// Read before the await, so signing in re-runs this rather than leaving
 		// the form standing in front of a Person who is now signed in.
 		void asked;
@@ -77,7 +69,7 @@
 	});
 </script>
 
-{#if arriving || home === null}
+{#if home === null}
 	<Account onSignedIn={signedIn} />
 {:else if home}
 	<Home {home} />

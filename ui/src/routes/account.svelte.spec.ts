@@ -6,6 +6,11 @@ import { renderScreen } from '../testing/render';
 import Harness from '../testing/Harness.svelte';
 import { standIn } from '$lib/api/stand-in';
 import type { AuthClient } from '$lib/auth';
+import { OperationError } from '$lib/api/client';
+import { went } from '../testing/navigation';
+import LinkTestHarness from './LinkTestHarness.svelte';
+import InviteRoute from './invite/[secret]/+page.svelte';
+import RecoverRoute from './recover/[secret]/+page.svelte';
 
 describe('the account screen', () => {
 	const user = userEvent.setup();
@@ -133,6 +138,93 @@ describe('the account screen', () => {
 
 		it('still names it something when the browser says nothing useful', async () => {
 			expect(await signInAs('curl/8.5.0', 0)).toBe('A browser');
+		});
+	});
+
+	// An Invite and a recovery link each open a page of their own. Until #126
+	// neither existed, and both addresses opened Not Found: the form knew what to
+	// do with a link, but no route ever showed it one.
+	describe('opened from a link (#126)', () => {
+		/** Open `route` with `secret`, signing in through `authenticate`. */
+		function open(
+			route: typeof InviteRoute | typeof RecoverRoute,
+			secret: string,
+			authenticate: AuthClient['authenticate'],
+		) {
+			render(LinkTestHarness, {
+				props: {
+					route,
+					secret,
+					client: standIn({ instance_status: { version: '0.1.0', setup_complete: true } }).client,
+					auth: { authenticate },
+				},
+			});
+		}
+
+		it('shows an Invite link the Invite form, and goes Home once it is accepted', async () => {
+			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+			open(InviteRoute, '8f2c1a94e07b', authenticate);
+
+			expect(await screen.findByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
+			await user.type(screen.getByLabelText('Name'), 'Camille');
+			await user.type(screen.getByLabelText('Password'), 'a password');
+			await user.click(screen.getByRole('button', { name: 'Create my account' }));
+
+			// The whole path, prefix and all: the Core strips `/invite/` itself.
+			expect(authenticate).toHaveBeenCalledWith(
+				'invite',
+				expect.objectContaining({
+					link: '/invite/8f2c1a94e07b',
+					name: 'Camille',
+					password: 'a password',
+				}),
+			);
+			expect(went).toHaveBeenCalledWith('/');
+		});
+
+		it('shows a recovery link the recovery form, and goes Home once it is used', async () => {
+			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
+			open(RecoverRoute, '3b71d0ae5c92', authenticate);
+
+			expect(
+				await screen.findByRole('heading', { name: 'Choose a new password' }),
+			).toBeInTheDocument();
+			// The link already says whose password this is.
+			expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+			await user.type(screen.getByLabelText('Password'), 'a new password');
+			await user.click(screen.getByRole('button', { name: 'Set new password' }));
+
+			expect(authenticate).toHaveBeenCalledWith(
+				'recover',
+				expect.objectContaining({ link: '/recover/3b71d0ae5c92', password: 'a new password' }),
+			);
+			expect(authenticate).not.toHaveBeenCalledWith(
+				'recover',
+				expect.objectContaining({ name: expect.anything() }),
+			);
+			expect(went).toHaveBeenCalledWith('/');
+		});
+
+		// Whether a link is still good is learned by using it, not on arrival
+		// (decided in triage): the Core's refusal is what the person reads.
+		it('says in words that a link is spent, and stays on the form', async () => {
+			open(InviteRoute, '8f2c1a94e07b', async () => {
+				throw new OperationError(
+					'authentication',
+					'unauthorized',
+					'this Invite has already been spent or revoked',
+				);
+			});
+
+			await user.type(await screen.findByLabelText('Name'), 'Camille');
+			await user.type(screen.getByLabelText('Password'), 'a password');
+			await user.click(screen.getByRole('button', { name: 'Create my account' }));
+
+			expect(await screen.findByRole('alert')).toHaveTextContent(
+				'this Invite has already been spent or revoked',
+			);
+			expect(screen.getByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
+			expect(went).not.toHaveBeenCalled();
 		});
 	});
 });

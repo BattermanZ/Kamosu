@@ -1,5 +1,5 @@
 import { getContext, setContext } from 'svelte';
-import { OperationError } from './api/client';
+import { OperationError, readEnvelope } from './api/client';
 import { watched } from './mistake.svelte';
 import { sessionBegan } from './offline/library.svelte';
 
@@ -55,8 +55,11 @@ async function reach(
 		});
 	}
 
-	if (!response.ok)
-		throw new OperationError('authentication', 'unauthorized', 'authentication failed');
+	// The Core's own words, in the envelope every Door route answers with. A
+	// spent Invite and a wrong password are different things to be told, and
+	// this used to say "authentication failed" to both (#126). Called only for
+	// the refusal it throws: an answer that is not ok carries no result.
+	if (!response.ok) await readEnvelope('authentication', response);
 	// Whoever this is, the library on this phone was not filled for them (#76).
 	sessionBegan();
 }

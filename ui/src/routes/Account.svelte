@@ -5,11 +5,13 @@
 	It is not a route of its own. `/` is **Home** once you are signed in, and
 	this is what stands there until you are — so the one address in the tab bar
 	is the one address you are ever sent to, whichever side of signing in you
-	are on. An Invite or a recovery link lands here too, because the whole point
-	of one is that you are not signed in yet.
+	are on.
+
+	An Invite or a recovery link is the exception: each opens a route of its own
+	(`/invite/<secret>`, `/recover/<secret>`), which hands the link down as
+	`link` and goes Home once this form has signed in (#126).
 -->
 <script lang="ts">
-	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { useAuth } from '$lib/auth';
@@ -19,6 +21,13 @@
 
 	interface Props {
 		/**
+		 * The Invite or recovery link this form was opened from, as the whole
+		 * path Kamosu minted: `/invite/<secret>` or `/recover/<secret>`. Sent to
+		 * the Core exactly so, since the Core strips the prefix itself. Absent
+		 * on `/`, where the form is setup or login.
+		 */
+		link?: `/invite/${string}` | `/recover/${string}`;
+		/**
 		 * Told to the route above when this form has just succeeded, so it can
 		 * ask Kamosu again and swap to Home. The route never watches a cookie or
 		 * keeps a second idea of who is signed in: the only thing that ever says
@@ -27,7 +36,7 @@
 		onSignedIn?: () => void;
 	}
 
-	let { onSignedIn }: Props = $props();
+	let { link, onSignedIn }: Props = $props();
 
 	const kamosu = useKamosu();
 	const auth = useAuth();
@@ -43,10 +52,8 @@
 	let password = $state('');
 	let failed = $state<string | undefined>(undefined);
 	let busy = $state(false);
-	const invite = $derived(page.url.pathname.startsWith('/invite/') ? page.url.pathname : undefined);
-	const recovery = $derived(
-		page.url.pathname.startsWith('/recover/') ? page.url.pathname : undefined,
-	);
+	const invite = $derived(link?.startsWith('/invite/') ? link : undefined);
+	const recovery = $derived(link?.startsWith('/recover/') ? link : undefined);
 	const mode = $derived(
 		invite ? 'invite' : recovery ? 'recover' : setupComplete ? 'login' : 'first-person',
 	);
