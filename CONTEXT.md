@@ -265,7 +265,7 @@ The last Version two Branches share — a fact computed by walking both parent c
 _Avoid_: Common ancestor, base, merge base, split
 
 **Thread**:
-The whole of a Lineage on one screen: its Versions oldest to newest, forking at the Branch Point, with Attempts hanging off it. Where a person reads back, opens any Version, and cooks from one. Reading, never editing.
+The whole of a Lineage on one screen: its Versions oldest to newest, forking at the Branch Point, with Attempts hanging off it. Where a person reads back, opens any Version, and cooks from one. Reading, never editing. The interface labels the button and the screen *History* (*Historique*, *Historial*), because "the thread" told a cook nothing about what was behind it (#133). The words below are to be avoided in code and docs, which keep **Thread**; the label is the interface's alone.
 _Avoid_: History, log, timeline, changelog, graph
 
 **Ghost**:

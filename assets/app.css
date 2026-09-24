@@ -993,6 +993,9 @@
   .font-display {
     font-family: var(--font-display);
   }
+  .font-sans {
+    font-family: var(--font-sans);
+  }
   .text-step {
     font-size: var(--text-step);
     line-height: var(--tw-leading, var(--text-step--line-height));

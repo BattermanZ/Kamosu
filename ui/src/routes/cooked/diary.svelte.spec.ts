@@ -374,7 +374,7 @@ describe('putting a cooking’s picture on the recipe', () => {
 		expect(on.getByText('This will save')).toBeInTheDocument();
 		expect(
 			on.getByText(
-				'Saving writes a new Version onto your Miso Soup, in your Cookbook. It shows in the Thread like any edit.',
+				'Saving writes a new Version onto your Miso Soup, in your Cookbook. It shows in the history like any edit.',
 			),
 		).toBeInTheDocument();
 		expect(on.getByText(/The photo stops being private/)).toBeInTheDocument();

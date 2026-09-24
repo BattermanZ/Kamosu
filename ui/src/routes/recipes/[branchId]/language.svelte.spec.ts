@@ -261,7 +261,7 @@ describe('saying what Language a recipe is in, by hand', () => {
 
 		expect(
 			await screen.findByText(
-				'What this recipe is written in. Changing it makes a new Version, so it shows up in the Thread.',
+				'What this recipe is written in. Changing it makes a new Version, so it shows up in the history.',
 			),
 		).toBeInTheDocument();
 		// The one it already is cannot be tapped: saying a recipe is in the

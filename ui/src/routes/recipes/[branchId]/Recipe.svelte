@@ -210,6 +210,32 @@
 	 * because there is no such object to list.
 	 */
 	let lineageBranches = $state<GetThreadOutput['branches']>([]);
+	/**
+	 * Every Version on every Branch of this Lineage, which the Thread answers
+	 * anyway. The button into it says how many are this Branch's own and when
+	 * the last was saved (#133), so a cook can tell before tapping whether
+	 * anything is behind it.
+	 */
+	let lineageVersions = $state<GetThreadOutput['versions']>([]);
+	/**
+	 * The line under that button: the Versions on this Branch's own chain,
+	 * counted and dated. A Variation's chain includes the Versions it started
+	 * from, since those are its past too, and never another Branch's later
+	 * ones. Filtered by the id on screen rather than reset on leaving, so the
+	 * last recipe's count can never label this one's button.
+	 */
+	const threadLine = $derived.by(() => {
+		const own = lineageVersions.filter((each) => each.branch_id === branchId);
+		if (own.length === 0) return null;
+		const last = own.reduce(
+			(latest, each) => (each.created_at > latest ? each.created_at : latest),
+			own[0]!.created_at,
+		);
+		const when = new Date(last).toLocaleDateString();
+		if (own.length === 1) return m.recipe_thread_saved_once({ when });
+		if (own.length === 2) return m.recipe_thread_saved_twice({ when });
+		return m.recipe_thread_saved_times({ count: own.length, when });
+	});
 	/** Bumped after a Promotion, to read the recipe back with its new Version. */
 	let reread = $state(0);
 
@@ -757,6 +783,7 @@
 				if (!current) return;
 				attempts = thread.attempts;
 				lineageBranches = thread.branches;
+				lineageVersions = thread.versions;
 				// **A Translation is not a Divergence, and cannot be paired with
 				// one.** A Divergence is two Branches that parted from a shared
 				// Version; a Translation's chain STARTS FRESH, which is exactly
@@ -1988,11 +2015,26 @@
 			>
 				{m.recipe_cook_this()}
 			</a>
+			<!--
+			Into the Thread, under the word a cook already knows for it (#133,
+			Aurélien's choice A of 24 September 2026). The screen keeps the
+			Thread's name in the code and the docs; the button says History
+			because "The thread" told nobody what was behind it. It never says
+			"version": on this page that word already means one of the recipe's
+			versions in the strip at the top.
+
+			The line under it is built like the Cooked line: how many saves, and
+			when the last was. On a recipe straight from an import it says one,
+			which is the honest answer to "is anything back there?".
+		-->
 			<a
 				href="/recipes/{branchId}/thread"
 				class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
 			>
 				{m.recipe_the_thread()}
+				{#if threadLine}
+					<span class="mt-1 block font-sans text-read text-ink-2">{threadLine}</span>
+				{/if}
 			</a>
 			<!--
 			Saying what Language this recipe is in, and translating it (#106).

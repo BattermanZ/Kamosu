@@ -20,6 +20,18 @@ function renderThread(branchId: string, answers: Answers) {
 }
 
 describe('the Thread screen', () => {
+	it('is headed History, the word on the recipe’s button that opens it (#133)', async () => {
+		renderThread('b_mine', {
+			get_thread: {
+				lineage_id: 'l_1',
+				branches: [threadBranch('b_mine', { cookbook: cookbookLabel('c_1', ['Aurélien']) })],
+				versions: [],
+				attempts: [],
+			},
+		});
+		expect(await screen.findByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument();
+	});
+
 	it("reads one Branch's Versions oldest first, a quiet save shown plainly, an Attempt hanging off it", async () => {
 		const { kamosu } = renderThread('b_mine', {
 			get_thread: {
