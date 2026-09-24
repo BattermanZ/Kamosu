@@ -58,12 +58,19 @@ impl Core {
     /// Changing a recipe your Kitchen did not write is a **Copy**
     /// (CONTEXT.md, "Copy"): it happens here, at the moment of the change,
     /// never at the moment of merely reading `branch_id`. `kitchen_id` names
-    /// which of the caller's own Kitchens this save is on behalf of — their
-    /// Home Kitchen unless they say otherwise — and a Copy is made the moment
-    /// that Kitchen turns out not to be the one that already holds this
-    /// Branch: a brand new Branch of the same Lineage, held by that Kitchen,
-    /// carrying the whole chain behind it, starting at the Version being
-    /// changed. The Branch being edited is never touched by a Copy.
+    /// which of the caller's own Kitchens this save is on behalf of — the one
+    /// holding the Branch unless they say otherwise — and a Copy is made the
+    /// moment that Kitchen turns out not to be the one that wrote this Branch:
+    /// a brand new Branch of the same Lineage, held by that Kitchen, carrying
+    /// the whole chain behind it, starting at the Version being changed. The
+    /// Branch being edited is never touched by a Copy.
+    ///
+    /// **A Copy only starts from a Branch a Kitchen of yours holds** (#100).
+    /// Because a Copy carries the whole chain, a save onto a Branch you could
+    /// not read would hand you its every Version. So a caller who cooks in no
+    /// Kitchen holding `branch_id` is refused exactly as an id naming nothing
+    /// is (ADR 0040). Nothing legitimate is lost: an arrived Bundle and a kept
+    /// Share Link both put the Branch in the receiver's own Kitchen first.
     ///
     /// Two things about Language happen here, and neither of them writes one
     /// (ADR 0006). The save reads the new text and, where it disagrees with
@@ -96,29 +103,15 @@ impl Core {
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
+            // Before anything else reads the Branch, the identical-content
+            // shortcut below included: it answers with the head's Version id.
+            ensure_member_or_absent(conn, &owning_kitchen_id, &caller.person_id, no_such_branch)?;
 
-            // Which of the caller's own Kitchens this save is on behalf of.
-            // Named explicitly, or — when the caller already cooks in the
-            // Kitchen that holds this Branch — that same Kitchen, so an
-            // ordinary edit by a co-editor never needs to say so. Only a
-            // caller whose Kitchens hold none of them falls back to their
-            // Home Kitchen (CONTEXT.md, "Home Kitchen").
-            let target_kitchen_id = match kitchen_id {
-                Some(id) => id.to_string(),
-                None if is_member(conn, &owning_kitchen_id, &caller.person_id)? => {
-                    owning_kitchen_id.clone()
-                }
-                None => conn
-                    .query_row(
-                        "SELECT home_kitchen_id FROM people WHERE id = ?1",
-                        params![caller.person_id],
-                        |row| row.get::<_, Option<String>>(0),
-                    )
-                    .optional()
-                    .map_err(|e| OpError::internal(format!("cannot read Home Kitchen: {e}")))?
-                    .flatten()
-                    .ok_or_else(|| OpError::internal("this Person has no Home Kitchen"))?,
-            };
+            // Which of the caller's own Kitchens this save is on behalf of:
+            // the one holding the Branch, so an ordinary edit never needs to
+            // say so, or another of theirs named explicitly. The caller named
+            // that one, so it keeps the plain refusal (ADR 0040).
+            let target_kitchen_id = kitchen_id.unwrap_or(&owning_kitchen_id).to_string();
             ensure_member(conn, &target_kitchen_id, &caller.person_id)?;
 
             let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content, head_translates): (
@@ -2176,9 +2169,9 @@ fn version_is_held_by_another_branch(
 ///
 /// Holding a Branch is not writing it. A Branch that arrived in a Bundle is
 /// held here, in the receiving Kitchen, but still carries the sender's
-/// Kitchen's Hand — so the first change to it is a Copy exactly as it would be
-/// from a Kitchen next door, and the sender's next Bundle can go on extending
-/// the Branch it has always been writing.
+/// Kitchen's Hand — so the first change to it is a Copy, exactly as a change
+/// made on behalf of another Kitchen of yours is, and the sender's next Bundle
+/// can go on extending the Branch it has always been writing.
 pub(super) fn kitchen_writes_branch(
     conn: &Connection,
     kitchen_id: &str,

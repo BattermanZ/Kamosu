@@ -733,7 +733,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       Copy: it starts a new Branch of the same Lineage, held \
                       by your Kitchen, starting at the Version you changed and \
                       carrying the whole chain behind it — the Branch you \
-                      changed is left untouched.",
+                      changed is left untouched. The Branch must be one a \
+                      Kitchen of yours holds.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2085,7 +2086,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       edit making a Version, with everything that follows \
                       from it: a rapid re-save folding into the Version \
                       already being shaped, and a Copy where the Branch \
-                      belongs to another Kitchen. The Attempt keeps the \
+                      was written under another Hand. The Branch must be \
+                      one a Kitchen of yours holds. The Attempt keeps the \
                       picture too; promoting is not moving.",
             permission: Permission::Person,
             kind: Kind::Immediate,
@@ -2112,7 +2114,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "change_note": { "type": ["string", "null"] },
                     "kitchen_id": {
                         "type": "string",
-                        "description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+                        "description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
                     },
                 },
                 "required": ["attempt_id", "photograph_id", "branch_id"],
@@ -2172,8 +2174,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       whole recipe, so nothing is retyped and nothing is \
                       reconciled. It is an ordinary edit and inherits all of \
                       one: a rapid re-save folds into the Version being \
-                      shaped, and a Branch belonging to another Kitchen \
-                      becomes a Copy. Promoting a cooking of an older Version \
+                      shaped, and a Branch written under another Hand \
+                      becomes a Copy. The Branch must be one a Kitchen of \
+                      yours holds. Promoting a cooking of an older Version \
                       appends onto wherever the Branch stands now — a \
                       Version, never a merge. The Attempt is left exactly as \
                       it was, still saying which Version it cooked.",
@@ -2194,7 +2197,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "change_note": { "type": ["string", "null"] },
                     "kitchen_id": {
                         "type": "string",
-                        "description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+                        "description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
                     },
                 },
                 "required": ["attempt_id", "branch_id"],
@@ -3642,9 +3645,10 @@ fn create_recipe_input_schema() -> Value {
 /// `save_recipe_version`'s input: the whole recipe as it now reads, replacing
 /// what was on the Branch — a title is the one field that must be there.
 /// `kitchen_id` names which of the caller's own Kitchens this save is on
-/// behalf of, for when a Copy is about to start (CONTEXT.md, "Copy") — their
-/// Home Kitchen unless they say otherwise, a question only ever put to
-/// someone who cooks in more than one.
+/// behalf of, for when a Copy is about to start (CONTEXT.md, "Copy"). Left
+/// out, it is the Kitchen holding the Branch, which is always one of the
+/// caller's (#100). Naming another is a question only ever put to someone who
+/// cooks in more than one.
 fn save_recipe_version_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
     let map = properties.as_object_mut().expect("object schema");

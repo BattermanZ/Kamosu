@@ -631,7 +631,7 @@ export type CreateRecipeOutput = {
 	}[];
 };
 
-/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. */
+/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one a Kitchen of yours holds. */
 export type SaveRecipeVersionInput = {
 	branch_id: string;
 	change_note?: string;
@@ -2609,7 +2609,7 @@ export type DeleteAttemptOutput = {
 	deleted: boolean;
 };
 
-/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch belongs to another Kitchen. The Attempt keeps the picture too; promoting is not moving. */
+/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch was written under another Hand. The Branch must be one a Kitchen of yours holds. The Attempt keeps the picture too; promoting is not moving. */
 export type PromoteAttemptPhotographInput = {
 	attempt_id: string;
 	branch_id: string;
@@ -2839,7 +2839,7 @@ export type DeclinePromotionOutput = {
 	version_id: string;
 };
 
-/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch belonging to another Kitchen becomes a Copy. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch written under another Hand becomes a Copy. The Branch must be one a Kitchen of yours holds. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
 export type PromoteAsCookedInput = {
 	attempt_id: string;
 	branch_id: string;
@@ -7048,7 +7048,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched.",
+		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one a Kitchen of yours holds.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -17413,7 +17413,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "promote_attempt_photograph",
-		"summary": "Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch belongs to another Kitchen. The Attempt keeps the picture too; promoting is not moving.",
+		"summary": "Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch was written under another Hand. The Branch must be one a Kitchen of yours holds. The Attempt keeps the picture too; promoting is not moving.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -17433,7 +17433,7 @@ export const CATALOGUE = [
 					]
 				},
 				"kitchen_id": {
-					"description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+					"description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
 				},
 				"photograph_id": {
@@ -18622,7 +18622,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "promote_as_cooked",
-		"summary": "Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch belonging to another Kitchen becomes a Copy. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked.",
+		"summary": "Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch written under another Hand becomes a Copy. The Branch must be one a Kitchen of yours holds. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -18642,7 +18642,7 @@ export const CATALOGUE = [
 					]
 				},
 				"kitchen_id": {
-					"description": "Which of your own Kitchens keeps the Copy, where the Branch belongs to a Kitchen you do not cook in. Left out, the Copy goes to your Home Kitchen. Ignored where you cook in the Kitchen that holds the Branch, because there this is an edit of it rather than a Copy.",
+					"description": "Ignored. A promotion lands only on a Branch one of your Kitchens holds (#100), as an edit of it or as a Copy beside it in that same Kitchen, so there is never another Kitchen to name. Accepted so that a client which still sends it is not refused.",
 					"type": "string"
 				},
 				"name": {
@@ -22564,7 +22564,7 @@ export interface KamosuClient {
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. */
+	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Kitchen did not write is a Copy: it starts a new Branch of the same Lineage, held by your Kitchen, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one a Kitchen of yours holds. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
 	/** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
 	deleteRecipe(input: DeleteRecipeInput): Promise<Answer<'delete_recipe'>>;
@@ -22648,13 +22648,13 @@ export interface KamosuClient {
 	editAttempt(input: EditAttemptInput): Promise<Answer<'edit_attempt'>>;
 	/** Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
 	deleteAttempt(input: DeleteAttemptInput): Promise<Answer<'delete_attempt'>>;
-	/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch belongs to another Kitchen. The Attempt keeps the picture too; promoting is not moving. */
+	/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy where the Branch was written under another Hand. The Branch must be one a Kitchen of yours holds. The Attempt keeps the picture too; promoting is not moving. */
 	promoteAttemptPhotograph(input: PromoteAttemptPhotographInput): Promise<Answer<'promote_attempt_photograph'>>;
 	/** Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
 	setAsCooked(input: SetAsCookedInput): Promise<Answer<'set_as_cooked'>>;
 	/** Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
 	declinePromotion(input: DeclinePromotionInput): Promise<Answer<'decline_promotion'>>;
-	/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch belonging to another Kitchen becomes a Copy. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+	/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch written under another Hand becomes a Copy. The Branch must be one a Kitchen of yours holds. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
 	promoteAsCooked(input: PromoteAsCookedInput): Promise<Answer<'promote_as_cooked'>>;
 	/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;

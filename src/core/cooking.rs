@@ -337,7 +337,8 @@ impl Core {
     /// Step's photo are part of the fingerprint (#45), so promoting one is the
     /// same act as rewording a step, and inherits the whole of it — the
     /// collapse window, carrying Readings forward, and taking a **Copy** where
-    /// the Branch belongs to somebody else's Kitchen (ADR 0007).
+    /// the Branch was written under another Hand (ADR 0007). A Branch held by
+    /// a Kitchen the caller does not cook in is refused as absent (#100).
     ///
     /// The Attempt itself is untouched. The picture stays on the cooking
     /// record as well, because a promotion is not a move: the same Photograph
@@ -351,7 +352,6 @@ impl Core {
         branch_id: &str,
         step_index: Option<i64>,
         change_note: Option<&str>,
-        kitchen_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = self.db().with_conn(|conn| {
             // Yours to promote from: an Attempt is a private record, and
@@ -373,18 +373,22 @@ impl Core {
 
             // The recipe being promoted into must be the dish that was
             // cooked. An Attempt belongs to a Lineage rather than a Branch
-            // (ADR 0005), so any Branch of that Lineage is a legitimate
-            // target — including a Translation, and including one in another
-            // Kitchen, which `save_recipe_version` will turn into a Copy.
-            let (lineage_id, head_version_id): (String, String) = conn
+            // (ADR 0005), so any Branch of that Lineage one of the caller's
+            // Kitchens holds is a legitimate target — including a Translation,
+            // and including an arrived one, which `save_recipe_version` will
+            // turn into a Copy. One held elsewhere answers as absent before
+            // its Lineage is compared, or the comparison would say it exists
+            // (#100, ADR 0040).
+            let (lineage_id, head_version_id, kitchen_id): (String, String, String) = conn
                 .query_row(
-                    "SELECT lineage_id, head_version_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, head_version_id, kitchen_id FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, &caller.person_id, no_such_branch)?;
             let attempt_lineage: String = conn
                 .query_row(
                     "SELECT lineage_id FROM attempts WHERE id = ?1",
@@ -459,14 +463,13 @@ impl Core {
             }
         }
 
-        let kitchen_id = self.where_a_copy_goes(caller, branch_id, kitchen_id)?;
         self.save_recipe_version(
             caller,
             branch_id,
             &edited,
             head_name.as_deref(),
             change_note,
-            kitchen_id,
+            None,
             None,
         )
     }
@@ -623,7 +626,9 @@ impl Core {
     /// `promote_attempt_photograph` does: this is **an ordinary edit of the
     /// recipe**, so it inherits the whole of one — the collapse window,
     /// Readings carried forward and unread lines read, the language offer, and
-    /// taking a **Copy** where the Branch belongs to somebody else's Kitchen.
+    /// taking a **Copy** where the Branch was written under another Hand. A
+    /// Branch held by a Kitchen the caller does not cook in is refused as
+    /// absent (#100).
     ///
     /// **Promoting from an Attempt against an older Version is not a merge.**
     /// `save_recipe_version` appends onto wherever the Branch stands now, so
@@ -644,7 +649,6 @@ impl Core {
         branch_id: &str,
         name: Option<&str>,
         change_note: Option<&str>,
-        kitchen_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = self.db().with_conn(|conn| {
             // Yours to promote from. An Attempt is a private record, and
@@ -664,20 +668,19 @@ impl Core {
                 OpError::bad_request("this cooking has no As Cooked — it was cooked as written")
             })?;
 
-            // The recipe promoted into must be the dish that was cooked. An
-            // Attempt belongs to a Lineage rather than a Branch (ADR 0005), so
-            // any Branch of that Lineage is a legitimate target — including a
-            // Translation, and including one in another Kitchen, which
-            // `save_recipe_version` turns into a Copy.
-            let branch_lineage: String = conn
+            // The recipe promoted into must be the dish that was cooked, on a
+            // Branch one of the caller's Kitchens holds, checked in that order
+            // for the reason `promote_attempt_photograph` records next door.
+            let (branch_lineage, kitchen_id): (String, String) = conn
                 .query_row(
-                    "SELECT lineage_id FROM branches WHERE id = ?1",
+                    "SELECT lineage_id, kitchen_id FROM branches WHERE id = ?1",
                     params![branch_id],
-                    |row| row.get(0),
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()
                 .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?
                 .ok_or_else(no_such_branch)?;
+            ensure_member_or_absent(conn, &kitchen_id, &caller.person_id, no_such_branch)?;
             if branch_lineage != lineage_id {
                 return Err(OpError::bad_request(
                     "that Branch is not a Branch of the recipe this Attempt cooked",
@@ -715,14 +718,13 @@ impl Core {
 
         // An ordinary save of an ordinary recipe. Deliberately not inside the
         // connection above: `save_recipe_version` takes the database itself.
-        let kitchen_id = self.where_a_copy_goes(caller, branch_id, kitchen_id)?;
         self.save_recipe_version(
             caller,
             branch_id,
             &content,
             name.or(head_name.as_deref()),
             change_note,
-            kitchen_id,
+            None,
             None,
         )
     }
@@ -805,32 +807,6 @@ impl Core {
                 entry["recipe"] = recipe;
             }
             Ok(json!({ "attempts": entries }))
-        })
-    }
-
-    /// The Kitchen a promotion names, kept only where the promotion is a
-    /// **Copy** — a Branch held by a Kitchen the caller does not cook in
-    /// (#111). There the cook in several Kitchens is asked which keeps it,
-    /// exactly as the writing screen asks.
-    ///
-    /// Where the caller does cook in the holding Kitchen the promotion is an
-    /// edit of it, and a named Kitchen is dropped rather than handed on:
-    /// `save_recipe_version` would read it as *start a Copy over there*, and
-    /// whether a recipe may be put into a second Kitchen of yours is #125's
-    /// question, not something a picture or a cooking should answer by the
-    /// back door.
-    fn where_a_copy_goes<'a>(
-        &self,
-        caller: &Caller,
-        branch_id: &str,
-        kitchen_id: Option<&'a str>,
-    ) -> Result<Option<&'a str>, OpError> {
-        let Some(kitchen_id) = kitchen_id else {
-            return Ok(None);
-        };
-        self.db().with_conn(|conn| {
-            let holding = branch_kitchen(conn, branch_id)?;
-            Ok((!is_member(conn, &holding, &caller.person_id)?).then_some(kitchen_id))
         })
     }
 }

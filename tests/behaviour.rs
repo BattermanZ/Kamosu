@@ -928,6 +928,26 @@ fn person_with_kitchen(app: &support::TestApp, name: &str) -> (String, String, S
     (person, key, kitchen_id)
 }
 
+/// Ask a guest into a host's Kitchen, through an ordinary Invite. A Copy only
+/// starts from a Branch a Kitchen of yours holds (#100), so a test in which
+/// one household copies another's recipe into its own Kitchen seats the copier
+/// in both first: the one legitimate way to reach a Branch on this instance
+/// short of receiving a Bundle.
+fn ask_into_kitchen(app: &support::TestApp, host_key: &str, kitchen_id: &str, guest_key: &str) {
+    let (status, invite) = app.post_op(
+        "invite_to_kitchen",
+        Some(host_key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{invite}");
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(guest_key),
+        &json!({ "secret": invite["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+}
+
 /// A Person's Home Kitchen — the one `create_person` seats them in. Saving a
 /// recipe into a *second* Kitchen the same Person cooks in is what makes a
 /// Copy, so every test that needs two Branches of one Lineage needs this one
@@ -1550,8 +1570,8 @@ async fn editing_a_recipe_your_kitchen_holds_writes_an_ordinary_version() {
 async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
     let app = support::spawn_app();
     let (owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
-    // Marc's only Kitchen is the Home Kitchen create_person gives him — so
-    // the default (no kitchen_id said) lands the Copy there.
+    // Marc's only Kitchen is the Home Kitchen create_person gives him — so a
+    // Bundle he receives lands there, and the Copy he makes of it stays there.
     let copier = app.core.create_person("Marc").expect("person");
     let copier_key = app
         .core
@@ -1583,19 +1603,29 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
     );
     let source_head = edited["result"]["version_id"].as_str().unwrap().to_string();
 
-    // Marc's Kitchen has never held this Branch. Changing it is a Copy: it
-    // starts Marc's own Branch of the same Lineage, at the Version he
-    // changed, rather than writing onto Aurélien's.
+    // Aurélien sends Marc the recipe. It arrives in Marc's Kitchen still under
+    // the Hand of the Kitchen that wrote it, so Marc's Kitchen holds it and has
+    // never written it (#100: holding is how a Copy is reached at all).
+    let report = receive(
+        &app,
+        &copier_key,
+        &bundle_of(&app, &owner_key, &source_branch_id),
+    );
+    let arrived_branch_id = landed_as(&report, &source_branch_id);
+
+    // Changing it is a Copy: it starts Marc's own Branch of the same Lineage,
+    // at the Version he changed, rather than writing onto the one that arrived.
     let (status, copied) = app.post_op(
         "save_recipe_version",
         Some(&copier_key),
-        &json!({ "branch_id": source_branch_id, "title": "Soupe au pistou, sans ail" }).to_string(),
+        &json!({ "branch_id": arrived_branch_id, "title": "Soupe au pistou, sans ail" })
+            .to_string(),
     );
     assert_eq!(status, 200, "{copied}");
     assert_eq!(copied["result"]["copied"], json!(true));
     let new_branch_id = copied["result"]["branch_id"].as_str().unwrap().to_string();
     assert_ne!(
-        new_branch_id, source_branch_id,
+        new_branch_id, arrived_branch_id,
         "a Copy carries your Kitchen's Hand and a fresh Branch id"
     );
     assert_eq!(
@@ -1659,36 +1689,45 @@ async fn editing_a_recipe_your_kitchen_did_not_write_starts_a_copy() {
         json!("Soupe au pistou, sans ail")
     );
 
-    // The source Branch, in Aurélien's Kitchen, is left exactly as it was.
-    let (_, source_read) = app.post_op(
-        "get_recipe",
-        Some(&owner_key),
-        &json!({ "branch_id": source_branch_id }).to_string(),
-    );
-    assert_eq!(
-        source_read["result"]["versions"].as_array().unwrap().len(),
-        2,
-        "a Copy never touches the Branch it started from"
-    );
-    assert_eq!(source_read["result"]["head_version_id"], json!(source_head));
+    // The Branch it started from, and Aurélien's own, are left exactly as they
+    // were.
+    for (key, branch) in [
+        (&copier_key, &arrived_branch_id),
+        (&owner_key, &source_branch_id),
+    ] {
+        let (_, source_read) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch }).to_string(),
+        );
+        assert_eq!(
+            source_read["result"]["versions"].as_array().unwrap().len(),
+            2,
+            "a Copy never touches the Branch it started from"
+        );
+        assert_eq!(source_read["result"]["head_version_id"], json!(source_head));
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saving_unchanged_content_from_another_kitchen_starts_no_copy() {
     // Merely receiving or viewing a recipe must never create a Branch — and
     // neither must a "save" that changes nothing, even from a Kitchen that
-    // has never held this Branch (CONTEXT.md, "Copy": "It happens at the
-    // moment of the change, never at the moment of receipt").
+    // did not write this Branch (CONTEXT.md, "Copy": "Merely reading a recipe
+    // never starts one").
     let app = support::spawn_app();
     let (_owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
-    let (_copier, copier_key, copier_kitchen) = person_with_kitchen(&app, "Marc");
+    let (copier, copier_key, _) = person_with_kitchen(&app, "Marc");
+    let copier_kitchen = home_kitchen_of(&app, &copier);
 
     let (_, created) = app.post_op(
         "create_recipe",
         Some(&owner_key),
         &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
     );
-    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let sent = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let report = receive(&app, &copier_key, &bundle_of(&app, &owner_key, &sent));
+    let branch_id = landed_as(&report, &sent);
 
     let (status, unchanged) = app.post_op(
         "save_recipe_version",
@@ -1712,16 +1751,15 @@ async fn saving_unchanged_content_from_another_kitchen_starts_no_copy() {
         })
         .unwrap();
     assert_eq!(
-        branches_in_copier_kitchen, 0,
-        "no Branch was started in the reader's Kitchen"
+        branches_in_copier_kitchen, 1,
+        "no Branch was started in the reader's Kitchen beside the one that arrived"
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_copy_may_be_held_by_a_kitchen_named_explicitly() {
-    // "A question only ever put to someone who cooks in more than one"
-    // (CONTEXT.md, "Home Kitchen") — the default is the Home Kitchen, but a
-    // Person cooking in several may say which one holds the Copy.
+    // A Person cooking in several Kitchens may say which one a save is on
+    // behalf of. Naming one that did not write the Branch makes the Copy there.
     let app = support::spawn_app();
     let (_owner, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
     let copier = app.core.create_person("Marc").expect("person");
@@ -1743,6 +1781,7 @@ async fn a_copy_may_be_held_by_a_kitchen_named_explicitly() {
         &json!({ "kitchen_id": owner_kitchen, "title": "Soupe" }).to_string(),
     );
     let source_branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    ask_into_kitchen(&app, &owner_key, &owner_kitchen, &copier_key);
 
     let (status, copied) = app.post_op(
         "save_recipe_version",
@@ -1766,7 +1805,7 @@ async fn a_copy_may_be_held_by_a_kitchen_named_explicitly() {
     assert_eq!(
         read_back["result"]["kitchen_id"],
         json!(second_kitchen_id),
-        "held by the Kitchen named explicitly, not the Home Kitchen"
+        "held by the Kitchen named explicitly, not the one holding the source"
     );
 }
 
@@ -8551,10 +8590,11 @@ mod web_link_importer {
 
 /// The real fixture: one Lineage, two Branches, one Branch Point.
 ///
-/// Aurélien writes Korean Fried Chicken and splits it into sections. Marc, whose
-/// Kitchen has never held the Branch, changes it — which starts his own Branch of
-/// the same Lineage (a Copy, ADR 0004). He then asks Aurélien into Chez Marc, so
-/// one Person can see both Branches, which is what a Divergence needs.
+/// Aurélien writes Korean Fried Chicken and splits it into sections, and asks
+/// Marc into his Kitchen. Marc changes it on behalf of his own Kitchen, which
+/// has never held the Branch — so it starts his own Branch of the same Lineage
+/// (a Copy, ADR 0004). He then asks Aurélien into Chez Marc, so one Person can
+/// see both Branches, which is what a Divergence needs.
 ///
 /// Returns (Aurélien's key, his Branch, Marc's Branch).
 fn a_lineage_that_forked(app: &support::TestApp) -> (String, String, String) {
@@ -8583,6 +8623,7 @@ fn a_lineage_that_forked(app: &support::TestApp) -> (String, String, String) {
         app.post_op("create_recipe", Some(&mine_key), &branch_point.to_string());
     assert_eq!(status, 200, "{created}");
     let my_branch = created["result"]["branch_id"].as_str().unwrap().to_string();
+    ask_into_kitchen(app, &mine_key, &my_kitchen, &marc_key);
 
     // Marc's Branch. He cuts the sugar, puts chilli flakes in, swaps the deep
     // fry for an air fryer, and adds a resting step.
@@ -8655,18 +8696,7 @@ fn a_lineage_that_forked(app: &support::TestApp) -> (String, String, String) {
 
     // Marc asks me into his Kitchen, which is how I come to see his Branch at
     // all — the same boundary get_recipe and get_thread enforce (ADR 0007).
-    let (_, invite) = app.post_op(
-        "invite_to_kitchen",
-        Some(&marc_key),
-        &json!({ "kitchen_id": marc_kitchen }).to_string(),
-    );
-    let secret = invite["result"]["secret"].as_str().unwrap().to_string();
-    let (status, joined) = app.post_op(
-        "accept_kitchen_invite",
-        Some(&mine_key),
-        &json!({ "secret": secret }).to_string(),
-    );
-    assert_eq!(status, 200, "{joined}");
+    ask_into_kitchen(app, &marc_key, &marc_kitchen, &mine_key);
     let _ = marc;
 
     (mine_key, my_branch, marc_branch)
@@ -9011,6 +9041,7 @@ async fn a_section_heading_never_pairs_with_an_ingredient_line() {
         &json!({ "kitchen_id": my_kitchen, "title": "Sauce", "ingredients": [] }).to_string(),
     );
     let my_branch = created["result"]["branch_id"].as_str().unwrap().to_string();
+    ask_into_kitchen(&app, &mine_key, &my_kitchen, &marc_key);
 
     backdate_branch_head(&app, &my_branch);
     let (_, copied) = app.post_op(
@@ -9038,16 +9069,7 @@ async fn a_section_heading_never_pairs_with_an_ingredient_line() {
         .to_string(),
     );
 
-    let (_, invite) = app.post_op(
-        "invite_to_kitchen",
-        Some(&marc_key),
-        &json!({ "kitchen_id": marc_kitchen }).to_string(),
-    );
-    app.post_op(
-        "accept_kitchen_invite",
-        Some(&mine_key),
-        &json!({ "secret": invite["result"]["secret"].as_str().unwrap() }).to_string(),
-    );
+    ask_into_kitchen(&app, &marc_key, &marc_kitchen, &mine_key);
 
     let (status, divergence) = app.post_op(
         "divergence",
@@ -17140,10 +17162,34 @@ async fn promotion_keeps_the_name_a_version_was_given_and_never_un_names_it() {
     );
 }
 
+/// Camille's Branch of Aurélien's recipe, as it arrives back on his shelf: she
+/// receives his Bundle, changes it (a Copy of her own), and sends hers back.
+/// It lands in Aurélien's Home Kitchen under the Hand of the Kitchen that wrote
+/// it, which is how a Branch his Kitchen holds but did not write comes about
+/// (#100: a Branch no Kitchen of his holds is not his to promote into at all).
+fn camilles_branch_arrived_back(app: &support::TestApp, his_key: &str, branch_id: &str) -> String {
+    let (_camille, camille_key, _) = person_with_kitchen(app, "Camille");
+    let report = receive(app, &camille_key, &bundle_of(app, his_key, branch_id));
+    let received = landed_as(&report, branch_id);
+    let mut hers = katsu_as_written();
+    hers["steps"][2]["text"] = json!("Servir avec du riz japonais");
+    hers["branch_id"] = json!(received);
+    let (status, copied) =
+        app.post_op("save_recipe_version", Some(&camille_key), &hers.to_string());
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(copied["result"]["copied"], json!(true), "{copied}");
+    let hers = copied["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let report = receive(app, his_key, &bundle_of(app, &camille_key, &hers));
+    let arrived = landed_as(&report, &hers);
+    age_branch_head(app, &arrived);
+    arrived
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn promoting_into_another_kitchens_branch_takes_a_copy() {
+async fn promoting_into_a_branch_your_kitchen_did_not_write_takes_a_copy() {
     let app = support::spawn_app();
-    let (key, branch_id, lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let (key, branch_id, _lineage_id, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
     let attempt_id = cooking_katsu(&app, &key, &branch_id);
 
     let mut cooked = katsu_as_written();
@@ -17158,39 +17204,11 @@ async fn promoting_into_another_kitchens_branch_takes_a_copy() {
         .unwrap()
         .to_string();
 
-    // Camille cooks Aurélien's recipe in her own Kitchen. An Attempt belongs to
-    // the Lineage, so hers is legitimate — and promoting it must not write on
-    // his Branch. `save_recipe_version` already knows this; promotion inherits
+    // Camille's Branch of the dish, on Aurélien's shelf. An Attempt belongs to
+    // the Lineage, so promoting into it is legitimate — and must not write on
+    // her Branch. `save_recipe_version` already knows this; promotion inherits
     // the whole of an ordinary edit, Copy included.
-    let (camille, camille_key, camille_kitchen) = person_with_kitchen(&app, "Camille");
-    let _ = camille;
-    let (_, copied) = app.post_op(
-        "save_recipe_version",
-        Some(&camille_key),
-        &json!({
-            "branch_id": branch_id,
-            "kitchen_id": camille_kitchen,
-            "title": "Katsu Curry",
-            "ingredients": [
-                { "kind": "ingredient", "text": "2 escalopes de poulet" },
-                { "kind": "ingredient", "text": "200 g de riz" },
-                { "kind": "ingredient", "text": "1 c. à s. de sauce tonkatsu" },
-            ],
-            "steps": [
-                { "kind": "step", "text": "Paner les escalopes" },
-                { "kind": "step", "text": "Frire jusqu'à dorer" },
-                { "kind": "step", "text": "Servir avec le riz" },
-            ],
-        })
-        .to_string(),
-    );
-    let hers = copied["result"]["branch_id"].as_str().unwrap().to_string();
-    assert_eq!(copied["result"]["copied"], json!(true), "{copied}");
-    assert_ne!(hers, branch_id);
-
-    // Aurélien promotes his own cooking into HER Branch. He does not cook in her
-    // Kitchen, so this starts a Branch of his rather than writing on hers.
-    age_branch_head(&app, &hers);
+    let hers = camilles_branch_arrived_back(&app, &key, &branch_id);
     let (status, promoted) = app.post_op(
         "promote_as_cooked",
         Some(&key),
@@ -17200,7 +17218,7 @@ async fn promoting_into_another_kitchens_branch_takes_a_copy() {
     assert_eq!(
         promoted["result"]["copied"],
         json!(true),
-        "promoting into a Kitchen you do not cook in is a Copy, like any other edit"
+        "promoting into a Branch your Kitchen did not write is a Copy, like any other edit"
     );
     assert_ne!(promoted["result"]["branch_id"], json!(hers));
     assert_eq!(
@@ -17209,30 +17227,27 @@ async fn promoting_into_another_kitchens_branch_takes_a_copy() {
     );
 
     // Her Branch is untouched, which is the whole point of a Copy.
-    let (_, thread) = app.post_op(
-        "get_thread",
-        Some(&camille_key),
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
         &json!({ "branch_id": hers }).to_string(),
     );
-    let still = thread["result"]["branches"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|branch| branch["branch_id"] == json!(hers))
-        .expect("her Branch");
-    assert_ne!(still["head_version_id"], json!(as_cooked_version_id));
-    let _ = lineage_id;
+    assert_ne!(
+        read["result"]["head_version_id"],
+        json!(as_cooked_version_id)
+    );
 }
 
-/// A cook in several Kitchens is asked which of them keeps a Copy (#111), and
-/// both promotions carry the answer through to it. Named on a Branch the
-/// cook's own Kitchen holds, the Kitchen is dropped: that is an edit, and
-/// whether one recipe may be put into a second Kitchen of yours is #125's
-/// question, not something a promotion answers by the back door.
+/// A promotion never lands in a Kitchen it names. It lands on a Branch one of
+/// the cook's Kitchens holds (#100), as an edit of it or as a Copy beside it in
+/// that same Kitchen, so there is never another Kitchen to put it in. Whether
+/// one recipe may be put into a second Kitchen of yours is #125's question, not
+/// something a promotion answers by the back door. Both promotions still accept
+/// `kitchen_id`, so a client that sends it is not refused.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_promotion_that_copies_lands_in_the_kitchen_named() {
+async fn a_promotion_ignores_the_kitchen_it_names() {
     let app = support::spawn_app();
-    let (key, branch_id, _lineage, home) = recipe_ready_to_cook(&app, "Aurélien");
+    let (key, branch_id, _lineage, kitchen) = recipe_ready_to_cook(&app, "Aurélien");
     let (status, club) = app.post_op(
         "create_kitchen",
         Some(&key),
@@ -17240,18 +17255,7 @@ async fn a_promotion_that_copies_lands_in_the_kitchen_named() {
     );
     assert_eq!(status, 200, "{club}");
     let club = club["result"]["id"].as_str().unwrap().to_string();
-
-    // Camille's Branch of the dish, in a Kitchen Aurélien does not cook in.
-    let (_camille, camille_key, camille_kitchen) = person_with_kitchen(&app, "Camille");
-    let mut hers = katsu_as_written();
-    hers["steps"][2]["text"] = json!("Servir avec du riz japonais");
-    hers["branch_id"] = json!(branch_id);
-    hers["kitchen_id"] = json!(camille_kitchen);
-    let (status, copied) =
-        app.post_op("save_recipe_version", Some(&camille_key), &hers.to_string());
-    assert_eq!(status, 200, "{copied}");
-    let hers = copied["result"]["branch_id"].as_str().unwrap().to_string();
-    age_branch_head(&app, &hers);
+    let hers = camilles_branch_arrived_back(&app, &key, &branch_id);
 
     let kitchen_of = |branch: &str| {
         let (_, read) = app.post_op(
@@ -17261,8 +17265,10 @@ async fn a_promotion_that_copies_lands_in_the_kitchen_named() {
         );
         read["result"]["kitchen_id"].clone()
     };
+    let arrived_in = kitchen_of(&hers);
 
-    // A cooking's photograph, made the recipe's on her Branch.
+    // A cooking's photograph, made the recipe's on her Branch: a Copy, kept in
+    // the Kitchen her Branch arrived in rather than the one named.
     let plated = upload_a_picture(&app, &key, 77);
     let attempt = cook_it(&app, &key, &branch_id, json!({ "photographs": [plated] }));
     let (status, promoted) = app.post_op(
@@ -17278,11 +17284,10 @@ async fn a_promotion_that_copies_lands_in_the_kitchen_named() {
     );
     assert_eq!(status, 200, "{promoted}");
     assert_eq!(promoted["result"]["copied"], json!(true), "{promoted}");
-    let pictured = promoted["result"]["branch_id"].as_str().unwrap();
     assert_eq!(
-        kitchen_of(pictured),
-        json!(club),
-        "the Copy is held by the Kitchen named, not the Home Kitchen"
+        kitchen_of(promoted["result"]["branch_id"].as_str().unwrap()),
+        arrived_in,
+        "the Copy is held where her Branch is, not by the Kitchen named"
     );
 
     // Named on his own recipe, the Kitchen is dropped: an edit, on his Branch.
@@ -17303,7 +17308,7 @@ async fn a_promotion_that_copies_lands_in_the_kitchen_named() {
     assert_eq!(status, 200, "{edited}");
     assert_eq!(edited["result"]["copied"], json!(false), "{edited}");
     assert_eq!(edited["result"]["branch_id"], json!(branch_id));
-    assert_eq!(kitchen_of(&branch_id), json!(home));
+    assert_eq!(kitchen_of(&branch_id), json!(kitchen));
 
     // What was cooked, kept onto her Branch: the same answer, the same place.
     let cooking = cooking_katsu(&app, &key, &branch_id);
@@ -17324,7 +17329,7 @@ async fn a_promotion_that_copies_lands_in_the_kitchen_named() {
     assert_eq!(kept["result"]["copied"], json!(true), "{kept}");
     assert_eq!(
         kitchen_of(kept["result"]["branch_id"].as_str().unwrap()),
-        json!(club)
+        arrived_in
     );
 }
 
@@ -18500,14 +18505,16 @@ async fn a_bundle_carries_each_branchs_origin_as_it_stands_and_invents_none() {
 }
 
 /// **A Copy's Bundle carries the whole chain it grew from** (ADR 0018, ADR
-/// 0020): Marc changed Aurélien's pizza, so his Branch forks at Aurélien's
-/// Version, and his Bundle begins at the beginning — Aurélien's Versions under
-/// Aurélien's Hand, Marc's on top — with each still what its id says it is.
+/// 0020): Marc, who cooks in Aurélien's Kitchen too, changed Aurélien's pizza on
+/// behalf of his own, so his Branch forks at Aurélien's Version, and his Bundle
+/// begins at the beginning — Aurélien's Versions under Aurélien's Hand, Marc's
+/// on top — with each still what its id says it is.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_copys_bundle_carries_the_chain_it_forked_from_under_each_hand() {
     let app = support::spawn_app();
-    let (_key, _kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+    let (key, kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
     let (_marc, marc_key, marc_kitchen) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen, &marc_key);
     let (status, copied) = app.post_op(
         "save_recipe_version",
         Some(&marc_key),

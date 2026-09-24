@@ -53,7 +53,7 @@ How Kamosu says who wrote something: a name together with a permanent id, minted
 _Avoid_: Author id, account id, signature, public key, handle, attribution, fingerprint (that names a Version)
 
 **Copy**:
-A new Branch of a recipe, started in your own Cookbook, forking at a Version and carrying the whole chain behind it. It happens when you change a recipe your Cookbook did not write, when you start a second Branch of one of your own on purpose, and when a Cookbook leaves a Kitchen and you keep one of its recipes you cooked. Merely reading a recipe never starts one: a **Bundle** arriving puts the sender's Branch in your Cookbook under their id, and only changing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
+A new Branch of a recipe, started in your own Cookbook, forking at a Version and carrying the whole chain behind it. It happens when you change a recipe your Cookbook did not write, when you start a second Branch of one of your own on purpose, and when a Cookbook leaves a Kitchen and you keep one of its recipes you cooked. It starts only from a Branch one of your Kitchens already holds, which is where a received Bundle or a kept Share Link puts it; a change to any other is refused as though it were not here. Merely reading a recipe never starts one: a **Bundle** arriving puts the sender's Branch in your Cookbook under their id, and only changing it makes one of your own. What one recipe becoming two looks like inside a single instance, identical in every respect to receiving a Bundle from another server.
 _Avoid_: Duplicate, fork, clone, save, import
 
 **Share Link**:

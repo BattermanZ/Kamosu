@@ -1383,7 +1383,6 @@ pub fn promote_attempt_photograph(
         branch_id,
         step_index,
         change_note,
-        input.get("kitchen_id").and_then(Value::as_str),
     )
 }
 
@@ -1442,7 +1441,6 @@ pub fn promote_as_cooked(
         branch_id,
         input.get("name").and_then(Value::as_str),
         input.get("change_note").and_then(Value::as_str),
-        input.get("kitchen_id").and_then(Value::as_str),
     )
 }
 

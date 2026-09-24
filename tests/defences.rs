@@ -1210,12 +1210,25 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     };
     let no_attempt = "at_ffffffffffffffff";
 
+    // Nadia's own cooking of her own recipe, sound in every way a promotion
+    // checks — an As Cooked to keep, a picture to promote — so that promoting
+    // it is refused, if at all, only for the Branch it is aimed at.
+    let her_picture = an_upload(&app, &nadia.key, 9);
+    let her_attempt = a_finished_cooking(&app, &nadia, &her_recipe, "Soupe", &her_picture);
+
     // Every Operation that works a Kitchen out from a Branch id, with the
-    // Branch under probe first. `save_recipe_version` and the two `promote_`
-    // Operations are deliberately absent: they refuse nobody, turning a save
-    // against another Kitchen's Branch into a Copy (#54, ADR 0025) — the hole
-    // ADR 0040 names in its consequences and #100 carries.
+    // Branch under probe first. `save_recipe_version` is here twice: a change,
+    // and content identical to Marc's head, which once answered with his head's
+    // Version id rather than refusing (#100).
     let by_branch: Vec<(&str, serde_json::Value)> = vec![
+        ("save_recipe_version", json!({ "title": "Mine now" })),
+        (
+            "save_recipe_version",
+            json!({
+                "title": "Pizza",
+                "ingredients": [{ "kind": "ingredient", "text": "200 g flour" }],
+            }),
+        ),
         ("get_recipe", json!({})),
         ("get_thread", json!({})),
         ("note_recipe_opened", json!({})),
@@ -1305,6 +1318,23 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
         absent: &'static str,
     }
     let probes = vec![
+        // The Branch a promotion is aimed at, with Nadia's own sound cooking:
+        // Marc's recipe is not the dish she cooked, and saying so would say it
+        // exists (#100).
+        Probe {
+            operation: "promote_as_cooked",
+            rest: json!({ "attempt_id": her_attempt }),
+            field: "branch_id",
+            his: his_recipe.clone(),
+            absent: no_recipe,
+        },
+        Probe {
+            operation: "promote_attempt_photograph",
+            rest: json!({ "attempt_id": her_attempt, "photograph_id": her_picture }),
+            field: "branch_id",
+            his: his_recipe.clone(),
+            absent: no_recipe,
+        },
         Probe {
             operation: "set_related_recipe",
             rest: json!({ "branch_id": her_recipe, "related": true }),
@@ -1515,6 +1545,233 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             status, 200,
             "{operation} refused its own Kitchen: {answered}"
         );
+    }
+}
+
+// --- A Copy starts only from a Branch a Kitchen of yours holds (#100) --------
+
+/// A whole answer, status and body, with nothing reduced. `answer` keeps only
+/// what tells two refusals apart; this keeps everything, so two answers equal
+/// here are byte for byte the same reply.
+fn whole_answer(
+    app: &support::TestApp,
+    bearer: &str,
+    operation: &str,
+    input: serde_json::Value,
+) -> (u16, String) {
+    let (status, body) = app.post_op(operation, Some(bearer), &input.to_string());
+    (status, body.to_string())
+}
+
+/// How many Branches, Versions on a Branch, and Versions the instance holds:
+/// everything a save or a promotion writes.
+fn recipe_rows(app: &support::TestApp) -> (i64, i64, i64) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM branches), \
+                        (SELECT COUNT(*) FROM branch_versions), \
+                        (SELECT COUNT(*) FROM versions)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("count the recipe rows")
+}
+
+/// A cooking a household finished, of a recipe on its own shelf, sound in every
+/// way a promotion checks: an As Cooked to keep and a picture to promote.
+fn a_finished_cooking(
+    app: &support::TestApp,
+    who: &Household,
+    branch_id: &str,
+    title: &str,
+    picture: &str,
+) -> String {
+    let (status, started) = app.post_op(
+        "start_attempt",
+        Some(&who.key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{started}");
+    let attempt = started["result"]["id"]
+        .as_str()
+        .expect("an Attempt")
+        .to_string();
+    let (status, cooked) = app.post_op(
+        "set_as_cooked",
+        Some(&who.key),
+        &json!({
+            "attempt_id": attempt,
+            "as_cooked": { "title": title, "ingredients": [
+                { "kind": "ingredient", "text": "250 g flour" }
+            ] },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{cooked}");
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&who.key),
+        &json!({ "attempt_id": attempt, "photographs": [picture] }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+    attempt
+}
+
+/// Receive one household's Bundle into another's shelf, the way a Share Link
+/// reader keeps a recipe, and answer the Branch id it landed under.
+fn received(app: &support::TestApp, from: &Household, to: &Household, branch_id: &str) -> String {
+    use base64::Engine;
+    let (status, _type, bytes) =
+        app.get_bytes(&format!("/api/bundles/{branch_id}"), Some(&from.key));
+    assert_eq!(status, 200, "the Bundle is fetched");
+    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let (status, asked) = app.post_op(
+        "import_bundle",
+        Some(&to.key),
+        &json!({ "data": data }).to_string(),
+    );
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = support::wait_terminal(app, Some(&to.key), job_id);
+    assert_eq!(finished["status"], json!("completed"), "{finished}");
+    finished["result"]["arrived"]
+        .as_array()
+        .expect("what arrived")
+        .iter()
+        .find(|row| row["foreign_id"] == json!(branch_id))
+        .and_then(|row| row["branch_id"].as_str())
+        .unwrap_or_else(|| panic!("{branch_id} arrived: {finished}"))
+        .to_string()
+}
+
+/// **#100: a Copy starts only from a Branch a Kitchen of yours holds.** A Copy
+/// carries the whole chain behind it, so a save onto a Branch nobody gave you
+/// used to hand over every Version of another household's recipe: title, notes,
+/// lines and their Readings. Now it answers exactly what an id naming nothing
+/// answers, and writes nothing. So do both promotions, whether the Branch is
+/// of the dish the cook really cooked or of another.
+///
+/// The legitimate routes into a Copy are untouched, and are run here too: a
+/// received Bundle, edited, still makes a Copy carrying the sender's chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copy_starts_only_from_a_branch_a_kitchen_of_yours_holds() {
+    let app = support::spawn_app();
+    let marc = a_household(&app, "Marc");
+    let nadia = a_household(&app, "Nadia");
+    let his_recipe = a_recipe(&app, &marc, "Pizza");
+    let his_other_recipe = a_recipe(&app, &marc, "Focaccia");
+    let no_recipe = "b_ffffffffffffffff";
+
+    // The body's two-call reproduction, both with a change and with Marc's head
+    // word for word: the second once answered with his head's Version id.
+    let before = recipe_rows(&app);
+    for content in [
+        json!({ "title": "Mine now" }),
+        json!({
+            "title": "Pizza",
+            "ingredients": [{ "kind": "ingredient", "text": "200 g flour" }],
+        }),
+    ] {
+        let mut held = content.clone();
+        held["branch_id"] = json!(his_recipe);
+        let mut absent = content;
+        absent["branch_id"] = json!(no_recipe);
+        let refused = whole_answer(&app, &nadia.key, "save_recipe_version", held);
+        assert_eq!(refused.0, 404, "{}", refused.1);
+        assert_eq!(
+            refused,
+            whole_answer(&app, &nadia.key, "save_recipe_version", absent),
+            "save_recipe_version tells Nadia Marc's recipe is here"
+        );
+    }
+    assert_eq!(recipe_rows(&app), before, "a refused save writes nothing");
+
+    // Nadia keeps Marc's recipe the legitimate way, and cooks it. Her cooking
+    // is of his Lineage, so only the Kitchen holding his own Branch stands
+    // between her promotion and his recipe.
+    let hers = received(&app, &marc, &nadia, &his_recipe);
+    let picture = an_upload(&app, &nadia.key, 11);
+    let attempt = a_finished_cooking(&app, &nadia, &hers, "Pizza", &picture);
+
+    let before = recipe_rows(&app);
+    for (operation, rest) in [
+        ("promote_as_cooked", json!({ "attempt_id": attempt })),
+        (
+            "promote_attempt_photograph",
+            json!({ "attempt_id": attempt, "photograph_id": picture }),
+        ),
+    ] {
+        // His Branch of the dish she cooked, and one of a dish she did not:
+        // the second must not answer with the Lineage-mismatch sentence.
+        for target in [&his_recipe, &his_other_recipe] {
+            let mut held = rest.clone();
+            held["branch_id"] = json!(target);
+            let mut absent = rest.clone();
+            absent["branch_id"] = json!(no_recipe);
+            let refused = whole_answer(&app, &nadia.key, operation, held);
+            assert_eq!(refused.0, 404, "{operation}: {}", refused.1);
+            assert_eq!(
+                refused,
+                whole_answer(&app, &nadia.key, operation, absent),
+                "{operation} tells Nadia Marc's recipe is here"
+            );
+        }
+    }
+    assert_eq!(
+        recipe_rows(&app),
+        before,
+        "a refused promotion writes nothing"
+    );
+
+    // What she was given, she may change: promoting into the Branch that
+    // arrived makes a Copy of her own, and so does editing it. The Copy carries
+    // Marc's chain, so the Branch Point and the Divergence both still answer.
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&nadia.key),
+        &json!({ "attempt_id": attempt, "branch_id": hers }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(promoted["result"]["copied"], json!(true), "{promoted}");
+    backdate_the_head(&app, &hers);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&nadia.key),
+        &json!({ "branch_id": hers, "title": "Pizza de Nadia" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["copied"], json!(true), "{saved}");
+    let copy = saved["result"]["branch_id"]
+        .as_str()
+        .expect("a Copy")
+        .to_string();
+    let (status, read) = app.post_op(
+        "get_recipe",
+        Some(&nadia.key),
+        &json!({ "branch_id": copy }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(
+        read["result"]["versions"][0]["content"]["title"],
+        json!("Pizza"),
+        "the Copy carries the chain it forked from"
+    );
+    for (operation, input) in [
+        (
+            "branch_point",
+            json!({ "branch_a_id": hers, "branch_b_id": copy }),
+        ),
+        (
+            "divergence",
+            json!({ "branch_id": copy, "other_branch_id": hers }),
+        ),
+    ] {
+        let (status, answered) = app.post_op(operation, Some(&nadia.key), &input.to_string());
+        assert_eq!(status, 200, "{operation}: {answered}");
     }
 }
 
