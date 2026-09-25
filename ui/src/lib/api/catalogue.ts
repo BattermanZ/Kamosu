@@ -1566,13 +1566,13 @@ export type SearchRecipesOutput = {
 	}[];
 };
 
-/** Home: the computed shelves that answer *show me something* rather than handing back a search box — cooked most, quick tonight, never cooked, recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All four are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027). */
+/** Home: the computed shelves that answer *show me something* rather than handing back a search box — recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042). */
 export type HomeShelvesInput = Record<string, never>;
 /** What home_shelves answers. */
 export type HomeShelvesOutput = {
 	quick_tonight_minutes: number;
 	shelves: {
-		name: "cooked_most" | "quick_tonight" | "never_cooked" | "recently_opened";
+		name: "recently_added" | "cooked_most" | "quick_tonight" | "never_cooked" | "recently_opened";
 		recipes: {
 			branch_id: string;
 			language: string;
@@ -12286,7 +12286,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "home_shelves",
-		"summary": "Home: the computed shelves that answer *show me something* rather than handing back a search box — cooked most, quick tonight, never cooked, recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All four are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027).",
+		"summary": "Home: the computed shelves that answer *show me something* rather than handing back a search box — recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042).",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12306,6 +12306,7 @@ export const CATALOGUE = [
 						"properties": {
 							"name": {
 								"enum": [
+									"recently_added",
 									"cooked_most",
 									"quick_tonight",
 									"never_cooked",
@@ -25253,7 +25254,7 @@ export interface KamosuClient {
 	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;
 	/** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
 	searchRecipes(input: SearchRecipesInput): Promise<Answer<'search_recipes'>>;
-	/** Home: the computed shelves that answer *show me something* rather than handing back a search box — cooked most, quick tonight, never cooked, recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All four are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027). */
+	/** Home: the computed shelves that answer *show me something* rather than handing back a search box — recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042). */
 	homeShelves(input?: HomeShelvesInput): Promise<Answer<'home_shelves'>>;
 	/** Remember that the caller opened this recipe, for Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027). */
 	noteRecipeOpened(input: NoteRecipeOpenedInput): Promise<Answer<'note_recipe_opened'>>;

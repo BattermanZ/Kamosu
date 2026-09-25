@@ -4,8 +4,9 @@
 use super::*;
 
 impl Core {
-    /// **Home**: the computed shelves that answer *show me something* — cooked
-    /// most, quick tonight, never cooked, recently opened (ADR 0011, ADR 0027).
+    /// **Home**: the computed shelves that answer *show me something* —
+    /// recently added, cooked most, quick tonight, never cooked, recently
+    /// opened (ADR 0011, ADR 0027, ADR 0042).
     ///
     /// Every shelf is one card per Lineage in the reader's Reading Language,
     /// built by the same [`shelf_entry`] the library is, so a recipe is the same
@@ -14,11 +15,16 @@ impl Core {
     /// **An empty shelf is left out rather than shown empty.** A row that is
     /// sometimes there and sometimes not is honest; a permanently empty one
     /// teaches people to stop reading the screen. Where nothing is on the shelf
-    /// at all, every one of the four is empty and the answer carries none —
+    /// at all, every one of the five is empty and the answer carries none —
     /// which is what lets the screen say *your shelf is empty* once instead of
-    /// four times.
+    /// five times.
     ///
-    /// All four are counted from what already exists — Attempts and the recipes
+    /// *Never cooked* is **shuffled**, not sorted (#151). It used to be newest
+    /// first, and then it repeated *recently added* card for card on any
+    /// library nobody had cooked from yet. Shuffled, it is a different dozen
+    /// of the recipes you have not made each time Home is asked for.
+    ///
+    /// All five are counted from what already exists — Attempts and the recipes
     /// themselves — except *recently opened*, which reads the one fact Home
     /// stores ([`Self::note_recipe_opened`]). So the whole screen is
     /// computed-on-top under ADR 0009 and free to be redesigned over a library
@@ -91,6 +97,7 @@ impl Core {
             // sorting it into whichever shelves it belongs on. A recipe may
             // stand on several — quick *and* never cooked is the most useful
             // suggestion there is, so nothing here is exclusive.
+            let mut added: Vec<ShelfCandidate> = Vec::new();
             let mut most: Vec<ShelfCandidate> = Vec::new();
             let mut quick: Vec<ShelfCandidate> = Vec::new();
             let mut never: Vec<ShelfCandidate> = Vec::new();
@@ -119,13 +126,18 @@ impl Core {
                     card: card.clone(),
                 };
 
+                // Every recipe arrived once, so every one stands here and the
+                // cap decides which. `lineages` arrives oldest first, so the
+                // position in it is an age, and sorting that largest-first is
+                // newest-first. The age is the Lineage's, from its oldest
+                // Branch: a Translation or a variation of a recipe you already
+                // had is not an arrival, and does not move it forward.
+                added.push(claim(rank as i64));
+
                 match cooked.get(lineage_id) {
                     Some(&count) => most.push(claim(count)),
-                    // Newest first: *never cooked* is at its most useful the
-                    // week you added something and have not got to it yet.
-                    // `lineages` arrives oldest first, so the position in it is
-                    // an age, and sorting that largest-first is newest-first.
-                    None => never.push(claim(rank as i64)),
+                    // Placed by the shuffle below, once every candidate is in.
+                    None => never.push(claim(0)),
                 }
 
                 // **A recipe Kamosu does not know the time for is not quick.**
@@ -147,12 +159,20 @@ impl Core {
                 }
             }
 
-            // In the order the spec names them, each ordered by its own fact:
-            // most-cooked first, soonest-ready first, newest-added first,
-            // last-opened first. An empty shelf is dropped here rather than at
-            // the screen, so there is one place that decides it and both Doors
-            // get the same answer.
+            shuffle(&mut never, self.shelf_seed());
+
+            // *Recently added* first, where Aurélien put it (#151): nobody has
+            // to have cooked anything for it to have something to say, and a
+            // recipe that just came in is the likeliest reason to open Home.
+            // Then the spec's order, each shelf ordered by its own fact:
+            // most-cooked first, soonest-ready first, shuffled, last-opened
+            // first. An empty shelf is dropped here rather than at the screen,
+            // so there is one place that decides it and both Doors get the
+            // same answer.
             let mut shelves: Vec<Value> = Vec::new();
+            if !added.is_empty() {
+                shelves.push(home_shelf("recently_added", added, true));
+            }
             if !most.is_empty() {
                 shelves.push(home_shelf("cooked_most", most, true));
             }
@@ -160,7 +180,8 @@ impl Core {
                 shelves.push(home_shelf("quick_tonight", quick, false));
             }
             if !never.is_empty() {
-                shelves.push(home_shelf("never_cooked", never, true));
+                // The shuffle's place, smallest first.
+                shelves.push(home_shelf("never_cooked", never, false));
             }
             if !lately.is_empty() {
                 // Smallest place first — place 0 is the one opened last.
@@ -172,6 +193,24 @@ impl Core {
                 "shelves": shelves,
             }))
         })
+    }
+
+    /// What *never cooked* is shuffled by this time: a fresh seed from the
+    /// operating system on every ask, unless a test pinned one.
+    fn shelf_seed(&self) -> u64 {
+        #[cfg(feature = "test-jobs")]
+        if let Some(seed) = *self.shelf_seed.lock().expect("the shelf seed is poisoned") {
+            return seed;
+        }
+        u64::from_le_bytes(random_bytes(8).try_into().expect("eight bytes"))
+    }
+
+    /// Test-only, compiled only under the `test-jobs` feature: shuffle *never
+    /// cooked* by this seed from now on rather than a fresh one per ask, so a
+    /// test can say which order it expects instead of asserting on chance.
+    #[cfg(feature = "test-jobs")]
+    pub fn pin_shelf_seed(&self, seed: u64) {
+        *self.shelf_seed.lock().expect("the shelf seed is poisoned") = Some(seed);
     }
 }
 
@@ -289,10 +328,11 @@ pub(super) fn shelf_of(
 /// shelf is ordered by, and the folded title that breaks a tie.
 ///
 /// Each shelf sorts by something different — a count, a duration, an age, a
-/// timestamp — and none of those facts reaches the answer. Rather than four
-/// differently-shaped tuples and a function generic over which, the ordering
-/// fact is widened to one `i64` and named here: every shelf's sort is then
-/// *largest first* or *smallest first* over that one number.
+/// place in the opening order or in a shuffle — and none of those facts
+/// reaches the answer. Rather than five differently-shaped tuples and a
+/// function generic over which, the ordering fact is widened to one `i64` and
+/// named here: every shelf's sort is then *largest first* or *smallest first*
+/// over that one number.
 struct ShelfCandidate {
     /// What this shelf orders by. Read only by the sort.
     by: i64,
@@ -303,11 +343,29 @@ struct ShelfCandidate {
     card: Value,
 }
 
+/// Put *never cooked* in a random order, drawn from `seed`, by writing each
+/// candidate's place into the number its shelf sorts by.
+///
+/// This runs **before** [`home_shelf`] cuts the shelf to length, so the dozen
+/// shown are drawn from every recipe nobody has cooked, not the same dozen in
+/// a new order. Every place is distinct, so the title never has to break a
+/// tie. The seed is the Core's to hand in, which is how a test pins it.
+fn shuffle(of: &mut [ShelfCandidate], seed: u64) {
+    use rand::SeedableRng;
+    use rand::seq::SliceRandom;
+
+    of.shuffle(&mut rand::rngs::StdRng::seed_from_u64(seed));
+    for (place, candidate) in of.iter_mut().enumerate() {
+        candidate.by = place as i64;
+    }
+}
+
 /// One of Home's shelves, ordered, named and cut to length.
 ///
-/// `largest_first` is the whole difference between the four: *cooked most*,
-/// *never cooked* and *recently opened* want the largest number, *quick
-/// tonight* the smallest, and alphabetical breaks every tie either way.
+/// `largest_first` is the whole difference between the five: *recently
+/// added*, *cooked most* and *recently opened* want the largest number,
+/// *quick tonight* and the shuffled *never cooked* the smallest, and
+/// alphabetical breaks every tie either way.
 fn home_shelf(name: &str, mut of: Vec<ShelfCandidate>, largest_first: bool) -> Value {
     of.sort_by(|a, b| {
         let by = if largest_first {

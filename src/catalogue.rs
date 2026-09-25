@@ -1422,15 +1422,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "home_shelves",
             summary: "Home: the computed shelves that answer *show me \
                       something* rather than handing back a search box — \
-                      cooked most, quick tonight, never cooked, recently \
-                      opened. Each is one card per Lineage in the reader's \
-                      Reading Language, in the same shape the library's shelf \
+                      recently added (newest first), cooked most, quick \
+                      tonight, never cooked (shuffled each time it is asked \
+                      for, so it is not the newest again), recently opened. \
+                      Each is one card per Lineage in the reader's Reading \
+                      Language, in the same shape the library's shelf \
                       answers in. A shelf with nothing on it is left out \
                       rather than sent empty, so an instance holding no \
-                      recipes answers with no shelves at all. All four are \
+                      recipes answers with no shelves at all. All five are \
                       counted from recipes and Attempts that already exist, \
                       except *recently opened*, which reads what \
-                      `note_recipe_opened` remembered (ADR 0011, ADR 0027).",
+                      `note_recipe_opened` remembered (ADR 0011, ADR 0027, \
+                      ADR 0042).",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1457,8 +1460,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                                 // the name rather than English prose.
                                 "name": {
                                     "enum": [
-                                        "cooked_most", "quick_tonight",
-                                        "never_cooked", "recently_opened"
+                                        "recently_added", "cooked_most",
+                                        "quick_tonight", "never_cooked",
+                                        "recently_opened"
                                     ],
                                 },
                                 "recipes": {
@@ -3264,7 +3268,7 @@ fn meaning_status_schema() -> Value {
 /// where two Branches sit side by side.
 /// One card on a shelf — the most-repeated object in Kamosu, and therefore
 /// declared exactly once. The library's shelf (`search_recipes`) and Home's
-/// four (`home_shelves`) both answer in this shape, so a recipe is the same
+/// five (`home_shelves`) both answer in this shape, so a recipe is the same
 /// object on both screens rather than two treatments of one thing that drift.
 fn shelf_entry_schema() -> Value {
     json!({

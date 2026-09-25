@@ -29,7 +29,7 @@
 	shelf never arrives, so there is no case here where a heading has to decide
 	whether to draw itself — and an instance with nothing on its shelf sends no
 	shelves at all, which is what lets the empty state be said once instead of
-	four times.
+	five times.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -53,13 +53,17 @@
 	 *
 	 * One entry per shelf rather than a map of headings beside a switch of
 	 * sentences: the two always change together, and two lists keyed by the same
-	 * four names are two chances to add a shelf to one of them.
+	 * five names are two chances to add a shelf to one of them.
 	 *
 	 * The 30 in *quick tonight* is the Core's, carried in the answer. Writing it
 	 * into the phrase file instead would let the sentence a reader believes
 	 * drift away from the line that actually chose the recipes underneath it.
 	 */
 	const shelf: Record<ShelfName, { heading: () => string; why: () => string }> = {
+		recently_added: {
+			heading: m.home_shelf_recently_added,
+			why: m.home_shelf_recently_added_why,
+		},
 		cooked_most: {
 			heading: m.home_shelf_cooked_most,
 			why: m.home_shelf_cooked_most_why,

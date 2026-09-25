@@ -72,6 +72,37 @@ describe('Home', () => {
 		expect(screen.queryByRole('heading', { name: 'Cooked most' })).not.toBeInTheDocument();
 		expect(screen.queryByRole('heading', { name: 'Quick tonight' })).not.toBeInTheDocument();
 		expect(screen.queryByRole('heading', { name: 'Recently opened' })).not.toBeInTheDocument();
+		expect(screen.queryByRole('heading', { name: 'Recently added' })).not.toBeInTheDocument();
+	});
+
+	it('leads with what was recently added, newest first, in the order the Core sent', async () => {
+		renderScreen(Page, {
+			home_shelves: home([
+				{
+					name: 'recently_added',
+					recipes: [
+						card({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Tarte Tatin' }),
+						card({ title: 'Miso Soup' }),
+					],
+				},
+				{ name: 'never_cooked', recipes: [card({ title: 'Miso Soup' })] },
+			]),
+		});
+
+		const heading = await screen.findByRole('heading', { name: 'Recently added' });
+		// First on the screen, where Aurélien put it (#151). The Core decides
+		// the order, and the screen draws what it was sent without resorting.
+		expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent?.trim())).toEqual([
+			'Recently added',
+			'Never cooked',
+		]);
+		const section = heading.closest('section') as HTMLElement;
+		expect(within(section).getByText('What just came in')).toBeInTheDocument();
+		expect(
+			within(section)
+				.getAllByRole('listitem')
+				.map((item) => item.textContent),
+		).toEqual([expect.stringContaining('Tarte Tatin'), expect.stringContaining('Miso Soup')]);
 	});
 
 	it('takes the line quick tonight is drawn at from the Core, never from its own words', async () => {

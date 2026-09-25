@@ -245,6 +245,11 @@ pub struct Core {
     /// Whose login is waiting, and the few threads that may hash or check a
     /// password at once (#138).
     passwords: accounts::Passwords,
+    /// The seed Home shuffles *never cooked* by, once a test has pinned one
+    /// (#151). Compiled only under `test-jobs`: a real instance draws a fresh
+    /// seed each time Home is asked for, and carries nothing to pin it with.
+    #[cfg(feature = "test-jobs")]
+    shelf_seed: std::sync::Mutex<Option<u64>>,
 }
 
 impl Core {
@@ -260,6 +265,8 @@ impl Core {
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            #[cfg(feature = "test-jobs")]
+            shelf_seed: Default::default(),
         }
     }
 
@@ -277,6 +284,8 @@ impl Core {
             lanes,
             meaning,
             passwords: accounts::Passwords::default(),
+            #[cfg(feature = "test-jobs")]
+            shelf_seed: Default::default(),
         };
         core.passwords.prepare();
         let core = Arc::new(core);

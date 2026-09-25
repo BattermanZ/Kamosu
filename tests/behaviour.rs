@@ -13635,7 +13635,7 @@ fn timed_recipe_in(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn home_shows_the_four_computed_shelves_the_spec_names() {
+async fn home_shows_its_five_computed_shelves() {
     let app = support::spawn_app();
     let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
 
@@ -13660,6 +13660,15 @@ async fn home_shows_the_four_computed_shelves_the_spec_names() {
     let shelves = home_titles(&app, &key);
 
     assert_eq!(
+        shelves.get("recently_added"),
+        Some(&vec![
+            "Omelette".to_string(),
+            "Cassoulet".to_string(),
+            "Ramen".to_string()
+        ]),
+        "every recipe, newest first, cooked or not: {shelves:?}"
+    );
+    assert_eq!(
         shelves.get("cooked_most"),
         Some(&vec!["Ramen".to_string(), "Cassoulet".to_string()]),
         "most-cooked first: {shelves:?}"
@@ -13678,6 +13687,99 @@ async fn home_shows_the_four_computed_shelves_the_spec_names() {
         shelves.get("recently_opened"),
         Some(&vec!["Omelette".to_string()]),
         "the one that was opened: {shelves:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recently_added_leads_home_newest_first_and_a_translation_is_no_arrival() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+
+    // Thirteen recipes, one more than a shelf carries, added in order.
+    let mut branches = Vec::new();
+    for n in 1..=13 {
+        branches.push(recipe_in(&app, &key, &format!("Recipe {n:02}")));
+    }
+    // Cooking one does not take it off: it arrived all the same.
+    cook_it(&app, &key, &branches[12], json!({}));
+    // A Translation of the second-oldest is a new Branch, not a new recipe. It
+    // must not bring that recipe forward as though it had just come in.
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({ "branch_id": branches[1], "language": "fr", "title": "Recette 02" }).to_string(),
+    );
+    assert_eq!(status, 200, "{translated}");
+
+    let (status, home) = app.post_op("home_shelves", Some(&key), "{}");
+    assert_eq!(status, 200, "{home}");
+    assert_eq!(
+        home["result"]["shelves"][0]["name"],
+        json!("recently_added"),
+        "the new shelf leads Home: {home}"
+    );
+
+    let shelves = home_titles(&app, &key);
+    let expected: Vec<String> = (2..=13).rev().map(|n| format!("Recipe {n:02}")).collect();
+    assert_eq!(
+        shelves.get("recently_added"),
+        Some(&expected),
+        "newest first, cut to twelve, the oldest left off: {shelves:?}"
+    );
+}
+
+#[cfg(feature = "test-jobs")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn never_cooked_is_shuffled_by_the_seed_the_core_is_handed() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    for n in 1..=20 {
+        recipe_in(&app, &key, &format!("Recipe {n:02}"));
+    }
+
+    // Pinned, the shuffle is a fact the test can state rather than a chance it
+    // has to hope about: the same seed answers the same order every time.
+    app.core.pin_shelf_seed(7);
+    let first = home_titles(&app, &key);
+    let never = first
+        .get("never_cooked")
+        .expect("a never cooked shelf")
+        .clone();
+    assert_eq!(never.len(), 12, "cut to a shelf's worth: {first:?}");
+    assert_eq!(
+        home_titles(&app, &key).get("never_cooked"),
+        Some(&never),
+        "one seed, one order"
+    );
+
+    // And it is not *recently added* over again, which is the whole reason it
+    // is shuffled: on a library nobody has cooked from, newest first made the
+    // two shelves the same twelve cards in the same order.
+    assert_ne!(
+        first.get("recently_added"),
+        Some(&never),
+        "never cooked repeats recently added: {first:?}"
+    );
+
+    // Another seed is another order.
+    app.core.pin_shelf_seed(8);
+    assert_ne!(
+        home_titles(&app, &key).get("never_cooked"),
+        Some(&never),
+        "a different seed dealt the same hand"
+    );
+
+    // The shuffle comes before the cap: across a few seeds, more than twelve
+    // different recipes reach the shelf. Shuffling after it would deal the
+    // newest twelve forever and never show the other eight.
+    let mut seen = std::collections::HashSet::new();
+    for seed in 1..=5 {
+        app.core.pin_shelf_seed(seed);
+        seen.extend(home_titles(&app, &key).remove("never_cooked").unwrap());
+    }
+    assert!(
+        seen.len() > 12,
+        "only the same twelve ever came up: {seen:?}"
     );
 }
 
@@ -13751,13 +13853,16 @@ async fn an_empty_shelf_is_left_out_and_an_empty_library_answers_with_no_shelves
     assert_eq!(status, 200, "{empty}");
     assert_eq!(empty["result"]["shelves"], json!([]), "{empty}");
 
-    // One recipe, never cooked, no time on it, never opened: exactly one shelf
-    // has anything to say, and it is the only one that appears.
+    // One recipe, never cooked, no time on it, never opened: it has just
+    // arrived and nobody has made it, so exactly two shelves have anything to
+    // say, and they are the only ones that appear.
     recipe_in(&app, &key, "Miso Soup");
     let shelves = home_titles(&app, &key);
+    let mut names = shelves.keys().collect::<Vec<_>>();
+    names.sort();
     assert_eq!(
-        shelves.keys().collect::<Vec<_>>(),
-        vec!["never_cooked"],
+        names,
+        vec!["never_cooked", "recently_added"],
         "a shelf with nothing on it is not sent: {shelves:?}"
     );
 }
