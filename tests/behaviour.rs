@@ -13493,6 +13493,99 @@ async fn a_range_offers_its_lower_end_and_a_number_that_is_not_a_duration_offers
     }
 }
 
+/// A duration is everything written about it, not only its first number: the
+/// seconds after the minutes, the spoken half and quarter, and a written
+/// fraction (#157). None of these shapes is in the 86-recipe export but one, so
+/// they are handled from the three Languages, as `1 h 30` already was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_duration_keeps_its_half_minute_its_spoken_half_and_its_written_fraction() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let written = [
+        // Seconds after minutes, with no unit of their own.
+        ("Saisir la viande 2 minutes 30 de chaque côté.", json!(150)),
+        ("Sear 2 min 30 per side.", json!(150)),
+        // A smaller unit after a larger one, written out.
+        (
+            "Saisir la viande 2 minutes 30 secondes de chaque côté.",
+            json!(150),
+        ),
+        ("Sear 2 minutes 30 seconds per side.", json!(150)),
+        ("Sear 2 min 30 s per side.", json!(150)),
+        ("Dorar 2 minutos 30 segundos.", json!(150)),
+        // The spoken half and quarter, after the unit and before it.
+        (
+            "Saisir la viande 2 minutes et demie de chaque côté.",
+            json!(150),
+        ),
+        ("Sear 2 minutes and a half.", json!(150)),
+        ("Dorar 2 minutos y medio.", json!(150)),
+        ("Sear 2 and a half minutes.", json!(150)),
+        ("Cuire 2 heures et demie.", json!(9000)),
+        ("Cuire 1 heure et quart.", json!(4500)),
+        ("Cook 1 hour and a half.", json!(5400)),
+        ("Laisser reposer une demi-heure.", json!(1800)),
+        ("Rest half an hour.", json!(1800)),
+        ("Reposar media hora.", json!(1800)),
+        // A slash between two numbers, where it reads as a fraction.
+        ("Rest 1/2 hour.", json!(1800)),
+        ("Cook 3/4 hour.", json!(2700)),
+        ("Bake 1 1/2 hours.", json!(5400)),
+        ("Laisser reposer 2 heures 1/2.", json!(9000)),
+        // Minutes after an hour, under ten and over a range of hours.
+        ("Laisser lever 1 h 5.", json!(3900)),
+        ("Cuire 1 h 30 à 2 h.", json!(5400)),
+        ("Tapar y media hora.", json!(1800)),
+        // And where it does not, and where the trailing number is somebody
+        // else's: a weight, a count, a range of counts.
+        ("cuire 20/25 minutes", json!(1200)),
+        // Before minutes a slash is always a range, fraction or not (#157).
+        ("Cuire 3/4 minutes.", json!(180)),
+        ("Cuire 2/3 minutes.", json!(120)),
+        ("Cuire 2 minutes 1/2.", json!(120)),
+        ("Faire fondre 2 minutes 30 g de beurre.", json!(120)),
+        ("Stir 2 minutes 3 times.", json!(120)),
+        ("Stir 2 minutes 3 or 4 times.", json!(120)),
+        ("Simmer 2 hours, then add 200 g of rice.", json!(7200)),
+        ("Añadir 5 minutos y media taza de agua.", json!(300)),
+        ("Laisser lever 30 minutes 35°C.", json!(1800)),
+        ("Cook 45 minutes 1 1/2 cups at a time.", json!(2700)),
+        ("Fry 5 minutes 2 at a time.", json!(300)),
+        // A half with no duration word against it makes no timer.
+        ("Cut the lemon in half.", json!(null)),
+        ("Add half a cup of stock.", json!(null)),
+    ];
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Every part of a duration",
+            "steps": written
+                .iter()
+                .map(|(text, _)| json!({ "kind": "step", "text": text }))
+                .collect::<Vec<Value>>(),
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap();
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let steps = fetched["result"]["versions"][0]["cooking"]["steps"]
+        .as_array()
+        .unwrap()
+        .clone();
+    for (index, (text, expected)) in written.iter().enumerate() {
+        assert_eq!(
+            steps[index]["timer_seconds"], *expected,
+            "the timer read out of {text:?}"
+        );
+    }
+}
+
 /// The panel is scaled and converted by the same one slot the recipe page uses
 /// (#49, ADR 0016) — the cooking screen learns no arithmetic of its own, and a
 /// quantity Kamosu could not read is left whole rather than guessed at.

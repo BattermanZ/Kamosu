@@ -143,24 +143,26 @@ async fn a_quarter_of_the_real_steps_offer_a_timer_and_none_of_the_rest_is_inven
         "the 579 real Steps the cooking screen's type scale was fitted against"
     );
 
-    // **The measured fixture fact.** 154 of the 579 real Steps name a duration
+    // **The measured fixture fact.** 155 of the 579 real Steps name a duration
     // Kamosu can read — a quarter of them — which is what makes the timer worth
     // offering at all and what makes the other three quarters' silence normal
     // rather than a failure. A change to the reader that moved this figure far
     // is either a real improvement or a regression, and either way it should be
-    // looked at rather than absorbed.
+    // looked at rather than absorbed. It was 154 until #157 taught the reader
+    // *half an hour*, which the lasagne's bake below says, and no other real
+    // Step's timer changed with it.
     let offered = steps.iter().filter(|(_, timer)| timer.is_some()).count();
     assert_eq!(
-        offered, 154,
-        "154 of 579 real Steps offer a timer; the reader now offers {offered}"
+        offered, 155,
+        "155 of 579 real Steps offer a timer; the reader now offers {offered}"
     );
 
     // Real Steps, quoted from the export, with the timer each must offer. They
     // are the shapes the reader was built against: a plain duration, a range in
     // three different dashes, a `more` between the number and its unit, an hour
-    // written in French, and a duration Kamosu cannot read because the cook
-    // never wrote a number ("a few minutes"), which is an ordinary answer of
-    // nothing rather than a miss.
+    // written in French, a half hour with no number (#157), and a duration
+    // Kamosu cannot read because the cook never wrote a number ("a few
+    // minutes"), which is an ordinary answer of nothing rather than a miss.
     let expected: &[(&str, Option<i64>)] = &[
         ("Knead the dough for 3–4 minutes.", Some(180)),
         ("Steam for 30–40 minutes.", Some(1800)),
@@ -168,6 +170,12 @@ async fn a_quarter_of_the_real_steps_offer_a_timer_and_none_of_the_rest_is_inven
         ("cover and refrigerate 8 hours or overnight", Some(28800)),
         ("Add choi sum for last 1 minute of cooking.", Some(60)),
         ("Cook at 120 degrees for 2 hours covered", Some(7200)),
+        (
+            "Top and Bake: Finish with a layer of lasagne sheets, covered with béchamel and a \
+             generous amount of mixed cheeses. Bake in a preheated oven at 180°C for half an \
+             hour, or until the top is golden and bubbling.",
+            Some(1800),
+        ),
         (
             "Spread the rice in an even layer, gently pressing down. Let it cook for a few \
              minutes so that the bottom starts to develop a crisp crust.",

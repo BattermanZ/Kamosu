@@ -1505,7 +1505,9 @@ fn scale_after(characters: &[char], mut index: usize) -> Option<(Scale, usize)> 
 /// — `1 h 30` is the ordinary French spelling and its absence from 579 real
 /// Steps is a fact about those recipes rather than about French. What is *not*
 /// here is a bare `m` or `s`: a metre and a gram's neighbour are too close, and
-/// a duration nobody offers is cheaper than a timer offered on `500 g`.
+/// a duration nobody offers is cheaper than a timer offered on `500 g`. The one
+/// place a bare `s` is read is right after minutes — `2 min 30 s` — where it
+/// cannot be anything else ([`rest_after_unit`]).
 const DURATION_WORDS: &[(&str, i64)] = &[
     ("second", 1),
     ("seconds", 1),
@@ -1533,8 +1535,8 @@ const DURATION_WORDS: &[(&str, i64)] = &[
     ("horas", 3600),
 ];
 
-/// The words that join the two ends of a range, beside the dashes and the
-/// slash [`Piece::Dash`] covers. `a` is here for the Spanish *de 5 a 7 minutos*
+/// The words that join the two ends of a range, beside [`Piece::Dash`] and
+/// [`Piece::Slash`]. `a` is here for the Spanish *de 5 a 7 minutos*
 /// and takes the French *à* with it, since [`fold_loosely`] drops the accent.
 const RANGE_WORDS: &[&str] = &["to", "a", "or", "ou", "y", "o", "hasta"];
 
@@ -1555,13 +1557,72 @@ const MORE_WORDS: &[&str] = &[
     "otras",
 ];
 
+/// The half and the quarter a cook says rather than writes as a number —
+/// *2 heures et demie*, *1 hour and a quarter*, *2 minutos y medio* — and what
+/// each adds, as a share of the unit it sits against. Listed folded, and in the
+/// three Languages together for the same reason as [`DURATION_WORDS`].
+///
+/// A phrase counts only directly against its duration: after the unit word
+/// (*2 minutes and a half*) or between the number and it (*2 and a half
+/// minutes*). The set was settled with Aurélien in #157; *trois quarts
+/// d'heure* and the other spelled-out fractions are not in it.
+const SPOKEN_PARTS: &[(&[&str], f64)] = &[
+    (&["et", "demie"], 0.5),
+    (&["et", "demi"], 0.5),
+    (&["et", "quart"], 0.25),
+    (&["and", "a", "half"], 0.5),
+    (&["and", "a", "quarter"], 0.25),
+    (&["y", "medio"], 0.5),
+    (&["y", "media"], 0.5),
+    (&["y", "cuarto"], 0.25),
+];
+
+/// The words that may follow a duration's trailing number without taking it
+/// for their own — *2 minutes 30 **de** chaque côté*, *2 min 30 **per** side*.
+///
+/// Any other word claims the number: *2 minutes 30 **g** de beurre* is two
+/// minutes and a weight, *stir 2 minutes 3 **times*** two minutes and a count.
+/// A list of the short words that join a sentence is closed and can be written
+/// down; a list of every noun a number might count is not, so this names the
+/// first and treats everything else as the second. Missing a word here costs a
+/// timer that stops at the whole minutes, which is what every Step offered
+/// before #157.
+///
+/// French first, then English, then Spanish. `d` and `jusqu` are what is left
+/// of *d'un* and *jusqu'à* once the apostrophe splits them.
+const JOINING_WORDS: &[&str] = &[
+    "de", "d", "du", "des", "a", "au", "aux", "en", "par", "pour", "sur", "dans", "avec", "sans",
+    "puis", "et", "ou", "environ", "chaque", "jusqu", "per", "each", "an", "on", "in", "at", "for",
+    "of", "the", "with", "then", "and", "or", "about", "until", "to", "del", "por", "cada", "al",
+    "con", "sin", "hasta", "y", "o", "luego", "para", "sobre",
+];
+
+/// The denominators a written fraction of an hour uses — *1/2 hour*,
+/// *3/4 hour*, *1 1/8 hours* — the common cooking ones and no others. A slash
+/// between two numbers is otherwise a range (*cuire 20/25 minutes*), which is
+/// how French writes one.
+///
+/// **Only an hour is written as a fraction** (#157, Aurélien's choice). Before
+/// minutes the slash stays a range, because *cuire 3/4 minutes* is French for
+/// three to four, and a written fraction of a minute is rare where that range
+/// is common.
+const DENOMINATORS: &[f64] = &[2.0, 3.0, 4.0, 8.0];
+
+/// The words for a half that stand against a duration word with no number:
+/// *une demi-heure*, *media hora*, *medio minuto*. English puts an article
+/// between, *half an hour*, which [`half_alone`] reads as a phrase instead.
+const HALF_WORDS: &[&str] = &["demi", "media", "medio"];
+
 /// One piece of a Step's text, as the duration reader sees it. Whitespace
 /// produces nothing at all, so `20-30 min` and `20 - 30 min` are one shape.
 enum Piece {
     Number(f64),
     Word(String),
-    /// A dash or a slash: the punctuation half of a range.
+    /// A dash: the punctuation half of a range.
     Dash,
+    /// A slash, which is a range too (*20/25 minutes*) unless the two numbers
+    /// either side of it read as a fraction (*1/2 hour*).
+    Slash,
     /// Anything else — a comma, a bracket, a full stop. Present rather than
     /// skipped, so that a range's two ends must genuinely be adjacent.
     Other,
@@ -1602,6 +1663,11 @@ fn fold_loosely(word: &str) -> String {
 /// **The first duration in the text wins**, not the largest and not the last.
 /// A Step reads in order and the timer belongs to the thing it is telling you
 /// to do now.
+///
+/// **A duration is everything written against its unit**, not only the number
+/// before it (#157): *2 minutes 30*, *2 min 30 s*, *2 heures et demie*, *2 and
+/// a half minutes*, *1 1/2 hours* and *une demi-heure* each read whole. A sear
+/// timer that drops the half minute is a fifth short.
 pub fn step_duration(text: &str) -> Option<i64> {
     let pieces = tokenise(text);
     for (index, piece) in pieces.iter().enumerate() {
@@ -1609,12 +1675,12 @@ pub fn step_duration(text: &str) -> Option<i64> {
         let Some(unit_seconds) = seconds_each(word) else {
             continue;
         };
-        let Some((at, written)) = number_before(&pieces, index) else {
+        let Some((start, written)) = count_before(&pieces, index, unit_seconds) else {
             continue;
         };
-        let quantity = lower_end(&pieces, at).unwrap_or(written);
+        let quantity = lower_end(&pieces, start, written).unwrap_or(written);
         let seconds =
-            quantity * unit_seconds as f64 + trailing_minutes(&pieces, index, unit_seconds);
+            quantity * unit_seconds as f64 + rest_after_unit(&pieces, index, unit_seconds);
         if !(1.0..=LONGEST_TIMER_SECONDS as f64).contains(&seconds) {
             continue;
         }
@@ -1641,64 +1707,197 @@ fn seconds_each(word: &str) -> Option<i64> {
         .map(|(_, seconds)| *seconds)
 }
 
-/// The minutes written after an hour and given no unit of their own — `1 h 30`,
-/// `1 hour 30 minutes` — in seconds, or zero.
+/// What is written after a duration's unit and still belongs to it, in
+/// seconds, or zero: the spoken half or quarter (*2 heures et demie*), a
+/// written fraction (*2 heures 1/2*), or a number of the next smaller unit,
+/// named (*1 hour 30 minutes*, *2 min 30 s*) or left unnamed (*1 h 30*,
+/// *2 minutes 30*).
 ///
-/// **Only after hours**, and only for a number under sixty, so `2 hours 200 g
-/// of flour` cannot become three and a bit hours. Aurélien's 86-recipe export
-/// contains not one of these, which is why they are handled from the language
-/// rather than from the corpus: `1 h 30` is how French writes an hour and a
-/// half, and its absence from these 86 recipes is a fact about them.
-fn trailing_minutes(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {
-    if unit_seconds != 3600 {
-        return 0.0;
+/// An unnamed number counts only under sixty, and only where nothing after it
+/// claims it ([`claimed`]), so `2 hours 200 g of flour` cannot become three and
+/// a bit hours. One under ten counts only where no word follows it at all:
+/// *1 h 5.* is an hour and five minutes, but *cook 5 minutes 2 at a time* is a
+/// count, and an hour's minutes and a sear's seconds are written in tens.
+///
+/// None of these is in Aurélien's 86-recipe export, which is why they are
+/// handled from the language rather than from the corpus: `1 h 30` is how
+/// French writes an hour and a half, and *2 minutes 30* how it writes a sear.
+fn rest_after_unit(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {
+    let fraction = || fraction_after(pieces, unit).filter(|_| unit_seconds == 3600);
+    if let Some((end, part)) = spoken_part_after(pieces, unit).or_else(fraction) {
+        return if claimed(pieces, end) {
+            0.0
+        } else {
+            part * unit_seconds as f64
+        };
     }
-    let Some(Piece::Number(minutes)) = pieces.get(unit + 1) else {
+    let smaller = match unit_seconds {
+        3600 => 60,
+        60 => 1,
+        _ => return 0.0,
+    };
+    let Some(Piece::Number(count)) = pieces.get(unit + 1) else {
         return 0.0;
     };
-    if !(1.0..60.0).contains(minutes) {
+    if !(1.0..60.0).contains(count) {
         return 0.0;
     }
-    // A number followed by a word must be that word's own quantity, unless the
-    // word is itself minutes — `1 h 30 min` is one duration, `2 hours 30 g` is
-    // an hour count and a weight.
-    match pieces.get(unit + 2) {
-        Some(Piece::Word(word)) if seconds_each(word) != Some(60) => 0.0,
-        _ => minutes * 60.0,
+    let next = pieces.get(unit + 2);
+    let named = matches!(next, Some(Piece::Word(word))
+        if seconds_each(word) == Some(smaller) || (smaller == 1 && word == "s"));
+    let unnamed =
+        !claimed(pieces, unit + 2) && (*count >= 10.0 || !matches!(next, Some(Piece::Word(_))));
+    if named || unnamed {
+        count * smaller as f64
+    } else {
+        0.0
     }
 }
 
-/// The number this duration word is counting, and where it sits — the piece
-/// right before it, or the one before a single [`MORE_WORDS`] word.
-fn number_before(pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
-    let mut at = unit.checked_sub(1)?;
-    if let Piece::Word(word) = pieces.get(at)?
-        && MORE_WORDS.contains(&word.as_str())
+/// Whether what sits at `after` takes the number just before it as its own
+/// quantity — `30 g`, `3 times`, `35°C`, `1 1/2 cups` — rather than leaving it
+/// to the duration. A range is looked past to what names both its ends:
+/// *3 or 4 times* is a count, *1 h 30 - 2 h* a range of durations.
+fn claimed(pieces: &[Piece], after: usize) -> bool {
+    if joins_a_range(pieces.get(after)) && matches!(pieces.get(after + 1), Some(Piece::Number(_))) {
+        return !matches!(pieces.get(after + 2), Some(Piece::Word(word))
+            if seconds_each(word).is_some());
+    }
+    match pieces.get(after) {
+        Some(Piece::Number(_)) => true,
+        Some(Piece::Word(word)) => !JOINING_WORDS.contains(&word.as_str()),
+        _ => false,
+    }
+}
+
+/// How many of this duration word the text counts, and the piece where that
+/// count begins: `2`, `3 more`, `2 and a half`, `1/2` and `1 1/2` of an hour,
+/// or a bare `half an` / `demi-` / `media` with no number at all.
+fn count_before(pieces: &[Piece], unit: usize, unit_seconds: i64) -> Option<(usize, f64)> {
+    let spoken = spoken_part_before(pieces, unit);
+    let at = match spoken {
+        Some((start, _)) => start.checked_sub(1),
+        None => unit.checked_sub(1).and_then(|at| match pieces.get(at) {
+            Some(Piece::Word(word)) if MORE_WORDS.contains(&word.as_str()) => at.checked_sub(1),
+            _ => Some(at),
+        }),
+    };
+    let part = spoken.map_or(0.0, |(_, part)| part);
+    match at.map(|at| (at, pieces.get(at))) {
+        Some((at, Some(Piece::Number(number)))) => Some(
+            fraction_ending_at(pieces, at)
+                .filter(|_| unit_seconds == 3600)
+                .map_or((at, number + part), |(start, fraction)| {
+                    (start, fraction + part)
+                }),
+        ),
+        _ => half_alone(pieces, unit).map(|start| (start, 0.5)),
+    }
+}
+
+/// A written fraction whose denominator is the number at `at` — `1/2`, `3/4`,
+/// and `1 1/2` with its whole number — and where it begins.
+fn fraction_ending_at(pieces: &[Piece], at: usize) -> Option<(usize, f64)> {
+    let top_at = at.checked_sub(2)?;
+    let (Some(Piece::Number(top)), Some(Piece::Slash), Some(Piece::Number(bottom))) =
+        (pieces.get(top_at), pieces.get(top_at + 1), pieces.get(at))
+    else {
+        return None;
+    };
+    let fraction = written_fraction(*top, *bottom)?;
+    if let Some(whole_at) = top_at.checked_sub(1)
+        && let Some(Piece::Number(whole)) = pieces.get(whole_at)
+        && whole.fract() == 0.0
+        && *whole >= 1.0
     {
-        at = at.checked_sub(1)?;
+        return Some((whole_at, whole + fraction));
     }
-    match pieces.get(at)? {
-        Piece::Number(number) => Some((at, *number)),
-        _ => None,
+    Some((top_at, fraction))
+}
+
+/// A written fraction right after the duration word at `unit` — *2 heures
+/// 1/2*, which is one way French writes two and a half hours — as the piece
+/// after it and what it is worth.
+fn fraction_after(pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
+    let (Some(Piece::Number(top)), Some(Piece::Slash), Some(Piece::Number(bottom))) = (
+        pieces.get(unit + 1),
+        pieces.get(unit + 2),
+        pieces.get(unit + 3),
+    ) else {
+        return None;
+    };
+    Some((unit + 4, written_fraction(*top, *bottom)?))
+}
+
+/// What `top/bottom` is worth, where the slash reads as a fraction rather than
+/// a range: a whole numerator smaller than a denominator from [`DENOMINATORS`],
+/// in lowest terms. Nobody writes a fraction unreduced, so `2/4 heures` is the
+/// French *2 to 4*, not half an hour.
+fn written_fraction(top: f64, bottom: f64) -> Option<f64> {
+    let reduced = top % 2.0 != 0.0 || bottom % 2.0 != 0.0;
+    (top.fract() == 0.0 && top >= 1.0 && top < bottom && DENOMINATORS.contains(&bottom) && reduced)
+        .then_some(top / bottom)
+}
+
+/// Where a half with no number before it begins — *une demi-heure*, *media
+/// hora*, *half an hour* — right against the duration word at `unit`.
+fn half_alone(pieces: &[Piece], unit: usize) -> Option<usize> {
+    let before = unit.checked_sub(1)?;
+    if matches!(pieces.get(before), Some(Piece::Word(word)) if HALF_WORDS.contains(&word.as_str()))
+    {
+        return Some(before);
+    }
+    let start = before.checked_sub(1)?;
+    let hyphenated =
+        matches!(pieces.get(before), Some(Piece::Dash)) && spells(pieces, start, &["demi"]);
+    let english = spells(pieces, start, &["half", "a"]) || spells(pieces, start, &["half", "an"]);
+    (hyphenated || english).then_some(start)
+}
+
+/// The spoken half or quarter written directly after the duration word at
+/// `unit`, as the piece after it and the share it adds.
+fn spoken_part_after(pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
+    SPOKEN_PARTS.iter().find_map(|(words, part)| {
+        spells(pieces, unit + 1, words).then_some((unit + 1 + words.len(), *part))
+    })
+}
+
+/// The spoken half or quarter written between a number and the duration word
+/// at `unit` — *2 and a half minutes* — as where it begins and the share it adds.
+fn spoken_part_before(pieces: &[Piece], unit: usize) -> Option<(usize, f64)> {
+    SPOKEN_PARTS.iter().find_map(|(words, part)| {
+        let start = unit.checked_sub(words.len())?;
+        spells(pieces, start, words).then_some((start, *part))
+    })
+}
+
+/// Whether the pieces from `start` are exactly these words, in order.
+fn spells(pieces: &[Piece], start: usize, words: &[&str]) -> bool {
+    words.iter().enumerate().all(|(offset, expected)| {
+        matches!(pieces.get(start + offset), Some(Piece::Word(word)) if word == expected)
+    })
+}
+
+/// Whether this piece joins the two ends of a range: a dash, a slash, or one
+/// of [`RANGE_WORDS`].
+fn joins_a_range(piece: Option<&Piece>) -> bool {
+    match piece {
+        Some(Piece::Dash | Piece::Slash) => true,
+        Some(Piece::Word(word)) => RANGE_WORDS.contains(&word.as_str()),
+        _ => false,
     }
 }
 
-/// The lower end of a range whose upper end is the number at `upper_at`, where
-/// the two pieces before it are a range's other half — `5`, `-`, `8` or `1`,
-/// `to`, `3`. Nothing where this is a plain duration, and nothing where the
-/// supposed lower end is not actually lower, since `30-20 minutes` is not a
-/// range anybody wrote.
-fn lower_end(pieces: &[Piece], upper_at: usize) -> Option<f64> {
-    let upper = match pieces.get(upper_at)? {
-        Piece::Number(number) => *number,
-        _ => return None,
-    };
-    match pieces.get(upper_at.checked_sub(1)?)? {
-        Piece::Dash => {}
-        Piece::Word(word) if RANGE_WORDS.contains(&word.as_str()) => {}
-        _ => return None,
+/// The lower end of a range whose upper end, worth `upper`, begins at the
+/// piece `start`, where the two pieces before it are a range's other half —
+/// `5`, `-`, `8` or `1`, `to`, `3`. Nothing where this is a plain duration, and
+/// nothing where the supposed lower end is not actually lower, since
+/// `30-20 minutes` is not a range anybody wrote.
+fn lower_end(pieces: &[Piece], start: usize, upper: f64) -> Option<f64> {
+    if !joins_a_range(pieces.get(start.checked_sub(1)?)) {
+        return None;
     }
-    match pieces.get(upper_at.checked_sub(2)?)? {
+    match pieces.get(start.checked_sub(2)?)? {
         Piece::Number(lower) if *lower > 0.0 && *lower < upper => Some(*lower),
         _ => None,
     }
@@ -1744,7 +1943,11 @@ fn tokenise(text: &str) -> Vec<Piece> {
         } else {
             index += 1;
             pieces.push(match character {
-                '-' | '\u{2013}' | '\u{2014}' | '/' => Piece::Dash,
+                '-' | '\u{2013}' | '\u{2014}' => Piece::Dash,
+                '/' => Piece::Slash,
+                // A sign that names what the number before it measures, as a
+                // word would: the 35 in `30 minutes 35°C` is a temperature.
+                '°' | '%' => Piece::Word(character.to_string()),
                 _ => Piece::Other,
             });
         }
