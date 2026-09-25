@@ -242,5 +242,14 @@
 							: m.account_create()}
 			</button>
 		</form>
+		<!-- For somebody who reached the sign-in form without knowing what
+		     Kamosu is (#158): the story, at an address of its own. -->
+		{#if mode === 'login'}
+			<p class="mt-6 text-center">
+				<a href="/about" class="text-body text-accent underline underline-offset-4">
+					{m.story_what_is()}
+				</a>
+			</p>
+		{/if}
 	</Screen>
 {/if}

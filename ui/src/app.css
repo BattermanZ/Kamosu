@@ -33,6 +33,10 @@
    Nothing in Rust emits a class today. */
 @source "./";
 @source not "./lib/paraglide";
+/* The story (#158) draws itself with a scoped style block of plain CSS, and
+   its words `ease-out`, `outline` or `table` would each emit a real utility
+   here. Its markup uses no utility but `sr-only`, which other screens emit. */
+@source not "./lib/story/Story.svelte";
 /* The Share Link page is rendered from Rust strings (#65, ADR 0012, ADR 0026),
    so the classes it writes have to be emitted here too. Tailwind's classes are
    identical in both renderings, which is exactly why one stylesheet serves a

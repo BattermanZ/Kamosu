@@ -18,6 +18,7 @@
 	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
 	import { realOutbox } from '$lib/offline/outbox';
 	import { m } from '$lib/paraglide/messages';
+	import { story } from '$lib/story/showing.svelte';
 
 	let { children } = $props();
 
@@ -94,6 +95,13 @@
 	const cooking = $derived(page.url.pathname.startsWith('/cook/'));
 
 	/**
+	 * The story (#158) covers the whole window with corners of its own, so it
+	 * wears no shell either: a header and tab bar drawn under it would still be
+	 * read out and tabbed through behind a page that hides them.
+	 */
+	const bare = $derived(cooking || story.showing);
+
+	/**
 	 * The boundary below has taken the screen down (#119). A handled boundary
 	 * drops its content and does not draw it again by itself, even for the next
 	 * route, so it is redrawn once the cook has gone somewhere else: without
@@ -113,12 +121,14 @@
 </script>
 
 <Kamosu {client} {auth} {upload} {photograph} {sheets} keeping={outbox}>
-	{#if !cooking}
+	{#if !bare}
 		<Header {onSettings} />
 	{/if}
 
 	<main>
-		{#if !cooking}
+		<!-- Not under the story either (#158): it covers the window, and a card
+		     drawn beneath it would be read out before the story it hides behind. -->
+		{#if !bare}
 			<!-- Kamosu itself went wrong (#98), above the rest, because it outranks
 			     every "not right now" card: those say what cannot be done, and this
 			     says the thing you just did went wrong.
@@ -142,7 +152,7 @@
 			     because this is where Kamosu says a thing once and it is put
 			     away — the same place, and the same card, as the rest. -->
 			<Arrived pathname={page.url.pathname} />
-		{:else if redrawScreen}
+		{:else if cooking && redrawScreen}
 			<!-- The cooking screen itself went wrong while it was being drawn, and
 			     the boundary took it away (#119). There is no Step left to protect,
 			     so #98's card is drawn after all, on the bare page the boundary
@@ -173,7 +183,7 @@
 		</svelte:boundary>
 	</main>
 
-	{#if !cooking}
+	{#if !bare}
 		<TabBar />
 	{/if}
 </Kamosu>

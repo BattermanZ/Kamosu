@@ -17,12 +17,16 @@ const MEASURED = 'en.json';
 // The longest ordinary phrase approved in #141 was 163 characters.
 const LIMIT = 170;
 
-// Real warnings that need more than LIMIT to say what a person must know.
-// Keep this list short: a key belongs here only if cutting it would drop a
-// fact someone needs to act.
+// Real warnings that need more than LIMIT to say what a person must know,
+// and story copy Aurélien approved sentence by sentence (#158). Keep this
+// list short: a key belongs here only if cutting it would drop a fact
+// someone needs to act, or words he chose.
 const ALLOWED_LONGER = {
 	// Who can slow a sign-in, how long the wait is, and the way out.
 	settings_name_held_off: 250,
+	// The story's everyday card (#158): four features in one line, approved
+	// sentence by sentence by Aurélien on 25 September 2026.
+	story_10_said: 190,
 };
 
 const failures = [];

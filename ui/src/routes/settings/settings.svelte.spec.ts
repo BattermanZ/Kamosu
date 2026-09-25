@@ -113,6 +113,19 @@ describe('the settings screen', () => {
 		expect(kamosu.calls.map((call) => call.operation)).toContain('instance_status');
 	});
 
+	// The story (#158), for showing somebody what Kamosu is.
+	it('leads to the story of what Kamosu is', async () => {
+		renderScreen(Settings, {
+			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+			...anonymous,
+		});
+
+		expect(await screen.findByRole('link', { name: /What is Kamosu\?/ })).toHaveAttribute(
+			'href',
+			'/about',
+		);
+	});
+
 	it("offers the Operator's screen only to somebody who administers the instance", async () => {
 		renderScreen(Settings, {
 			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },

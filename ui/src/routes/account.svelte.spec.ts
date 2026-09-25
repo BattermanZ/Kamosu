@@ -32,6 +32,8 @@ describe('the account screen', () => {
 
 		expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Log in' })).toBeInTheDocument();
+		// Somebody at the sign-in form who does not know what Kamosu is (#158).
+		expect(screen.getByRole('link', { name: 'What is Kamosu?' })).toHaveAttribute('href', '/about');
 	});
 
 	// A browser whose Session has ended keeps presenting the dead cookie, and
@@ -247,9 +249,27 @@ describe('the account screen', () => {
 			});
 		}
 
+		/** Past the story an Invite opens with (#158), to its form. */
+		async function throughTheStory() {
+			await user.click(screen.getByRole('button', { name: 'Skip' }));
+			await user.click(screen.getByRole('button', { name: 'Create my account' }));
+		}
+
+		it('opens an Invite on the story, whose last button reaches the form', async () => {
+			open(InviteRoute, '8f2c1a94e07b', vi.fn());
+
+			expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+				'Every recipe you cook, in one place.',
+			);
+			expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+			await throughTheStory();
+			expect(await screen.findByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
+		});
+
 		it('shows an Invite link the Invite form, and goes Home once it is accepted', async () => {
 			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
 			open(InviteRoute, '8f2c1a94e07b', authenticate);
+			await throughTheStory();
 
 			expect(await screen.findByRole('heading', { name: 'Join Kamosu' })).toBeInTheDocument();
 			await user.type(screen.getByLabelText('Name'), 'Camille');
@@ -304,6 +324,7 @@ describe('the account screen', () => {
 					'this Invite has already been spent or revoked',
 				);
 			});
+			await throughTheStory();
 
 			await user.type(await screen.findByLabelText('Name'), 'Camille');
 			await user.type(screen.getByLabelText('Password'), 'a password long enough');

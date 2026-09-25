@@ -16,6 +16,7 @@ import { mistake } from '$lib/mistake.svelte';
 import { reach, refreshed } from '$lib/offline/device.svelte';
 import { sessions } from '$lib/offline/library.svelte';
 import { standing } from '$lib/offline/standing.svelte';
+import { story } from '$lib/story/showing.svelte';
 
 /**
  * One `goto` for the whole run, cleared after every test. Why it is not mocked
@@ -49,6 +50,9 @@ function startAsIsolationWould(): void {
 	emptied(mistake);
 	Object.assign(reach, { server: true, lost: 0 });
 	Object.assign(sessions, { began: 0 });
+	Object.assign(story, { showing: false });
+	// The story's language buttons write it, like the app's own layout does.
+	document.documentElement.removeAttribute('lang');
 	refreshed.clear();
 	forgetArrival();
 	// Cleared after every test below as well. This one catches a `goto` made in

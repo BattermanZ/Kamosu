@@ -831,6 +831,17 @@
 			{/if}
 		</p>
 
+		<!-- The story (#158), for showing somebody what Kamosu is: the same page
+		     an Invite opens with, at an address of its own. -->
+		<a
+			href="/about"
+			class="mt-3 flex min-h-12 items-center justify-between gap-3 rounded-sm border
+			border-rule bg-card px-3 text-body font-medium text-ink"
+		>
+			{m.story_what_is()}
+			<span aria-hidden="true" class="text-ink-2">›</span>
+		</a>
+
 		<!--
 			The way into the Operator's screen (#103), shown only to somebody the
 			instance has agreed may administer it. `list_accounts` is the asking:
