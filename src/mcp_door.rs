@@ -11,11 +11,15 @@
 //! polls `tasks/get` until the work ends. Underneath, that is decoration over
 //! ordinary Operations — every poll reads through `get_job`, exactly what the
 //! web door serves, so watching slow work is never a feature of one Door alone.
+//!
+//! It answers no web page: a request carrying an `Origin` header is refused
+//! before anything else about it is read (#145).
 
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::{HeaderMap, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
@@ -29,7 +33,34 @@ use crate::{MCP_PROTOCOL_VERSION, MCP_TASKS_EXTENSION, web_door};
 /// Build the MCP door from the Catalogue: one stateless route whose listing is
 /// the Catalogue itself.
 pub fn router(core: Arc<Core>) -> Router {
-    Router::new().route("/mcp", post(handle)).with_state(core)
+    Router::new()
+        .route(
+            "/mcp",
+            post(handle).layer(middleware::from_fn(refuse_any_origin)),
+        )
+        .with_state(core)
+}
+
+/// The revision requires every server to validate `Origin` against DNS
+/// rebinding, and the set this door accepts is empty. Nothing Kamosu serves
+/// calls `/mcp`, and a rebound page's `Origin` always matches the request's
+/// own `Host`, so no value is worth trusting. A layer rather than a check in
+/// `handle`, because "all incoming connections" includes a body the handler's
+/// extractor would refuse first. Transport validation, not authorisation: no
+/// Credential is read, so no permission check lives here.
+async fn refuse_any_origin(request: Request, next: Next) -> Response {
+    if !request.headers().contains_key(axum::http::header::ORIGIN) {
+        return next.run(request).await;
+    }
+    // Nothing of the request was read, so the error names no id.
+    send_error(
+        StatusCode::FORBIDDEN,
+        None,
+        json_rpc_error(
+            -32600,
+            "Invalid Request: this endpoint accepts no Origin header, since it serves no web page",
+        ),
+    )
 }
 
 async fn handle(
@@ -526,17 +557,21 @@ fn json_rpc_success(id: Option<Value>, mut payload: Value) -> Response {
 }
 
 fn json_rpc_error_response(id: Option<Value>, payload: Value) -> Response {
-    let error = payload["error"].clone();
     // The HTTP status is how a client tells a modern server from a legacy one
     // without reading further, so the revision names it for these codes.
-    let status = match error["code"].as_i64() {
+    let status = match payload["error"]["code"].as_i64() {
         Some(-32601) => StatusCode::NOT_FOUND,
         Some(
             HEADER_MISMATCH | MISSING_REQUIRED_CLIENT_CAPABILITY | UNSUPPORTED_PROTOCOL_VERSION,
         ) => StatusCode::BAD_REQUEST,
         _ => StatusCode::OK,
     };
-    let envelope = json!({ "jsonrpc": "2.0", "id": id.unwrap_or(Value::Null), "error": error });
+    send_error(status, id, payload)
+}
+
+fn send_error(status: StatusCode, id: Option<Value>, payload: Value) -> Response {
+    let envelope =
+        json!({ "jsonrpc": "2.0", "id": id.unwrap_or(Value::Null), "error": payload["error"] });
     send(status, envelope)
 }
 

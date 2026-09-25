@@ -2539,3 +2539,82 @@ async fn every_answer_carries_the_browser_safety_headers() {
         assert!(policy.contains(&hash), "{hash} missing from {policy}");
     }
 }
+
+// --- The MCP door answers no web page (#145) ---------------------------------
+
+/// The set of accepted origins is empty, for the reasons `refuse_any_origin`
+/// gives. A rebound page could reach little here, since the browser sends it
+/// no Kamosu cookie, so this asks only that the door refuses, not that
+/// anything was at stake.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_mcp_door_refuses_any_request_that_carries_an_origin() {
+    let app = support::spawn_app();
+    let (_, key) = operator(&app);
+    let bearer = format!("Bearer {key}");
+
+    let discover = r#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}"#;
+    let notification = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+    let initialize = r#"{"jsonrpc":"2.0","id":4,"method":"initialize","params":{}}"#;
+    let create_tag = |id: i64, name: &str| {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": { "name": "create_tag", "arguments": { "language": "en", "name": name } },
+        })
+        .to_string()
+    };
+
+    // The positive controls first: without an Origin each is served, so the
+    // refusals below are the header's doing and not a Door that refuses all.
+    assert_eq!(app.post_mcp_with_headers(discover, &[]).0, 200);
+    assert_eq!(app.post_mcp_with_headers(notification, &[]).0, 202);
+    let (_, created) =
+        app.post_mcp_with_headers(&create_tag(3, "control"), &[("Authorization", &bearer)]);
+    assert_eq!(created["result"]["isError"], json!(false), "{created}");
+
+    for (what, origin, body) in [
+        ("a foreign page", "https://evil.example", discover),
+        ("a sandboxed or file:// page", "null", discover),
+        (
+            "an Origin naming Kamosu's own address",
+            "http://127.0.0.1:5266",
+            discover,
+        ),
+        ("a notification", "https://evil.example", notification),
+        ("a legacy initialize", "https://evil.example", initialize),
+        ("an empty body", "https://evil.example", ""),
+        (
+            "a body that is not JSON",
+            "https://evil.example",
+            "{not json",
+        ),
+    ] {
+        let (status, refused) = app.post_mcp_with_headers(body, &[("Origin", origin)]);
+        assert_eq!(status, 403, "{what}: {refused}");
+        assert_eq!(refused["error"]["code"], json!(-32600), "{what}: {refused}");
+        assert!(
+            refused.get("id").is_none_or(Value::is_null),
+            "{what}: a refusal that read nothing names no id: {refused}"
+        );
+    }
+
+    // A real Access Key does not carry a request past the check, and the
+    // Operation it asked for never runs.
+    let (status, refused) = app.post_mcp_with_headers(
+        &create_tag(2, "rebound"),
+        &[
+            ("Authorization", &bearer),
+            ("Origin", "https://evil.example"),
+        ],
+    );
+    assert_eq!(status, 403, "{refused}");
+    let (_, listed) = app.post_op("list_tags", Some(&key), "{}");
+    let names: Vec<&str> = listed["result"]["tags"]
+        .as_array()
+        .expect("the Tags")
+        .iter()
+        .filter_map(|tag| tag["name"].as_str())
+        .collect();
+    assert_eq!(names, ["control"], "{listed}");
+}
