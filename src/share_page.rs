@@ -161,6 +161,9 @@ struct Words {
     ingredients: &'static str,
     method: &'static str,
     from_source: &'static str,
+    /// Said to a screen reader after the Source's name, where the line links
+    /// to the recipe's original page (#152).
+    source_opens: &'static str,
     also_in: &'static str,
     history: &'static str,
     keep: &'static str,
@@ -216,6 +219,7 @@ const EN: Words = Words {
     ingredients: "Ingredients",
     method: "Method",
     from_source: "From",
+    source_opens: "opens the original page",
     also_in: "Also written in",
     history: "Everything this recipe has been",
     keep: "Keep this recipe",
@@ -250,6 +254,7 @@ const FR: Words = Words {
     ingredients: "Ingrédients",
     method: "Préparation",
     from_source: "D'après",
+    source_opens: "ouvre la page d'origine",
     also_in: "Également écrite en",
     history: "Tout ce que cette recette a été",
     keep: "Garder cette recette",
@@ -284,6 +289,7 @@ const ES: Words = Words {
     ingredients: "Ingredientes",
     method: "Preparación",
     from_source: "De",
+    source_opens: "abre la página original",
     also_in: "También escrita en",
     history: "Todo lo que esta receta ha sido",
     keep: "Guardar esta receta",
@@ -759,10 +765,7 @@ fn open_graph(token: &str, shared: &Value, title: &str, sharer: &str, language: 
 /// title on it; a Cover carries the title bare.
 fn hero(token: &str, recipe: &Value, content: &Value, words: &Words) -> String {
     let title = text_at(content, "title").unwrap_or("");
-    let source = content["source"]
-        .as_object()
-        .and_then(|s| s.get("text"))
-        .and_then(Value::as_str);
+    let source = source_line(content, words);
 
     match text_at(content, "main_photo") {
         Some(hash) => format!(
@@ -776,10 +779,8 @@ fn hero(token: &str, recipe: &Value, content: &Value, words: &Words) -> String {
 </div>"#,
             token = escape(token),
             hash = escape(hash),
-            source = source.map_or(String::new(), |s| format!(
-                r#"<p class="text-label text-on-accent uppercase">{} {}</p>"#,
-                escape(words.from_source),
-                escape(s)
+            source = source.map_or(String::new(), |line| format!(
+                r#"<p class="text-label text-on-accent uppercase">{line}</p>"#
             )),
             title = escape(title),
         ),
@@ -811,17 +812,49 @@ fn source_on_paper(content: &Value, words: &Words) -> String {
     if content["main_photo"].as_str().is_some() {
         return String::new();
     }
-    content["source"]
-        .as_object()
-        .and_then(|s| s.get("text"))
-        .and_then(Value::as_str)
-        .map_or(String::new(), |text| {
-            format!(
-                r#"<p class="mb-4 text-label text-ink-2 uppercase">{} {}</p>"#,
-                escape(words.from_source),
-                escape(text)
-            )
-        })
+    source_line(content, words).map_or(String::new(), |line| {
+        format!(r#"<p class="mb-4 text-label text-ink-2 uppercase">{line}</p>"#)
+    })
+}
+
+/// What the Source line says, wherever it is set, escaped and ready to place.
+/// Where the Source has a web link the line itself is the link, with an
+/// underline and a ↗ so it does not lean on colour alone (#152, Aurélien's
+/// choice A, the recipe page's own). It opens outside Kamosu. A link that is
+/// not an `http:` or `https:` address is not offered: `parse_source` stores
+/// any string and this page is public, and the CSP blocking a `javascript:`
+/// link is not something to depend on alone.
+fn source_line(content: &Value, words: &Words) -> Option<String> {
+    let source = content["source"].as_object()?;
+    let said = format!(
+        "{} {}",
+        escape(words.from_source),
+        escape(source.get("text").and_then(Value::as_str)?)
+    );
+    Some(
+        match source
+            .get("link")
+            .and_then(Value::as_str)
+            .and_then(web_link)
+        {
+            Some(link) => format!(
+                r#"<a href="{href}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{said}<span aria-hidden="true">&nbsp;↗</span><span class="sr-only">, {opens}</span></a>"#,
+                href = escape(link),
+                opens = escape(words.source_opens),
+            ),
+            None => said,
+        },
+    )
+}
+
+/// A link as it can be offered to tap: an `http:` or `https:` address, or
+/// nothing. The recipe page asks the same question in `ui/src/lib/source.ts`.
+fn web_link(link: &str) -> Option<&str> {
+    let link = link.trim();
+    let (scheme, rest) = link.split_once("://")?;
+    ((scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
+        && !rest.is_empty())
+    .then_some(link)
 }
 
 /// The meta: one strip of up to three cells, hairlines between.
@@ -1390,5 +1423,105 @@ mod tests {
         );
         assert!(tags.contains("4 servings · 40 min · from mykoreankitchen.com"));
         assert!(tags.contains("https://kamosu.example/s/tok/card"));
+    }
+
+    /// The Source line as the page draws it on either layout (#152): on the
+    /// photograph's hero, or on paper under a Cover.
+    fn source_as_drawn(source: Value, photo: bool) -> String {
+        let recipe = serde_json::json!({
+            "lineage_id": "l_1848cb7653cb9d93",
+            "content": {
+                "title": "Best Steak Marinade",
+                "main_photo": if photo { Value::from("p_abc") } else { Value::Null },
+                "source": source,
+            },
+        });
+        if photo {
+            let on_paper = source_on_paper(&recipe["content"], &EN);
+            assert_eq!(on_paper, "", "with a photograph the Source is on the hero");
+            hero("tok", &recipe, &recipe["content"], &EN)
+        } else {
+            source_on_paper(&recipe["content"], &EN)
+        }
+    }
+
+    #[test]
+    fn a_source_with_a_web_link_is_the_link_on_both_layouts() {
+        for photo in [true, false] {
+            let html = source_as_drawn(
+                serde_json::json!({
+                    "text": "Allrecipes",
+                    "link": "https://www.allrecipes.com/recipe/143809/?a=1&b=2",
+                }),
+                photo,
+            );
+            assert!(
+                html.contains(
+                    r#"<a href="https://www.allrecipes.com/recipe/143809/?a=1&amp;b=2" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">From Allrecipes<span aria-hidden="true">&nbsp;↗</span><span class="sr-only">, opens the original page</span></a>"#
+                ),
+                "photo {photo}: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_source_with_no_link_is_the_plain_line_on_both_layouts() {
+        for photo in [true, false] {
+            let html = source_as_drawn(
+                serde_json::json!({ "text": "Allrecipes", "link": null }),
+                photo,
+            );
+            assert!(
+                html.contains("From Allrecipes</p>"),
+                "photo {photo}: {html}"
+            );
+            assert!(!html.contains("<a "), "photo {photo}: {html}");
+        }
+    }
+
+    #[test]
+    fn a_link_that_is_not_a_web_address_is_never_offered() {
+        for link in [
+            "javascript:alert(1)",
+            "data:text/html,hi",
+            "allrecipes",
+            "https://",
+        ] {
+            for photo in [true, false] {
+                let html = source_as_drawn(
+                    serde_json::json!({ "text": "Allrecipes", "link": link }),
+                    photo,
+                );
+                assert!(
+                    html.contains("From Allrecipes</p>"),
+                    "{link}, photo {photo}: {html}"
+                );
+                assert!(!html.contains("<a "), "{link}, photo {photo}: {html}");
+            }
+        }
+    }
+
+    /// The link and the Source's words are somebody's typing on a public page.
+    #[test]
+    fn a_sources_words_and_link_cannot_carry_markup_onto_the_page() {
+        for photo in [true, false] {
+            let html = source_as_drawn(
+                serde_json::json!({
+                    "text": "<b>Allrecipes</b>",
+                    "link": "https://example.com/\"><script>alert(1)</script>",
+                }),
+                photo,
+            );
+            assert!(!html.contains("<script>"), "photo {photo}: {html}");
+            assert!(!html.contains("<b>"), "photo {photo}: {html}");
+            assert!(
+                html.contains(r#"href="https://example.com/&quot;&gt;&lt;script&gt;"#),
+                "photo {photo}: {html}"
+            );
+            assert!(
+                html.contains("From &lt;b&gt;Allrecipes&lt;/b&gt;"),
+                "photo {photo}: {html}"
+            );
+        }
     }
 }

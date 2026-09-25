@@ -2698,3 +2698,56 @@ describe('naming a version (#134)', () => {
 		expect(await screen.findByRole('button', { name: 'Rename this version' })).toBeInTheDocument();
 	});
 });
+
+/**
+ * A recipe's Source line, where its link can be tapped (#152, Aurélien's
+ * choice A). The line is set on the photograph when there is one and on paper
+ * under a Cover when there is not (#81), and the same holds in both places.
+ */
+describe('the Source line', () => {
+	const withSource = (source: { text: string; link: string | null }, main_photo: string | null) => {
+		const recipe = forked().get_recipe as GetRecipeOutput;
+		const version = recipe.versions[0]!;
+		return forked({
+			get_recipe: {
+				...recipe,
+				versions: [{ ...version, content: { ...version.content, source, main_photo } }],
+			},
+		});
+	};
+
+	const LINK = 'https://www.allrecipes.com/recipe/143809/best-steak-marinade/';
+
+	for (const [layout, photo] of [
+		['a photograph', 'p_steak'],
+		['a Cover', null],
+	] as const) {
+		it(`makes the line itself the link on ${layout}, opening outside Kamosu`, async () => {
+			renderRecipe(withSource({ text: 'Allrecipes', link: LINK }, photo));
+			const link = await screen.findByRole('link', { name: /From Allrecipes/ });
+			expect(link).toHaveAttribute('href', LINK);
+			expect(link).toHaveAttribute('target', '_blank');
+			expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+			// Not colour alone: on the wash it keeps the line's own colour.
+			expect(link.className).toContain('underline');
+			// Set apart from the words, and never wrapped onto a line of its own.
+			expect(link.textContent).toContain('From Allrecipes\u00a0↗');
+			expect(link).toHaveAccessibleName('From Allrecipes, opens the original page');
+		});
+
+		it(`draws a Source with no link as the plain line on ${layout}`, async () => {
+			renderRecipe(withSource({ text: 'Allrecipes', link: null }, photo));
+			const line = await screen.findByText('From Allrecipes');
+			expect(line.tagName).toBe('P');
+			expect(line.querySelector('a')).toBeNull();
+			expect(screen.queryByRole('link', { name: /Allrecipes/ })).not.toBeInTheDocument();
+		});
+
+		it(`never offers a link that is not a web address on ${layout}`, async () => {
+			renderRecipe(withSource({ text: 'Allrecipes', link: 'javascript:alert(1)' }, photo));
+			const line = await screen.findByText('From Allrecipes');
+			expect(line.querySelector('a')).toBeNull();
+			expect(document.querySelector('a[href^="javascript"]')).toBeNull();
+		});
+	}
+});

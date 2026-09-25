@@ -535,6 +535,37 @@ describe('writing a recipe', () => {
 		expect(input?.note).toBeNull();
 	});
 
+	it('keeps a link typed without a name, named by its host (#152)', async () => {
+		const { kamosu } = renderWriting();
+
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Source' }), {
+			target: { value: '' },
+		});
+		await fireEvent.input(screen.getByRole('textbox', { name: 'Its link' }), {
+			target: { value: 'https://www.bonappetit.com/recipe/x' },
+		});
+
+		await saveThrough(/Save onto mine/);
+		expect(sent(kamosu)?.source).toEqual({
+			text: 'bonappetit.com',
+			link: 'https://www.bonappetit.com/recipe/x',
+		});
+	});
+
+	it('sends no Source when both its name and its link are empty', async () => {
+		const { kamosu } = renderWriting();
+
+		await fireEvent.input(await screen.findByRole('textbox', { name: 'Source' }), {
+			target: { value: '' },
+		});
+		await fireEvent.input(screen.getByRole('textbox', { name: 'Its link' }), {
+			target: { value: '  ' },
+		});
+
+		await saveThrough(/Save onto mine/);
+		expect(sent(kamosu)?.source).toBeNull();
+	});
+
 	/**
 	 * THE FIGURE IS TYPED WHERE IT IS READ (#84): at the foot of the
 	 * Ingredients, which is the treatment Aurélien chose on 21 September 2026

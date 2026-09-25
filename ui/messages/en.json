@@ -530,6 +530,7 @@
   "recipe_delete_title": "Delete {title}?",
   "recipe_failed": "This recipe could not be read.",
   "recipe_from_source": "From {source}",
+  "recipe_source_opens": "opens the original page",
   "recipe_how_much": "Amounts for {amount}",
   "recipe_how_much_as_written": "Amounts as written",
   "recipe_how_much_change": "Change",

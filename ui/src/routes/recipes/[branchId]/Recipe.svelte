@@ -143,6 +143,7 @@
 	import RenameSheet from './RenameSheet.svelte';
 	import LanguageOffer from './LanguageOffer.svelte';
 	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
+	import { tappableLink } from '$lib/source';
 	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
@@ -1169,6 +1170,28 @@
 </script>
 
 <!--
+	The Source line, wherever it is set (#152, Aurélien's choice A of
+	25 September 2026). Where the Source has a web link, the line itself is the
+	link: the same place, size and colour, with an underline and a ↗ so it does
+	not lean on colour alone, which on the wash it could not. It opens outside
+	Kamosu, and an installed app on iOS shows it in a Safari view with Done.
+	Without a link, or with one that is not a web address, it is the plain line
+	it always was.
+-->
+{#snippet sourceLine(source: NonNullable<GetRecipeOutput['versions'][number]['content']['source']>)}
+	{@const href = tappableLink(source.link)}
+	{#if href}
+		<a {href} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">
+			{m.recipe_from_source({ source: source.text })}<span aria-hidden="true">&nbsp;↗</span><span
+				class="sr-only">, {m.recipe_source_opens()}</span
+			>
+		</a>
+	{:else}
+		{m.recipe_from_source({ source: source.text })}
+	{/if}
+{/snippet}
+
+<!--
 	What stands on the hero on THIS screen: the Source, where a photograph is
 	carrying it, and the title. On a Cover the Source cannot clear the
 	contrast bar at 10.5px, so it is set on paper beneath the hero instead
@@ -1178,7 +1201,7 @@
 {#snippet titleOnHero()}
 	{#if content?.main_photo && content.source}
 		<p class="text-label text-on-accent uppercase">
-			{m.recipe_from_source({ source: content.source.text })}
+			{@render sourceLine(content.source)}
 		</p>
 	{/if}
 	<h1 class="mt-1 font-display text-title font-semibold text-on-accent">
@@ -1280,7 +1303,7 @@
 			{/if}
 			{#if content.source && !content.main_photo}
 				<p class="px-gutter pt-3 text-label text-ink-2 uppercase">
-					{m.recipe_from_source({ source: content.source.text })}
+					{@render sourceLine(content.source)}
 				</p>
 			{/if}
 			{#if markOf('source')}

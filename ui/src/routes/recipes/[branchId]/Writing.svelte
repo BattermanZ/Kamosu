@@ -111,6 +111,7 @@
 	import type { GetRecipeOutput, ReadPastedRecipeOutput } from '$lib/api/catalogue';
 	import type { Nutrition } from './divergence';
 	import { languageName, type WrittenLanguage } from '$lib/language';
+	import { hostOf } from '$lib/source';
 	import Cover from '$lib/cover/Cover.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 
@@ -830,6 +831,15 @@
 		}
 	}
 
+	/** The Source as written, or nothing. A link typed with no name is kept and
+	 *  named by its host (#152): the name used to be the only thing that made a
+	 *  Source, so a link on its own was thrown away without a word. */
+	function draftedSource() {
+		const link = orNothing(sourceLink);
+		const text = orNothing(sourceText) ?? (link === null ? null : (hostOf(link) ?? link));
+		return text === null ? null : { text, link };
+	}
+
 	function drafted() {
 		const amount = yieldAmount.trim();
 		const noun = yieldNoun.trim();
@@ -844,8 +854,7 @@
 			cook_time_minutes: minutes(cook),
 			note: orNothing(note),
 			main_photo: mainPhoto,
-			source:
-				sourceText.trim() === '' ? null : { text: sourceText.trim(), link: orNothing(sourceLink) },
+			source: draftedSource(),
 			// The figure and what it counts, or nothing at all (#84). An empty
 			// number is no figure, whatever the basis beside it says — and a
 			// field holding nothing is no part of the fingerprint (ADR 0038).
