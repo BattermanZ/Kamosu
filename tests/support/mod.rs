@@ -6,10 +6,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use kamosu::core::Core;
-use kamosu::{db, http_min};
+use kamosu::{MCP_PROTOCOL_VERSION, db, http_min};
 
 pub struct TestApp {
     pub addr: SocketAddr,
@@ -119,16 +119,17 @@ impl TestApp {
         )
     }
 
-    /// POST JSON-RPC to the MCP door, as an agent would.
+    /// POST JSON-RPC to the MCP door, as an agent would: carrying the headers
+    /// and `_meta` fields revision `2026-07-28` requires, read off the body by
+    /// `complete_mcp_request` so a test writes only what it is about (#144).
     #[allow(dead_code)]
     pub fn post_mcp(&self, payload: &str, bearer: Option<&str>) -> (u16, Value) {
-        self.wait_until_serving();
-        let response = expect_reply(
-            http_min::post_json(self.addr, "/mcp", bearer, payload),
-            "POST",
-            "/mcp",
-        );
-        parse(response.status, &response.text())
+        let authorization = bearer.map(|secret| format!("Bearer {secret}"));
+        let headers: Vec<(&str, &str)> = authorization
+            .iter()
+            .map(|value| ("Authorization", value.as_str()))
+            .collect();
+        self.post_mcp_with_headers(payload, &headers)
     }
 
     /// GET one path — an asset or the tokens page — as a browser would.
@@ -189,22 +190,44 @@ impl TestApp {
     }
 
     /// The same at the MCP door, which is built by walking the same Catalogue
-    /// and so has to answer the same way.
+    /// and so has to answer the same way. The request is completed as
+    /// `post_mcp` completes it, and a header the test names replaces the one
+    /// that would have been read off the body.
     #[allow(dead_code)]
     pub fn post_mcp_with_headers(&self, payload: &str, headers: &[(&str, &str)]) -> (u16, Value) {
+        let (payload, derived) = complete_mcp_request(payload);
+        let mut sent: Vec<(&str, &str)> = derived
+            .iter()
+            .filter(|(name, _)| {
+                !headers
+                    .iter()
+                    .any(|(given, _)| given.eq_ignore_ascii_case(name))
+            })
+            .map(|(name, value)| (*name, value.as_str()))
+            .collect();
+        sent.extend_from_slice(headers);
+        self.post_mcp_bare(&payload, &sent)
+    }
+
+    /// POST to the MCP door exactly what the test wrote, and nothing it did
+    /// not: for the refusals of a request missing what the revision requires.
+    #[allow(dead_code)]
+    pub fn post_mcp_bare(&self, payload: &str, headers: &[(&str, &str)]) -> (u16, Value) {
         let (status, _, body) = self.post_with_headers("/mcp", headers, payload);
         (status, body)
     }
 
-    /// POST to one path with headers a well-behaved client would never send.
+    /// POST to one path with headers of the test's choosing.
     ///
-    /// This exists for two questions. Whether anything Kamosu reads off a
-    /// request can stand in for authorisation (ADR 0033), and — since the
-    /// answer's own headers come back with it — whether a refusal takes back
-    /// the Session cookie this Door set (#91). Both need a request written out
-    /// by hand rather than sent through `http_min`, because that client serves
-    /// the binary's own healthcheck, and widening it so a test can forge a
-    /// header would put the forgery in the shipped program.
+    /// This exists for three questions. Whether anything Kamosu reads off a
+    /// request can stand in for authorisation (ADR 0033); whether a refusal
+    /// takes back the Session cookie this Door set (#91), since the answer's
+    /// own headers come back with it; and whether the MCP door gets the
+    /// headers revision `2026-07-28` requires of every request (#144), which
+    /// is why every MCP test comes this way. All three need a request written
+    /// out by hand rather than sent through `http_min`, because that client
+    /// serves the binary's own healthcheck, and widening it so a test can
+    /// forge a header would put the forgery in the shipped program.
     #[allow(dead_code)]
     fn post_with_headers(
         &self,
@@ -335,6 +358,82 @@ pub fn wait_terminal(app: &TestApp, bearer: Option<&str>, job_id: &str) -> Value
         std::thread::sleep(Duration::from_millis(25));
     }
     panic!("job {job_id} never reached an end state");
+}
+
+/// A JSON-RPC body made whole, as revision `2026-07-28` has a client send it,
+/// with the headers that mirror it. Only what is missing is filled in: a field
+/// or header a test set on purpose, a foreign version or a tasks capability,
+/// is left as written, and the headers mirror it. A body that is not JSON, or
+/// names no method, goes as it came. So does `initialize`, which only a legacy
+/// client sends, and a legacy client sends none of this.
+fn complete_mcp_request(payload: &str) -> (String, Vec<(&'static str, String)>) {
+    let Ok(mut request) = serde_json::from_str::<Value>(payload) else {
+        return (payload.to_string(), Vec::new());
+    };
+    let method = match request.get("method").and_then(Value::as_str) {
+        Some(method) if method != "initialize" => method.to_string(),
+        _ => return (payload.to_string(), Vec::new()),
+    };
+
+    // A notification carries no id and the revision asks no `_meta` of it.
+    if request.get("id").is_some() {
+        if request.get("params").is_none() {
+            request["params"] = json!({});
+        }
+        if let Some(params) = request["params"].as_object_mut()
+            && let Some(meta) = params
+                .entry("_meta")
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+        {
+            meta.entry("io.modelcontextprotocol/protocolVersion")
+                .or_insert_with(|| json!(MCP_PROTOCOL_VERSION));
+            meta.entry("io.modelcontextprotocol/clientCapabilities")
+                .or_insert_with(|| json!({}));
+        }
+    }
+
+    let version = request
+        .pointer("/params/_meta/io.modelcontextprotocol~1protocolVersion")
+        .and_then(Value::as_str)
+        .unwrap_or(MCP_PROTOCOL_VERSION)
+        .to_string();
+    // The door's `name_field` answers the same question. This copy is kept
+    // apart on purpose, as a client's own reading of the revision would be.
+    let named_by = match method.as_str() {
+        "tools/call" => Some("name"),
+        "tasks/get" | "tasks/update" | "tasks/cancel" => Some("taskId"),
+        _ => None,
+    };
+    let name = named_by
+        .and_then(|field| request["params"].get(field))
+        .and_then(Value::as_str)
+        .map(header_safe);
+
+    let mut headers = vec![("MCP-Protocol-Version", version), ("Mcp-Method", method)];
+    if let Some(name) = name {
+        headers.push(("Mcp-Name", name));
+    }
+    (request.to_string(), headers)
+}
+
+/// A value as a header can carry it: as sent when it is plain ASCII, and in
+/// the revision's `=?base64?…?=` sentinel otherwise.
+fn header_safe(value: &str) -> String {
+    use base64::Engine;
+    let plain = value
+        .bytes()
+        .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+        && value.trim() == value
+        && !value.starts_with("=?base64?");
+    if plain {
+        value.to_string()
+    } else {
+        format!(
+            "=?base64?{}?=",
+            base64::engine::general_purpose::STANDARD.encode(value)
+        )
+    }
 }
 
 fn parse(status: u16, body: &str) -> (u16, Value) {

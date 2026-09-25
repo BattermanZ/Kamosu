@@ -5229,10 +5229,14 @@ async fn the_mcp_door_answers_protocol_faults_with_the_statuses_the_revision_nam
         json!({ "supported": [MCP_PROTOCOL_VERSION], "requested": "1900-01-01" })
     );
 
-    // The same version named only in the header is refused the same way.
-    let (status, body) = app.post_mcp_with_headers(
+    // The same version named only in the header is refused the same way,
+    // ahead of the `_meta` that version's client would not know to send.
+    let (status, body) = app.post_mcp_bare(
         r#"{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}"#,
-        &[("MCP-Protocol-Version", "1900-01-01")],
+        &[
+            ("MCP-Protocol-Version", "1900-01-01"),
+            ("Mcp-Method", "tools/list"),
+        ],
     );
     assert_eq!(status, 400, "{body}");
     assert_eq!(body["error"]["code"], json!(-32022), "{body}");
@@ -5307,6 +5311,141 @@ async fn the_mcp_door_answers_protocol_faults_with_the_statuses_the_revision_nam
     );
     assert_eq!(status, 202, "{body}");
     assert_eq!(body, Value::Null, "a notification's answer has no body");
+}
+
+/// The revision requires the version and method headers on every request, the
+/// name header where a request names something, and two `_meta` fields in
+/// every body. A request missing any of them is refused, and the refusal says
+/// what to send, so a request written by hand is put right in one try (#144).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_mcp_door_refuses_a_request_missing_what_the_revision_requires() {
+    let app = support::spawn_app();
+
+    let meta = json!({
+        "io.modelcontextprotocol/protocolVersion": MCP_PROTOCOL_VERSION,
+        "io.modelcontextprotocol/clientCapabilities": {},
+    });
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "instance_status", "arguments": {}, "_meta": meta },
+    })
+    .to_string();
+    let every_header = [
+        ("MCP-Protocol-Version", MCP_PROTOCOL_VERSION),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "instance_status"),
+    ];
+    let without = |left_out: &str| -> Vec<(&str, &str)> {
+        every_header
+            .iter()
+            .copied()
+            .filter(|(name, _)| *name != left_out)
+            .collect()
+    };
+    let message = |body: &Value| body["error"]["message"].as_str().unwrap_or("").to_string();
+
+    // The positive control: the whole set is served, so every refusal below is
+    // the missing piece's doing.
+    let (status, body) = app.post_mcp_bare(&call, &every_header);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["isError"], json!(false), "{body}");
+
+    // Each header, left out, is a HeaderMismatch naming it and what to send.
+    for (left_out, should_say) in [
+        ("MCP-Protocol-Version", MCP_PROTOCOL_VERSION),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "instance_status"),
+    ] {
+        let (status, body) = app.post_mcp_bare(&call, &without(left_out));
+        assert_eq!(status, 400, "{left_out}: {body}");
+        assert_eq!(body["error"]["code"], json!(-32020), "{left_out}: {body}");
+        assert_eq!(body["id"], json!(1), "{left_out}: {body}");
+        let said = message(&body);
+        assert!(
+            said.contains(left_out) && said.contains(should_say),
+            "{left_out}: the refusal names the header and '{should_say}': {said}"
+        );
+    }
+
+    // A task's id is its name, on every tasks/* method the extension defines.
+    for method in ["tasks/get", "tasks/update", "tasks/cancel"] {
+        let poll = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": method,
+            "params": { "taskId": "j_somewhere", "_meta": meta },
+        })
+        .to_string();
+        let (status, body) = app.post_mcp_bare(
+            &poll,
+            &[
+                ("MCP-Protocol-Version", MCP_PROTOCOL_VERSION),
+                ("Mcp-Method", method),
+            ],
+        );
+        assert_eq!(status, 400, "{method}: {body}");
+        assert_eq!(body["error"]["code"], json!(-32020), "{method}: {body}");
+        let said = message(&body);
+        assert!(
+            said.contains("Mcp-Name") && said.contains("j_somewhere"),
+            "{method}: {said}"
+        );
+    }
+
+    // A body without either required `_meta` field is malformed: -32602, and
+    // at 400 rather than the 200 an ordinary bad parameter gets.
+    for left_out in [
+        "io.modelcontextprotocol/protocolVersion",
+        "io.modelcontextprotocol/clientCapabilities",
+    ] {
+        let mut request: Value = serde_json::from_str(&call).unwrap();
+        request["params"]["_meta"]
+            .as_object_mut()
+            .unwrap()
+            .remove(left_out);
+        let (status, body) = app.post_mcp_bare(&request.to_string(), &every_header);
+        assert_eq!(status, 400, "{left_out}: {body}");
+        assert_eq!(body["error"]["code"], json!(-32602), "{left_out}: {body}");
+        let said = message(&body);
+        assert!(said.contains(left_out), "{left_out}: {said}");
+    }
+
+    // A bare body, as curl sends it, missing everything at once: the transport
+    // is checked first, so the refusal is a HeaderMismatch, and it names every
+    // piece missing, the body's included, in the one answer.
+    let bare = r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"instance_status","arguments":{}}}"#;
+    let (status, body) = app.post_mcp_bare(bare, &[]);
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32020), "{body}");
+    let said = message(&body);
+    for named in [
+        "MCP-Protocol-Version",
+        MCP_PROTOCOL_VERSION,
+        "Mcp-Method",
+        "Mcp-Name",
+        "instance_status",
+        "io.modelcontextprotocol/protocolVersion",
+        "io.modelcontextprotocol/clientCapabilities",
+    ] {
+        assert!(said.contains(named), "the refusal names {named}: {said}");
+    }
+
+    // Two things stay as they were. A legacy initialize carries none of this
+    // and is still told which version the door speaks; a notification is
+    // still accepted, since nothing is done with it.
+    let (status, body) = app.post_mcp_bare(
+        r#"{"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+        &[],
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32022), "{body}");
+    let (status, _) = app.post_mcp_bare(
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        &[],
+    );
+    assert_eq!(status, 202);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

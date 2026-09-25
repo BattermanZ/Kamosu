@@ -4,6 +4,9 @@
 //! `initialize` receives a courteous error naming the version this door speaks,
 //! and `server/discover`, which that revision requires of every server, says
 //! the same thing to a modern client before it asks for anything else (#143).
+//! Every other request must carry the headers and `_meta` fields that revision
+//! requires, and one missing any is refused with a message naming what to
+//! send (#144).
 //!
 //! It carries the standard long-running-task extension
 //! (`io.modelcontextprotocol/tasks`): asking for an Operation declared `Kind::Job`
@@ -105,8 +108,18 @@ async fn handle(
     if method == "initialize" {
         return json_rpc_error_response(id, courteous_initialize_refusal(request.get("params")));
     }
+    // Checked before the headers: with no method, `Mcp-Method` has nothing to
+    // mirror, and a refusal naming the header would send the client astray.
+    if method.is_empty() {
+        return json_rpc_error_response(
+            id,
+            json_rpc_error(-32600, "Invalid Request: 'method' is missing"),
+        );
+    }
+    // Every refusal of the metadata is a 400, the -32602 for a malformed
+    // `_meta` included, which is why it is not left to the code's own status.
     if let Err(fault) = check_request_metadata(&headers, &request, &method) {
-        return json_rpc_error_response(id, fault);
+        return send_error(StatusCode::BAD_REQUEST, id, fault);
     }
 
     let result = match method.as_str() {
@@ -117,10 +130,6 @@ async fn handle(
         "tasks/get" => tasks_get(&core, &headers, request.get("params")),
         "tasks/update" => tasks_update(&core, &headers, request.get("params")),
         "tasks/cancel" => tasks_cancel(&core, &headers, request.get("params")),
-        "" => Err(json_rpc_error(
-            -32600,
-            "Invalid Request: 'method' is missing",
-        )),
         other => Err(json_rpc_error(
             -32601,
             format!("no method '{other}' at the MCP door"),
@@ -158,13 +167,14 @@ fn unsupported_version(requested: &str, message: impl Into<String>) -> Value {
     )
 }
 
-/// The revision a request names, in its `_meta` or its header, must be this
-/// one, and every header mirroring the body must agree with it.
-///
-/// Only what is present is checked. The revision also makes the version, the
-/// `Mcp-Method` and `Mcp-Name` headers and the `_meta` fields required, but
-/// every caller written before #143 sends none of them, and refusing their
-/// absence is its own decision.
+/// What the revision asks of every request besides its method, checked in the
+/// order a client can act on. A version this door does not speak is named
+/// first, since a client on another revision sends another set of fields.
+/// Then the headers, because the transport is checked before the body: each
+/// one missing is named with the value to send, the body's own gaps with them,
+/// so that one refusal puts a hand-written request right. Then every header
+/// must agree with the body it mirrors. Last, the body's two required `_meta`
+/// fields, whose absence makes it malformed: `-32602`, answered 400.
 fn check_request_metadata(headers: &HeaderMap, request: &Value, method: &str) -> Result<(), Value> {
     let header = |name: &str| -> Result<Option<&str>, Value> {
         headers
@@ -177,9 +187,10 @@ fn check_request_metadata(headers: &HeaderMap, request: &Value, method: &str) ->
             .transpose()
     };
     let params = request.get("params");
+    let meta = params.and_then(|params| params.get("_meta"));
 
-    let body_version = params
-        .and_then(|params| params.pointer("/_meta/io.modelcontextprotocol~1protocolVersion"))
+    let body_version = meta
+        .and_then(|meta| meta.get(PROTOCOL_VERSION_FIELD))
         .and_then(Value::as_str);
     let header_version = header("MCP-Protocol-Version")?;
     if let (Some(body), Some(header)) = (body_version, header_version)
@@ -198,7 +209,60 @@ fn check_request_metadata(headers: &HeaderMap, request: &Value, method: &str) ->
         ));
     }
 
-    if let Some(named) = header("Mcp-Method")?
+    let named_method = header("Mcp-Method")?;
+    let named = header("Mcp-Name")?;
+    let body_name = name_field(method)
+        .and_then(|field| params.and_then(|params| params.get(field)))
+        .and_then(Value::as_str);
+
+    // A name the body lacks is the body's fault, refused where it is read.
+    let mut missing_headers = Vec::new();
+    if header_version.is_none() {
+        missing_headers.push(format!("MCP-Protocol-Version: {MCP_PROTOCOL_VERSION}"));
+    }
+    if named_method.is_none() {
+        missing_headers.push(format!("Mcp-Method: {method}"));
+    }
+    if named.is_none()
+        && let Some(body_name) = body_name
+    {
+        missing_headers.push(format!("Mcp-Name: {body_name}"));
+    }
+    let missing_meta: Vec<String> = [
+        (
+            PROTOCOL_VERSION_FIELD,
+            body_version.is_some(),
+            format!("\"{MCP_PROTOCOL_VERSION}\""),
+        ),
+        (
+            CLIENT_CAPABILITIES_FIELD,
+            meta.and_then(|meta| meta.get(CLIENT_CAPABILITIES_FIELD))
+                .is_some_and(Value::is_object),
+            // Empty is a whole answer: it declares no capability at all.
+            "an object such as {}".to_string(),
+        ),
+    ]
+    .into_iter()
+    .filter(|(_, present, _)| !present)
+    .map(|(field, _, value)| format!("{field} set to {value}"))
+    .collect();
+
+    if !missing_headers.is_empty() {
+        let mut message = format!(
+            "Missing required header{}: send {}",
+            if missing_headers.len() == 1 { "" } else { "s" },
+            missing_headers.join(", ")
+        );
+        if !missing_meta.is_empty() {
+            message.push_str(&format!(
+                ". params._meta also needs {}",
+                missing_meta.join(" and ")
+            ));
+        }
+        return Err(json_rpc_error(HEADER_MISMATCH, message));
+    }
+
+    if let Some(named) = named_method
         && named != method
     {
         return Err(header_mismatch(format!(
@@ -206,23 +270,40 @@ fn check_request_metadata(headers: &HeaderMap, request: &Value, method: &str) ->
         )));
     }
 
-    if let Some(named) = header("Mcp-Name")? {
+    if let Some(named) = named {
         let named = decode_header_value(named)
             .ok_or_else(|| header_mismatch("the Mcp-Name header's Base64 does not decode"))?;
-        // A tool's name, a resource's uri, or a task's id (the tasks extension).
-        let body = params.and_then(|params| {
-            ["name", "uri", "taskId"]
-                .iter()
-                .find_map(|field| params.get(field).and_then(Value::as_str))
-        });
-        if body != Some(named.as_str()) {
+        if body_name != Some(named.as_str()) {
             return Err(header_mismatch(format!(
                 "Mcp-Name header value '{named}' does not match body value '{}'",
-                body.unwrap_or("")
+                body_name.unwrap_or("")
             )));
         }
     }
+
+    if !missing_meta.is_empty() {
+        return Err(json_rpc_error(
+            -32602,
+            format!(
+                "Invalid params: params._meta needs {}",
+                missing_meta.join(" and ")
+            ),
+        ));
+    }
     Ok(())
+}
+
+/// The body field a method's `Mcp-Name` header mirrors, where it has one: a
+/// tool's name, or a task's id, which the tasks extension makes the name of
+/// every `tasks/*` request. Only the methods this door serves are listed; the
+/// behaviour suite's `complete_mcp_request` keeps its own copy, as a client
+/// would.
+fn name_field(method: &str) -> Option<&'static str> {
+    match method {
+        "tools/call" => Some("name"),
+        "tasks/get" | "tasks/update" | "tasks/cancel" => Some("taskId"),
+        _ => None,
+    }
 }
 
 /// A header value as sent, or decoded out of the `=?base64?…?=` sentinel a
@@ -540,6 +621,10 @@ fn call_tool_result(structured: Value) -> Value {
 const HEADER_MISMATCH: i64 = -32020;
 const MISSING_REQUIRED_CLIENT_CAPABILITY: i64 = -32021;
 const UNSUPPORTED_PROTOCOL_VERSION: i64 = -32022;
+
+/// The two `_meta` fields the revision requires in every request's body.
+const PROTOCOL_VERSION_FIELD: &str = "io.modelcontextprotocol/protocolVersion";
+const CLIENT_CAPABILITIES_FIELD: &str = "io.modelcontextprotocol/clientCapabilities";
 
 fn json_rpc_error(code: i64, message: impl Into<String>) -> Value {
     json!({
