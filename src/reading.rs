@@ -400,3 +400,268 @@ fn rejoin(words: &[&str]) -> Option<String> {
         .to_string();
     (!name.is_empty() && name.chars().any(char::is_alphanumeric)).then_some(name)
 }
+
+/// One amount written inside a Step's text: `1 lb.` in *Place 1 lb. ground
+/// chicken in the center* (#150).
+///
+/// `start..end` is where the amount and its Unit sit in the Step's text, in
+/// bytes, so the addition can be placed straight after them. `food` is what
+/// the words after the Unit name, glue stripped — what joins this amount to an
+/// Ingredient Line, the same way a Step's `uses` is joined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepAmount {
+    pub start: usize,
+    pub end: usize,
+    pub amount: String,
+    pub unit: String,
+    pub food: Option<String>,
+}
+
+impl StepAmount {
+    /// The amount and Unit exactly as the Step wrote them.
+    pub fn written<'a>(&self, text: &'a str) -> &'a str {
+        &text[self.start..self.end]
+    }
+}
+
+/// **Every amount a Step writes that Kamosu can convert**, in the order
+/// written (#150).
+///
+/// The split is [`read_line`]'s, run at every number in a sentence rather than
+/// once at the start of a line: the amount is what [`units::parse_amount`]
+/// reads, the Unit is what [`units::recognise`] knows. No second list of Units.
+///
+/// **Only the closed set counts.** An Ingredient Line may carry *2 cloves* or
+/// a bare *2 eggs*, because the line is an amount of something by definition.
+/// A sentence is not: *2 minutes*, *step 3* and *28–35 minutes* are numbers
+/// too, and the one test that tells an amount from any other number in prose
+/// is a Unit Kamosu can convert standing right after it. A range, `1–1½
+/// cups`, reads as nothing, exactly as it does on an Ingredient Line.
+pub fn amounts_in_step(text: &str) -> Vec<StepAmount> {
+    let words = words_with_places(text);
+    let mut found = Vec::new();
+    let mut index = 0;
+    while index < words.len() {
+        match amount_at(text, &words, index) {
+            Some((amount, taken)) => {
+                index += taken;
+                found.push(amount);
+            }
+            None => index += 1,
+        }
+    }
+    found
+}
+
+/// Each whitespace-separated word of `text`, with where it starts and ends.
+fn words_with_places(text: &str) -> Vec<(usize, usize)> {
+    let mut words = Vec::new();
+    let mut start = None;
+    for (at, character) in text.char_indices() {
+        match (character.is_whitespace(), start) {
+            (true, Some(from)) => {
+                words.push((from, at));
+                start = None;
+            }
+            (false, None) => start = Some(at),
+            _ => {}
+        }
+    }
+    if let Some(from) = start {
+        words.push((from, text.len()));
+    }
+    words
+}
+
+/// The amount starting at word `index`, and how many words it took.
+fn amount_at(text: &str, words: &[(usize, usize)], index: usize) -> Option<(StepAmount, usize)> {
+    let word = |at: usize| words.get(at).map(|(from, to)| &text[*from..*to]);
+    // An opening bracket belongs to the sentence, not to the amount:
+    // `(½ cup)` is an amount of half a cup.
+    let first = word(index)?;
+    let opened = first.len() - first.trim_start_matches(['(', '[']).len();
+
+    // The amount: `1 1/2` before `1`, as on an Ingredient Line.
+    let (amount, amount_words) = [2, 1].into_iter().find_map(|take| {
+        let last = index + take - 1;
+        let candidate = &text[words[index].0 + opened..words.get(last)?.1];
+        units::parse_amount(candidate).map(|_| (candidate.to_string(), take))
+    })?;
+
+    // The Unit: the longest window the closed set recognises, `c. à s.` being
+    // three words. Only its last word can carry the sentence's punctuation.
+    let unit_from = index + amount_words;
+    let (unit_end, unit_words) = (1..=3).rev().find_map(|take| {
+        let last = unit_from + take - 1;
+        let (from, to) = (words.get(unit_from)?.0, words.get(last)?.1);
+        let end = from
+            + text[from..to]
+                .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.')
+                .len();
+        units::recognise(&text[from..end]).map(|_| (end, take))
+    })?;
+    let unit_start = words[unit_from].0;
+    let end = full_stop_left_out(text, unit_start, unit_end);
+
+    let after = unit_from + unit_words;
+    let food = food_after(&text[end..]);
+    Some((
+        StepAmount {
+            start: words[index].0 + opened,
+            end,
+            amount,
+            unit: text[unit_start..end].to_string(),
+            food,
+        },
+        after - index,
+    ))
+}
+
+/// Whether the dot after a Unit is the Unit's own or the sentence's. The
+/// addition goes after the Unit, so `add 2 cups. Stir` must answer `2 cups`
+/// and `3 oz. Parmesan` must answer `3 oz.`.
+///
+/// Where the sentence plainly goes on, the dot is the Unit's. Otherwise the
+/// word's shape decides, which keeps this from being a second list of Units:
+/// an abbreviation is two letters or fewer, or has no vowel (`oz`, `lb`,
+/// `Tbsp`, `tsp`), and a written-out word has both (`cup`, `cups`, `tasse`).
+fn full_stop_left_out(text: &str, start: usize, end: usize) -> usize {
+    let Some(word) = text[start..end].strip_suffix('.') else {
+        return end;
+    };
+    let goes_on = text[end..]
+        .trim_start()
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_lowercase() || c.is_ascii_digit() || c == '(');
+    let last = word.rsplit(' ').next().unwrap_or(word);
+    let letters: Vec<char> = last.chars().filter(|c| c.is_alphabetic()).collect();
+    let abbreviated = letters.len() <= 2
+        || !letters
+            .iter()
+            .any(|c| "aeiouyàâéèêëîïôûùü".contains(c.to_ascii_lowercase()));
+    if goes_on || abbreviated { end } else { end - 1 }
+}
+
+/// The words that end what an amount in a Step is an amount of: *1 cup of
+/// water **to** the flour* is water, and without this the words would run on
+/// to the flour and weigh the water by its Cup Weight. Prepositions and
+/// conjunctions in the three interface Languages; `or` is not one, because
+/// *homemade or store-bought marinara sauce* is one Food.
+const FOOD_ENDS: &[&str] = &[
+    // English
+    "to", "into", "onto", "over", "with", "in", "on", "for", "from", "and", "then", "until",
+    // French
+    "dans", "sur", "avec", "pour", "et", "puis", "jusqu'à", "a", "au", "aux", "en",
+    // Spanish
+    "con", "sobre", "para", "y", "luego", "hasta",
+];
+
+/// What the words after a Unit name, glue stripped, up to the end of the
+/// clause or the first word in [`FOOD_ENDS`]: `ground chicken` from *1 lb.
+/// ground chicken in the center*. Nothing where nothing is named, as in
+/// `(½ cup)`.
+fn food_after(rest: &str) -> Option<String> {
+    let clause = rest
+        .split([',', ';', ':', '(', ')', '.', '!', '?'])
+        .next()
+        .unwrap_or_default();
+    let clause = split_elisions(clause);
+    let words: Vec<&str> = clause.split_whitespace().collect();
+    let mut from = 0;
+    while words.get(from).is_some_and(|word| is_glue(word)) {
+        from += 1;
+    }
+    let until = words[from..]
+        .iter()
+        .position(|word| listed(FOOD_ENDS, word))
+        .map_or(words.len(), |at| from + at);
+    let name = words[from..until]
+        .join(" ")
+        .replace("' ", "'")
+        .replace("\u{2019} ", "\u{2019}");
+    (!name.is_empty()).then_some(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn written(text: &str) -> Vec<(&str, Option<String>)> {
+        amounts_in_step(text)
+            .into_iter()
+            .map(|amount| (amount.written(text), amount.food.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn a_step_gives_up_every_amount_with_a_unit_kamosu_converts() {
+        // The chicken parm's second step (#150).
+        let text = "Whisk 2 large eggs in a small bowl with a fork to combine. Mix together 3 oz. Parmesan, finely grated (½ cup), 1 cup panko, a pinch of kosher salt, and a pinch of freshly ground pepper in another small bowl.";
+        assert_eq!(
+            written(text),
+            vec![
+                ("3 oz.", Some("Parmesan".into())),
+                ("½ cup", None),
+                ("1 cup", Some("panko".into())),
+            ]
+        );
+        let first = &amounts_in_step(text)[0];
+        assert_eq!((first.amount.as_str(), first.unit.as_str()), ("3", "oz."));
+    }
+
+    #[test]
+    fn a_number_without_a_convertible_unit_is_not_an_amount() {
+        let text = "Place 1 lb. ground chicken on it, leaving 1\"–2\" border. Bake 28–35 minutes, then 2 more minutes; scatter 8 oz. mozzarella, coarsely grated (1–1½ cups), on top at 425°.";
+        assert_eq!(
+            written(text),
+            vec![
+                ("1 lb.", Some("ground chicken".into())),
+                ("8 oz.", Some("mozzarella".into())),
+            ]
+        );
+    }
+
+    #[test]
+    fn what_an_amount_measures_ends_where_the_sentence_moves_on() {
+        // Without the stop, this cup would run on to the flour and be weighed
+        // as flour.
+        assert_eq!(
+            written("Add 1 cup of water to the flour."),
+            vec![("1 cup", Some("water".into()))]
+        );
+        assert_eq!(
+            written("Spread 1½ cups homemade or store-bought marinara sauce over."),
+            vec![(
+                "1½ cups",
+                Some("homemade or store-bought marinara sauce".into())
+            )]
+        );
+    }
+
+    #[test]
+    fn a_full_stop_is_not_part_of_the_unit() {
+        assert_eq!(written("Add 2 cups. Stir well."), vec![("2 cups", None)]);
+        assert_eq!(written("Add 1 cup."), vec![("1 cup", None)]);
+        // An abbreviation keeps its dot even at a sentence's end, since
+        // `3 oz. Parmesan` looks exactly like it. What it then names, `Stir`,
+        // is no Ingredient Line, so it joins to nothing.
+        assert_eq!(written("Add 1 lb. Stir.")[0].0, "1 lb.");
+        assert_eq!(
+            written("Scatter 2 Tbsp. all-purpose flour over."),
+            vec![("2 Tbsp.", Some("all-purpose flour".into()))]
+        );
+    }
+
+    #[test]
+    fn french_amounts_are_read_with_their_own_units_and_glue() {
+        assert_eq!(
+            written("Ajouter 1 c. à s. d'huile puis 200 g de farine et 1 1/2 cup de lait."),
+            vec![
+                ("1 c. à s.", Some("huile".into())),
+                ("200 g", Some("farine".into())),
+                ("1 1/2 cup", Some("lait".into())),
+            ]
+        );
+    }
+}

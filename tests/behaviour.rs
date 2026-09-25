@@ -11994,6 +11994,25 @@ async fn every_converted_amount_says_about_in_the_readers_own_language() {
     assert_eq!(cleared["result"]["measured"], json!(null));
 }
 
+/// Each Step's oven conversion, or null: what a Step carried alone before #150
+/// put its amounts in the same list.
+fn temperatures(steps: &Value) -> Value {
+    steps
+        .as_array()
+        .expect("measured steps")
+        .iter()
+        .map(|slot| {
+            slot.as_array()
+                .into_iter()
+                .flatten()
+                .map(|conversion| &conversion["measured"])
+                .find(|measured| measured.as_str().is_some_and(|m| m.contains('°')))
+                .cloned()
+                .unwrap_or(Value::Null)
+        })
+        .collect()
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn temperatures_convert_on_the_conventional_oven_ladder_never_arithmetically() {
     let app = support::spawn_app();
@@ -12030,7 +12049,7 @@ async fn temperatures_convert_on_the_conventional_oven_ladder_never_arithmetical
         &json!({ "branch_id": branch_id }).to_string(),
     );
     assert_eq!(
-        read["result"]["versions"][0]["measured"]["steps"],
+        temperatures(&read["result"]["versions"][0]["measured"]["steps"]),
         json!(["about 180 °C", "about 200 °C", null, null, null, null, null,]),
         "the ladder, not the arithmetic — and nothing where the step said both"
     );
@@ -12057,9 +12076,261 @@ async fn temperatures_convert_on_the_conventional_oven_ladder_never_arithmetical
         .to_string(),
     );
     assert_eq!(
-        celsius["result"]["versions"][0]["measured"]["steps"],
+        temperatures(&celsius["result"]["versions"][0]["measured"]["steps"]),
         json!(["about 350 °F", "about 400 °F"]),
         "a spoonful written `1 c.` is not a one-degree oven"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bare_degree_sign_is_an_oven_where_only_one_dial_fits() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    // Bon Appétit's chicken parm (#150): every oven in the magazine is a bare
+    // `425°`, and a metric reader was offered nothing for it.
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "A really big chicken parm",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 lb. ground chicken" },
+                { "kind": "ingredient", "text": "1 cup panko" },
+                { "kind": "ingredient", "text": "8 oz. mozzarella" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Arrange a rack in center of oven; preheat to 425°. Place 1 lb. ground chicken in a large bowl." },
+                { "kind": "step", "text": "Keep the finished dish warm at 200°." },
+                { "kind": "step", "text": "Turn the tray 90 degrees." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    assert_eq!(
+        temperatures(&created["result"]["versions"][0]["measured"]["steps"]),
+        json!(["about 220 °C", "about 95 °C", null]),
+        "425° can only be Fahrenheit; 200° is read by a recipe written in pounds and cups"
+    );
+
+    // The same 200° in a recipe written in grams is a metric oven, which a
+    // metric reader needs nothing added to and an American does.
+    let (_, grams) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Written in grams",
+            "ingredients": [{ "kind": "ingredient", "text": "500 g flour" }],
+            "steps": [{ "kind": "step", "text": "Bake at 200°." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        temperatures(&grams["result"]["versions"][0]["measured"]["steps"]),
+        json!([null])
+    );
+    reads_in(&app, &key, "en", "us");
+    let branch_id = grams["result"]["branch_id"].as_str().unwrap();
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(
+        temperatures(&read["result"]["versions"][0]["measured"]["steps"]),
+        json!(["about 400 °F"])
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_steps_amounts_reach_the_reader_converted_and_scaled_beside_the_text() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    reads_in(&app, &key, "en", "metric");
+
+    // Bon Appétit's chicken parm (#150), which repeats every amount inside
+    // its steps. A metric reader got the list in grams and the steps in pounds.
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "A really big chicken parm",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 lb. ground chicken" },
+                { "kind": "ingredient", "text": "2 large eggs" },
+                { "kind": "ingredient", "text": "3 oz. Parmesan, finely grated (about 1½ cups)" },
+                { "kind": "ingredient", "text": "1 cup panko" },
+                { "kind": "ingredient", "text": "4 Tbsp. all-purpose flour, divided" },
+                { "kind": "ingredient", "text": "1½ cups homemade or store-bought marinara sauce" },
+                { "kind": "ingredient", "text": "8 oz. mozzarella, coarsely grated (1–1½ cups)" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Place a rack in lower third of oven; preheat to 425°. Place 1 lb. ground chicken in the center of a large sheet of parchment paper, leaving 1\"–2\" border around sides." },
+                { "kind": "step", "text": "Whisk 2 large eggs in a small bowl. Mix together 3 oz. Parmesan, finely grated (½ cup), 1 cup panko, and a pinch of kosher salt." },
+                { "kind": "step", "text": "Scatter 2 Tbsp. all-purpose flour over and rub into an even layer." },
+                { "kind": "step", "text": "Spread 1½ cups homemade or store-bought marinara sauce over. Scatter 8 oz. mozzarella, coarsely grated (1–1½ cups), on top." },
+                { "kind": "step", "text": "Top with basil leaves." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let version = &created["result"]["versions"][0];
+    let ingredients = &version["measured"]["ingredients"];
+    let steps = &version["measured"]["steps"];
+
+    assert_eq!(
+        steps[0],
+        json!([
+            { "written": "425°", "measured": "about 220 °C" },
+            { "written": "1 lb.", "measured": "about 455 g" },
+        ]),
+        "the oven and the amount, in the order written; the inches are a length, and Kamosu converts no length"
+    );
+    assert_eq!(
+        steps[1],
+        json!([
+            { "written": "3 oz.", "measured": "about 85 g" },
+            { "written": "½ cup", "measured": "about 120 ml" },
+            { "written": "1 cup", "measured": ingredients[3] },
+        ]),
+        "the panko in the step answers what the panko in the list answers"
+    );
+    // Joined to its Ingredient Line, the flour is weighed by that line's Cup
+    // Weight: half of what the line's 4 Tbsp. weigh.
+    assert_eq!(
+        steps[2],
+        json!([{ "written": "2 Tbsp.", "measured": "about 16 g" }]),
+        "{ingredients}"
+    );
+    assert_eq!(
+        steps[3],
+        json!([
+            { "written": "1½ cups", "measured": ingredients[5] },
+            { "written": "8 oz.", "measured": "about 225 g" },
+        ])
+    );
+    assert_eq!(
+        steps[4],
+        json!(null),
+        "a step with nothing to add carries nothing"
+    );
+    // The step's own text is untouched.
+    assert_eq!(
+        version["content"]["steps"][1]["text"],
+        json!(
+            "Whisk 2 large eggs in a small bowl. Mix together 3 oz. Parmesan, finely grated (½ cup), 1 cup panko, and a pinch of kosher salt."
+        )
+    );
+
+    // Cooked for 8, every amount in a step doubles with the list.
+    let (_, doubled) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "wanted_yield": { "amount": "8", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    let doubled = &doubled["result"]["versions"][0]["measured"];
+    assert_eq!(
+        doubled["steps"][0],
+        json!([
+            { "written": "425°", "measured": "about 220 °C" },
+            { "written": "1 lb.", "measured": doubled["ingredients"][0] },
+        ]),
+        "the oven does not scale; the chicken does"
+    );
+    assert_eq!(
+        doubled["steps"][3],
+        json!([
+            { "written": "1½ cups", "measured": doubled["ingredients"][5] },
+            { "written": "8 oz.", "measured": doubled["ingredients"][6] },
+        ])
+    );
+    assert_eq!(doubled["ingredients"][0], json!("about 905 g"));
+
+    // The Food need not follow the Unit at once: the one named soonest after
+    // it is what the amount measures, so this cup is a cup of flour and weighs
+    // what flour's Cup Weight says rather than converting by volume.
+    let (_, sifted) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Sifted",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 cup flour" },
+                { "kind": "ingredient", "text": "1 egg" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Whisk in 1 cup freshly sifted flour, then the egg." },
+                { "kind": "step", "text": "Add 1 cup of water to the flour." },
+            ],
+        })
+        .to_string(),
+    );
+    let sifted = &sifted["result"]["versions"][0]["measured"];
+    assert_eq!(
+        sifted["steps"][0],
+        json!([{ "written": "1 cup", "measured": sifted["ingredients"][0] }])
+    );
+    assert_eq!(sifted["ingredients"][0], json!("about 125 g"));
+    // Water has no Ingredient Line here, and the words stop at `to`, so this
+    // cup is not weighed as the flour it is poured on: it stays a volume.
+    assert_eq!(
+        sifted["steps"][1],
+        json!([{ "written": "1 cup", "measured": "about 240 ml" }])
+    );
+
+    // A step already in the reader's measures is left alone as written, and
+    // scaled once the Yield changes, exactly as an Ingredient Line is.
+    let (_, metric) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Déjà métrique",
+            "yield": { "amount": "4", "noun": "parts" },
+            "ingredients": [{ "kind": "ingredient", "text": "200 g de farine" }],
+            "steps": [{ "kind": "step", "text": "Verser 200 g de farine dans un bol." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        metric["result"]["versions"][0]["measured"]["steps"],
+        json!([null])
+    );
+    let metric_branch = metric["result"]["branch_id"].as_str().unwrap();
+    let (_, scaled) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": metric_branch,
+            "wanted_yield": { "amount": "8", "noun": "parts" },
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        scaled["result"]["versions"][0]["measured"]["steps"],
+        json!([[{ "written": "200 g", "measured": "about 400 g" }]])
+    );
+
+    // An agent asks the MCP Door and gets the same answer.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "get_recipe", "arguments": { "branch_id": branch_id } },
+    });
+    let (status, over_mcp) = app.post_mcp(&call.to_string(), Some(&key));
+    assert_eq!(status, 200, "{over_mcp}");
+    assert_eq!(
+        over_mcp["result"]["structuredContent"]["versions"][0]["measured"]["steps"],
+        *steps
     );
 }
 
@@ -12134,7 +12405,7 @@ async fn a_metric_dial_setting_off_the_american_ladder_still_answers() {
         .to_string(),
     );
     assert_eq!(
-        created["result"]["versions"][0]["measured"]["steps"],
+        temperatures(&created["result"]["versions"][0]["measured"]["steps"]),
         json!(["about 350 °F", "about 400 °F", "about 200 °F", null]),
     );
 }

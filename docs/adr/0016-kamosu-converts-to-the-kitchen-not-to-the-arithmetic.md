@@ -10,6 +10,8 @@ Cross-family conversion — a volume of a dry good into grams — runs off a **C
 
 Temperatures in **Step** text convert too, as an addition beside the sentence and only where the step does not already carry both — on the conventional **oven ladder** (350°F → 180°C), not by arithmetic.
 
+_(Amended by [#150](https://github.com/BattermanZ/Kamosu/issues/150), 25 September 2026: a Step's **amounts** convert and scale too, and every conversion, the oven's included, is shown straight after what it converts rather than beside the sentence; a bare `425°` counts as an oven where only one dial fits. See "Amounts in a Step" at the end.)_
+
 ## Why
 
 - **The kitchen answer and the arithmetic answer are not the same answer.** A cup is 236.588 ml; no jug has that. 350°F is 176.67°C; no oven has that. A cup of flour is not a density, it is 125 g by convention and 20% either way by packing. Every one of these decisions went the same way for the same reason: the number exists to be acted on while standing at a worktop, and a number the equipment cannot express sends the cook back to make the judgement Kamosu was there to make.
@@ -66,3 +68,14 @@ Three of four do not convert. The one that does chose a single default cup and s
 - **The Crouton importer needs an enum→unit mapping table**, which the closed convertible set now defines — input to [#26](https://github.com/BattermanZ/Kamosu/issues/26). `SECTION` is a control row, not a unit; `ITEM`, `CAN`, `BOTTLE`, `PACKET` and `PINCH` map to unconvertible units.
 - **Shopping lists can now merge across units** — `1 cup milk` and `200 ml milk` are the same Food in one family. Whether they should is [#25](https://github.com/BattermanZ/Kamosu/issues/25)'s.
 - **The shipped table is a curated list, not an ingest.** [#4](https://github.com/BattermanZ/Kamosu/issues/4) established USDA SR Legacy's `food_portion.csv` (CC0, 919 KB, 14,449 rows, gram weights 100% populated) as the only real source, and also that using it wholesale means parsing English portion prose from a free-text `modifier` column. Roughly twenty hand-checked staples covers the measured need; the file is a reference to check figures against, not a dependency.
+
+## Amounts in a Step
+
+Added by [#150](https://github.com/BattermanZ/Kamosu/issues/150), 25 September 2026, after a Bon Appétit recipe reached a metric reader with every Ingredient Line in grams and every Step still in pounds.
+
+- **An amount written in a Step converts and scales exactly as an Ingredient Line does.** Same rounding, same *about*, same rule that nothing is shown where it would only repeat the text. Scaling and conversion stay one act: a cook making 8 servings who reads "about 905 g" in the list and "1 lb." in the step with nothing beside it has been handed a contradiction.
+- **Every conversion is shown straight after what it converts**: "1 lb. (about 455 g) ground chicken", and the oven too, "preheat to 425° (about 220 °C)". Aurélien chose this over one line of figures beneath the Step, because a step with five amounts in it left the cook counting along a row of numbers to match them back, and then asked for the oven to follow the same rule rather than keep the line beneath it had before. The Step's text is still never rewritten; the screen draws each addition between its words, and the Core answers them as one list in the order written.
+- **Only an amount with a Unit from the closed set counts.** A sentence is full of numbers that are not amounts — *28–35 minutes*, *step 3*, *turn 90 degrees* — and a convertible Unit right after the number is the one test that tells them apart. A range, `1–1½ cups`, reads as nothing, as it does on an Ingredient Line. Lengths are out: Kamosu converts no length anywhere.
+- **The amount is joined to its Ingredient Line by the words after its Unit**: the same Reading-target join a Step's `uses` makes, taking the Food named soonest, so `1 cup panko` in a step borrows that line's Cup Weight and answers what the line answers, and `1 cup freshly sifted flour` is still flour. With no match it converts by volume, as an unread Food does.
+- **A bare degree sign is an oven where only one dial fits.** American magazines print every oven as `425°`. Above 300 only Fahrenheit is possible; from 150 to 300 both dials have the number, and the recipe's own Readings decide (all customary is an American oven, all metric a metric one, spoons casting no vote); anything else is left alone. Below 150 is never an oven: the one bare degree sign in the Crouton export is a Thermomix's `100°`.
+- **The Sheet is unchanged.** [ADR 0023](./0023-a-sheet-carries-the-recipe-not-the-library.md) prints written lines; whether it carries step conversions is a separate question.

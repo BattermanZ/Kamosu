@@ -179,7 +179,7 @@ What one cup of a Food weighs, about — the one figure that lets a volume becom
 _Avoid_: Density, specific gravity, conversion factor, weight, gram weight
 
 **Step**:
-One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like. Which Ingredients it uses is worked out from their Readings rather than carried — nothing points at anything and nobody types a link. A duration or a temperature is read out of that text, never typed beside it — a duration becoming a timer that can be started, a temperature in the other system becoming a conversion offered beside the sentence and never written into it.
+One instruction in a recipe, in order. Its truth is its text. It may also carry a photo of what the step should look like. Which Ingredients it uses is worked out from their Readings rather than carried — nothing points at anything and nobody types a link. A duration, a temperature or an amount is read out of that text, never typed beside it — a duration becoming a timer that can be started, and a temperature in the other system or an amount with a convertible Unit ("425°", "1 lb.") becoming its conversion, drawn straight after what it converts; an amount's is scaled to the Yield being cooked. None of them is ever written into the text.
 _Avoid_: Instruction, direction, method, procedure
 
 **Section**:
@@ -291,7 +291,7 @@ The Language a person reads Kamosu in, held on their account. Chooses which Bran
 _Avoid_: Locale, UI language, preference
 
 **Reading Measures**:
-How a person measures, held on their account beside their Reading Language — metric, US measures, or as written. Where an Ingredient Line is in the other system, or the recipe has been scaled, one line beneath it says how much that is for this reader, right now. It never replaces the written line, always says *about*, and is absent whenever it would only repeat what is already there. Setting it changes nothing that is stored and makes no Version. **The default is American, a stated convention rather than a guess about anybody**: a cup is 240 ml, a tablespoon 15 ml, a teaspoon 5 ml. It reaches a Step too, where a temperature in the other system is offered beside the sentence on the conventional oven ladder — 350°F is 180°C, the number on the dial, never the 176.67 the arithmetic gives.
+How a person measures, held on their account beside their Reading Language — metric, US measures, or as written. Where an Ingredient Line is in the other system, or the recipe has been scaled, one line beneath it says how much that is for this reader, right now. It never replaces the written line, always says *about*, and is absent whenever it would only repeat what is already there. Setting it changes nothing that is stored and makes no Version. **The default is American, a stated convention rather than a guess about anybody**: a cup is 240 ml, a tablespoon 15 ml, a teaspoon 5 ml. It reaches a Step too, each conversion drawn straight after what it converts: a temperature in the other system on the conventional oven ladder — 350°F is 180°C, the number on the dial, never the 176.67 the arithmetic gives — and each amount the Step writes, on the same rules as an Ingredient Line's.
 _Avoid_: Units preference, locale, metric toggle, unit system
 
 ### Cooking it

@@ -35,8 +35,8 @@
 	list of indices into the recipe's own Ingredient Lines — so an agent at the
 	MCP door asked to read out the next step names the same amounts this screen
 	is showing (ADR 0001). The same is true of the duration a timer is offered
-	for and of the temperature in the other system: both are read out of the
-	Step's own text, server-side, at display time, and neither is stored.
+	for and of the Step's conversions, its oven and its amounts: all are read out
+	of the Step's own text, server-side, at display time, and none is stored.
 
 	THE AMOUNTS ARE THE WRITTEN LINES, at full size, with the one subordinate
 	line beneath them (#49, ADR 0016) — already converted to this cook's
@@ -83,6 +83,7 @@
 	import { replaceState } from '$app/navigation';
 	import HowMuch from '$lib/HowMuch.svelte';
 	import StepPhoto from '$lib/StepPhoto.svelte';
+	import StepWords from '$lib/StepWords.svelte';
 	import { fresh } from './fresh';
 	import { mistake, putMistakeAway } from '$lib/mistake.svelte';
 	import { caughtUp, fromSearch, said, same, type Wanted } from '$lib/how-much';
@@ -396,11 +397,17 @@
 			? null
 			: (content?.steps[here.row.from]?.photo ?? null),
 	);
-	/** The subordinate line under the Step — the oven temperature in this cook's measures. */
-	const beneathStep = $derived(
-		here?.row.from === null || here === undefined
-			? null
-			: (version?.measured.steps[here.row.from] ?? null),
+	/**
+	 * What the Core added to this Step for this cook: its oven and its amounts,
+	 * converted and scaled, each drawn straight after what it converts (#150).
+	 * A Step the cook rewrote loses them, as a changed Ingredient Line loses
+	 * its subordinate line: those figures describe the words the recipe wrote,
+	 * not the ones now on screen.
+	 */
+	const stepConversions = $derived(
+		here === undefined || here.row.from === null || wroteStep(here.row)
+			? []
+			: (version?.measured.steps[here.row.from] ?? []),
 	);
 
 	/**
@@ -1329,11 +1336,10 @@
 			same place on every step.
 
 			The text is NOT given the free space: it takes the height it needs and
-			scrolls only once there is no more, so the temperature stays against
-			the sentence it belongs to rather than being pushed to the foot of the
-			screen. A Step's conversion is an addition BESIDE it (CONTEXT.md), and
-			half a screen away is not beside. The timer used to be under here too
-			and is not any more — see the row above the hairline (#88).
+			scrolls only once there is no more. Its conversions sit inside it, each
+			straight after what it converts (#150), so nothing belongs beneath it.
+			The timer used to be under here too and is not any more — see the row
+			above the hairline (#88).
 		-->
 			<div class="mt-3 flex min-h-0 flex-1 flex-col items-start border-t border-cook-rule pt-3">
 				{#if writing}
@@ -1415,7 +1421,11 @@
 									shapeClass="float-right mt-1 mb-2 ml-3 h-[var(--step-photo)] w-[var(--step-photo)]"
 								/>
 							{/if}
-							{here.row.text}
+							<StepWords
+								text={here.row.text}
+								conversions={stepConversions}
+								readingClass="font-sans text-step-reading font-normal text-cook-ink-2"
+							/>
 						</div>
 						{#if stepScrolls}
 							<div
@@ -1424,14 +1434,6 @@
 							></div>
 						{/if}
 					</div>
-					<!--
-				A Step's own subordinate line: the oven temperature in this
-				cook's measures, on the conventional ladder. Beside the
-				sentence, never written into it.
-			-->
-					{#if beneathStep}
-						<p class="shrink-0 pt-3 text-read text-cook-ink-2">{beneathStep}</p>
-					{/if}
 				{/if}
 			</div>
 		{/if}

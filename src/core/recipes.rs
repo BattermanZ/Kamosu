@@ -1446,11 +1446,18 @@ fn cooking_for_version(content: &Value, readings: &[Value]) -> Value {
 ///
 /// Both sides arrive already folded; nothing here folds anything.
 fn names_in(folded_text: &str, folded_target: &str) -> bool {
-    let singular = folded_target.strip_suffix('s').unwrap_or(folded_target);
-    !singular.is_empty() && contains_whole_word(folded_text, singular)
+    named_at(folded_text, folded_target).is_some()
 }
 
-/// `haystack` contains `needle` as a whole word — a letter or a digit on
+/// Where `folded_text` first names this Food, as [`names_in`] finds it. What
+/// joins an amount written in a Step to its Ingredient Line (#150): the Food
+/// named soonest after the Unit is the one the amount measures.
+pub(super) fn named_at(folded_text: &str, folded_target: &str) -> Option<usize> {
+    let singular = folded_target.strip_suffix('s').unwrap_or(folded_target);
+    whole_word_position(folded_text, singular)
+}
+
+/// Where `haystack` contains `needle` as a whole word — a letter or a digit on
 /// neither side — allowing one trailing `s` on the word found, which is the
 /// plural tolerance [`names_in`] wants.
 ///
@@ -1458,27 +1465,31 @@ fn names_in(folded_text: &str, folded_target: &str) -> bool {
 /// the caller is what keeps the byte arithmetic below sound: with nothing to
 /// advance past, the walk would step a byte at a time through characters it
 /// must not split.
-fn contains_whole_word(haystack: &str, needle: &str) -> bool {
-    let Some(first) = needle.chars().next() else {
-        return false;
-    };
+fn whole_word_position(haystack: &str, needle: &str) -> Option<usize> {
+    let first = needle.chars().next()?;
     let mut from = 0;
     while let Some(offset) = haystack[from..].find(needle) {
         let start = from + offset;
-        let mut end = start + needle.len();
-        let before = haystack[..start].chars().next_back();
-        // The plural tolerance: `egg` is found in `eggs`, and the word still has
-        // to end there — `egg` is not found in `eggshell`.
-        if haystack[end..].starts_with('s') {
-            end += 's'.len_utf8();
-        }
-        let after = haystack[end..].chars().next();
-        if !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric) {
-            return true;
+        if whole_word_at(haystack, start, needle) {
+            return Some(start);
         }
         from = start + first.len_utf8();
     }
-    false
+    None
+}
+
+/// Whether the `needle` found at `start` is a whole word there — a letter or
+/// a digit on neither side — allowing one trailing `s`.
+fn whole_word_at(haystack: &str, start: usize, needle: &str) -> bool {
+    let mut end = start + needle.len();
+    let before = haystack[..start].chars().next_back();
+    // The plural tolerance: `egg` is found in `eggs`, and the word still has
+    // to end there — `egg` is not found in `eggshell`.
+    if haystack[end..].starts_with('s') {
+        end += 's'.len_utf8();
+    }
+    let after = haystack[end..].chars().next();
+    !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
 }
 
 /// How long a gap between saves on the same Branch, by the same Hand, still

@@ -4544,7 +4544,7 @@ fn component_schema() -> Value {
                 "type": ["object", "null"],
                 "properties": {
                     "ingredients": { "type": "array", "items": { "type": ["string", "null"] } },
-                    "steps": { "type": "array", "items": { "type": ["string", "null"] } },
+                    "steps": { "type": "array", "items": measured_step_schema() },
                 },
                 "required": ["ingredients", "steps"],
                 "additionalProperties": false,
@@ -4585,10 +4585,35 @@ fn measured_schema() -> Value {
         "type": "object",
         "properties": {
             "ingredients": { "type": "array", "items": { "type": ["string", "null"] } },
-            "steps": { "type": "array", "items": { "type": ["string", "null"] } },
+            "steps": { "type": "array", "items": measured_step_schema() },
         },
         "required": ["ingredients", "steps"],
         "additionalProperties": false,
+    })
+}
+
+/// **What a Step carries beside its text** (#150, ADR 0016), or `null` where
+/// there is nothing to add — a Section row, or a Step already in this reader's
+/// measures at this Yield.
+///
+/// Each conversion the Step offers, in the order written: its oven in the
+/// other system, and each amount it writes, converted and scaled as an
+/// Ingredient Line is. `written` is the temperature or the amount and Unit
+/// exactly as they stand in the Step's text, so a screen finds them by
+/// searching forward from the last one and puts `measured` straight after.
+/// The text itself is never rewritten.
+fn measured_step_schema() -> Value {
+    json!({
+        "type": ["array", "null"],
+        "items": {
+            "type": "object",
+            "properties": {
+                "written": { "type": "string" },
+                "measured": { "type": "string" },
+            },
+            "required": ["written", "measured"],
+            "additionalProperties": false,
+        },
     })
 }
 

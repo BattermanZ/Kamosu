@@ -144,6 +144,8 @@
   --text-body: 16px;            /* interface body text */
   --text-body--line-height: 1.55;
   --text-read: 12.5px;          /* a reading, subordinate under its line */
+  --text-step-reading: 15px;    /* a reading inside the 26px Step at the stove (#150, option A) */
+  --text-step-reading--letter-spacing: 0em; /* undoes the Step's tightening around it */
   --text-label: 10.5px;         /* uppercase labels */
   --text-label--letter-spacing: 0.15em;
 

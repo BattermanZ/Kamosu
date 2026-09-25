@@ -13,6 +13,8 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import StepPhoto from '$lib/StepPhoto.svelte';
+	import StepWords from '$lib/StepWords.svelte';
+	import type { StepConversions } from '$lib/step-conversions';
 	import {
 		see,
 		caption,
@@ -34,10 +36,16 @@
 		/**
 		 * The one subordinate line under this row, already written out — the
 		 * converted amount where there is one, what Kamosu read where there is
-		 * not, and an oven temperature in the other system on a Step (#49).
+		 * not (#49). A Step's conversions sit inside its words instead (#150).
 		 * One slot, never two. Never shown on a Ghost: it isn't your line.
 		 */
 		beneath?: string;
+		/**
+		 * A Step's conversions — its oven and its amounts — each drawn after
+		 * what it converts (#150). Never on a Ghost, a struck line or one
+		 * carried across, whose words are not the ones these figures describe.
+		 */
+		conversions?: StepConversions;
 		open: boolean;
 		taken: Taken | undefined;
 		onToggle: () => void;
@@ -63,6 +71,7 @@
 		otherKitchen,
 		number = undefined,
 		beneath = '',
+		conversions = [],
 		open,
 		taken,
 		onToggle,
@@ -102,7 +111,11 @@
 			{/if}
 			<span class="min-w-0 flex-1">
 				<span class="block {isStep ? 'text-body' : 'text-line'} {struck ? 'ghost-text' : ''}">
-					{shown}
+					<StepWords
+						text={shown}
+						conversions={struck || carried ? [] : conversions}
+						readingClass="text-read text-ink-2"
+					/>
 				</span>
 				{#if beneath && !struck && !carried}
 					<span class="block text-read text-ink-2">{beneath}</span>

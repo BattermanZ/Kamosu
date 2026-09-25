@@ -1256,7 +1256,7 @@ describe('the recipe screen', () => {
 	 */
 	const CONVERTED = {
 		ingredients: [null, null, null, null, 'about 45 ml'],
-		steps: [null, null, null, 'about 375 °F'],
+		steps: [null, null, null, [{ written: '190 C', measured: 'about 375 °F' }]],
 	};
 
 	it('gives the converted amount the subordinate slot, and the Reading fills in', async () => {
@@ -1330,20 +1330,84 @@ describe('the recipe screen', () => {
 		}
 	});
 
-	it('offers an oven temperature beside a Step and never inside its sentence', async () => {
+	it('offers an oven temperature straight after the one written, and rewrites nothing', async () => {
 		renderRecipe(solo({}, undefined, CONVERTED));
 
-		// The ladder's answer is an addition beside the sentence: a Step's truth
-		// is its text, and nothing here rewrites it (ADR 0016).
-		const step = await screen.findByText('Deep fry at 190 C until crisp.');
-		const converted = screen.getByText('about 375 °F');
-		expect(step.closest('li')).toBe(converted.closest('li'));
+		// The ladder's answer sits right after the temperature it converts
+		// (#150, option A): an addition drawn between the Step's words, never
+		// written into them (ADR 0016).
+		const converted = await screen.findByText('(about 375 °F)');
+		const step = converted.closest('p') as HTMLElement;
 		expect(converted).toHaveClass('text-read');
-		expect(step.textContent).toBe('Deep fry at 190 C until crisp.');
+		expect(step.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Deep fry at 190 C (about 375 °F) until crisp.',
+		);
+		const bare = step.cloneNode(true) as HTMLElement;
+		bare.querySelectorAll('.text-read').forEach((span) => span.remove());
+		expect(
+			bare.textContent
+				?.replace(/\u00a0/g, '')
+				.replace(/\s+/g, ' ')
+				.trim(),
+		).toBe('Deep fry at 190 C until crisp.');
 
 		// The step with no temperature is offered nothing at all.
 		const brine = screen.getByText('Brine the chicken overnight.').closest('li') as HTMLElement;
 		expect(brine.querySelector('.text-read')).toBeNull();
+	});
+
+	it('puts each conversion straight after what it converts in a Step, and changes no word', async () => {
+		// Option A (#150), chosen over one line of figures beneath the Step.
+		const written = 'Place 1 lb. ground chicken on the tray; preheat to 425°.';
+		renderRecipe(
+			solo(
+				{
+					steps: [
+						{ kind: 'section' as const, text: 'The day before', photo: null },
+						{ kind: 'step' as const, text: 'Brine the chicken overnight.', photo: null },
+						{ kind: 'section' as const, text: 'On the day', photo: null },
+						{ kind: 'step' as const, text: written, photo: null },
+					],
+				},
+				undefined,
+				{
+					ingredients: SECTIONED.map(() => null),
+					steps: [
+						null,
+						null,
+						null,
+						[
+							{ written: '1 lb.', measured: 'about 455 g' },
+							{ written: '425°', measured: 'about 220 °C' },
+						],
+					],
+				},
+			),
+		);
+
+		const addition = await screen.findByText('(about 455 g)');
+		const paragraph = addition.closest('p') as HTMLElement;
+		expect(addition).toHaveClass('text-read', 'text-ink-2');
+		// The amount and its figure never break across a line (found live: "3"
+		// ended one line and "oz. (about 85 g)" began the next).
+		const held = addition.parentElement as HTMLElement;
+		expect(held).toHaveClass('whitespace-nowrap');
+		expect(held.textContent?.replace(/\s+/g, ' ')).toBe('1 lb. (about 455 g)');
+		expect(paragraph.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Place 1 lb. (about 455 g) ground chicken on the tray; preheat to 425° (about 220 °C).',
+		);
+		const bare = paragraph.cloneNode(true) as HTMLElement;
+		bare.querySelectorAll('.text-read').forEach((span) => span.remove());
+		expect(
+			bare.textContent
+				?.replace(/\u00a0/g, '')
+				.replace(/\s+/g, ' ')
+				.trim(),
+		).toBe(written);
+
+		// The oven sits after its own temperature, with no line of its own.
+		expect(paragraph.contains(screen.getByText('(about 220 °C)'))).toBe(true);
+		expect(screen.queryByText('about 220 °C')).not.toBeInTheDocument();
 	});
 
 	it('redraws the converted line the moment a Reading is corrected', async () => {

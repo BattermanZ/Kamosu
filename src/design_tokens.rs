@@ -278,8 +278,9 @@ mod tests {
             })
             .count();
         assert_eq!(
-            steps, 10,
-            "step, title, line, list-title, shelf-heading, tile-title, panel-figure, body, read, label"
+            steps, 11,
+            "step, title, line, list-title, shelf-heading, tile-title, panel-figure, body, \
+             step-reading, read, label"
         );
     }
 }

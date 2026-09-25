@@ -134,9 +134,9 @@ function answers(over: Answers = {}): Answers {
 						// Nothing beneath the salt, because there is nothing Kamosu
 						// could honestly put there.
 						ingredients: [null, null, 'about 240 g', null, null],
-						// The oven temperature in this reader's measures, on the
-						// conventional ladder — beside the sentence, never in it.
-						steps: [null, null, null, 'about 180 °C'],
+						// Nothing for any Step: none of these writes an oven or an
+						// amount (#150 puts one in its own test).
+						steps: [null, null, null, null],
 					},
 					cooking: COOKING,
 				},
@@ -246,12 +246,62 @@ describe('the cooking screen', () => {
 		expect(salt.parentElement?.textContent?.trim()).toBe('a pinch of salt');
 	});
 
-	it('offers the oven temperature in this cook’s measures, beside the sentence', async () => {
-		await cook({ start_attempt: attempt({ current_step_index: 3 }) });
-		// The Core put it on the conventional ladder (ADR 0016); the screen shows
-		// it beside the Step and never writes it into the Step's own text.
-		expect(await screen.findByText('about 180 °C')).toBeInTheDocument();
-		expect(await exactly('Season with salt and leave it alone.')).toBeInTheDocument();
+	it('puts each conversion straight after what it converts in the Step, and changes no word', async () => {
+		// Option A (#150): "1 cup (about 240 g) panko" and "350° (about 180 °C)",
+		// each figure beside what it converts, the oven included, rather than on
+		// a line of figures beneath.
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const version = recipe.versions[0];
+		const written = 'Coat the chicken in 1 cup panko, then 1 cup more, and bake at 350°.';
+		await cook({
+			start_attempt: attempt({ current_step_index: 1 }),
+			get_recipe: {
+				...recipe,
+				versions: [
+					{
+						...version,
+						content: {
+							...version.content,
+							steps: version.content.steps.map((row, at) =>
+								at === 1 ? { ...row, text: written } : row,
+							),
+						},
+						measured: {
+							...version.measured,
+							steps: [
+								null,
+								[
+									{ written: '1 cup', measured: 'about 240 g' },
+									{ written: '1 cup', measured: 'about 240 g' },
+									{ written: '350°', measured: 'about 180 °C' },
+								],
+								null,
+								null,
+							],
+						},
+					},
+				],
+			},
+		});
+		const addition = (await screen.findAllByText('(about 240 g)'))[0];
+		const step = addition.closest('.text-step') as HTMLElement;
+		expect(step).toHaveClass('text-step');
+		expect(addition).toHaveClass('text-step-reading', 'text-cook-ink-2');
+		expect(step.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Coat the chicken in 1 cup (about 240 g) panko, then 1 cup (about 240 g) more, and bake at 350° (about 180 °C).',
+		);
+		// Take the additions away and the Step is exactly as written.
+		const bare = step.cloneNode(true) as HTMLElement;
+		bare.querySelectorAll('.text-step-reading').forEach((span) => span.remove());
+		expect(
+			bare.textContent
+				?.replace(/\u00a0/g, '')
+				.replace(/\s+/g, ' ')
+				.trim(),
+		).toBe(written);
+		// The oven has no line of its own beneath the Step any more.
+		expect(screen.queryByText('about 180 °C')).not.toBeInTheDocument();
+		expect(screen.getByText('(about 180 °C)')).toHaveClass('text-step-reading');
 	});
 
 	it('carries the one subordinate line the Core worked out, and invents no arithmetic', async () => {
@@ -565,7 +615,7 @@ describe('photographing the cooking (#77)', () => {
 					scaled_to: { amount, noun },
 					measured: {
 						ingredients: [null, null, 'about 480 g', 'about 1.6 l', null],
-						steps: [null, null, null, 'about 180 °C'],
+						steps: [null, null, null, null],
 					},
 				},
 			],

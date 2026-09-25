@@ -389,6 +389,18 @@ static BY_SPELLING: LazyLock<HashMap<String, &'static Unit>> = LazyLock::new(|| 
     index
 });
 
+impl Unit {
+    /// Whether this is a spoon — teaspoon, tablespoon and the regional
+    /// tablespoons. Every kitchen has spoons, so a spoon says nothing about
+    /// which system a recipe was written in ([`written_in`]).
+    pub fn is_spoon(&self) -> bool {
+        matches!(
+            self.id,
+            "teaspoon" | "tablespoon" | "imperial tablespoon" | "australian tablespoon"
+        )
+    }
+}
+
 /// The Unit a written word names, or nothing — which is not an error. A word
 /// outside the closed set is no less real a Unit; it simply never converts.
 pub fn recognise(word: &str) -> Option<&'static Unit> {
@@ -1222,7 +1234,7 @@ const METRIC_LADDER: &[(i32, i32)] = &[
 ];
 
 /// A temperature found in a Step, and which system it was written in.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Scale {
     Fahrenheit,
     Celsius,
@@ -1234,37 +1246,78 @@ enum Scale {
 /// Nothing is the answer where the step carries no temperature, where it
 /// already carries both — which 20 of the 39 real steps with a temperature do —
 /// and where the reader asked for no conversion.
-pub fn step_temperature(text: &str, measures: Measures, language: &str) -> Option<String> {
+///
+/// `written_in` is the system the recipe's own Readings are in, where they all
+/// agree ([`written_in`]). It is what decides a bare `180°`, which could be
+/// either dial.
+pub fn step_temperature(
+    text: &str,
+    measures: Measures,
+    language: &str,
+    written_in: Option<System>,
+) -> Option<StepTemperature> {
     let wanted = match measures {
         Measures::Metric => Scale::Celsius,
         Measures::Us => Scale::Fahrenheit,
         Measures::AsWritten => return None,
     };
-    let found = temperatures_in(text);
+    let found = temperatures_in(text, written_in);
     if found.is_empty() {
         return None;
     }
     // Already carrying both: a recipe writer who dual-printed has said
     // everything there is to say, and an addition would repeat them.
-    if found.iter().any(|(_, scale)| *scale == wanted) {
+    if found.iter().any(|temperature| temperature.scale == wanted) {
         return None;
     }
     // The first temperature that lands on a rung, rather than simply the first
     // number found. A French step can say `1 c. à s. d'huile ... à 180 °C`, and
     // the `1 c` there is a spoonful — the ladder is what tells the two apart,
     // because no oven is set to one degree.
-    let converted = found
-        .iter()
-        .find_map(|(degrees, scale)| match (scale, wanted) {
-            (Scale::Fahrenheit, Scale::Celsius) => ladder_from_fahrenheit(*degrees),
-            (Scale::Celsius, Scale::Fahrenheit) => ladder_from_celsius(*degrees),
+    let (written, converted) = found.iter().find_map(|temperature| {
+        let converted = match (temperature.scale, wanted) {
+            (Scale::Fahrenheit, Scale::Celsius) => ladder_from_fahrenheit(temperature.degrees),
+            (Scale::Celsius, Scale::Fahrenheit) => ladder_from_celsius(temperature.degrees),
             _ => None,
-        })?;
+        }?;
+        Some((temperature, converted))
+    })?;
     let symbol = match wanted {
         Scale::Celsius => "°C",
         Scale::Fahrenheit => "°F",
     };
-    Some(format!("{} {converted} {symbol}", about(language)))
+    Some(StepTemperature {
+        start: written.start,
+        end: written.end,
+        measured: format!("{} {converted} {symbol}", about(language)),
+    })
+}
+
+/// The oven a Step offers in the other system, and where in the Step's text
+/// the temperature it converts was written, in bytes, so the addition can sit
+/// straight after it (#150).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepTemperature {
+    pub start: usize,
+    pub end: usize,
+    pub measured: String,
+}
+
+impl StepTemperature {
+    /// The temperature exactly as the Step wrote it.
+    pub fn written<'a>(&self, text: &'a str) -> &'a str {
+        &text[self.start..self.end]
+    }
+}
+
+/// One temperature written in a Step: how many degrees, on which dial, and
+/// where in the text, in bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FoundTemperature {
+    degrees: i32,
+    scale: Scale,
+    start: usize,
+    end: usize,
 }
 
 /// Read an American dial and answer with the metric one. The rungs are 25°F
@@ -1299,13 +1352,39 @@ fn nearest_rung(
         .filter(|rung| (of(rung) - degrees).abs() <= tolerance)
 }
 
+/// **Which system a recipe is written in**, read off the Units of its own
+/// Readings: the one they all agree on, or nothing where they disagree or there
+/// are none.
+///
+/// Spoons cast no vote. A French recipe measures its oil in `c. à s.` beside
+/// its grams, and Kamosu files every spoon as customary, so counting them would
+/// call half the French library mixed.
+pub fn written_in<'a>(units: impl IntoIterator<Item = &'a str>) -> Option<System> {
+    let mut systems = units
+        .into_iter()
+        .filter_map(recognise)
+        .filter(|unit| !unit.is_spoon())
+        .map(|unit| unit.system);
+    let first = systems.next()?;
+    systems.all(|system| system == first).then_some(first)
+}
+
 /// Every temperature in a Step's text, in the order they were written.
 ///
-/// A temperature needs its letter. `turn 90 degrees` and `gas 5` both appear in
-/// the real corpus and neither is a temperature, so a bare number — even one
-/// followed by a degree sign — is never read as one.
-fn temperatures_in(text: &str) -> Vec<(i32, Scale)> {
+/// Without a degree sign a temperature needs its letter. `turn 90 degrees` and
+/// `gas 5` both appear in the real corpus and neither is a temperature.
+///
+/// A degree sign with no letter is how Bon Appétit and most American magazines
+/// print every oven (#150), so it counts where only one dial fits: see
+/// [`bare_degrees`].
+fn temperatures_in(text: &str, written_in: Option<System>) -> Vec<FoundTemperature> {
     let characters: Vec<char> = text.chars().collect();
+    // Where each character starts in bytes, and the text's end after the last.
+    let bytes: Vec<usize> = text
+        .char_indices()
+        .map(|(at, _)| at)
+        .chain([text.len()])
+        .collect();
     let mut found = Vec::new();
     let mut index = 0;
     while index < characters.len() {
@@ -1318,19 +1397,59 @@ fn temperatures_in(text: &str) -> Vec<(i32, Scale)> {
             index += 1;
         }
         let digits: String = characters[start..index].iter().collect();
-        if let Some(scale) = scale_after(&characters, index)
-            && let Ok(degrees) = digits.parse::<i32>()
-        {
-            found.push((degrees, scale));
+        let Ok(degrees) = digits.parse::<i32>() else {
+            continue;
+        };
+        let marked = scale_after(&characters, index).or_else(|| {
+            let end = degree_sign_after(&characters, index)?;
+            bare_degrees(degrees, written_in).map(|scale| (scale, end))
+        });
+        if let Some((scale, end)) = marked {
+            found.push(FoundTemperature {
+                degrees,
+                scale,
+                start: bytes[start],
+                end: bytes[end],
+            });
         }
     }
     found
 }
 
+/// Where a degree sign following a number ends, spaces allowed between, or
+/// nothing where there is none.
+fn degree_sign_after(characters: &[char], mut index: usize) -> Option<usize> {
+    while characters.get(index) == Some(&' ') {
+        index += 1;
+    }
+    (characters.get(index) == Some(&'°')).then_some(index + 1)
+}
+
+/// **Which dial a bare `425°` is on**, or nothing.
+///
+/// - Above 300 it can only be Fahrenheit: no domestic oven goes that high in
+///   Celsius. It still has to be a rung of [`OVEN_LADDER`] to count.
+/// - From 150 to 300 it is a setting on both dials — `180°`, `200°`, `220°` —
+///   and the recipe's own Readings decide: all cups and pounds is an American
+///   oven, all grams a metric one, and anything else is left alone.
+/// - Below 150 it is nothing. The one bare degree sign in the 599 Steps of the
+///   Crouton export is a Thermomix's `100°`, which is not an oven at all.
+fn bare_degrees(degrees: i32, written_in: Option<System>) -> Option<Scale> {
+    match degrees {
+        301.. => ladder_from_fahrenheit(degrees).map(|_| Scale::Fahrenheit),
+        150..=300 => match written_in? {
+            System::Customary => Some(Scale::Fahrenheit),
+            System::Metric => Some(Scale::Celsius),
+        },
+        _ => None,
+    }
+}
+
 /// What follows a number, where what follows it is a temperature marker:
 /// optional spaces, an optional degree sign, then `C`, `F`, or the word
-/// `degrees` followed by one of those.
-fn scale_after(characters: &[char], mut index: usize) -> Option<Scale> {
+/// `degrees` followed by one of those. Answers the scale and where the marker
+/// ends, the whole word where the letter is spelled out (`Celsius`).
+fn scale_after(characters: &[char], mut index: usize) -> Option<(Scale, usize)> {
     let skip_spaces = |index: &mut usize| {
         while characters.get(*index).is_some_and(|c| *c == ' ') {
             *index += 1;
@@ -1368,7 +1487,11 @@ fn scale_after(characters: &[char], mut index: usize) -> Option<Scale> {
             .take(letters.len())
             .eq(letters.iter().copied())
     });
-    (ends_here || spelled_out).then_some(scale)
+    let mut end = index + 1;
+    while spelled_out && characters.get(end).is_some_and(|c| c.is_alphabetic()) {
+        end += 1;
+    }
+    (ends_here || spelled_out).then_some((scale, end))
 }
 
 // --- Durations in Step text --------------------------------------------------
@@ -1627,4 +1750,130 @@ fn tokenise(text: &str) -> Vec<Piece> {
         }
     }
     pieces
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn metric(text: &str, written_in: Option<System>) -> Option<String> {
+        step_temperature(text, Measures::Metric, "en", written_in).map(|found| found.measured)
+    }
+
+    fn us(text: &str, written_in: Option<System>) -> Option<String> {
+        step_temperature(text, Measures::Us, "en", written_in).map(|found| found.measured)
+    }
+
+    /// The temperature as the Step wrote it, which the addition sits after.
+    fn written(text: &str, measures: Measures) -> Option<&str> {
+        step_temperature(text, measures, "en", None).map(|found| found.written(text))
+    }
+
+    #[test]
+    fn a_temperature_answers_where_it_was_written() {
+        let parm = "Place a rack in lower third of oven; preheat to 425°. Place 1 lb. chicken.";
+        assert_eq!(written(parm, Measures::Metric), Some("425°"));
+        assert_eq!(
+            written("Preheat the oven to 350°F.", Measures::Metric),
+            Some("350°F")
+        );
+        assert_eq!(
+            written("Raise it to 400 degrees F.", Measures::Metric),
+            Some("400 degrees F")
+        );
+        assert_eq!(
+            written("Préchauffer à 180 °C.", Measures::Us),
+            Some("180 °C")
+        );
+        assert_eq!(
+            written("Bake at 190 Celsius, fan on.", Measures::Us),
+            Some("190 Celsius")
+        );
+    }
+
+    #[test]
+    fn a_bare_degree_sign_above_any_celsius_oven_is_fahrenheit() {
+        // Bon Appétit's chicken parm (#150), whatever the recipe's other units.
+        for written_in in [None, Some(System::Metric), Some(System::Customary)] {
+            assert_eq!(
+                metric(
+                    "Arrange a rack in center of oven; preheat to 425°.",
+                    written_in
+                ),
+                Some("about 220 °C".to_string()),
+            );
+        }
+        assert_eq!(
+            metric("Bake at 375° for 20 minutes.", None),
+            Some("about 190 °C".into())
+        );
+        // Above 300 but on no rung: silence beats a number nobody can set.
+        assert_eq!(metric("A pizza oven reaches 700°.", None), None);
+    }
+
+    #[test]
+    fn a_bare_degree_sign_both_dials_have_is_read_by_the_recipes_own_units() {
+        // No Readings, or Readings that disagree: no telling which oven.
+        assert_eq!(metric("Bake at 180°.", None), None);
+        assert_eq!(us("Bake at 180°.", None), None);
+        // All grams: a metric oven, so an American is offered her dial.
+        assert_eq!(
+            us("Bake at 180°.", Some(System::Metric)),
+            Some("about 350 °F".into())
+        );
+        assert_eq!(metric("Bake at 180°.", Some(System::Metric)), None);
+        // All cups: an American oven. 180°F is below every rung, so nothing
+        // is offered either way — and certainly not the 350 °F it would be as
+        // Celsius. Which dial it was read on is asked directly, since silence
+        // alone cannot tell the two apart.
+        assert_eq!(us("Bake at 180°.", Some(System::Customary)), None);
+        assert_eq!(metric("Bake at 180°.", Some(System::Customary)), None);
+        let scales = |written_in| {
+            temperatures_in("Bake at 180°.", written_in)
+                .iter()
+                .map(|found| (found.degrees, found.scale))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            scales(Some(System::Customary)),
+            vec![(180, Scale::Fahrenheit)]
+        );
+        assert_eq!(scales(Some(System::Metric)), vec![(180, Scale::Celsius)]);
+        assert_eq!(scales(None), vec![]);
+        // 200° is a rung on both dials, and answers each way round.
+        assert_eq!(
+            metric("Keep warm at 200°.", Some(System::Customary)),
+            Some("about 95 °C".into())
+        );
+        assert_eq!(
+            us("Keep warm at 200°.", Some(System::Metric)),
+            Some("about 400 °F".into())
+        );
+    }
+
+    #[test]
+    fn what_is_not_an_oven_stays_silent() {
+        for written_in in [None, Some(System::Metric), Some(System::Customary)] {
+            for text in [
+                "Turn the tray 90 degrees.",
+                "Cook on gas 5 for 20 minutes.",
+                // The one bare degree sign in the Crouton export: a Thermomix.
+                "Régler 25 min / 100°, vitesse 1.",
+            ] {
+                assert_eq!(metric(text, written_in), None, "{text}");
+                assert_eq!(us(text, written_in), None, "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_recipe_is_written_in_the_system_its_units_agree_on() {
+        assert_eq!(written_in(["lb", "oz", "cup"]), Some(System::Customary));
+        assert_eq!(written_in(["g", "ml", "kg"]), Some(System::Metric));
+        // Spoons are in every kitchen, and cast no vote.
+        assert_eq!(written_in(["g", "c. à s.", "tsp"]), Some(System::Metric));
+        assert_eq!(written_in(["g", "cup"]), None);
+        assert_eq!(written_in(["tbsp", "clove"]), None);
+        assert_eq!(written_in([]), None);
+    }
 }

@@ -59,8 +59,9 @@
 	sideways. The echo that survives is the one that earns its place — a Reading
 	somebody CORRECTED, saying something the written line does not.
 
-	A Step's slot holds the oven temperature in the other system, on the
-	conventional ladder — an addition beside the sentence, never written into it.
+	A Step's slot holds its conversions — the oven in the other system, on the
+	conventional ladder, and each amount it writes — drawn straight after what
+	each converts, never written into the sentence (#150).
 
 	A COMPONENT UNFOLDS IN PLACE, ITS STEPS AT THE FOOT (#50, ADR 0008). An
 	Ingredient whose Reading names a Lineage rather than a Food is a Component —
@@ -133,6 +134,7 @@
 	import VersionStrip from './VersionStrip.svelte';
 	import { branchPlainName } from '$lib/cookbook';
 	import MarkedRow from './MarkedRow.svelte';
+	import StepWords from '$lib/StepWords.svelte';
 	import Correcting from './Correcting.svelte';
 	import Writing from './Writing.svelte';
 	import Promotion from './Promotion.svelte';
@@ -1585,16 +1587,20 @@
 			{/snippet}
 
 			<!--
-			A Step's own subordinate slot: the oven temperature in this reader's
-			measures, on the conventional ladder (ADR 0016). It is an addition
-			BESIDE the sentence and is never written into it — a Step's truth is
-			its text — and it is absent from the great majority of steps, which
-			carry no temperature or already print both.
+			A Step's words, with what the Core added for this reader: its oven in
+			the other system, on the conventional ladder, and each amount converted
+			and scaled, each drawn straight after what it converts (#150, ADR 0016).
+			Additions BESIDE the sentence, never written into it — a Step's truth is
+			its text — and absent from most steps, which need none.
 		-->
-			{#snippet beside(at: number)}
-				{#if at >= 0 && measured.steps[at]}
-					<span class="mt-1 block text-read text-ink-2">{measured.steps[at]}</span>
-				{/if}
+			{#snippet stepWithAdditions(text: string, at: number)}
+				<p class="text-body">
+					<StepWords
+						{text}
+						conversions={(at >= 0 ? measured.steps[at] : null) ?? []}
+						readingClass="text-read text-ink-2"
+					/>
+				</p>
 			{/snippet}
 
 			<!--
@@ -1872,8 +1878,7 @@
 									>{n}</span
 								>
 								<div class="min-w-0 flex-1">
-									<p class="text-body">{own?.text}</p>
-									{@render beside(own?.index ?? -1)}
+									{@render stepWithAdditions(own?.text ?? '', own?.index ?? -1)}
 								</div>
 								{@render stepPhoto(own ? (content.steps[own.index]?.photo ?? null) : null, n)}
 							</li>
@@ -1883,7 +1888,7 @@
 								{side}
 								{otherKitchen}
 								number={n}
-								beneath={own ? (measured.steps[own.index] ?? '') : ''}
+								conversions={own ? (measured.steps[own.index] ?? []) : []}
 								photo={own ? (content.steps[own.index]?.photo ?? null) : null}
 								open={open.has(key)}
 								taken={taken.get(key)}
@@ -1906,8 +1911,7 @@
 									{n}
 								</span>
 								<div class="min-w-0 flex-1">
-									<p class="text-body">{item.text}</p>
-									{@render beside(index)}
+									{@render stepWithAdditions(item.text, index)}
 								</div>
 								{@render stepPhoto(item.photo, n)}
 							</li>

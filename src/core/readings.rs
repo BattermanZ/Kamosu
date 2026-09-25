@@ -944,15 +944,20 @@ pub(super) fn readings_for_version(
     Ok(slots)
 }
 
-/// **The one subordinate line under each Ingredient Line and Step**, worked out
-/// in the Core so both Doors get it and an agent asked *how much flour in
-/// grams* answers correctly for free (ADR 0016, ADR 0001).
+/// **The one subordinate line under each Ingredient Line, and what each Step
+/// carries beside its text**, worked out in the Core so both Doors get it and
+/// an agent asked *how much flour in grams* answers correctly for free
+/// (ADR 0016, ADR 0001).
 ///
 /// One slot per line, in the same order, `null` wherever there is nothing to
-/// say — which is the common case. It is nothing where Kamosu read no
-/// quantity, where the quantity could not be read, and where the line is
-/// already in this reader's measures at the Yield they are reading, so a line
-/// would only repeat what is already above it.
+/// say — which is the common case. A Step's slot is every conversion it
+/// offers — its oven and each amount it writes — as `[{ written, measured }]`
+/// in the order written (#150).
+///
+/// It is nothing where Kamosu read no quantity, where the quantity could not
+/// be read, and where the line is already in this reader's measures at the
+/// Yield they are reading, so a line would only repeat what is already above
+/// it.
 ///
 /// `scale` is how far the Yield being cooked is from the Yield as written; a
 /// recipe being read rather than cooked is 1.0. Scaling and conversion are one
@@ -975,8 +980,59 @@ pub(super) fn measured_for_version(
     let ingredient_lines = content["ingredients"].as_array().unwrap_or(&no_lines);
     let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
 
+    let readings = readings_to_measure(conn, version_id)?;
+    // What decides a bare `180°` in a Step, which could be either dial (#150).
+    let written_in = units::written_in(readings.iter().filter_map(|r| r.unit.as_deref()));
+
+    // A Step's truth is its text, so everything here is an addition beside it
+    // and never written into it (CONTEXT.md, ADR 0016): the oven in the other
+    // system, and each amount the Step writes, converted and scaled exactly as
+    // an Ingredient Line is (#150). Each is placed straight after what it
+    // converts, so they come in the order the text has them. A step already in
+    // this reader's measures at this Yield gets nothing.
+    let steps: Vec<Value> = step_lines
+        .iter()
+        .map(|line| {
+            if line["kind"] != "step" {
+                return Value::Null;
+            }
+            let Some(text) = line["text"].as_str() else {
+                return Value::Null;
+            };
+            let oven = units::step_temperature(text, measures, language, written_in)
+                .map(|oven| (oven.start, oven.written(text), oven.measured));
+            let amounts = crate::reading::amounts_in_step(text)
+                .into_iter()
+                .filter_map(|amount| {
+                    let cup_weight = amount
+                        .food
+                        .as_deref()
+                        .and_then(|food| line_named_first(&readings, food))
+                        .and_then(|reading| reading.cup_weight);
+                    let measured = units::measured_line(
+                        Some(&amount.amount),
+                        Some(&amount.unit),
+                        scale,
+                        measures,
+                        language,
+                        cup_weight,
+                    )?;
+                    Some((amount.start, amount.written(text), measured))
+                });
+            let mut conversions: Vec<_> = oven.into_iter().chain(amounts).collect();
+            if conversions.is_empty() {
+                return Value::Null;
+            }
+            conversions.sort_by_key(|(start, _, _)| *start);
+            conversions
+                .into_iter()
+                .map(|(_, written, measured)| json!({ "written": written, "measured": measured }))
+                .collect()
+        })
+        .collect();
+
     let mut ingredients = vec![Value::Null; ingredient_lines.len()];
-    for reading in readings_to_measure(conn, version_id)? {
+    for reading in &readings {
         if let Some(slot) = usize::try_from(reading.line_index)
             .ok()
             .and_then(|index| ingredients.get_mut(index))
@@ -985,24 +1041,26 @@ pub(super) fn measured_for_version(
         }
     }
 
-    // A Step's truth is its text, so a temperature in the other system is an
-    // addition beside the sentence and never written into it (CONTEXT.md). A
-    // step that already carries both — 20 of the 39 real steps with a
-    // temperature do — is left alone.
-    let steps: Vec<Value> = step_lines
-        .iter()
-        .map(|line| {
-            if line["kind"] != "step" {
-                return Value::Null;
-            }
-            line["text"]
-                .as_str()
-                .and_then(|text| units::step_temperature(text, measures, language))
-                .map_or(Value::Null, Value::from)
-        })
-        .collect();
-
     Ok(json!({ "ingredients": ingredients, "steps": steps }))
+}
+
+/// The Reading a Step's amount is an amount of: the one named soonest in the
+/// words after its Unit, so `1 cup panko, a pinch of salt` is panko and
+/// `3 oz. freshly grated Parmesan` is Parmesan. Where two names start at the
+/// same word the longer wins, so `all-purpose flour` beats `flour`.
+///
+/// It is the join a Step's `uses` makes ([`named_at`] beneath `names_in`),
+/// asked where rather than whether.
+fn line_named_first<'a>(readings: &'a [Measurable], food: &str) -> Option<&'a Measurable> {
+    let food = folded_for_search(food);
+    readings
+        .iter()
+        .filter_map(|reading| {
+            let target = folded_for_search(reading.target.as_deref()?.trim());
+            named_at(&food, &target).map(|at| ((at, std::cmp::Reverse(target.len())), reading))
+        })
+        .min_by_key(|(rank, _)| *rank)
+        .map(|(_, reading)| reading)
 }
 
 /// Every Reading on a Version that could carry a measurement, with the/// Every Reading on a Version that could carry a measurement, with the
@@ -1063,6 +1121,7 @@ pub(super) fn readings_to_measure(
                     line_index,
                     amount,
                     unit,
+                    target,
                     cup_weight,
                     food_id,
                 }
@@ -1096,6 +1155,9 @@ pub(super) struct Measurable {
     pub(super) line_index: i64,
     pub(super) amount: Option<String>,
     pub(super) unit: Option<String>,
+    /// What the Reading names. A Step's amount is joined to its Ingredient
+    /// Line by it, and borrows that line's Cup Weight (#150).
+    pub(super) target: Option<String>,
     pub(super) cup_weight: Option<f64>,
     /// The Food this Reading points at, where it found one. Unused when a
     /// recipe is merely being read; a Shopping Row is built on it (#73), and

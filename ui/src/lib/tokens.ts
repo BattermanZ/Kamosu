@@ -43,6 +43,7 @@ export const TYPE_ORDER = [
 	'--text-list-title',
 	'--text-body',
 	'--text-tile-title',
+	'--text-step-reading',
 	'--text-read',
 	'--text-label',
 ] as const;

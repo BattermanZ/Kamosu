@@ -48,6 +48,8 @@
     --text-body: 16px;
     --text-body--line-height: 1.55;
     --text-read: 12.5px;
+    --text-step-reading: 15px;
+    --text-step-reading--letter-spacing: 0em;
     --text-label: 10.5px;
     --text-label--letter-spacing: 0.15em;
     --spacing-0: 0px;
@@ -1029,6 +1031,10 @@
   .text-label {
     font-size: var(--text-label);
     letter-spacing: var(--tw-tracking, var(--text-label--letter-spacing));
+  }
+  .text-step-reading {
+    font-size: var(--text-step-reading);
+    letter-spacing: var(--tw-tracking, var(--text-step-reading--letter-spacing));
   }
   .text-panel-figure {
     font-size: var(--text-panel-figure);

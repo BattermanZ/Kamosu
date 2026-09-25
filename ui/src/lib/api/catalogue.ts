@@ -754,7 +754,10 @@ export type CreateRecipeOutput = {
 			lineage_id: string;
 			measured: {
 				ingredients: (string | null)[];
-				steps: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
 			} | null;
 			path: number[];
 			readings: ({
@@ -807,7 +810,10 @@ export type CreateRecipeOutput = {
 		language: string | null;
 		measured: {
 			ingredients: (string | null)[];
-			steps: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
 		};
 		name: string | null;
 		parent_version_id: string | null;
@@ -968,7 +974,10 @@ export type StartVariationOutput = {
 			lineage_id: string;
 			measured: {
 				ingredients: (string | null)[];
-				steps: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
 			} | null;
 			path: number[];
 			readings: ({
@@ -1021,7 +1030,10 @@ export type StartVariationOutput = {
 		language: string | null;
 		measured: {
 			ingredients: (string | null)[];
-			steps: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
 		};
 		name: string | null;
 		parent_version_id: string | null;
@@ -1199,7 +1211,10 @@ export type StartTranslationOutput = {
 			lineage_id: string;
 			measured: {
 				ingredients: (string | null)[];
-				steps: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
 			} | null;
 			path: number[];
 			readings: ({
@@ -1252,7 +1267,10 @@ export type StartTranslationOutput = {
 		language: string | null;
 		measured: {
 			ingredients: (string | null)[];
-			steps: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
 		};
 		name: string | null;
 		parent_version_id: string | null;
@@ -1758,7 +1776,10 @@ export type GetRecipeOutput = {
 			lineage_id: string;
 			measured: {
 				ingredients: (string | null)[];
-				steps: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
 			} | null;
 			path: number[];
 			readings: ({
@@ -1811,7 +1832,10 @@ export type GetRecipeOutput = {
 		language: string | null;
 		measured: {
 			ingredients: (string | null)[];
-			steps: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
 		};
 		name: string | null;
 		parent_version_id: string | null;
@@ -2431,7 +2455,10 @@ export type DivergenceOutput = {
 			lineage_id: string;
 			measured: {
 				ingredients: (string | null)[];
-				steps: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
 			} | null;
 			path: number[];
 			readings: ({
@@ -2487,7 +2514,10 @@ export type DivergenceOutput = {
 		language: string;
 		measured: {
 			ingredients: (string | null)[];
-			steps: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
 		};
 		mine: boolean;
 		name: string | null;
@@ -2550,7 +2580,10 @@ export type DivergenceOutput = {
 			lineage_id: string;
 			measured: {
 				ingredients: (string | null)[];
-				steps: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
 			} | null;
 			path: number[];
 			readings: ({
@@ -2606,7 +2639,10 @@ export type DivergenceOutput = {
 		language: string;
 		measured: {
 			ingredients: (string | null)[];
-			steps: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
 		};
 		mine: boolean;
 		name: string | null;
@@ -7928,8 +7964,24 @@ export const CATALOGUE = [
 												},
 												"steps": {
 													"items": {
+														"items": {
+															"additionalProperties": false,
+															"properties": {
+																"measured": {
+																	"type": "string"
+																},
+																"written": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"written",
+																"measured"
+															],
+															"type": "object"
+														},
 														"type": [
-															"string",
+															"array",
 															"null"
 														]
 													},
@@ -8262,8 +8314,24 @@ export const CATALOGUE = [
 									},
 									"steps": {
 										"items": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"measured": {
+														"type": "string"
+													},
+													"written": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"written",
+													"measured"
+												],
+												"type": "object"
+											},
 											"type": [
-												"string",
+												"array",
 												"null"
 											]
 										},
@@ -9130,8 +9198,24 @@ export const CATALOGUE = [
 												},
 												"steps": {
 													"items": {
+														"items": {
+															"additionalProperties": false,
+															"properties": {
+																"measured": {
+																	"type": "string"
+																},
+																"written": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"written",
+																"measured"
+															],
+															"type": "object"
+														},
 														"type": [
-															"string",
+															"array",
 															"null"
 														]
 													},
@@ -9464,8 +9548,24 @@ export const CATALOGUE = [
 									},
 									"steps": {
 										"items": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"measured": {
+														"type": "string"
+													},
+													"written": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"written",
+													"measured"
+												],
+												"type": "object"
+											},
 											"type": [
-												"string",
+												"array",
 												"null"
 											]
 										},
@@ -10398,8 +10498,24 @@ export const CATALOGUE = [
 												},
 												"steps": {
 													"items": {
+														"items": {
+															"additionalProperties": false,
+															"properties": {
+																"measured": {
+																	"type": "string"
+																},
+																"written": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"written",
+																"measured"
+															],
+															"type": "object"
+														},
 														"type": [
-															"string",
+															"array",
 															"null"
 														]
 													},
@@ -10732,8 +10848,24 @@ export const CATALOGUE = [
 									},
 									"steps": {
 										"items": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"measured": {
+														"type": "string"
+													},
+													"written": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"written",
+													"measured"
+												],
+												"type": "object"
+											},
 											"type": [
-												"string",
+												"array",
 												"null"
 											]
 										},
@@ -13205,8 +13337,24 @@ export const CATALOGUE = [
 												},
 												"steps": {
 													"items": {
+														"items": {
+															"additionalProperties": false,
+															"properties": {
+																"measured": {
+																	"type": "string"
+																},
+																"written": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"written",
+																"measured"
+															],
+															"type": "object"
+														},
 														"type": [
-															"string",
+															"array",
 															"null"
 														]
 													},
@@ -13539,8 +13687,24 @@ export const CATALOGUE = [
 									},
 									"steps": {
 										"items": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"measured": {
+														"type": "string"
+													},
+													"written": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"written",
+													"measured"
+												],
+												"type": "object"
+											},
 											"type": [
-												"string",
+												"array",
 												"null"
 											]
 										},
@@ -16734,8 +16898,24 @@ export const CATALOGUE = [
 											},
 											"steps": {
 												"items": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"measured": {
+																"type": "string"
+															},
+															"written": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"written",
+															"measured"
+														],
+														"type": "object"
+													},
 													"type": [
-														"string",
+														"array",
 														"null"
 													]
 												},
@@ -17071,8 +17251,24 @@ export const CATALOGUE = [
 								},
 								"steps": {
 									"items": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"measured": {
+													"type": "string"
+												},
+												"written": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"written",
+												"measured"
+											],
+											"type": "object"
+										},
 										"type": [
-											"string",
+											"array",
 											"null"
 										]
 									},
@@ -17437,8 +17633,24 @@ export const CATALOGUE = [
 											},
 											"steps": {
 												"items": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"measured": {
+																"type": "string"
+															},
+															"written": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"written",
+															"measured"
+														],
+														"type": "object"
+													},
 													"type": [
-														"string",
+														"array",
 														"null"
 													]
 												},
@@ -17774,8 +17986,24 @@ export const CATALOGUE = [
 								},
 								"steps": {
 									"items": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"measured": {
+													"type": "string"
+												},
+												"written": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"written",
+												"measured"
+											],
+											"type": "object"
+										},
 										"type": [
-											"string",
+											"array",
 											"null"
 										]
 									},
