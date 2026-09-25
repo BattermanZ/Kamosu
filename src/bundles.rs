@@ -462,7 +462,7 @@ const EN: Words = Words {
     note: "Note",
     tags: "Tags",
     from_source: "From",
-    history: "Everything this recipe has been",
+    history: "History",
     written_down: "Written down",
     min_prep: "min prep",
     min_cook: "min cook",
@@ -477,7 +477,7 @@ const FR: Words = Words {
     note: "Note",
     tags: "Étiquettes",
     from_source: "D'après",
-    history: "Tout ce que cette recette a été",
+    history: "Historique",
     written_down: "Écrite",
     min_prep: "min prép.",
     min_cook: "min cuisson",
@@ -492,7 +492,7 @@ const ES: Words = Words {
     note: "Nota",
     tags: "Etiquetas",
     from_source: "De",
-    history: "Todo lo que esta receta ha sido",
+    history: "Historial",
     written_down: "Escrita",
     min_prep: "min prep.",
     min_cook: "min cocción",
@@ -1372,7 +1372,7 @@ mod tests {
         let newest = text.find("**Moins de vin**").expect("the named Version");
         let oldest = text.find("**Écrite**").expect("the unnamed first Version");
         assert!(newest < oldest, "newest first:\n{text}");
-        assert!(text.contains("## Tout ce que cette recette a été"));
+        assert!(text.contains("## Historique"));
         assert!(
             !text.contains("## Ingrédients") && !text.contains("## Préparation"),
             "a recipe with nothing listed gets no heading over nothing:\n{text}"

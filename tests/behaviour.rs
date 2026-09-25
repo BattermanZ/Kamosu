@@ -14287,7 +14287,7 @@ async fn a_share_carries_the_whole_chain_back_to_the_first_version() {
     assert!(page.contains("Aurélien"));
     // And the standing line is on it, in the same words every time.
     assert!(
-        page.contains("it cannot reach a copy already sent"),
+        page.contains("stops new visitors, not copies already sent"),
         "the standing line is on the page"
     );
 }
@@ -19505,7 +19505,7 @@ async fn a_bundle_carries_the_recipe_its_translation_its_passenger_and_its_photo
         "1. Bake 6 to 8 minutes.\n   ![](<photographs/Pizza Margherita, step 1.webp>)",
         "## Note\n\nThe dough wants making the day before.",
         "Tags: Weekend",
-        "---\n\n## Everything this recipe has been",
+        "---\n\n## History",
         "- **Less cheese** · Aurélien · ",
         "  Half the mozzarella; it was drowning the tomato.",
         "  - *Branched here:* **Pizza Margherita (Français)**, see [Pizza Margherita (Français)](<Pizza Margherita (Français).md>)",

@@ -221,7 +221,7 @@ const EN: Words = Words {
     from_source: "From",
     source_opens: "opens the original page",
     also_in: "Also written in",
-    history: "Everything this recipe has been",
+    history: "History",
     keep: "Keep this recipe",
     bundle: "Recipe file",
     file_note: "A zip of readable notes and photographs that opens anywhere. Another Kamosu \
@@ -232,9 +232,8 @@ const EN: Words = Words {
     sheet_failed: "The sheet could not be made",
     file_failed: "The recipe file could not be made",
     written_down: "Written down",
-    standing: "Everything this recipe has ever been travels with it, back to the first version. \
-                Ending this link stops anyone new from opening it — it cannot reach a copy \
-                already sent.",
+    standing: "This link carries every version of this recipe, back to the first. Ending it \
+                stops new visitors, not copies already sent.",
     shared_by: "Shared by {name}",
     ended_title: "This link was ended",
     ended_body: "The person who shared this recipe turned its link off. Ending a link cannot \
@@ -256,7 +255,7 @@ const FR: Words = Words {
     from_source: "D'après",
     source_opens: "ouvre la page d'origine",
     also_in: "Également écrite en",
-    history: "Tout ce que cette recette a été",
+    history: "Historique",
     keep: "Garder cette recette",
     bundle: "Fichier de recette",
     file_note: "Un zip de notes lisibles et de photographies, qui s'ouvre partout. Un autre \
@@ -267,9 +266,8 @@ const FR: Words = Words {
     sheet_failed: "La fiche n'a pas pu être faite",
     file_failed: "Le fichier de recette n'a pas pu être fait",
     written_down: "Écrite",
-    standing: "Tout ce que cette recette a été l'accompagne, jusqu'à la première version. \
-                Mettre fin à ce lien empêche quiconque de l'ouvrir désormais — cela n'atteint \
-                aucune copie déjà envoyée.",
+    standing: "Ce lien emporte chaque version de cette recette, jusqu'à la première. Y mettre \
+                fin arrête les nouveaux visiteurs, pas les copies déjà envoyées.",
     shared_by: "Partagée par {name}",
     ended_title: "Ce lien a pris fin",
     ended_body: "La personne qui a partagé cette recette a mis fin à son lien. Mettre fin à un \
@@ -291,7 +289,7 @@ const ES: Words = Words {
     from_source: "De",
     source_opens: "abre la página original",
     also_in: "También escrita en",
-    history: "Todo lo que esta receta ha sido",
+    history: "Historial",
     keep: "Guardar esta receta",
     bundle: "Archivo de receta",
     file_note: "Un zip de notas legibles y fotografías que se abre en cualquier parte. Otro \
@@ -302,9 +300,8 @@ const ES: Words = Words {
     sheet_failed: "No se pudo hacer la hoja",
     file_failed: "No se pudo hacer el archivo de receta",
     written_down: "Escrita",
-    standing: "Todo lo que esta receta ha sido viaja con ella, hasta la primera versión. \
-                Terminar este enlace impide que alguien nuevo lo abra — no alcanza ninguna \
-                copia ya enviada.",
+    standing: "Este enlace lleva cada versión de esta receta, hasta la primera. Terminarlo \
+                detiene a los visitantes nuevos, no las copias ya enviadas.",
     shared_by: "Compartida por {name}",
     ended_title: "Este enlace ha terminado",
     ended_body: "La persona que compartió esta receta terminó su enlace. Terminar un enlace no \
@@ -1336,7 +1333,7 @@ mod tests {
     fn the_standing_line_is_fixed_wording_in_every_language() {
         for words in [&EN, &FR, &ES] {
             assert!(
-                words.standing.contains("—") || words.standing.contains(":"),
+                words.standing.split(". ").count() == 2,
                 "the standing line says both halves"
             );
             assert!(!words.standing.is_empty());
