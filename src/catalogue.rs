@@ -91,6 +91,35 @@ pub struct Operation {
     pub handler: fn(&Core, &Invocation, Value) -> Result<Value, OpError>,
 }
 
+impl Operation {
+    /// What a caller that reads text is told this Operation does: its summary,
+    /// and for a Job also how the answer is followed (#146). A Door that reads
+    /// the Catalogue out as text says this rather than phrasing its own. The
+    /// Job sentence is the one `Kind::Job` is documented with, then the
+    /// summaries of the two Operations that watch a Job, read from their
+    /// declarations so it cannot promise more than they do.
+    pub fn description(&self) -> String {
+        match self.kind {
+            Kind::Immediate => self.summary.to_string(),
+            Kind::Job => {
+                let summary = |name| {
+                    find(name)
+                        .expect("the Operations that watch a Job are declared")
+                        .summary
+                };
+                format!(
+                    "{} A Job: asking returns a job id at once; state, progress and result \
+                     are ordinary Operations. Where a task answers instead, its taskId is \
+                     that job id. get_job: {} cancel_job: {}",
+                    self.summary,
+                    summary("get_job"),
+                    summary("cancel_job"),
+                )
+            }
+        }
+    }
+}
+
 /// The Catalogue itself. Exactly one exists.
 ///
 /// Adding an Operation means adding one entry here. Both Doors materialise it on

@@ -8,9 +8,11 @@
 //! It carries the standard long-running-task extension
 //! (`io.modelcontextprotocol/tasks`): asking for an Operation declared `Kind::Job`
 //! answers a `CreateTaskResult`, whose taskId is Kamosu's job id, and the client
-//! polls `tasks/get` until the work ends. Underneath, that is decoration over
-//! ordinary Operations — every poll reads through `get_job`, exactly what the
-//! web door serves, so watching slow work is never a feature of one Door alone.
+//! polls `tasks/get` until the work ends. A client that did not declare the
+//! extension gets the Job's ordinary `{ job_id }` instead and polls `get_job`
+//! (#146). Underneath, the tasks path is decoration over ordinary Operations —
+//! every poll reads through `get_job`, exactly what the web door serves, so
+//! watching slow work is never a feature of one Door alone.
 //!
 //! It answers no web page: a request carrying an `Origin` header is refused
 //! before anything else about it is read (#145).
@@ -285,9 +287,13 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
         .iter()
         .filter(|op| !(read_only && op.write))
         .map(|op| {
+            // A Job's description says what to call after asking. The answer's
+            // own text cannot: Claude Code shows a model only the structured
+            // `{ job_id }` when both are present, so text beside it never
+            // arrives (#146).
             json!({
                 "name": op.name,
-                "description": op.summary,
+                "description": op.description(),
                 "inputSchema": op.input_schema,
             })
         })
@@ -315,18 +321,18 @@ fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Resul
     let op = catalogue::find(name)
         .ok_or_else(|| json_rpc_error(-32602, format!("no tool named '{name}'")))?;
 
-    // A Job answers through the long-running-task extension, and only to clients
-    // that declared it. Refusing before any work is recorded is the point: a
-    // client that cannot poll must not be able to cause work it can never see.
-    if op.kind == catalogue::Kind::Job && !declares_tasks_capability(&params) {
-        return Err(missing_tasks_capability_error());
-    }
-
     let secret = web_door::bearer_from_headers(headers);
 
     match core.execute(secret.as_deref(), name, arguments) {
-        Ok(result) => {
-            if op.kind == catalogue::Kind::Job {
+        Ok(result) => match op.kind {
+            // A Job answers a task only to a client that declared the
+            // extension on this request: "Never return a task to a client that
+            // did not declare support." The extension governs the answer's
+            // shape, not whether the work may be asked for (#146). Every other
+            // client gets the Job's ordinary answer, `{ job_id }`, as the web
+            // door gives it, and follows it with `get_job` and `cancel_job`,
+            // which are tools here like any other.
+            catalogue::Kind::Job if declares_tasks_capability(&params) => {
                 let job_id = result["job_id"]
                     .as_str()
                     .ok_or_else(|| json_rpc_error(-32603, "a Job answered without an id"))?;
@@ -337,10 +343,9 @@ fn tools_call(core: &Core, headers: &HeaderMap, params: Option<&Value>) -> Resul
                     .map_err(|e| json_rpc_error(-32603, e.to_sentence()))?
                     .ok_or_else(|| json_rpc_error(-32603, "the Job vanished as it was created"))?;
                 Ok(create_task_result(&record))
-            } else {
-                Ok(call_tool_result(result))
             }
-        }
+            catalogue::Kind::Job | catalogue::Kind::Immediate => Ok(call_tool_result(result)),
+        },
         Err(err) => Ok(json!({
             "resultType": "complete",
             "content": [{ "type": "text", "text": err.to_sentence() }],

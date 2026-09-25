@@ -121,23 +121,63 @@ async fn asking_for_a_job_returns_an_id_at_once_and_the_result_is_read_at_both_d
         "clients are told how often to look back"
     );
 
-    // A client that did not declare the extension is refused before any work is
-    // caused: it could never see what it asked for.
+    // A client that did not declare the extension is never sent a task, and is
+    // not refused either (#146): it gets the Job's ordinary answer, the same
+    // `{ job_id }` the web door gives, and follows it with `get_job`, which is
+    // a tool at this door like any other.
     let bare_call = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": { "name": "probe_job", "arguments": {} },
+        "params": { "name": "probe_job", "arguments": { "steps": 3 } },
     });
-    let (refused_status, refused) = app.post_mcp(&bare_call.to_string(), None);
-    assert_eq!(refused_status, 400, "{refused}");
-    assert_eq!(refused["error"]["code"], json!(-32021), "{refused}");
-    assert!(
-        refused["error"]["data"]["requiredCapabilities"]["extensions"]
-            .get("io.modelcontextprotocol/tasks")
-            .is_some(),
-        "the refusal names the capability it needs"
-    );
+    let (bare_status, bare) = app.post_mcp(&bare_call.to_string(), None);
+    assert_eq!(bare_status, 200, "{bare}");
+    let answer = &bare["result"];
+    assert_eq!(answer["resultType"], json!("complete"), "{bare}");
+    assert_eq!(answer["isError"], json!(false), "{bare}");
+    let bare_job_id = answer["structuredContent"]["job_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the answer carries the job id: {bare}"))
+        .to_string();
+    // What to call next is in the Job's description, in the Catalogue's words
+    // rather than the door's. Not in the answer: Claude Code shows a model only
+    // the structured `{ job_id }`, so text beside it never arrives.
+    let (_, listed) = app.post_mcp(r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#, None);
+    let described = listed["result"]["tools"]
+        .as_array()
+        .expect("a tool listing")
+        .iter()
+        .find(|tool| tool["name"] == "probe_job")
+        .and_then(|tool| tool["description"].as_str())
+        .unwrap_or_else(|| panic!("probe_job is listed: {listed}"))
+        .to_string();
+    for watcher in ["get_job", "cancel_job"] {
+        let summary = kamosu::catalogue::find(watcher).unwrap().summary;
+        assert!(
+            described.contains(&format!("{watcher}: {summary}")),
+            "a Job's description says what {watcher} does, as the Catalogue does: {described}"
+        );
+    }
+    let follow = json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": { "name": "get_job", "arguments": { "job_id": bare_job_id } },
+    });
+    let mut followed = Value::Null;
+    for _ in 0..400 {
+        let (_, body) = app.post_mcp(&follow.to_string(), None);
+        followed = body["result"]["structuredContent"].clone();
+        match followed["status"].as_str() {
+            Some("queued" | "running") => std::thread::sleep(Duration::from_millis(25)),
+            _ => break,
+        }
+    }
+    assert_eq!(followed["status"], json!("completed"), "{followed}");
+    assert_eq!(followed["result"]["steps"], json!(3), "{followed}");
+
+    // The extension's own methods still need it: they exist only inside it.
     let (_, tasks_get_refused) = app.post_mcp(
         r#"{"jsonrpc":"2.0","id":2,"method":"tasks/get","params":{"taskId":"whatever"}}"#,
         None,

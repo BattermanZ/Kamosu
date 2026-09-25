@@ -76,5 +76,6 @@ pub fn app(core: Arc<core::Core>) -> axum::Router {
 pub const MCP_PROTOCOL_VERSION: &str = "2026-07-28";
 
 /// The standard long-running-task extension carried at the MCP door: asking for
-/// a Job answers a CreateTaskResult, polled back through ordinary Operations.
+/// a Job with it declared answers a CreateTaskResult, polled back through
+/// ordinary Operations. Without it, the Job's own `{ job_id }` (#146).
 pub const MCP_TASKS_EXTENSION: &str = "io.modelcontextprotocol/tasks";

@@ -8,7 +8,7 @@ use kamosu::catalogue;
 use serde_json::{Value, json};
 
 /// Per-request capability declaration for the long-running-task extension, so
-/// Job Operations answer CreateTaskResult rather than refusing with -32021.
+/// Job Operations answer CreateTaskResult rather than a bare `{ job_id }`.
 fn tasks_capability() -> Value {
     // The identifiers are fixed by the extension spec; MCP_TASKS_EXTENSION
     // carries the same string.
