@@ -576,6 +576,8 @@
   "recipe_print_setting": "Mise en page de la fiche…",
   "recipe_print_sheet": "Imprimer une fiche",
   "recipe_print_still_going": "La fiche prend du temps. Restez sur cette page et elle s’ouvrira dès qu’elle sera prête.",
+  "recipe_share_sheet": "Partager la fiche",
+  "recipe_share_still_going": "La fiche prend du temps. Restez sur cette page et vous pourrez la partager dès qu’elle sera prête.",
   "recipe_promote_failed": "Impossible de garder ceci. Rien n'a changé dans la recette.",
   "recipe_promoted": "Gardé. C'est désormais une nouvelle Version de cette recette.",
   "recipe_save_as_version": "Enregistrer comme nouvelle Version",

@@ -13,8 +13,9 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
-import { tick } from 'svelte';
+import { tick, type ComponentProps } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
+import { realSheets } from '$lib/api/sheet';
 import { OperationError } from '$lib/api/client';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
@@ -347,15 +348,20 @@ function onTheirs(extra: Answers = {}) {
 	return forked({ get_recipe: marcsRecipe(), ...extra });
 }
 
-function renderRecipe(answers: Answers = forked(), branchId = 'mine') {
+function renderRecipe(
+	answers: Answers = forked(),
+	branchId = 'mine',
+	/** The phone it is on, and how it fetches a Sheet to share (#149). */
+	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'sheets'> = {},
+) {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
 	const kamosu = standIn({ list_attempts: { attempts: [] }, ...answers });
 	const { rerender } = render(RecipeTestHarness, {
-		props: { client: kamosu.client, branchId },
+		props: { client: kamosu.client, branchId, ...on },
 	});
 	/** Walk to another recipe, the way tapping through to one does. */
-	const goTo = (branchId: string) => rerender({ client: kamosu.client, branchId });
+	const goTo = (branchId: string) => rerender({ client: kamosu.client, branchId, ...on });
 	return { kamosu, goTo };
 }
 
@@ -2130,6 +2136,214 @@ describe('a Sheet (#75)', () => {
 			await vi.waitFor(() => expect(tab.close).toHaveBeenCalled());
 			expect(tab.location.href).toBe('');
 		}));
+
+	describe('in the app installed on an iPhone (#149)', () => {
+		const installedApple = { installed: true, apple: true };
+
+		/**
+		 * The share sheet, as iOS offers it to an installed app. `canShare` says
+		 * yes to one PDF; `share` answers what the test says.
+		 */
+		function theShareSheet(answer: () => Promise<void> = async () => {}) {
+			const share = vi.fn<(data: ShareData) => Promise<void>>(() => answer());
+			const canShare = vi.fn(
+				(data?: ShareData) =>
+					data?.files?.length === 1 && data.files[0]?.type === 'application/pdf',
+			);
+			Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+			Object.defineProperty(navigator, 'canShare', { value: canShare, configurable: true });
+			return share;
+		}
+
+		/** `/api/sheets/…` as the server answers it, headers and all. */
+		function theSheetRoute() {
+			const fetch = vi.fn(
+				async () =>
+					new Response('%PDF-1.7', {
+						headers: {
+							'content-type': 'application/pdf',
+							'content-disposition':
+								'inline; filename="Korean Fried Chicken.pdf"; filename*=UTF-8\'\'Korean%20Fried%20Chicken.pdf',
+						},
+					}),
+			);
+			return { fetch, sheets: realSheets(fetch as unknown as typeof globalThis.fetch) };
+		}
+
+		afterEach(() => {
+			Reflect.deleteProperty(navigator, 'share');
+			Reflect.deleteProperty(navigator, 'canShare');
+		});
+
+		/** Print tapped and the Sheet ready: the button now shares it. */
+		async function readyToShare(
+			share = theShareSheet(),
+			answers: Answers = { ...forked(), make_sheet: { job_id: 'j_sheet' }, get_job: sheetJob },
+		) {
+			const open = vi.fn();
+			vi.stubGlobal('open', open);
+			const route = theSheetRoute();
+			const rendered = renderRecipe(answers, 'mine', {
+				device: installedApple,
+				sheets: route.sheets,
+			});
+			await screen.findByText('This recipe, 2 versions');
+			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+			const button = await screen.findByRole('button', { name: 'Share the sheet' });
+			return { open, share, route, button, ...rendered };
+		}
+
+		it('opens no tab, and shares the Sheet as one PDF named as the server named it', async () => {
+			const { open, share, route, button } = await readyToShare();
+
+			expect(open).not.toHaveBeenCalled();
+			expect(route.fetch).toHaveBeenCalledWith('/api/sheets/j_sheet');
+			await fireEvent.click(button);
+
+			expect(share).toHaveBeenCalledTimes(1);
+			const files = share.mock.calls[0]?.[0].files ?? [];
+			expect(files).toHaveLength(1);
+			expect(files[0]?.name).toBe('Korean Fried Chicken.pdf');
+			expect(files[0]?.type).toBe('application/pdf');
+		});
+
+		it('shares in the tap itself, with the file already fetched', async () => {
+			const { share, route, button } = await readyToShare();
+			const fetchedBefore = route.fetch.mock.calls.length;
+
+			// Not awaited: the share sheet must be asked for before the tap's
+			// handler gives the browser back, or iOS no longer counts the tap.
+			const tapped = fireEvent.click(button);
+			expect(share).toHaveBeenCalledTimes(1);
+			expect(route.fetch).toHaveBeenCalledTimes(fetchedBefore);
+			await tapped;
+		});
+
+		it('keeps the Sheet ready, and says nothing went wrong, when the share sheet is closed', async () => {
+			const share = theShareSheet(async () => {
+				throw new DOMException('Share canceled', 'AbortError');
+			});
+			const { button } = await readyToShare(share);
+
+			await fireEvent.click(button);
+			await tick();
+
+			expect(screen.queryByText(/could not be made/)).not.toBeInTheDocument();
+			const again = screen.getByRole('button', { name: 'Share the sheet' });
+			expect(again).toBeEnabled();
+			await fireEvent.click(again);
+			expect(share).toHaveBeenCalledTimes(2);
+			expect(share.mock.calls[1]?.[0].files?.[0]).toBe(share.mock.calls[0]?.[0].files?.[0]);
+		});
+
+		it('says the sheet could not be made when the share sheet refuses it', async () => {
+			const share = theShareSheet(async () => {
+				throw new DOMException('Not allowed', 'NotAllowedError');
+			});
+			const { button } = await readyToShare(share);
+
+			await fireEvent.click(button);
+
+			expect(await screen.findByRole('alert')).toHaveTextContent(/could not be made/);
+			expect(screen.getByRole('button', { name: /Print a sheet/i })).toBeEnabled();
+		});
+
+		it('offers a fresh sheet once one has been shared', async () => {
+			const { button } = await readyToShare();
+
+			await fireEvent.click(button);
+
+			expect(await screen.findByRole('button', { name: /Print a sheet/i })).toBeEnabled();
+		});
+
+		it('shares a Sheet already on the phone while the server is out of reach', async () => {
+			const { share } = await readyToShare();
+			Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+			try {
+				window.dispatchEvent(new Event('offline'));
+				await tick();
+
+				await fireEvent.click(screen.getByRole('button', { name: 'Share the sheet' }));
+				expect(share).toHaveBeenCalledTimes(1);
+			} finally {
+				Reflect.deleteProperty(navigator, 'onLine');
+			}
+		});
+
+		it('drops the Sheet ready to share when the cook walks to another recipe', async () => {
+			const { goTo } = await readyToShare();
+
+			await goTo('theirs');
+
+			expect(await screen.findByRole('button', { name: /Print a sheet/i })).toBeEnabled();
+			expect(screen.queryByRole('button', { name: 'Share the sheet' })).not.toBeInTheDocument();
+		});
+
+		it('says a slow sheet can be shared when it is ready, and not that it opens', () =>
+			withTheClockFaked(async () => {
+				theShareSheet();
+				vi.stubGlobal('open', vi.fn());
+				renderRecipe(
+					{
+						...forked(),
+						make_sheet: { job_id: 'j_sheet' },
+						get_job: outlivingTheWait(
+							{ ...sheetJob, status: 'running' as const, result: null },
+							sheetJob,
+						),
+					},
+					'mine',
+					{ device: installedApple, sheets: theSheetRoute().sheets },
+				);
+				await screen.findByText('This recipe, 2 versions');
+				await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+
+				expect(
+					await screen.findByText(/Stay on this page and you can share it when it is ready/),
+				).toHaveAttribute('role', 'status');
+				expect(await screen.findByRole('button', { name: 'Share the sheet' })).toBeEnabled();
+			}));
+
+		it.each([
+			['a Safari tab on an iPhone', { installed: false, apple: true }],
+			['an installed app that is not on Apple', { installed: true, apple: false }],
+		])('still opens the Sheet in a tab in %s', async (_, device) => {
+			const share = theShareSheet();
+			const tab = { location: { href: '' }, close: vi.fn() };
+			const open = vi.fn(() => tab);
+			vi.stubGlobal('open', open);
+			const route = theSheetRoute();
+			renderRecipe({ ...forked(), make_sheet: { job_id: 'j_sheet' }, get_job: sheetJob }, 'mine', {
+				device,
+				sheets: route.sheets,
+			});
+			await screen.findByText('This recipe, 2 versions');
+
+			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+
+			expect(open).toHaveBeenCalledWith('', '_blank');
+			await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
+			expect(route.fetch).not.toHaveBeenCalled();
+			expect(share).not.toHaveBeenCalled();
+		});
+
+		it('still opens the Sheet in a tab where the phone cannot share a file', async () => {
+			const tab = { location: { href: '' }, close: vi.fn() };
+			vi.stubGlobal(
+				'open',
+				vi.fn(() => tab),
+			);
+			renderRecipe({ ...forked(), make_sheet: { job_id: 'j_sheet' }, get_job: sheetJob }, 'mine', {
+				device: installedApple,
+				sheets: theSheetRoute().sheets,
+			});
+			await screen.findByText('This recipe, 2 versions');
+
+			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
+
+			await vi.waitFor(() => expect(tab.location.href).toBe('/api/sheets/j_sheet'));
+		});
+	});
 });
 
 describe('on the phone (#76)', () => {

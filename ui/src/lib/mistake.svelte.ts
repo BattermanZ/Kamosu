@@ -66,9 +66,10 @@ export function wentWrong(thrown: unknown): void {
  *
  * `createClient` covers every Operation, which is nearly everything a screen
  * asks Kamosu. The exceptions are the asks that cannot be Operations: the four
- * authentication routes, and the two uploads that carry a file too large for an
- * envelope (ADR 0001). They come through here so that *anywhere* a screen asks
- * Kamosu something means anywhere, and not anywhere-but-those-three.
+ * authentication routes, the two uploads that carry a file too large for an
+ * envelope (ADR 0001), and the Sheet fetched to be shared (#149). They come
+ * through here so that *anywhere* a screen asks Kamosu something means
+ * anywhere, and not anywhere-but-those.
  */
 export async function watched<T>(ask: Promise<T>): Promise<T> {
 	try {

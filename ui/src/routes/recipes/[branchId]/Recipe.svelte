@@ -150,7 +150,8 @@
 	import { onlyOnThisPhone } from '$lib/offline/outbox';
 	import PhotoToRecipe, { type Offered } from '$lib/PhotoToRecipe.svelte';
 	import StepPhoto from '$lib/StepPhoto.svelte';
-	import { Online, refreshed } from '$lib/offline/device.svelte';
+	import { Online, refreshed, thisDevice, type Device } from '$lib/offline/device.svelte';
+	import { useSheets } from '$lib/api/sheet';
 	import HowMuch from '$lib/HowMuch.svelte';
 	import { said, same, toSearch, type Wanted } from '$lib/how-much';
 	import { useLibrary } from '$lib/offline/library.svelte';
@@ -169,11 +170,17 @@
 
 	interface Props {
 		branchId: string;
+		/**
+		 * Whether this is the app installed on an iPhone or iPad, where a Sheet
+		 * goes to the share sheet rather than a tab (#149). A test hands in its own.
+		 */
+		device?: Pick<Device, 'installed' | 'apple'>;
 	}
 
-	let { branchId }: Props = $props();
+	let { branchId, device = thisDevice() }: Props = $props();
 
 	const kamosu = useKamosu();
+	const sheets = useSheets();
 
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
 	let divergence = $state<DivergenceOutput | undefined>(undefined);
@@ -312,7 +319,14 @@
 	let howMuchFailed = $state(false);
 	let shopping = $state(false);
 	/** Where asking for a Sheet has got to (#75). */
-	let printing = $state<'idle' | 'setting' | 'stillSetting' | 'failed'>('idle');
+	let printing = $state<'idle' | 'setting' | 'stillSetting' | 'ready' | 'failed'>('idle');
+	/**
+	 * The Sheet fetched and waiting for the tap that shares it (#149), in the
+	 * installed app on an Apple device. Set only while `printing` is `ready`.
+	 */
+	let prepared: File | undefined;
+	/** The Sheet being set goes to the share sheet rather than a tab (#149). */
+	let sharing = $state(false);
 	/** Being set, however long it takes: one Sheet at a time, and never a second tab. */
 	const settingSheet = $derived(printing === 'setting' || printing === 'stillSetting');
 	/**
@@ -539,12 +553,18 @@
 	 * tab closes. The Job itself carries on regardless (ADR 0032). One that was
 	 * ready as the cook left still fills its tab, but never moves the page they
 	 * have gone to.
+	 *
+	 * In the app installed on an iPhone or iPad no tab opens (#149): the Sheet
+	 * is fetched here once the Job ends, and this same button then shares it
+	 * (`shareSheet`; option A, Aurélien, 25 September 2026).
 	 */
 	async function printSheet() {
 		const forVisit = visit;
 		const leftBehind = () => closed || visit !== forVisit;
+		const toShare = sharesSheets();
+		sharing = toShare;
 		printing = 'setting';
-		const tab = window.open('', '_blank');
+		const tab = toShare ? null : window.open('', '_blank');
 		try {
 			// At the amount on screen: the page is what a Sheet prints (ADR 0023).
 			// Not while a Divergence is shown, where the amounts on screen are
@@ -570,6 +590,14 @@
 				return;
 			}
 			const at = (job.result as MakeSheetOutput).fetch_at;
+			if (toShare) {
+				const file = await sheets(at);
+				// Left while it was fetched: nothing is kept for a page not shown.
+				if (leftBehind()) return;
+				prepared = file;
+				printing = 'ready';
+				return;
+			}
 			if (tab) tab.location.href = at;
 			else if (!leftBehind()) window.location.assign(at);
 			if (!leftBehind()) printing = 'idle';
@@ -577,6 +605,47 @@
 			tab?.close();
 			if (!leftBehind()) printing = 'failed';
 		}
+	}
+
+	/**
+	 * The installed app on an iPhone or iPad (#149). iOS keeps every address
+	 * inside the manifest's scope in the app's own window, which has no Share,
+	 * Save or Print, so a Sheet opened there can be looked at and nothing else.
+	 * Asked with a stand-in PDF before the real one exists, because the choice
+	 * of path is made at the first tap.
+	 */
+	function sharesSheets(): boolean {
+		if (!device.installed || !device.apple || typeof navigator.share !== 'function') return false;
+		// Not empty, so the answer is about a PDF rather than about nothing.
+		const probe = new File(['%PDF-'], 'Sheet.pdf', { type: 'application/pdf' });
+		return navigator.canShare?.({ files: [probe] }) === true;
+	}
+
+	/**
+	 * Hand the prepared Sheet to the share sheet: Save to Files, Print, AirDrop.
+	 * Called straight from the tap with nothing awaited first, since iOS only
+	 * opens the share sheet for a tap it can still see (#149). Closing the
+	 * share sheet is not a failure, and keeps the Sheet for another try; once
+	 * it has gone somewhere, the next tap sets a fresh one.
+	 */
+	function shareSheet() {
+		const file = prepared;
+		if (!file) return;
+		const forVisit = visit;
+		const moved = () => closed || visit !== forVisit || prepared !== file;
+		navigator.share({ files: [file] }).then(
+			() => {
+				if (moved()) return;
+				prepared = undefined;
+				printing = 'idle';
+			},
+			(error: unknown) => {
+				if (error instanceof DOMException && error.name === 'AbortError') return;
+				if (moved()) return;
+				prepared = undefined;
+				printing = 'failed';
+			},
+		);
 	}
 
 	/** Set once this screen closes, so a Sheet still being waited on stops being read. */
@@ -736,8 +805,10 @@
 				choosingHowMuch = false;
 				howMuchFailed = false;
 				// A Sheet being set was the last recipe's; `printSheet` stops
-				// waiting on it once it sees the recipe has changed (#117).
+				// waiting on it once it sees the recipe has changed (#117). A
+				// Sheet ready to share was that recipe's too (#149).
 				printing = 'idle';
+				prepared = undefined;
 			});
 		}
 	});
@@ -2137,19 +2208,33 @@
 			A Sheet (#75, ADR 0023): this recipe, as it stands here, on paper.
 			It waits for the server, since the server is what sets it.
 		-->
-			<NeedsServer
-				label={settingSheet ? m.recipe_print_setting() : m.recipe_print_sheet()}
-				waiting={m.offline_waits_print()}
-				onclick={printSheet}
-				disabled={settingSheet}
-				shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-				lookClass="border border-rule text-accent"
-			/>
+			{#if printing === 'ready'}
+				<!--
+				The Sheet is already on the phone, so sharing it waits for nothing
+				(#149): the same button, no longer one that needs the server.
+			-->
+				<button
+					type="button"
+					onclick={shareSheet}
+					class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] border border-rule p-4 text-center font-display text-body text-accent"
+				>
+					{m.recipe_share_sheet()}
+				</button>
+			{:else}
+				<NeedsServer
+					label={settingSheet ? m.recipe_print_setting() : m.recipe_print_sheet()}
+					waiting={m.offline_waits_print()}
+					onclick={printSheet}
+					disabled={settingSheet}
+					shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
+					lookClass="border border-rule text-accent"
+				/>
+			{/if}
 			{#if printing === 'failed'}
 				<p class="mx-gutter mt-2 text-read text-support" role="alert">{m.recipe_print_failed()}</p>
 			{:else if printing === 'stillSetting'}
 				<p class="mx-gutter mt-2 text-read text-ink-2" role="status">
-					{m.recipe_print_still_going()}
+					{sharing ? m.recipe_share_still_going() : m.recipe_print_still_going()}
 				</p>
 			{/if}
 			<!--

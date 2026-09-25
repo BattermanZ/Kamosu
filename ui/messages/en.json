@@ -576,6 +576,8 @@
   "recipe_print_setting": "Setting the sheet…",
   "recipe_print_sheet": "Print a sheet",
   "recipe_print_still_going": "The sheet is taking a while. Stay on this page and it opens when ready.",
+  "recipe_share_sheet": "Share the sheet",
+  "recipe_share_still_going": "The sheet is taking a while. Stay on this page and you can share it when it is ready.",
   "recipe_promote_failed": "Could not keep it. Nothing about the recipe changed.",
   "recipe_promoted": "Kept. It's a new Version of this recipe now.",
   "recipe_save_as_version": "Save as a new Version",

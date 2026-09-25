@@ -576,6 +576,8 @@
   "recipe_print_setting": "Preparando la hoja…",
   "recipe_print_sheet": "Imprimir una hoja",
   "recipe_print_still_going": "La hoja está tardando. Quédate en esta página y se abrirá en cuanto esté lista.",
+  "recipe_share_sheet": "Compartir la hoja",
+  "recipe_share_still_going": "La hoja está tardando. Quédate en esta página y podrás compartirla en cuanto esté lista.",
   "recipe_promote_failed": "No se pudo guardar. Nada de la receta cambió.",
   "recipe_promoted": "Guardado. Ya es una nueva Versión de esta receta.",
   "recipe_save_as_version": "Guardar como nueva Versión",
