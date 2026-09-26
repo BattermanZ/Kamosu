@@ -79,6 +79,19 @@ const parse = (text: string): Envelope | undefined => {
 /** Where the moment of the last write is noted, so it outlives the worker. */
 const LAST_WRITE = '/__kamosu/last-write';
 
+/**
+ * How young a kept answer is when it is not refreshed behind: the server gave
+ * it a moment ago, so it is as current as asking again.
+ *
+ * This is what stops a page chasing its own tail. Told that a read changed,
+ * the page asks again — and if that ask refreshed behind too, a read whose
+ * answer differs every time would be told of a change forever. Home's shuffled
+ * *never cooked* (#151) is one, and it asked sixty times a second on every
+ * phone that had kept it. The page's ask again arrives within milliseconds;
+ * the margin is for a slow phone.
+ */
+const JUST_KEPT_MS = 10_000;
+
 export function createWorker(world: WorkerWorld) {
 	const announce = (operation: string) => world.tell({ type: 'kamosu:refreshed', operation });
 
@@ -178,7 +191,7 @@ export function createWorker(world: WorkerWorld) {
 		// refresh behind needs it to tell whether anything changed.
 		const before = kept ? await kept.clone().text() : undefined;
 
-		const refresh = (async () => {
+		const refresh = async () => {
 			const response = await toServer(request);
 			if (response.status !== 200) {
 				if (response.status === 401) await refused();
@@ -201,7 +214,7 @@ export function createWorker(world: WorkerWorld) {
 				await refused();
 			}
 			return response;
-		})();
+		};
 
 		/**
 		 * The Session is gone. If the page was already shown a kept answer, it
@@ -216,12 +229,12 @@ export function createWorker(world: WorkerWorld) {
 		const keptAt = Number(kept?.headers.get(KEPT_HEADER) ?? 0);
 		const current = kept !== undefined && keptAt >= (await lastWritten());
 		if (policy === 'phone-first' && current) {
-			waitUntil(refresh.catch(() => undefined));
+			if (world.now() - keptAt >= JUST_KEPT_MS) waitUntil(refresh().catch(() => undefined));
 			return kept;
 		}
 
 		try {
-			return await refresh;
+			return await refresh();
 		} catch (error) {
 			if (kept) return kept;
 			throw error;

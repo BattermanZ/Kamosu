@@ -108,7 +108,11 @@ function world(
 	const settle = async () => {
 		await Promise.all(background.splice(0));
 	};
-	return { worker, stores, server, announced, reached, call, settle, restarted };
+	/** A minute on: whatever was kept is old enough to be asked about again. */
+	const later = () => {
+		clock.at += 60_000;
+	};
+	return { worker, stores, server, announced, reached, call, settle, restarted, later };
 }
 
 const ok = (result: unknown): Answer => ({ body: { ok: true, result } });
@@ -146,6 +150,7 @@ describe('a read', () => {
 		await w.settle();
 
 		title = 'Dan Dan Noodles, less chilli';
+		w.later();
 		// Answered at once from what was kept…
 		expect((await w.call('get_recipe', { branch_id: 'b_1' })).result).toEqual({
 			title: 'Dan Dan Noodles',
@@ -167,6 +172,29 @@ describe('a read', () => {
 		expect(w.announced).toEqual([]);
 	});
 
+	it('whose answer differs on every ask is refreshed once, not chased forever', async () => {
+		// Home's *never cooked* is shuffled each time it is asked (#151), so the
+		// server never gives the same answer twice.
+		let shuffle = 0;
+		const w = world(() => ok({ order: ++shuffle }));
+		await w.call('home_shelves');
+		await w.settle();
+
+		// Home is opened again…
+		w.later();
+		await w.call('home_shelves');
+		await w.settle();
+		// …and asks again each time it is told what it shows has changed, the
+		// way the page does. Before this, every ask refreshed behind, every
+		// refresh was a new shuffle, and Home asked sixty times a second.
+		for (let told = 0; told < w.announced.length && told < 10; told++) {
+			await w.call('home_shelves');
+			await w.settle();
+		}
+		expect(w.announced).toEqual(['home_shelves']);
+		expect(w.server.asked).toHaveLength(2);
+	});
+
 	it('is still answered with no network, from what was kept', async () => {
 		let online = true;
 		const w = world(() => (online ? ok({ title: 'Korean Fried Chicken' }) : 'unreachable'));
@@ -186,6 +214,7 @@ describe('a read', () => {
 		await w.call('get_recipe', { branch_id: 'b_1' });
 		await w.settle();
 		online = false;
+		w.later();
 		// Answered from the phone, while the refresh behind it finds no server.
 		await w.call('get_recipe', { branch_id: 'b_1' });
 		await w.settle();
@@ -295,6 +324,7 @@ describe('a write', () => {
 		expect((await w.call('get_shopping_list')).result).toEqual({ chosen: ['b_1'] });
 
 		// And once brought level, it is phone-first again.
+		w.later();
 		const before = w.server.asked.length;
 		await w.call('get_shopping_list');
 		expect(w.server.asked.length).toBe(before + 1); // the refresh behind, not a wait
@@ -329,6 +359,7 @@ describe('a Session', () => {
 		await w.call('get_recipe', { branch_id: 'b_1' });
 		await w.settle();
 		signedIn = false;
+		w.later();
 		await w.call('get_recipe', { branch_id: 'b_1' });
 		await w.settle();
 		expect(w.stores.has(READS_CACHE)).toBe(false);
@@ -344,6 +375,7 @@ describe('a Session', () => {
 		await w.call('home_shelves');
 		await w.settle();
 		signedIn = false;
+		w.later();
 		// Answered from the phone, and then told otherwise…
 		expect((await w.call('home_shelves')).ok).toBe(true);
 		await w.settle();
