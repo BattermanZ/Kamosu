@@ -262,12 +262,18 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// `salt and pepper to taste` gets, and what any line whose words Kamosu
 /// cannot place gets, and the line goes on working exactly as written.
 pub fn read_line(line: &str) -> Option<Reading> {
-    let head = strip_the_cooks_aside(line);
-    let head = split_elisions(&head);
+    let line = without_brackets(line);
+    let mut clauses = line.split(',');
+    let head = split_elisions(clauses.next().unwrap_or_default());
     let tokens: Vec<&str> = head.split_whitespace().collect();
     if tokens.is_empty() {
         return None;
     }
+    // What follows the first comma is ordinarily the cook's aside, never part
+    // of the Reading: in `garlic, minced` the cook is talking *about* the
+    // garlic. It is kept here only for the one case below where the comma
+    // fell between the measure and the thing measured.
+    let past_the_comma = clauses.next().map(split_elisions);
 
     let mut reading = Reading::default();
 
@@ -283,16 +289,6 @@ pub fn read_line(line: &str) -> Option<Reading> {
         }
     }
 
-    // Glue and size words sit wherever they like — before the Unit as much as
-    // after it — and belong to neither the Unit nor the Food. Stripped on both
-    // sides of the Unit so `a pinch of salt` reads exactly as `pinch of salt`
-    // does, which is the whole point: an article is not a measurement.
-    fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
-        while words.first().is_some_and(|word| is_glue(word)) {
-            words = &words[1..];
-        }
-        words
-    }
     rest = strip_glue(rest);
 
     // The Unit: the longest window the closed set recognises — `fl oz` and
@@ -302,9 +298,16 @@ pub fn read_line(line: &str) -> Option<Reading> {
     // **A Unit is only a Unit while something is left for it to measure.**
     // `pinch of salt` is a pinch of salt; a line reading `cloves` alone is
     // naming the spice, and reading it as a Unit of nothing would put an
-    // empty measure on a perfectly good line.
+    // empty measure on a perfectly good line. A comma straight after it ends
+    // the measure as surely as a word does: `1 cup, panko bread crumbs` is a
+    // cup of what follows (#160).
+    let longest = if past_the_comma.is_some() {
+        rest.len()
+    } else {
+        rest.len().saturating_sub(1)
+    };
     let mut unit_taken = 0;
-    for take in (1..=rest.len().saturating_sub(1).min(3)).rev() {
+    for take in (1..=longest.min(3)).rev() {
         let candidate = rest[..take].join(" ");
         if units::recognise(&candidate).is_some() || (take == 1 && listed(OPEN_UNITS, rest[0])) {
             reading.unit = Some(candidate);
@@ -312,15 +315,57 @@ pub fn read_line(line: &str) -> Option<Reading> {
             break;
         }
     }
-    reading.target = rejoin(strip_glue(&rest[unit_taken..]));
+
+    // The Food is what the measure leaves. Only where it leaves nothing, and
+    // something *was* measured, is the Food looked for past the comma — the
+    // aside after *that* still dropped, so `4 , hamburger buns, toasted if
+    // desired` is hamburger buns. Where there is nothing there either, the
+    // Reading names no Food rather than promoting the Unit into one
+    // (ADR 0002).
+    let named = strip_glue(&rest[unit_taken..]);
+    reading.target = if !named.is_empty() {
+        rejoin(named)
+    } else if reading.amount.is_some() || reading.unit.is_some() {
+        let words: Vec<&str> = past_the_comma
+            .as_deref()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect();
+        rejoin(strip_glue(&words))
+    } else {
+        None
+    };
     reading.is_something().then_some(reading)
 }
 
-/// Everything after the first comma, and anything in brackets, is what the
-/// cook said *about* this line — how to cut it, whether to skip it, what it
-/// weighed in the shop. It is part of the written line and never part of the
-/// Reading, so it is dropped here and nowhere else.
-fn strip_the_cooks_aside(line: &str) -> String {
+/// Whether a word is a measure: a Unit the closed set recognises, or one of
+/// the [`OPEN_UNITS`]. A Food named by one of these is almost always a Unit
+/// left standing where the Food should be, the fault #160 fixed, and the
+/// corpus test asks this of every Reading so it cannot come back unseen.
+///
+/// *Almost* always: a line that is only `cloves` names the spice and reads
+/// that way on purpose. The corpus holds no such line, so the test can afford
+/// the stricter question; a library that does hold one should not.
+pub fn is_a_unit_word(word: &str) -> bool {
+    units::recognise(word).is_some() || listed(OPEN_UNITS, word)
+}
+
+/// Glue and size words sit wherever they like — before the Unit as much as
+/// after it — and belong to neither the Unit nor the Food. Stripped on both
+/// sides of the Unit so `a pinch of salt` reads exactly as `pinch of salt`
+/// does, which is the whole point: an article is not a measurement.
+fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
+    while words.first().is_some_and(|word| is_glue(word)) {
+        words = &words[1..];
+    }
+    words
+}
+
+/// Anything in brackets is what the cook said *about* this line — what it
+/// weighed in the shop, whether to skip it. It is part of the written line
+/// and never part of the Reading. What follows a comma is the same kind of
+/// thing, and [`read_line`] drops it once it has found the Food.
+fn without_brackets(line: &str) -> String {
     let mut kept = String::with_capacity(line.len());
     let mut depth = 0i32;
     for character in line.chars() {
@@ -331,11 +376,7 @@ fn strip_the_cooks_aside(line: &str) -> String {
             _ => {}
         }
     }
-    kept.split(',')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_string()
+    kept
 }
 
 /// Put a space after an elided article so it is a word the lists can see.
@@ -586,6 +627,90 @@ fn food_after(rest: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A line's Reading as its three parts, `None` where a part is absent.
+    fn read(line: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+        read_line(line).map(|reading| (reading.amount, reading.unit, reading.target))
+    }
+
+    fn parts(
+        amount: Option<&str>,
+        unit: Option<&str>,
+        target: Option<&str>,
+    ) -> Option<(Option<String>, Option<String>, Option<String>)> {
+        Some((
+            amount.map(str::to_string),
+            unit.map(str::to_string),
+            target.map(str::to_string),
+        ))
+    }
+
+    #[test]
+    fn a_comma_between_the_measure_and_the_food_is_read_past() {
+        // The Air-Fryer Spicy Fried-Chicken Sandwich, as Crouton filed it (#160).
+        assert_eq!(
+            read("1 cup, panko bread crumbs"),
+            parts(Some("1"), Some("cup"), Some("panko bread crumbs"))
+        );
+        assert_eq!(
+            read("2 tablespoons, extra-virgin olive oil"),
+            parts(
+                Some("2"),
+                Some("tablespoons"),
+                Some("extra-virgin olive oil")
+            )
+        );
+        assert_eq!(
+            read("½ teaspoon, garlic powder"),
+            parts(Some("½"), Some("teaspoon"), Some("garlic powder"))
+        );
+        assert_eq!(
+            read("4 , hamburger buns, toasted if desired"),
+            parts(Some("4"), None, Some("hamburger buns"))
+        );
+        // A size is dropped past the comma exactly as it is without one, so
+        // this is the same Food as `1 large egg`.
+        assert_eq!(read("1 , large egg"), read("1 large egg"));
+        assert_eq!(read("1 , large egg"), parts(Some("1"), None, Some("egg")));
+        // No amount, but a Unit with something past the comma to measure.
+        assert_eq!(
+            read("a handful , halved cherry tomatoes"),
+            parts(None, Some("handful"), Some("halved cherry tomatoes"))
+        );
+        assert_eq!(
+            read("cloves, roughly chopped garlic"),
+            parts(None, Some("cloves"), Some("roughly chopped garlic"))
+        );
+    }
+
+    #[test]
+    fn what_follows_the_food_is_still_the_cooks_aside() {
+        assert_eq!(read("garlic, minced"), parts(None, None, Some("garlic")));
+        assert_eq!(
+            read("1 tbsp olive oil, plus more for drizzling"),
+            parts(Some("1"), Some("tbsp"), Some("olive oil"))
+        );
+        assert_eq!(
+            read("2 onions (about 300 g), finely chopped"),
+            parts(Some("2"), None, Some("onions"))
+        );
+        // Nothing before the comma measures anything, so nothing after it is
+        // read as the thing measured.
+        assert_eq!(read(", Salt and pepper"), None);
+        // A Unit with nothing at all to measure is still the Food it names.
+        assert_eq!(read("cloves"), parts(None, None, Some("cloves")));
+    }
+
+    #[test]
+    fn a_unit_is_never_left_standing_as_the_food() {
+        // Where the comma leaves nothing to name, the Reading names nothing
+        // rather than promoting the Unit into a Food (ADR 0002).
+        assert_eq!(read("1 cup,"), parts(Some("1"), Some("cup"), None));
+        assert_eq!(
+            read("2 tbsp, (to taste)"),
+            parts(Some("2"), Some("tbsp"), None)
+        );
+    }
 
     fn written(text: &str) -> Vec<(&str, Option<String>)> {
         amounts_in_step(text)

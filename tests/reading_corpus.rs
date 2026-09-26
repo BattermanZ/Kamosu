@@ -232,6 +232,7 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
     let mut scored = 0usize;
     let mut missed_units = 0usize;
     let mut named = 0usize;
+    let mut measures_named_as_foods = Vec::new();
 
     for (title, lines) in &recipes {
         let ingredients: Vec<Value> = lines
@@ -307,6 +308,16 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
                 missed_units += usize::from(line.unit.is_some() && read_unit.is_none());
             }
             named += usize::from(reading["target"].as_str().is_some_and(|t| !t.is_empty()));
+            // A Food named by a bare Unit word is a Reading that invented an
+            // answer, and it counted towards `named` above as a success. So it
+            // is counted here by name instead, where no share can hide it
+            // (#160).
+            if let Some(target) = reading["target"].as_str()
+                && kamosu::reading::is_a_unit_word(target)
+            {
+                measures_named_as_foods
+                    .push(format!("{title}: {:?} read as {target:?}", line.written));
+            }
         }
     }
 
@@ -353,6 +364,11 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
         named_share >= 0.95,
         "a line names a Food even where it carries no quantity; got {:.1}%",
         named_share * 100.0
+    );
+
+    assert!(
+        measures_named_as_foods.is_empty(),
+        "no Reading names a Unit as its Food: {measures_named_as_foods:#?}"
     );
 
     // **An unread line is a working line** (ADR 0002): the whole library came
