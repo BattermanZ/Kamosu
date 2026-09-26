@@ -1344,6 +1344,113 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::import_web_link,
         },
         Operation {
+            name: "preview_shared_recipe",
+            summary: "Say what importing a Kamosu Share Link would do, before \
+                      anything is written, as a Job (#170). Reaches the recipe \
+                      file exactly as `import_web_link` does — this \
+                      instance's own link locally, another Kamosu's at a \
+                      public address through the guarded client — and answers \
+                      the shared recipe's title, Source, writer, how many \
+                      Versions it carries and a small picture, and whether \
+                      your own Cookbook holds it already, with how many newer \
+                      Versions the file carries past yours. The file is \
+                      staged: pass `upload_id` to `import_bundle` to import \
+                      exactly what was previewed without fetching it again. \
+                      An ended link, or an address that is no Share Link, is \
+                      refused.",
+            permission: Permission::Person,
+            kind: Kind::Job,
+            // It writes nothing to the library, but it fetches another site
+            // and stages the file on disk — work only a Credential that may
+            // import has any use for.
+            write: true,
+            session_only: false,
+            // The same lane `import_web_link` takes, for the same reason: the
+            // address is somebody else's, and a page can ask for another.
+            job_lane: JobLane::AlwaysSingle,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The Share Link: https://<instance>/s/<token>, \
+                                         or one of its Translations' pages.",
+                    },
+                },
+                "required": ["url"],
+                "additionalProperties": false,
+            }),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The recipe file, staged for you. Pass it to \
+                                         `import_bundle`; unused, it is swept after a day.",
+                    },
+                    "title": { "type": "string" },
+                    "shared_by": {
+                        "type": ["string", "null"],
+                        "description": "Who shared it, as the Share Link's page names \
+                                         them; null where the page does not say.",
+                    },
+                    "written_by": {
+                        "type": ["string", "null"],
+                        "description": "The name of the Hand that writes the shared recipe.",
+                    },
+                    "source": {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "text": { "type": ["string", "null"] },
+                            "link": { "type": ["string", "null"] },
+                        },
+                        "required": ["text", "link"],
+                        "additionalProperties": false,
+                    },
+                    "versions": {
+                        "type": "integer",
+                        "description": "How many Versions of the recipe the file carries.",
+                    },
+                    "photo": {
+                        "type": ["string", "null"],
+                        "description": "A small copy of its picture, as a data: address.",
+                    },
+                    "held": {
+                        "type": ["object", "null"],
+                        "description": "Your Cookbook's copy, when it holds one already.",
+                        "properties": {
+                            "branch_id": { "type": "string" },
+                            "arrived": {
+                                "type": "boolean",
+                                "description": "Whether it came from elsewhere, rather \
+                                                 than being written in your Cookbook.",
+                            },
+                            "since": {
+                                "type": "string",
+                                "description": "When your Cookbook first held it.",
+                            },
+                            "newer": {
+                                "type": "integer",
+                                "description": "How many Versions importing would add.",
+                            },
+                            "diverged": {
+                                "type": "boolean",
+                                "description": "Whether your copy and the file have gone \
+                                                 different ways, so importing would change \
+                                                 nothing: the sender rewrote a Version you \
+                                                 already hold.",
+                            },
+                        },
+                        "required": ["branch_id", "arrived", "since", "newer", "diverged"],
+                        "additionalProperties": false,
+                    },
+                },
+                "required": ["upload_id", "title", "shared_by", "written_by", "source", "versions", "photo", "held"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::preview_shared_recipe,
+        },
+        Operation {
             name: "rename_version",
             summary: "Rename a Version — the one thing about it that can \
                       change later. An absent or empty name clears it. \

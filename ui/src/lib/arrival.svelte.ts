@@ -39,6 +39,15 @@ export interface Landed {
 export interface Arrival extends Landed {
 	/** The Job, so the line can point at the whole Report. */
 	jobId: string;
+	/**
+	 * Where it came from, when not a file somebody chose: a Share Link imported
+	 * from its own page (#170). The line then names no file.
+	 */
+	from?: 'link';
+	/** Who writes it, where the line names them: its newer Versions are theirs. */
+	writer?: string;
+	/** How many newer Versions importing brought, when it brought some. */
+	added?: number;
 }
 
 /** What the screen should do with a Report, once the Job has ended. */

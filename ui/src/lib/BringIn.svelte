@@ -40,10 +40,10 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { useUpload } from '$lib/api/upload';
 	import { StillRunning, waitForJob } from '$lib/api/job';
-	import { noteArrival, outcomeOf } from '$lib/arrival.svelte';
+	import { receiveStaged } from '$lib/receive';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online } from '$lib/offline/device.svelte';
-	import type { ImportBundleOutput, ImportWebLinkOutput } from '$lib/api/catalogue';
+	import type { ImportWebLinkOutput } from '$lib/api/catalogue';
 
 	interface Props {
 		look: 'offer' | 'quiet';
@@ -143,24 +143,9 @@
 		stillGoing = false;
 		try {
 			const uploadId = await upload(file);
-			const asked = await kamosu.importBundle({ upload_id: uploadId });
-			const finished = await waitForJob(kamosu, asked.job_id, { giveUpAfter: 10 * 60 * 1000 });
-			const outcome = outcomeOf(finished.result as ImportBundleOutput);
-			if (outcome.show === 'reason') {
-				// Not a recipe file, or one nothing could be read from. It is a
-				// completed Job with an empty Report, not a failure, so what it
-				// says is the answer — said here, where the file was chosen.
-				failed = outcome.reason === '' ? m.bring_in_unreadable() : outcome.reason;
-				return;
-			}
-			if (outcome.show === 'report') {
-				// More happened than a line can name, so the ledger is the honest
-				// answer rather than one of several recipes picked arbitrarily.
-				await goto(`/imports/${asked.job_id}`);
-				return;
-			}
-			noteArrival({ ...outcome.landed, jobId: asked.job_id });
-			await goto(`/recipes/${outcome.landed.branchId}`);
+			// Where nothing landed, the reason is said here, where the file was
+			// chosen.
+			failed = await receiveStaged(kamosu, uploadId);
 		} catch (error) {
 			// A Job that failed is raised as a plain Error by `waitForJob`, and a
 			// refused Operation as an OperationError. A Job that outlasted the

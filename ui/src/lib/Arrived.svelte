@@ -18,6 +18,9 @@
 	history could not be read is the fourth, and its sentence is the Core's own
 	(#67) rather than one written again here — it already says exactly what was
 	kept and what was lost.
+
+	A Share Link imported from its own page (#170) ends here too, in lines
+	that name no file, and says whose newer Versions came when it brought some.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -59,17 +62,40 @@
 		if (arrival.how === 'kept') return m.arrived_kept();
 		if (arrival.status === 'unchanged') return m.arrived_unchanged();
 		if (arrival.status === 'extended') return m.arrived_extended();
-		return m.arrived_created();
+		return arrival.from === 'link' ? m.arrived_link_created() : m.arrived_created();
 	});
+
+	/**
+	 * Each ending's line, for a file somebody chose and for a Share Link
+	 * imported from its page (#170), which is no file and names none.
+	 */
+	const LINES = {
+		file: {
+			created: m.arrived_created_line,
+			extended: m.arrived_extended_line,
+			unchanged: m.arrived_unchanged_line,
+		},
+		link: {
+			created: m.arrived_link_created_line,
+			extended: m.arrived_link_extended_line,
+			unchanged: m.arrived_link_unchanged_line,
+		},
+	};
 
 	const line = $derived.by(() => {
 		if (!arrival) return '';
 		// A damaged Bundle's own reason, which already names what was kept and
 		// what was lost. Rewriting it here would say less, and differently.
 		if (arrival.how === 'kept') return arrival.reason ?? '';
-		if (arrival.status === 'unchanged') return m.arrived_unchanged_line({ title: arrival.title });
-		if (arrival.status === 'extended') return m.arrived_extended_line({ title: arrival.title });
-		return m.arrived_created_line({ title: arrival.title });
+		const { title, writer, added } = arrival;
+		// Newer Versions from a Share Link are somebody's, and counted: the
+		// confirm screen said how many, and this says they came.
+		if (arrival.status === 'extended' && writer && added) {
+			return added === 1
+				? m.arrived_link_extended_by_one({ name: writer, title })
+				: m.arrived_link_extended_by({ name: writer, title, count: added });
+		}
+		return LINES[arrival.from ?? 'file'][arrival.status ?? 'created']({ title });
 	});
 
 	/** The Passengers, said only where there are any (ADR 0008). */

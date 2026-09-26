@@ -166,7 +166,8 @@ struct Words {
     source_opens: &'static str,
     also_in: &'static str,
     history: &'static str,
-    keep: &'static str,
+    /// The one way into a reader's own library (#170), for every reader alike.
+    import: &'static str,
     bundle: &'static str,
     /// One line under the recipe file, saying what it is good for. A stranger
     /// can see the zip is a download; what they cannot see is that another
@@ -199,7 +200,6 @@ struct Words {
     /// without a weight the recipe does not carry.
     kcal_serving: &'static str,
     kcal_100g: &'static str,
-    not_yet: &'static str,
     /// The heading over a Component's own Steps (#50), beside `ingredients` and
     /// `method` because it is the same kind of thing: a label this page writes.
     ///
@@ -222,7 +222,7 @@ const EN: Words = Words {
     source_opens: "opens the original page",
     also_in: "Also written in",
     history: "History",
-    keep: "Keep this recipe",
+    import: "Import this recipe",
     bundle: "Recipe file",
     file_note: "A zip of readable notes and photographs that opens anywhere. Another Kamosu \
                 takes it in whole, with every version behind it.",
@@ -243,7 +243,6 @@ const EN: Words = Words {
     min_cook: "min cook",
     kcal_serving: "{n} kcal a serving",
     kcal_100g: "{n} kcal per 100 g",
-    not_yet: "Not built yet",
     component_method: "its own method",
     component_method_below: "Its method is at the foot of the page ↓",
 };
@@ -256,7 +255,7 @@ const FR: Words = Words {
     source_opens: "ouvre la page d'origine",
     also_in: "Également écrite en",
     history: "Historique",
-    keep: "Garder cette recette",
+    import: "Importer cette recette",
     bundle: "Fichier de recette",
     file_note: "Un zip de notes lisibles et de photographies, qui s'ouvre partout. Un autre \
                 Kamosu le reprend en entier, avec toutes les versions derrière lui.",
@@ -277,7 +276,6 @@ const FR: Words = Words {
     min_cook: "min cuisson",
     kcal_serving: "{n} kcal par portion",
     kcal_100g: "{n} kcal pour 100 g",
-    not_yet: "Pas encore disponible",
     component_method: "sa propre préparation",
     component_method_below: "Sa préparation est en bas de page ↓",
 };
@@ -290,7 +288,7 @@ const ES: Words = Words {
     source_opens: "abre la página original",
     also_in: "También escrita en",
     history: "Historial",
-    keep: "Guardar esta receta",
+    import: "Importar esta receta",
     bundle: "Archivo de receta",
     file_note: "Un zip de notas legibles y fotografías que se abre en cualquier parte. Otro \
                 Kamosu lo recibe entero, con todas las versiones detrás.",
@@ -311,7 +309,6 @@ const ES: Words = Words {
     min_cook: "min cocción",
     kcal_serving: "{n} kcal por ración",
     kcal_100g: "{n} kcal por 100 g",
-    not_yet: "Aún no disponible",
     component_method: "su propia preparación",
     component_method_below: "Su preparación está al pie de la página ↓",
 };
@@ -541,6 +538,9 @@ fn text_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 /// `web_import::fetch_shared_recipe`).
 pub const SHARE_PAGE_MARK: &str = r#"<meta name="generator" content="Kamosu">"#;
 
+/// The name of the tag that says who shared the recipe on its page (#170).
+pub const SHARED_BY_META: &str = "kamosu:shared-by";
+
 fn shell(language: &str, title: &str, head: String, body: String) -> String {
     let mark = SHARE_PAGE_MARK;
     format!(
@@ -638,7 +638,14 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         .unwrap_or(&no_passengers)
         .as_slice();
 
-    let head = open_graph(token, shared, title, sharer, language);
+    // Who shared it, for a machine rather than a person: another Kamosu about
+    // to import this recipe says so on its confirm screen (#170). The card's
+    // own "Shared by" is worded in the recipe's Language, and is no field.
+    let head = format!(
+        "{}\n<meta name=\"{SHARED_BY_META}\" content=\"{}\">",
+        open_graph(token, shared, title, sharer, language),
+        escape(sharer)
+    );
     let translations = translations_of(shared, token, language, words);
     let thread = thread_of(shared, words);
 
@@ -672,16 +679,18 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         the half of ADR 0020 a stranger cannot guess: the zip opens as plain
         notes anywhere, and is also exactly what another instance takes in.
 
-        Keeping the recipe is a Copy (ADR 0026) and is still not built for a
-        stranger, so it stays drawn and greyed — an indigo button leading
-        nowhere would be the one thing on this page that lies.
+        Importing is the third (#170): the recipe file received into the
+        reader's own Cookbook, exactly as a Bundle is. It is a link into the app
+        rather than anything done here: the page it opens is where the reader
+        signs in, or names their own Kamosu, and is told what importing would
+        do before it happens. One button for every reader, because this page
+        never asks who is looking (Aurélien's choices 2 and 3).
       -->
       <div class="mt-8 border-t border-rule pt-4">
         <a href="{sheet_href}" class="block rounded-sm bg-accent p-3 text-center font-display text-read text-on-accent">{sheet}</a>
         <a href="/s/{bundle_token}/bundle" class="mt-2 block rounded-sm border border-rule p-3 text-center font-display text-read text-accent">{bundle}</a>
         <p class="mt-2 text-read text-ink-2">{file_note}</p>
-        <p class="mt-4 text-label text-ink-2 uppercase">{not_yet}</p>
-        <span class="mt-2 block border border-rule p-3 text-center font-display text-read text-ink-2">{keep}</span>
+        <a href="/import?link=%2Fs%2F{bundle_token}" class="mt-4 block rounded-sm bg-accent p-3 text-center font-display text-read text-on-accent">{import}</a>
       </div>
     </div>
   </div>
@@ -700,7 +709,7 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
         annexes = annexes(carried, words),
         note = note(content),
         translations = translations,
-        keep = escape(words.keep),
+        import = escape(words.import),
         bundle = escape(words.bundle),
         bundle_token = escape(token),
         file_note = escape(words.file_note),
@@ -709,7 +718,6 @@ fn render(token: &str, shared: &Value, showing: Option<&str>) -> String {
             Some(language) => format!("/s/{}/in/{}/sheet", escape(token), escape(language)),
             None => format!("/s/{}/sheet", escape(token)),
         },
-        not_yet = escape(words.not_yet),
         thread = thread,
         standing = escape(words.standing),
     );

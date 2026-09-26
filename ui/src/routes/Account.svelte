@@ -18,6 +18,7 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import { deviceName } from '$lib/device-name';
+	import type { Snippet } from 'svelte';
 
 	interface Props {
 		/**
@@ -34,9 +35,23 @@
 		 * so is an Operation answering rather than refusing.
 		 */
 		onSignedIn?: () => void;
+		/**
+		 * A login asked for by another page rather than by `/`: the page a Share
+		 * Link's *Import this recipe* opens (#170, Aurélien's choice 2). It
+		 * brings its own heading, its own words on the button, and what it
+		 * offers above and below the form. Worn only by a login: an instance
+		 * not yet set up asks for its first Person whoever sent you.
+		 */
+		framing?: {
+			title: string;
+			blurb: string;
+			submit: string;
+			before: Snippet;
+			after: Snippet;
+		};
 	}
 
-	let { link, onSignedIn }: Props = $props();
+	let { link, onSignedIn, framing: framingAsked }: Props = $props();
 
 	const kamosu = useKamosu();
 	const auth = useAuth();
@@ -64,6 +79,33 @@
 	const mode = $derived(
 		invite ? 'invite' : recovery ? 'recover' : setupComplete ? 'login' : 'first-person',
 	);
+	const framing = $derived(mode === 'login' ? framingAsked : undefined);
+	/** What this form says, chosen once for the four forms and a framed login. */
+	const words = $derived.by(() => {
+		if (framing) return framing;
+		switch (mode) {
+			case 'invite':
+				return {
+					title: m.account_invite_title(),
+					blurb: m.account_invite_blurb(),
+					submit: m.account_invite_submit(),
+				};
+			case 'recover':
+				return {
+					title: m.account_recover_title(),
+					blurb: m.account_recover_blurb(),
+					submit: m.account_recover_submit(),
+				};
+			case 'login':
+				return { title: m.account_login_title(), blurb: undefined, submit: m.account_login() };
+			default:
+				return {
+					title: m.account_setup_title(),
+					blurb: m.account_setup_blurb(),
+					submit: m.account_create(),
+				};
+		}
+	});
 	/** Every form but login sets a password, and says how long it must be. */
 	const settingAPassword = $derived(mode !== 'login');
 
@@ -171,22 +213,8 @@
 {:else if setupComplete === undefined}
 	<Screen title={m.account_loading()} />
 {:else}
-	<Screen
-		title={invite
-			? m.account_invite_title()
-			: recovery
-				? m.account_recover_title()
-				: setupComplete
-					? m.account_login_title()
-					: m.account_setup_title()}
-		blurb={invite
-			? m.account_invite_blurb()
-			: recovery
-				? m.account_recover_blurb()
-				: setupComplete
-					? undefined
-					: m.account_setup_blurb()}
-	>
+	<Screen title={words.title} blurb={words.blurb}>
+		{@render framing?.before()}
 		<form
 			class="grid gap-4"
 			onsubmit={(event) => {
@@ -233,18 +261,14 @@
 				class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
 				disabled={busy}
 			>
-				{invite
-					? m.account_invite_submit()
-					: recovery
-						? m.account_recover_submit()
-						: setupComplete
-							? m.account_login()
-							: m.account_create()}
+				{words.submit}
 			</button>
 		</form>
 		<!-- For somebody who reached the sign-in form without knowing what
 		     Kamosu is (#158): the story, at an address of its own. -->
-		{#if mode === 'login'}
+		{#if framing}
+			{@render framing.after()}
+		{:else if mode === 'login'}
 			<p class="mt-6 text-center">
 				<a href="/about" class="text-body text-accent underline underline-offset-4">
 					{m.story_what_is()}

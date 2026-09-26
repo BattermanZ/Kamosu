@@ -777,12 +777,7 @@ impl Core {
             }
         }
 
-        let subjects: HashSet<String> = opened.sidecar["subjects"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|lineage| lineage.as_str().map(str::to_string))
-            .collect();
+        let subjects = subjects_of(&opened.sidecar);
         let records = opened.sidecar["branches"]
             .as_array()
             .cloned()
@@ -829,11 +824,7 @@ impl Core {
                 progress.report(done as u64, Some(total), format!("{done} of {total}"));
             }
             let foreign_id = record["branch_id"].clone();
-            let subject = record["subject"].as_bool().unwrap_or_else(|| {
-                record["lineage_id"]
-                    .as_str()
-                    .is_some_and(|lineage| subjects.contains(lineage))
-            });
+            let subject = is_subject(record, &subjects);
 
             // Each Branch in a transaction of its own: one that cannot be
             // placed leaves nothing half-written, and costs nothing else.
@@ -886,6 +877,288 @@ impl Core {
         }
         Ok(report(arrived, unreadable))
     }
+
+    /// **What importing a shared recipe would do**, said before anything is
+    /// written (#170, Aurélien's choices 1 and 3 of 26 September 2026).
+    ///
+    /// Reads the Bundle a Share Link served and answers the recipe it is about
+    /// — its title, its Source, who wrote it, how many Versions it carries, a
+    /// small picture — and whether the caller's own Cookbook already holds it,
+    /// with how many newer Versions the file carries past what is held. That
+    /// last is [`place_carried_branch`]'s own test run without writing: held is
+    /// the travelling id in this Cookbook, and newer is the file's chain
+    /// running on past the held one.
+    ///
+    /// The file is staged as the caller's upload, so importing is
+    /// `import_bundle` with the id this answers: the recipe is fetched once,
+    /// and what is imported is exactly what was previewed. An upload nobody
+    /// imports is swept after a day like any other.
+    ///
+    /// The picture travels as a `data:` address, since the file's Photographs
+    /// are stored nowhere until it is imported and a stranger's instance is
+    /// no address the app may load an image from (#139).
+    pub fn preview_shared_bundle(
+        &self,
+        caller: &Caller,
+        bytes: &[u8],
+        shared_by: Option<&str>,
+    ) -> Result<Value, OpError> {
+        let opened = bundles::open(bytes).map_err(|unopened| {
+            OpError::bad_request(format!(
+                "this link did not hand over a recipe Kamosu can read: {}",
+                unopened.reason
+            ))
+        })?;
+        let subjects = subjects_of(&opened.sidecar);
+        let records = opened.sidecar["branches"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let record = records
+            .iter()
+            .find(|record| is_subject(record, &subjects))
+            .or_else(|| records.first())
+            .ok_or_else(|| {
+                OpError::bad_request("this link did not hand over a recipe: its file carries none")
+            })?;
+
+        let content = bundles::head(record)
+            .map(|version| &version["content"])
+            .unwrap_or(&Value::Null);
+        let versions = record["versions"].as_array().map_or(0, Vec::len);
+        let source = match (
+            text_at(&content["source"], "text"),
+            text_at(&content["source"], "link"),
+        ) {
+            (None, None) => Value::Null,
+            (text, link) => json!({ "text": text, "link": link }),
+        };
+        let photo = content["main_photo"].as_str().and_then(|wanted| {
+            opened
+                .photographs
+                .iter()
+                .find_map(|photograph| match photograph {
+                    bundles::CarriedPhotograph::Sound { hash, bytes } if hash == wanted => {
+                        photographs::check(bytes).ok()?;
+                        let small = photographs::display_copy(bytes, PREVIEW_PICTURE_EDGE).ok()?;
+                        use base64::Engine;
+                        Some(format!(
+                            "data:image/webp;base64,{}",
+                            base64::engine::general_purpose::STANDARD.encode(small)
+                        ))
+                    }
+                    _ => None,
+                })
+        });
+
+        let held = match self.db().with_conn(|conn| {
+            let cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
+            receiving(conn, &cookbook_id, record)
+        })? {
+            Receiving::New => Value::Null,
+            Receiving::Held {
+                branch_id,
+                arrived,
+                since,
+                verdict,
+            } => json!({
+                "branch_id": branch_id,
+                "arrived": arrived,
+                "since": since,
+                "newer": match verdict {
+                    Verdict::Extends { held } => versions - held,
+                    _ => 0,
+                },
+                "diverged": matches!(verdict, Verdict::Refused(_)),
+            }),
+        };
+
+        // One preview staged per Person at a time. Opening `/import?link=…` is
+        // enough to ask for one, so a link crafted to be opened over and over
+        // must not fill the disk a recipe file at a time: each preview replaces
+        // the last, and only the one on screen can be imported.
+        let (upload_id, path) = self.begin_upload(&caller.person_id)?;
+        let marker = path.with_file_name(STAGED_PREVIEW);
+        if let Ok(previous) = std::fs::read_to_string(&marker)
+            && let Ok(staged) = self.staged_upload(&caller.person_id, previous.trim())
+        {
+            let _ = std::fs::remove_file(staged);
+        }
+        std::fs::write(&path, bytes)
+            .map_err(|e| OpError::internal(format!("cannot stage the recipe file: {e}")))?;
+        std::fs::write(&marker, &upload_id)
+            .map_err(|e| OpError::internal(format!("cannot stage the recipe file: {e}")))?;
+
+        Ok(json!({
+            "upload_id": upload_id,
+            "title": bundles::title_of(record),
+            "shared_by": shared_by,
+            "written_by": text_at(&record["hand"], "name"),
+            "source": source,
+            "versions": versions,
+            "photo": photo,
+            "held": held,
+        }))
+    }
+}
+
+/// The Lineages a Bundle says it is about (ADR 0020).
+fn subjects_of(sidecar: &Value) -> HashSet<String> {
+    sidecar["subjects"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|lineage| lineage.as_str().map(str::to_string))
+        .collect()
+}
+
+/// Whether a carried Branch is one the Bundle is about rather than a
+/// Passenger: as the record says, or, from a writer that did not say, as its
+/// Lineage is one of the Bundle's subjects.
+fn is_subject(record: &Value, subjects: &HashSet<String>) -> bool {
+    record["subject"].as_bool().unwrap_or_else(|| {
+        record["lineage_id"]
+            .as_str()
+            .is_some_and(|lineage| subjects.contains(lineage))
+    })
+}
+
+/// The file beside a Person's staged uploads naming the one their last
+/// preview staged. Not an upload id's shape, so no Operation can name it.
+const STAGED_PREVIEW: &str = "preview";
+
+/// How large the picture a preview carries is, on its long edge: sharp at the
+/// 72 px (`--photo-thumb`) the confirm screen draws it at on a phone's
+/// triple-density screen, and a few kilobytes inside the answer.
+const PREVIEW_PICTURE_EDGE: u32 = 216;
+
+/// A text field of a JSON object, when it holds any text.
+fn text_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value[key]
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+}
+
+/// What receiving one carried Branch into a Cookbook does, decided before
+/// anything is written: the one answer both [`place_carried_branch`] acts on
+/// and `preview_shared_bundle` reports (#170), so a preview cannot promise
+/// what an import would then refuse.
+enum Receiving {
+    /// The Cookbook holds no Branch travelling under this id.
+    New,
+    /// It holds one already, which the file would leave or carry forward.
+    Held {
+        /// The **Local id** it is held under here (#90).
+        branch_id: String,
+        /// Whether it arrived from elsewhere, rather than being written here.
+        arrived: bool,
+        /// When the Cookbook first held it.
+        since: String,
+        verdict: Verdict,
+    },
+}
+
+/// What a file does to a Branch the Cookbook already holds.
+enum Verdict {
+    /// It carries nothing the Cookbook does not hold: a Bundle that left here
+    /// and came back, or the same one received twice.
+    Unchanged,
+    /// It carries the held chain and more; `held` is how many Versions of it
+    /// are here already, so what arrives is everything past that.
+    Extends { held: usize },
+    /// It cannot be placed without undoing or overwriting what is here, and
+    /// this is the sentence that says why. Nothing is changed.
+    Refused(String),
+}
+
+/// Decide what receiving `record` into `cookbook_id` would do.
+///
+/// Scoped to the Cookbook receiving it. A Cookbook next door holding the same
+/// sender's Branch is another household's business, and neither an import nor
+/// a preview reads it or says it is there.
+fn receiving(conn: &Connection, cookbook_id: &str, record: &Value) -> Result<Receiving, OpError> {
+    let travelling_id = record["branch_id"].as_str().unwrap_or_default();
+    let title = bundles::title_of(record);
+    let held: Option<(String, String, String, bool, String)> = conn
+        .query_row(
+            "SELECT id, lineage_id, hand_id, arrived, created_at FROM branches \
+              WHERE COALESCE(travelling_id, id) = ?1 AND cookbook_id = ?2",
+            params![travelling_id, cookbook_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+    let Some((branch_id, held_lineage, held_hand, arrived, since)) = held else {
+        return Ok(Receiving::New);
+    };
+    let held = |verdict| {
+        Ok(Receiving::Held {
+            branch_id: branch_id.clone(),
+            arrived,
+            since: since.clone(),
+            verdict,
+        })
+    };
+
+    if held_lineage != record["lineage_id"].as_str().unwrap_or_default() {
+        return held(Verdict::Refused(format!(
+            "«{title}» names a Branch your Cookbook already holds as a different recipe, \
+             so it was left out and nothing here was changed"
+        )));
+    }
+    if held_hand != record["hand"]["id"].as_str().unwrap_or_default() {
+        // A Branch has one Cookbook writing it (ADR 0020), so a Bundle naming
+        // this Branch under another Hand is not its next chapter.
+        return held(Verdict::Refused(format!(
+            "«{title}» names a Branch held here under another Hand, \
+             so it was left out and nothing here was changed"
+        )));
+    }
+
+    let mut statement = conn
+        .prepare("SELECT version_id FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence")
+        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
+    let chain: Vec<String> = statement
+        .query_map(params![&branch_id], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
+    let versions = record["versions"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if let Some(at) = chain
+        .iter()
+        .zip(versions)
+        .position(|(held, arriving)| arriving["version_id"].as_str() != Some(held.as_str()))
+    {
+        return held(Verdict::Refused(format!(
+            "«{title}» disagrees with the one held here from Version {} on, \
+             so the one here was kept as it is",
+            at + 1
+        )));
+    }
+    if versions.len() <= chain.len() {
+        return held(Verdict::Unchanged);
+    }
+    if !arrived {
+        // Only this Cookbook writes this Branch, so no Bundle can hold more of
+        // it than this instance does. One that claims to is not believed.
+        return held(Verdict::Refused(format!(
+            "«{title}» claims Versions of a recipe written here that were never written \
+             here, so they were left out and nothing here was changed"
+        )));
+    }
+    held(Verdict::Extends { held: chain.len() })
 }
 
 /// **Who a Sheet is being set for** (ADR 0023), which decides the two things
@@ -1755,128 +2028,76 @@ fn place_carried_branch(
         title: title.to_string(),
     };
 
-    // Scoped to the Cookbook receiving it. A Cookbook next door holding the
-    // same sender's Branch is another household's business, and this import
-    // neither reads it nor says it is there.
-    let held: Option<(String, String, String, bool)> = conn
-        .query_row(
-            "SELECT id, lineage_id, hand_id, arrived FROM branches \
-              WHERE COALESCE(travelling_id, id) = ?1 AND cookbook_id = ?2",
-            params![travelling_id, cookbook_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()
-        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
-
-    let Some((branch_id, held_lineage, held_hand, held_arrived)) = held else {
-        let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
-        conn.execute(
-            "INSERT OR IGNORE INTO lineages (id) VALUES (?1)",
-            params![lineage_id],
-        )
-        .map_err(|e| OpError::internal(format!("cannot record Lineage: {e}")))?;
-        let comes_home: bool = conn
+    let (branch_id, verdict) = match receiving(conn, cookbook_id, record)? {
+        Receiving::Held {
+            branch_id, verdict, ..
+        } => (branch_id, verdict),
+        Receiving::New => {
+            let branch_id = format!("b_{}", hex::encode(random_bytes(8)));
+            conn.execute(
+                "INSERT OR IGNORE INTO lineages (id) VALUES (?1)",
+                params![lineage_id],
+            )
+            .map_err(|e| OpError::internal(format!("cannot record Lineage: {e}")))?;
+            let comes_home: bool = conn
             .query_row(
                 "SELECT EXISTS (SELECT 1 FROM cookbook_hands WHERE hand_id = ?1 AND cookbook_id = ?2)",
                 params![hand_id, cookbook_id],
                 |row| row.get(0),
             )
             .map_err(|e| OpError::internal(format!("cannot read Hands: {e}")))?;
-        let name = record["name"]
-            .as_str()
-            .map(str::trim)
-            .filter(|name| !name.is_empty());
-        // Its own recipe coming home keeps the one-unnamed rule the Cookbook
-        // keeps for everything it writes.
-        let name = match name {
-            Some(name) => Some(name.to_string()),
-            None if comes_home => name_on_arrival(
-                conn,
-                cookbook_id,
-                lineage_id,
-                language,
-                record["hand"]["name"].as_str().unwrap_or_default(),
-            )?,
-            None => None,
-        };
-        // The origin address is a hint and stays one: stored as it came, never
-        // fetched, and carried on unchanged by every reshare (ADR 0020).
-        conn.execute(
-            "INSERT INTO branches \
+            let name = record["name"]
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty());
+            // Its own recipe coming home keeps the one-unnamed rule the Cookbook
+            // keeps for everything it writes.
+            let name = match name {
+                Some(name) => Some(name.to_string()),
+                None if comes_home => name_on_arrival(
+                    conn,
+                    cookbook_id,
+                    lineage_id,
+                    language,
+                    record["hand"]["name"].as_str().unwrap_or_default(),
+                )?,
+                None => None,
+            };
+            // The origin address is a hint and stays one: stored as it came, never
+            // fetched, and carried on unchanged by every reshare (ADR 0020).
+            conn.execute(
+                "INSERT INTO branches \
              (id, travelling_id, lineage_id, cookbook_id, hand_id, language, origin_address, \
               head_version_id, name, started_by, arrived) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![
-                branch_id,
-                travelling_id,
-                lineage_id,
-                cookbook_id,
-                hand_id,
-                language,
-                origin_address,
-                head_version_id,
-                name,
-                caller.person_id,
-                !comes_home as i64
-            ],
-        )
-        .map_err(|e| OpError::internal(format!("cannot place Branch: {e}")))?;
-        write_carried_versions(conn, &branch_id, &versions, held_before)?;
-        file_carried_tags(conn, cookbook_id, &branch_id, record)?;
-        remember_arrived_hands(conn, record)?;
-        return Ok(placed("created", &branch_id));
+                params![
+                    branch_id,
+                    travelling_id,
+                    lineage_id,
+                    cookbook_id,
+                    hand_id,
+                    language,
+                    origin_address,
+                    head_version_id,
+                    name,
+                    caller.person_id,
+                    !comes_home as i64
+                ],
+            )
+            .map_err(|e| OpError::internal(format!("cannot place Branch: {e}")))?;
+            write_carried_versions(conn, &branch_id, &versions, held_before)?;
+            file_carried_tags(conn, cookbook_id, &branch_id, record)?;
+            remember_arrived_hands(conn, record)?;
+            return Ok(placed("created", &branch_id));
+        }
+    };
+    let held = match verdict {
+        Verdict::Refused(why) => return Ok(Fate::Refused(why)),
+        Verdict::Unchanged => return Ok(placed("unchanged", &branch_id)),
+        Verdict::Extends { held } => held,
     };
 
-    if held_lineage != lineage_id {
-        return Ok(Fate::Refused(format!(
-            "«{title}» names a Branch your Cookbook already holds as a different recipe, \
-             so it was left out and nothing here was changed"
-        )));
-    }
-
-    if held_hand != hand_id {
-        // A Branch has one Cookbook writing it (ADR 0020), so a Bundle naming
-        // this Branch under another Hand is not its next chapter.
-        return Ok(Fate::Refused(format!(
-            "«{title}» names a Branch held here under another Hand, \
-             so it was left out and nothing here was changed"
-        )));
-    }
-
-    let mut statement = conn
-        .prepare("SELECT version_id FROM branch_versions WHERE branch_id = ?1 ORDER BY sequence")
-        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
-    let chain: Vec<String> = statement
-        .query_map(params![&branch_id], |row| row.get(0))
-        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?
-        .collect::<Result<_, _>>()
-        .map_err(|e| OpError::internal(format!("cannot read Branch chain: {e}")))?;
-    if let Some(at) = chain
-        .iter()
-        .zip(&versions)
-        .position(|(held, arriving)| arriving["version_id"].as_str() != Some(held.as_str()))
-    {
-        return Ok(Fate::Refused(format!(
-            "«{title}» disagrees with the one held here from Version {} on, \
-             so the one here was kept as it is",
-            at + 1
-        )));
-    }
-    if versions.len() <= chain.len() {
-        // Everything it carries is held already: a Bundle that left here and
-        // came back, or the same one received twice.
-        return Ok(placed("unchanged", &branch_id));
-    }
-    if !held_arrived {
-        // Only this Cookbook writes this Branch, so no Bundle can hold more of
-        // it than this instance does. One that claims to is not believed.
-        return Ok(Fate::Refused(format!(
-            "«{title}» claims Versions of a recipe written here that were never written \
-             here, so they were left out and nothing here was changed"
-        )));
-    }
-
-    write_carried_versions(conn, &branch_id, &versions[chain.len()..], held_before)?;
+    write_carried_versions(conn, &branch_id, &versions[held..], held_before)?;
     conn.execute(
         "UPDATE branches SET head_version_id = ?1, language = ?2, \
                 origin_address = COALESCE(?3, origin_address) \

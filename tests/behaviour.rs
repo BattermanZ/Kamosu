@@ -9625,6 +9625,285 @@ mod web_link_importer {
         );
     }
 
+    /// Ask `preview_shared_recipe` and answer how its Job ended.
+    fn previewing(app: &support::TestApp, key: &str, url: &str) -> Value {
+        let (status, ask) = app.post_op(
+            "preview_shared_recipe",
+            Some(key),
+            &json!({ "url": url }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+        support::wait_terminal(app, Some(key), job_id)
+    }
+
+    /// The preview a Share Link answers, insisting it completed.
+    fn previewed(app: &support::TestApp, key: &str, url: &str) -> Value {
+        let finished = previewing(app, key, url);
+        assert_eq!(finished["status"], json!("completed"), "{finished}");
+        finished["result"].clone()
+    }
+
+    /// **Importing a Share Link from another Kamosu says what it would do
+    /// first, then imports exactly the file it read** (#170, Aurélien's choices
+    /// 1 and 3). The preview names the recipe, its Source and writer, how many
+    /// Versions it carries, and a small picture, and writes nothing. Importing
+    /// is `import_bundle` with the file the preview staged, and lands the
+    /// whole Thread. Previewed again it is held with nothing newer, and once
+    /// the sender has saved another Version it is held with one newer, which
+    /// importing brings in without a second recipe.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_shared_recipe_is_previewed_then_imported_from_the_file_the_preview_read() {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        let there = support::spawn_app();
+        let (key, _kitchen, pizza, lineage, _french, _dough, _photos) =
+            a_pizza_worth_sending(&there);
+        let source =
+            json!({ "text": "Marion's Kitchen", "link": "https://www.marionskitchen.com/pizza" });
+        let (status, edited) = there.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza, "source": source }).to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+        let (token, _url) = share(&there, &key, &pizza);
+        let sent_versions = |app: &support::TestApp| {
+            let (_, sent) = app.post_op(
+                "get_recipe",
+                Some(&key),
+                &json!({ "branch_id": pizza }).to_string(),
+            );
+            sent["result"]["versions"].as_array().unwrap().len()
+        };
+        let carried = sent_versions(&there);
+
+        let here = support::spawn_app();
+        let nadia = here.core.create_person("Nadia").expect("person");
+        let nadia_key = here
+            .core
+            .mint_access_key(&nadia, "browser", false)
+            .unwrap()
+            .secret;
+        let link = format!("http://{}/s/{token}", there.addr);
+
+        let preview = previewed(&here, &nadia_key, &link);
+        assert_eq!(preview["title"], json!("Pizza Margherita"), "{preview}");
+        // Read off the far page, which names its sharer for exactly this.
+        assert_eq!(preview["shared_by"], json!("Aurélien"));
+        assert_eq!(preview["written_by"], json!("Aurélien"));
+        assert_eq!(preview["source"], source);
+        assert_eq!(preview["versions"], json!(carried));
+        assert_eq!(preview["held"], Value::Null, "Nadia holds nothing yet");
+        let photo = preview["photo"].as_str().expect("a picture");
+        assert!(photo.starts_with("data:image/webp;base64,"), "{photo}");
+        assert!(photo.len() < 40_000, "a small copy, not the photograph");
+
+        // Previewing writes nothing: no recipe, and nothing in the ledger.
+        let (_, shelves) = here.post_op("home_shelves", Some(&nadia_key), "{}");
+        assert!(
+            !shelves.to_string().contains("Pizza Margherita"),
+            "{shelves}"
+        );
+        let (_, imports) = here.post_op("list_imports", Some(&nadia_key), "{}");
+        assert_eq!(imports["result"]["imports"], json!([]), "{imports}");
+
+        let report = imported(
+            &here,
+            &nadia_key,
+            json!({ "upload_id": preview["upload_id"] }),
+        );
+        let row = arrived_row(&report, &pizza);
+        assert_eq!(row["status"], json!("created"), "{row}");
+        assert_eq!(row["subject"], json!(true));
+        assert_eq!(row["lineage_id"], json!(lineage));
+        let pizza_here = landed_as(&report, &pizza);
+        let (status, held) = here.post_op(
+            "get_recipe",
+            Some(&nadia_key),
+            &json!({ "branch_id": pizza_here }).to_string(),
+        );
+        assert_eq!(status, 200, "{held}");
+        let versions = held["result"]["versions"].as_array().unwrap();
+        assert_eq!(versions.len(), carried, "the whole Thread");
+        assert_eq!(versions.last().unwrap()["content"]["source"], source);
+
+        let again = previewed(&here, &nadia_key, &link);
+        assert_eq!(
+            again["held"],
+            json!({
+                "branch_id": pizza_here,
+                "arrived": true,
+                "since": again["held"]["since"],
+                "newer": 0,
+                "diverged": false,
+            }),
+            "{again}"
+        );
+        assert!(
+            again["held"]["since"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty())
+        );
+
+        // A day later, so the edit is a Version of its own rather than an
+        // amendment to the last one.
+        backdate_branch_head(&there, &pizza);
+        let (status, saved) = there.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza, "note": "Rest the dough overnight." }).to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        let later = previewed(&here, &nadia_key, &link);
+        assert_eq!(later["held"]["newer"], json!(1), "{later}");
+        assert_eq!(later["versions"], json!(carried + 1));
+        let report = imported(
+            &here,
+            &nadia_key,
+            json!({ "upload_id": later["upload_id"] }),
+        );
+        let row = arrived_row(&report, &pizza);
+        assert_eq!(row["status"], json!("extended"), "{row}");
+        assert_eq!(
+            row["branch_id"],
+            json!(pizza_here),
+            "the same recipe, not a second"
+        );
+        let (_, held) = here.post_op(
+            "get_recipe",
+            Some(&nadia_key),
+            &json!({ "branch_id": pizza_here }).to_string(),
+        );
+        assert_eq!(
+            held["result"]["versions"].as_array().unwrap().len(),
+            carried + 1
+        );
+
+        // The sender rewrites the Version Nadia already holds, the same day:
+        // an edit amends the head rather than adding one. Importing would now
+        // refuse, so the preview must not promise "nothing new" or "newer".
+        let (status, saved) = there.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza, "note": "Rest the dough for two days." }).to_string(),
+        );
+        assert_eq!(status, 200, "{saved}");
+        let apart = previewed(&here, &nadia_key, &link);
+        assert_eq!(apart["held"]["diverged"], json!(true), "{apart}");
+        assert_eq!(apart["held"]["newer"], json!(0));
+        let report = imported(
+            &here,
+            &nadia_key,
+            json!({ "upload_id": apart["upload_id"] }),
+        );
+        let refused = report["unreadable"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["foreign_id"] == json!(pizza))
+            .unwrap_or_else(|| panic!("refused, as previewed: {report}"));
+        assert!(
+            refused["reason"].to_string().contains("disagrees"),
+            "{refused}"
+        );
+    }
+
+    /// **On the instance that shared it, a preview needs no fetch, and says
+    /// whose it already is** (#170). The link names a public address nothing
+    /// here serves, so answering at all proves it was read locally. A second
+    /// Person holds nothing until they import; the sender, whose own Cookbook
+    /// writes the recipe, is told it is held, with nothing a file could add.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_share_link_from_this_instance_is_previewed_without_a_fetch() {
+        let app = support::spawn_app();
+        let (key, _kitchen, pizza, _lineage, _french, _dough, _photos) =
+            a_pizza_worth_sending(&app);
+        let (_token, url) = share(&app, &key, &pizza);
+        assert!(url.starts_with("https://kamosu.example/s/"), "{url}");
+
+        let (_nadia, nadia_key, _) = person_with_kitchen(&app, "Nadia");
+        let preview = previewed(&app, &nadia_key, &url);
+        assert_eq!(preview["title"], json!("Pizza Margherita"), "{preview}");
+        assert_eq!(preview["shared_by"], json!("Aurélien"));
+        assert_eq!(preview["held"], Value::Null);
+
+        // One preview staged at a time: a second replaces the first, so a
+        // link opened over and over cannot fill the disk.
+        let replaced = previewed(&app, &nadia_key, &url);
+        let finished = importing(
+            &app,
+            &nadia_key,
+            json!({ "upload_id": preview["upload_id"] }),
+        );
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+        assert!(
+            finished["error"].to_string().contains("no such upload"),
+            "{finished}"
+        );
+        let preview = replaced;
+        let report = imported(
+            &app,
+            &nadia_key,
+            json!({ "upload_id": preview["upload_id"] }),
+        );
+        assert_eq!(arrived_row(&report, &pizza)["status"], json!("created"));
+        let theirs = landed_as(&report, &pizza);
+        assert_ne!(theirs, pizza, "Nadia's own copy, under an id of its own");
+        let again = previewed(&app, &nadia_key, &format!("{url}/in/fr"));
+        assert_eq!(again["held"]["branch_id"], json!(theirs), "{again}");
+        assert_eq!(again["held"]["newer"], json!(0));
+
+        let own = previewed(&app, &key, &url);
+        assert_eq!(own["held"]["branch_id"], json!(pizza), "{own}");
+        assert_eq!(
+            own["held"]["arrived"],
+            json!(false),
+            "written here, not imported"
+        );
+        assert_eq!(own["held"]["newer"], json!(0));
+    }
+
+    /// **A preview is refused where an import would be** (#170): an address
+    /// that is no Share Link, a link that was ended, and anybody not signed in.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_preview_is_refused_for_what_is_not_a_live_share_link() {
+        let app = support::spawn_app();
+        let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+        let (_status, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({ "title": "Withdrawn soup" }).to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        let (_token, url) = share(&app, &key, &branch_id);
+        let (status, _) = app.post_op(
+            "end_share_link",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200);
+
+        for (link, words) in [
+            (
+                "https://www.example.com/recipes/soup",
+                "not a Kamosu Share Link",
+            ),
+            (url.as_str(), "this Share Link was ended"),
+        ] {
+            let finished = previewing(&app, &key, link);
+            assert_eq!(finished["status"], json!("failed"), "{finished}");
+            let said = finished["error"].to_string();
+            assert!(said.contains(words), "{link}: {said}");
+        }
+
+        let (status, refused) = app.post_op(
+            "preview_shared_recipe",
+            None,
+            &json!({ "url": url }).to_string(),
+        );
+        assert_eq!(status, 401, "{refused}");
+    }
+
     /// **An ended Share Link is refused, in the share page's own words, and
     /// lands nothing** (#169). Reading its page as a web page would have landed
     /// a recipe called "This link was ended · Kamosu". A token nobody minted is
@@ -15320,6 +15599,42 @@ async fn the_card_is_drawn_once_and_kept() {
         .join("cards")
         .join(format!("{version_id}.png"));
     assert!(kept.exists(), "the card was not kept at {kept:?}");
+}
+
+/// **The Share Link page offers importing, to every reader alike** (#170,
+/// Aurélien's choices 2 and 3). A link into the app, which asks where the
+/// reader keeps their recipes and says what importing would do; the page itself
+/// never asks who is looking. What stood there before, greyed under "Not built
+/// yet", is gone in every Language.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_share_link_page_offers_importing_the_recipe() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    for (title, words) in [
+        ("Chocolate cake", "Import this recipe"),
+        (
+            "Gâteau au chocolat avec de la crème",
+            "Importer cette recette",
+        ),
+    ] {
+        let (_status, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({ "title": title }).to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        let (token, _url) = share(&app, &key, &branch_id);
+        let (status, _, page) = app.get(&format!("/s/{token}"));
+        assert_eq!(status, 200);
+        assert!(
+            page.contains(&format!("href=\"/import?link=%2Fs%2F{token}\"")),
+            "the page leads into the app's import: {page}"
+        );
+        assert!(page.contains(words), "{title}: {page}");
+        for gone in ["Not built yet", "Pas encore disponible", "Keep this recipe"] {
+            assert!(!page.contains(gone), "{gone} is gone: {page}");
+        }
+    }
 }
 
 /// **A stranger holding a Share Link takes the recipe file** (#65, #66, ADR

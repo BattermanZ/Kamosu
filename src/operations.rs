@@ -997,6 +997,42 @@ pub fn import_web_link(
     core.import(caller, "web", &[candidate], progress)
 }
 
+/// What importing a Share Link would do, before it does it (#170): the page
+/// the Share Link page's **Import this recipe** opens asks this first, and
+/// imports with `import_bundle` and the `upload_id` it answers.
+///
+/// The recipe file is reached exactly as `import_web_link` reaches it — this
+/// instance's own link locally, another Kamosu's through the guarded client —
+/// so anything that could be imported can be previewed, and nothing else. Who
+/// shared it is read the same way: from this instance's own Share Link, or
+/// from the far page, which names them for exactly this.
+pub fn preview_shared_recipe(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let url = input
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request("preview_shared_recipe takes { url }"))?;
+    let caller = caller_of(invocation)?;
+    let not_shared = || {
+        OpError::bad_request(
+            "this address is not a Kamosu Share Link, so there is no shared recipe to import",
+        )
+    };
+    let link = crate::web_import::share_link(url).ok_or_else(not_shared)?;
+    if let Some(progress) = invocation.job.as_ref() {
+        progress.report(0, None, "asking for the recipe file".to_string());
+    }
+    let bytes = shared_recipe_file(core, &link)?.ok_or_else(not_shared)?;
+    let shared_by = match core.read_shared_recipe(&link.token) {
+        Ok(shared) => shared["shared_by"].as_str().map(str::to_string),
+        Err(_) => crate::web_import::fetch_shared_by(&link.page_url),
+    };
+    core.preview_shared_bundle(caller, &bytes, shared_by.as_deref())
+}
+
 /// The recipe file behind an address shaped like a Share Link, or `None` when
 /// it is not one after all and should be read as a web page (#169). A link
 /// that hands over nothing is an error, in the words its page uses: the Core's

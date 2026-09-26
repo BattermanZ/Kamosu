@@ -562,6 +562,8 @@ pub fn fetch_photo(url: &str) -> Result<Vec<u8>, OpError> {
 pub struct ShareLink {
     /// The link's Secret, which is what this instance would know it by.
     pub token: String,
+    /// The page itself, in the Share Link's own Language.
+    pub page_url: String,
     /// Where the recipe file sits beside the page.
     pub bundle_url: String,
 }
@@ -590,11 +592,14 @@ pub fn share_link(url: &str) -> Option<ShareLink> {
     if token.is_empty() {
         return None;
     }
-    parsed.set_path(&format!("/s/{token}/bundle"));
     parsed.set_query(None);
     parsed.set_fragment(None);
+    parsed.set_path(&format!("/s/{token}"));
+    let page_url = parsed.to_string();
+    parsed.set_path(&format!("/s/{token}/bundle"));
     Some(ShareLink {
         token,
+        page_url,
         bundle_url: parsed.to_string(),
     })
 }
@@ -667,6 +672,32 @@ pub fn fetch_shared_recipe(bundle_url: &str) -> Result<SharedRecipe, OpError> {
     Ok(SharedRecipe::Refused(said.unwrap_or_else(|| {
         format!("that Share Link answered with {}", answered.status)
     })))
+}
+
+/// Who shared the recipe on a Share Link's page, as the page names it for
+/// another Kamosu (`share_page::SHARED_BY_META`, #170), under the same guard as
+/// every other fetch here. Nothing when the page cannot be read or names no
+/// one, which a Kamosu from before #170 never does: a preview then shows no
+/// sharer rather than failing over a courtesy.
+pub fn fetch_shared_by(page_url: &str) -> Option<String> {
+    let (body, _) = guarded_get(page_url, "that shared page", MAX_HTML_BYTES).ok()?;
+    let page = String::from_utf8_lossy(&body);
+    let document = Html::parse_document(&page);
+    let selector = Selector::parse(&format!(
+        r#"meta[name="{}"]"#,
+        crate::share_page::SHARED_BY_META
+    ))
+    .ok()?;
+    let name: String = document
+        .select(&selector)
+        .next()?
+        .value()
+        .attr("content")?
+        .trim()
+        .chars()
+        .take(100)
+        .collect();
+    (!name.is_empty()).then_some(name)
 }
 
 #[cfg(test)]
@@ -1090,8 +1121,16 @@ mod tests {
             share_link("https://recipes.example/s/4b8c6f26"),
             Some(ShareLink {
                 token: "4b8c6f26".to_string(),
+                page_url: "https://recipes.example/s/4b8c6f26".to_string(),
                 bundle_url: "https://recipes.example/s/4b8c6f26/bundle".to_string(),
             })
+        );
+        assert_eq!(
+            share_link("http://192.0.2.7:5266/s/4b8c6f26/in/fr?from=chat")
+                .map(|link| link.page_url)
+                .as_deref(),
+            Some("http://192.0.2.7:5266/s/4b8c6f26"),
+            "the page that names its sharer is the link's own, whichever Translation was pasted"
         );
         assert_eq!(
             on("https://recipes.example/s/4b8c6f26/").as_deref(),

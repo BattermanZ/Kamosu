@@ -1579,6 +1579,31 @@ export type ImportWebLinkOutput = {
 	}[];
 };
 
+/** Say what importing a Kamosu Share Link would do, before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
+export type PreviewSharedRecipeInput = {
+	url: string;
+};
+/** What preview_shared_recipe eventually produces, read back through `get_job`. */
+export type PreviewSharedRecipeOutput = {
+	held: {
+		arrived: boolean;
+		branch_id: string;
+		diverged: boolean;
+		newer: number;
+		since: string;
+	} | null;
+	photo: string | null;
+	shared_by: string | null;
+	source: {
+		link: string | null;
+		text: string | null;
+	} | null;
+	title: string;
+	upload_id: string;
+	versions: number;
+	written_by: string | null;
+};
+
 /** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 export type RenameVersionInput = {
 	branch_id: string;
@@ -4454,6 +4479,12 @@ export interface Operations {
 	import_web_link: {
 		input: ImportWebLinkInput;
 		output: ImportWebLinkOutput;
+		kind: 'job';
+		permission: 'person';
+	};
+	preview_shared_recipe: {
+		input: PreviewSharedRecipeInput;
+		output: PreviewSharedRecipeOutput;
 		kind: 'job';
 		permission: 'person';
 	};
@@ -12471,6 +12502,134 @@ export const CATALOGUE = [
 				"unreadable",
 				"left_out",
 				"related_candidates"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "preview_shared_recipe",
+		"summary": "Say what importing a Kamosu Share Link would do, before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused.",
+		"permission": "person",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"url": {
+					"description": "The Share Link: https://<instance>/s/<token>, or one of its Translations' pages.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"url"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"held": {
+					"additionalProperties": false,
+					"description": "Your Cookbook's copy, when it holds one already.",
+					"properties": {
+						"arrived": {
+							"description": "Whether it came from elsewhere, rather than being written in your Cookbook.",
+							"type": "boolean"
+						},
+						"branch_id": {
+							"type": "string"
+						},
+						"diverged": {
+							"description": "Whether your copy and the file have gone different ways, so importing would change nothing: the sender rewrote a Version you already hold.",
+							"type": "boolean"
+						},
+						"newer": {
+							"description": "How many Versions importing would add.",
+							"type": "integer"
+						},
+						"since": {
+							"description": "When your Cookbook first held it.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"branch_id",
+						"arrived",
+						"since",
+						"newer",
+						"diverged"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"photo": {
+					"description": "A small copy of its picture, as a data: address.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"shared_by": {
+					"description": "Who shared it, as the Share Link's page names them; null where the page does not say.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": [
+								"string",
+								"null"
+							]
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"title": {
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The recipe file, staged for you. Pass it to `import_bundle`; unused, it is swept after a day.",
+					"type": "string"
+				},
+				"versions": {
+					"description": "How many Versions of the recipe the file carries.",
+					"type": "integer"
+				},
+				"written_by": {
+					"description": "The name of the Hand that writes the shared recipe.",
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"upload_id",
+				"title",
+				"shared_by",
+				"written_by",
+				"source",
+				"versions",
+				"photo",
+				"held"
 			],
 			"type": "object"
 		}
@@ -25588,6 +25747,7 @@ export const METHOD_NAMES = {
 	list_imports: 'listImports',
 	forget_import: 'forgetImport',
 	import_web_link: 'importWebLink',
+	preview_shared_recipe: 'previewSharedRecipe',
 	rename_version: 'renameVersion',
 	upload_photograph: 'uploadPhotograph',
 	search_recipes: 'searchRecipes',
@@ -25767,6 +25927,8 @@ export interface KamosuClient {
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
 	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
+	/** Say what importing a Kamosu Share Link would do, before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
+	previewSharedRecipe(input: PreviewSharedRecipeInput): Promise<Answer<'preview_shared_recipe'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
 	/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
