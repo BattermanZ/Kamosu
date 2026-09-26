@@ -890,6 +890,17 @@ pub fn import(core: &Core, invocation: &Invocation, input: Value) -> Result<Valu
 /// (`import`, #68, ADR 0025). The page's own address — after redirects — is
 /// both the ledger's foreign id and the Version's Source link, so re-running
 /// the import on the same page matches instead of doubling the library.
+///
+/// A Kamosu Share Link is not read as a web page (#169). Its page carries no
+/// JSON-LD, and flattening it would lose the recipe's History in any case: it
+/// is received as the Bundle it serves, exactly as `import_bundle` receives
+/// one, whether the link is this instance's or another Kamosu's (ADR 0026).
+/// One that hands over nothing is refused in its own page's words.
+///
+/// A link this instance minted is answered here, with no fetch at all. Its
+/// Secret is long enough that finding it here settles whose it is, whatever
+/// host the pasted address names; and the guarded client refuses a
+/// home-network address (ADR 0033), which is where most instances live.
 pub fn import_web_link(
     core: &Core,
     invocation: &Invocation,
@@ -901,6 +912,15 @@ pub fn import_web_link(
         .ok_or_else(|| OpError::bad_request("import_web_link takes { url }"))?;
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
+
+    if let Some(link) = crate::web_import::share_link(url) {
+        if let Some(progress) = progress {
+            progress.report(0, None, "asking for the recipe file".to_string());
+        }
+        if let Some(bytes) = shared_recipe_file(core, &link)? {
+            return core.import_bundle(caller, &bytes, progress);
+        }
+    }
 
     if let Some(progress) = progress {
         progress.report(0, None, "reading the page".to_string());
@@ -975,6 +995,35 @@ pub fn import_web_link(
     });
 
     core.import(caller, "web", &[candidate], progress)
+}
+
+/// The recipe file behind an address shaped like a Share Link, or `None` when
+/// it is not one after all and should be read as a web page (#169). A link
+/// that hands over nothing is an error, in the words its page uses: the Core's
+/// here, the far page's from another Kamosu, which is the same sentence.
+fn shared_recipe_file(
+    core: &Core,
+    link: &crate::web_import::ShareLink,
+) -> Result<Option<Vec<u8>>, OpError> {
+    match core.read_shared_recipe(&link.token) {
+        Ok(_) => {
+            return core
+                .shared_bundle(&link.token)
+                .map(|written| Some(written.bytes))
+                .map_err(|e| match e.kind {
+                    // Ended: refused, as a far Kamosu's answer would be.
+                    crate::core::ErrorKind::NotFound => OpError::bad_request(e.to_sentence()),
+                    _ => e,
+                });
+        }
+        Err(e) if e.kind == crate::core::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    match crate::web_import::fetch_shared_recipe(&link.bundle_url)? {
+        crate::web_import::SharedRecipe::Bundle(bytes) => Ok(Some(bytes)),
+        crate::web_import::SharedRecipe::Refused(said) => Err(OpError::bad_request(said)),
+        crate::web_import::SharedRecipe::NotAShareLink => Ok(None),
+    }
 }
 
 pub fn rename_version(

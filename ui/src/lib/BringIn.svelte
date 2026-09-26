@@ -38,7 +38,6 @@
 	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
 	import { useUpload } from '$lib/api/upload';
 	import { StillRunning, waitForJob } from '$lib/api/job';
 	import { noteArrival, outcomeOf } from '$lib/arrival.svelte';
@@ -101,7 +100,11 @@
 			const asked = await kamosu.importWebLink({ url: link.trim() });
 			const finished = await waitForJob(kamosu, asked.job_id);
 			const result = finished.result as ImportWebLinkOutput;
-			const landed = result.arrived[0] ?? result.offered[0];
+			// A Share Link arrives as the Bundle it serves (#169), so its Report
+			// names the shared recipe as its subject beside the Passengers that
+			// travelled with it. A web page's single row names no subject.
+			const landed =
+				result.arrived.find((row) => row.subject) ?? result.arrived[0] ?? result.offered[0];
 			if (landed) {
 				await goto(`/recipes/${landed.branch_id}`);
 				return;
@@ -110,9 +113,13 @@
 			// Saying so is the whole answer; there is nothing to open.
 			failed = result.unreadable[0]?.reason ?? m.recipes_import_unreadable();
 		} catch (error) {
+			// A Job that failed arrives as a plain Error from `waitForJob`, and a
+			// refused Operation as an OperationError: both are this act's to say.
+			// An ended Share Link is the first: its Job fails in the share page's
+			// own words, which the reader is owed (#169).
+			if (!(error instanceof Error)) throw error;
 			if (error instanceof StillRunning) stillGoing = true;
-			else if (error instanceof OperationError) failed = error.message;
-			else throw error;
+			else failed = error.message;
 		} finally {
 			nowWorking('no');
 		}

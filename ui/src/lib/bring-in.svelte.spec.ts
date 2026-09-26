@@ -379,4 +379,58 @@ describe('importing from a link', () => {
 			expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 			expect(went).not.toHaveBeenCalled();
 		}));
+
+	it('opens the shared recipe, not what travelled with it, when the link was a Share Link (#169)', async () => {
+		// A Share Link arrives as the Bundle it serves, so its Report names a
+		// subject and its Passengers, and nothing orders the subject first.
+		const kamosu = standIn({
+			import_web_link: { job_id: 'j_9' },
+			get_job: {
+				id: 'j_9',
+				operation: 'import_web_link',
+				status: 'completed',
+				progress: { done: 1, total: 1 },
+				error: null,
+				errorCode: null,
+				created_at: '2026-09-26T10:00:00.000Z',
+				updated_at: '2026-09-26T10:00:02.000Z',
+				result: report({ arrived: [passenger, subject] }),
+			},
+		});
+		render(BringInTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
+		await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
+		const field = screen.getByLabelText(/web address/);
+		await fireEvent.input(field, { target: { value: 'https://recipes.example/s/4b8c6f26' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_soba'));
+		expect(went).not.toHaveBeenCalledWith('/recipes/b_paste');
+	});
+
+	it('says why a link was refused, in the words the Job failed with (#169)', async () => {
+		// An ended Share Link fails its Job with the share page's own sentence.
+		// Before #169 a failed Job escaped here as "Kamosu went wrong".
+		const kamosu = standIn({
+			import_web_link: { job_id: 'j_9' },
+			get_job: {
+				id: 'j_9',
+				operation: 'import_web_link',
+				status: 'failed',
+				progress: { done: 0, total: 1 },
+				error: 'this Share Link was ended, so it no longer hands over a recipe file',
+				errorCode: 400,
+				created_at: '2026-09-26T10:00:00.000Z',
+				updated_at: '2026-09-26T10:00:02.000Z',
+				result: null,
+			},
+		});
+		render(BringInTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
+		await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
+		const field = screen.getByLabelText(/web address/);
+		await fireEvent.input(field, { target: { value: 'https://recipes.example/s/4b8c6f26' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('this Share Link was ended');
+		expect(went).not.toHaveBeenCalled();
+	});
 });

@@ -1310,7 +1310,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       the page's schema.org JSON-LD (#70) — no per-site \
                       scraping, no LLM fallback — and lands it in your own \
                       Cookbook through the same ledger `import` uses, keyed by \
-                      the page's own address. Fetching is bound to public \
+                      the page's own address. A Kamosu Share Link, one this \
+                      instance minted or one from another Kamosu at a public \
+                      address, is not read as a page: it arrives \
+                      whole as the recipe file it serves, exactly as \
+                      `import_bundle` receives one, with every Version and its \
+                      original Source; an ended link is refused and lands \
+                      nothing (#169). Fetching is bound to public \
                       addresses at the dialled address and at every redirect \
                       (ADR 0033), and — because a page's own text can tell an \
                       agent to fetch another URL — always takes the single \

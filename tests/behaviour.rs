@@ -9234,14 +9234,7 @@ mod web_link_importer {
     /// Report — the same shape `import` itself answers, since both land through
     /// `Core::import`.
     fn import_web_link_and_wait(app: &support::TestApp, key: &str, url: &str) -> Value {
-        let (status, ask) = app.post_op(
-            "import_web_link",
-            Some(key),
-            &json!({ "url": url }).to_string(),
-        );
-        assert_eq!(status, 200, "{ask}");
-        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
-        let finished = support::wait_terminal(app, Some(key), job_id);
+        let finished = import_web_link_to_the_end(app, key, url);
         assert_eq!(finished["status"], json!("completed"), "{finished}");
         finished["result"].clone()
     }
@@ -9452,6 +9445,370 @@ mod web_link_importer {
             json!("failed"),
             "a redirect into a private address must fail the Job: {finished}"
         );
+    }
+
+    /// Ask `import_web_link` and wait for its Job to end whichever way it ends.
+    fn import_web_link_to_the_end(app: &support::TestApp, key: &str, url: &str) -> Value {
+        let (status, ask) = app.post_op(
+            "import_web_link",
+            Some(key),
+            &json!({ "url": url }).to_string(),
+        );
+        assert_eq!(status, 200, "{ask}");
+        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+        support::wait_terminal(app, Some(key), job_id)
+    }
+
+    /// **A Share Link pasted into "import a link" arrives as the recipe file it
+    /// serves** (#169, ADR 0026). The page carries no JSON-LD, so reading it as a
+    /// web page landed a title and nothing else. Its Bundle is the whole recipe:
+    /// the sender's Branch under the sender's ids and Hand, every Version, the
+    /// original Source, the Photographs byte for byte. Two instances, because
+    /// the friend abroad and the person down the hall take the identical path.
+    ///
+    /// Pasting it again, even from a Translation's page, matches rather than
+    /// doubles, the way a second Bundle of the same recipe does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_share_link_pasted_as_a_web_link_arrives_whole_as_its_bundle() {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        let there = support::spawn_app();
+        let (key, _kitchen, pizza, lineage, _french, dough, photos) = a_pizza_worth_sending(&there);
+        backdate_branch_head(&there, &pizza);
+        let (status, edited) = there.post_op(
+            "edit_recipe",
+            Some(&key),
+            &json!({
+                "branch_id": pizza,
+                "source": { "text": "Marion's Kitchen", "link": "https://www.marionskitchen.com/pizza" },
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{edited}");
+        let (token, _url) = share(&there, &key, &pizza);
+        let (_, sent) = there.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza }).to_string(),
+        );
+        let sent = &sent["result"];
+        assert!(
+            sent["versions"].as_array().unwrap().len() >= 3,
+            "a History worth carrying: {sent}"
+        );
+
+        let here = support::spawn_app();
+        let nadia = here.core.create_person("Nadia").expect("person");
+        let nadia_key = here
+            .core
+            .mint_access_key(&nadia, "browser", false)
+            .unwrap()
+            .secret;
+        let link = format!("http://{}/s/{token}", there.addr);
+
+        let report = import_web_link_and_wait(&here, &nadia_key, &link);
+        assert_eq!(report["source_kind"], json!("bundle"), "{report}");
+        assert_eq!(report["unreadable"], json!([]), "{report}");
+        let row = arrived_row(&report, &pizza);
+        assert_eq!(row["status"], json!("created"), "{row}");
+        assert_eq!(row["subject"], json!(true), "{row}");
+        assert_eq!(row["lineage_id"], json!(lineage));
+        assert_eq!(arrived_row(&report, &dough)["subject"], json!(false));
+        let pizza_here = landed_as(&report, &pizza);
+
+        let (status, held) = here.post_op(
+            "get_recipe",
+            Some(&nadia_key),
+            &json!({ "branch_id": pizza_here }).to_string(),
+        );
+        assert_eq!(status, 200, "{held}");
+        let held = &held["result"];
+        assert_eq!(held["hand_id"], sent["hand_id"], "under the sender's Hand");
+        assert_eq!(held["head_version_id"], sent["head_version_id"]);
+        let sent_versions = sent["versions"].as_array().unwrap();
+        let held_versions = held["versions"].as_array().unwrap();
+        assert_eq!(
+            held_versions.len(),
+            sent_versions.len(),
+            "the whole History"
+        );
+        for (held, sent) in held_versions.iter().zip(sent_versions) {
+            for field in ["version_id", "hand_id", "name", "change_note", "content"] {
+                assert_eq!(
+                    held[field], sent[field],
+                    "{field} arrives as it was written"
+                );
+            }
+        }
+        let head = &held_versions.last().unwrap()["content"];
+        assert_eq!(
+            head["source"],
+            json!({ "text": "Marion's Kitchen", "link": "https://www.marionskitchen.com/pizza" }),
+            "the original Source, not the address it was shared from"
+        );
+        assert_eq!(head["title"], json!("Pizza Margherita"));
+        for hash in &photos {
+            let (_, _, left) = there.get_bytes(&format!("/api/photographs/{hash}"), Some(&key));
+            let (status, _, stored) =
+                here.get_bytes(&format!("/api/photographs/{hash}"), Some(&nadia_key));
+            assert_eq!(status, 200);
+            assert_eq!(stored, left, "{hash} is the bytes that left");
+        }
+
+        // Again, from the French page this time: the same link, the same file.
+        let again = import_web_link_and_wait(&here, &nadia_key, &format!("{link}/in/fr"));
+        let row = arrived_row(&again, &pizza);
+        assert_eq!(row["status"], json!("unchanged"), "{again}");
+        assert_eq!(row["branch_id"], json!(pizza_here), "matched, not doubled");
+    }
+
+    /// **A Share Link this instance minted is answered here, with no fetch**
+    /// (#169). The link names the instance's public address, which nothing in
+    /// this test serves: a fetch would fail, so the recipe arriving proves none
+    /// was made. That matters because the guarded client refuses a home-network
+    /// address (ADR 0033), and most instances live on one. A second Person on
+    /// the same instance gets the whole recipe, and ending the link refuses
+    /// the same way a far Kamosu's refusal does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_share_link_from_this_instance_is_received_without_a_fetch() {
+        let app = support::spawn_app();
+        let (key, _kitchen, pizza, lineage, _french, _dough, _photos) = a_pizza_worth_sending(&app);
+        let (_token, url) = share(&app, &key, &pizza);
+        assert!(url.starts_with("https://kamosu.example/s/"), "{url}");
+        let (_, sent) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": pizza }).to_string(),
+        );
+        let sent = &sent["result"];
+
+        let (_nadia, nadia_key, _) = person_with_kitchen(&app, "Nadia");
+        let report = import_web_link_and_wait(&app, &nadia_key, &url);
+        assert_eq!(report["source_kind"], json!("bundle"), "{report}");
+        let row = arrived_row(&report, &pizza);
+        assert_eq!(row["status"], json!("created"), "{row}");
+        assert_eq!(row["lineage_id"], json!(lineage));
+        let (status, held) = app.post_op(
+            "get_recipe",
+            Some(&nadia_key),
+            &json!({ "branch_id": landed_as(&report, &pizza) }).to_string(),
+        );
+        assert_eq!(status, 200, "{held}");
+        let sent_versions = sent["versions"].as_array().unwrap();
+        let held_versions = held["result"]["versions"].as_array().unwrap();
+        assert_eq!(
+            held_versions.len(),
+            sent_versions.len(),
+            "the whole History"
+        );
+        for (held, sent) in held_versions.iter().zip(sent_versions) {
+            for field in ["version_id", "hand_id", "name", "change_note", "content"] {
+                assert_eq!(
+                    held[field], sent[field],
+                    "{field} arrives as it was written"
+                );
+            }
+        }
+
+        let (status, ended) = app.post_op(
+            "end_share_link",
+            Some(&key),
+            &json!({ "branch_id": pizza }).to_string(),
+        );
+        assert_eq!(status, 200, "{ended}");
+        let finished = import_web_link_to_the_end(&app, &nadia_key, &url);
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+        assert!(
+            finished["error"]
+                .to_string()
+                .contains("this Share Link was ended"),
+            "{finished}"
+        );
+    }
+
+    /// **An ended Share Link is refused, in the share page's own words, and
+    /// lands nothing** (#169). Reading its page as a web page would have landed
+    /// a recipe called "This link was ended · Kamosu". A token nobody minted is
+    /// refused the same way.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_ended_share_link_pasted_as_a_web_link_is_refused_and_lands_nothing() {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        let there = support::spawn_app();
+        let (_person, key, _) = person_with_kitchen(&there, "Aurélien");
+        let (_status, created) = there.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({ "title": "Withdrawn soup" }).to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        let (token, _url) = share(&there, &key, &branch_id);
+        let (status, ended) = there.post_op(
+            "end_share_link",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{ended}");
+
+        let here = support::spawn_app();
+        let nadia = here.core.create_person("Nadia").expect("person");
+        let nadia_key = here
+            .core
+            .mint_access_key(&nadia, "browser", false)
+            .unwrap()
+            .secret;
+
+        for (link, words) in [
+            (
+                format!("http://{}/s/{token}", there.addr),
+                "this Share Link was ended",
+            ),
+            (
+                format!("http://{}/s/nobody-ever-minted-this", there.addr),
+                "no such Share Link",
+            ),
+        ] {
+            let finished = import_web_link_to_the_end(&here, &nadia_key, &link);
+            assert_eq!(finished["status"], json!("failed"), "{finished}");
+            let said = finished["error"].to_string();
+            assert!(said.contains(words), "refused in the page's words: {said}");
+        }
+
+        let (status, imports) = here.post_op("list_imports", Some(&nadia_key), "{}");
+        assert_eq!(status, 200, "{imports}");
+        // The ledger keeps the two failed asks, and nothing that arrived.
+        let arrivals: Vec<&Value> = imports["result"]["imports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|import| import["arrivals"].as_array().unwrap())
+            .collect();
+        assert_eq!(arrivals.len(), 2, "{imports}");
+        for arrival in arrivals {
+            assert_eq!(arrival["status"], json!("failed"), "{arrival}");
+            assert_eq!(arrival["arrived"], json!(0), "nothing landed: {arrival}");
+        }
+        let (_, shelves) = here.post_op("home_shelves", Some(&nadia_key), "{}");
+        assert!(
+            !shelves.to_string().contains("This link was ended"),
+            "no title-only recipe: {shelves}"
+        );
+    }
+
+    /// **A recipe file cut short fails the import** (#169). Once `/bundle` has
+    /// begun sending a zip it is a Share Link, so reading the address as a web
+    /// page instead would land the title-only recipe this exists to prevent.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_file_cut_short_fails_rather_than_landing_a_title() {
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        let router = axum::Router::new()
+            .route(
+                "/s/{token}",
+                axum::routing::get(|| async {
+                    axum::response::Html("<html><head><title>Pizza · Kamosu</title></head></html>")
+                }),
+            )
+            .route(
+                "/s/{token}/bundle",
+                axum::routing::get(|| async {
+                    // The start of the zip goes out, and a moment later the
+                    // connection drops: headers sent, body never finished.
+                    use futures_util::StreamExt;
+                    let broken = futures_util::stream::iter([Ok(axum::body::Bytes::from_static(
+                        b"PK\x03\x04 the start of a zip",
+                    ))])
+                    .chain(futures_util::stream::once(async {
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        Err(std::io::Error::other("the connection dropped"))
+                    }));
+                    (
+                        [("content-type", "application/zip")],
+                        axum::body::Body::from_stream(broken),
+                    )
+                }),
+            );
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("a Kamosu whose connection drops");
+        });
+
+        let finished = import_web_link_to_the_end(&app, &key, &format!("http://{addr}/s/abc"));
+        assert_eq!(finished["status"], json!("failed"), "{finished}");
+        assert!(
+            finished["error"]
+                .to_string()
+                .contains("could not be read whole"),
+            "{finished}"
+        );
+    }
+
+    /// **A stranger's page with an `/s/…` path is still a web page** (#169).
+    /// Only a path whose `/bundle` answers a Bundle is a Share Link.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_strangers_page_under_an_s_path_still_imports_as_a_web_page() {
+        let app = support::spawn_app();
+        let person = app.core.create_person("Aurélien").expect("person");
+        let key = app
+            .core
+            .mint_access_key(&person, "importer", false)
+            .unwrap()
+            .secret;
+        kamosu::web_import::allow_loopback_fetches_for_tests();
+        // One `/bundle` answers something that is not a Bundle, the other
+        // answers 404 the way most sites would. Neither is a Share Link.
+        let router = axum::Router::new()
+            .route(
+                "/s/{token}",
+                axum::routing::get(|| async {
+                    axum::response::Html(
+                        r#"<html><head><script type="application/ld+json">
+                        {"@type": "Recipe", "name": "Shortbread",
+                         "recipeIngredient": ["200 g butter"],
+                         "recipeInstructions": ["Bake."]}
+                        </script></head><body></body></html>"#,
+                    )
+                }),
+            )
+            .route(
+                "/s/{token}/bundle",
+                axum::routing::get(
+                    |axum::extract::Path(token): axum::extract::Path<String>| async move {
+                        if token == "zipless" {
+                            (axum::http::StatusCode::OK, "a download of something else")
+                                .into_response()
+                        } else {
+                            axum::http::StatusCode::NOT_FOUND.into_response()
+                        }
+                    },
+                ),
+            );
+        let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral");
+        std_listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(std_listener).expect("async listener");
+        let addr = listener.local_addr().expect("local addr");
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("a stranger's site");
+        });
+
+        for token in ["zipless", "missing"] {
+            let report = import_web_link_and_wait(&app, &key, &format!("http://{addr}/s/{token}"));
+            assert_eq!(report["source_kind"], json!("web"), "{report}");
+            let arrived = report["arrived"].as_array().unwrap();
+            assert_eq!(arrived.len(), 1, "{report}");
+            assert_eq!(arrived[0]["title"], json!("Shortbread"));
+        }
     }
 
     /// One shape's fixture: its page path, its HTML, the title it must land

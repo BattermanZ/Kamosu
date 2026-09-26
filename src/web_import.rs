@@ -7,9 +7,10 @@
 //! Two concerns live here on purpose, and only one of them touches the
 //! network: [`extract_recipe`] is a pure function over already-fetched HTML,
 //! tested directly against inline fixtures for all seventeen shapes with no
-//! server involved. [`fetch_page`] and [`fetch_photo`] are the guarded
-//! fetches (ADR 0033) — every outbound byte Kamosu reads for this feature
-//! passes through them, and through no other HTTP client.
+//! server involved. [`fetch_page`], [`fetch_photo`] and, for a Kamosu Share
+//! Link, [`fetch_shared_recipe`] (#169) are the guarded fetches (ADR 0033) —
+//! every outbound byte Kamosu reads for this feature passes through them, and
+//! through no other HTTP client.
 
 use std::time::Duration;
 
@@ -30,6 +31,13 @@ const MAX_HTML_BYTES: usize = 5 * 1024 * 1024;
 /// picture fetched from a URL is held to the same number as one handed over
 /// directly (ADR 0033).
 use crate::photographs::MAX_PICTURE_BYTES as MAX_IMAGE_BYTES;
+/// A Share Link's recipe file (#169). One recipe with its Passengers and its
+/// Photographs as stored, which is a few megabytes; the cap is there so a
+/// stranger's `/s/…/bundle` cannot hand over something unbounded. The file
+/// gets longer than a page to arrive, because an instance at home sends it
+/// over a home upload.
+const MAX_BUNDLE_BYTES: usize = 100 * 1024 * 1024;
+const BUNDLE_TIMEOUT_SECS: u64 = 60;
 const FETCH_TIMEOUT_SECS: u64 = 10;
 const MAX_REDIRECTS: usize = 5;
 
@@ -454,18 +462,36 @@ async fn read_capped(mut response: reqwest::Response, cap: usize) -> Result<Vec<
     Ok(buf)
 }
 
-/// The one guarded connect-and-answer shared by [`fetch_page`] and
-/// [`fetch_photo`]: validate the address, build the client, send the GET,
-/// and cap what is read — `noun` names what a failure sentence calls the
-/// thing being fetched ("that page", "that photo").
+/// What a guarded fetch was answered, before anything is made of it.
+struct Answered {
+    status: reqwest::StatusCode,
+    /// Whether the far end said it was sending a zip.
+    zip: bool,
+    effective_url: String,
+    /// The body, or why it could not be read whole. Empty where the caller
+    /// asked for none of it.
+    body: Result<Vec<u8>, OpError>,
+}
+
+/// The one guarded connect-and-answer every fetch here shares: validate the
+/// address, build the client, send the GET, and read the body under the cap
+/// `cap` names for the status that came back, or none of it for `None`.
+/// `noun` names what a failure sentence calls the thing being fetched ("that
+/// page", "that photo"). Only a failure to get any answer at all is an `Err`;
+/// what a status or a short body means is each caller's question.
 ///
 /// Blocks the current thread on the async client via `Handle::current()`,
 /// which only works from inside `tokio::task::spawn_blocking` — exactly
-/// where a Job handler always runs (`jobs.rs::carry`). Both callers here are
-/// Job handlers reached only through `import_web_link` (`Kind::Job` in the
-/// Catalogue); an `Immediate` Operation calling either would panic, which is
-/// why neither is wired as one.
-fn guarded_get(url: &str, noun: &str, cap: usize) -> Result<(Vec<u8>, String), OpError> {
+/// where a Job handler always runs (`jobs.rs::carry`). Every caller here is a
+/// Job handler reached only through `import_web_link` (`Kind::Job` in the
+/// Catalogue); an `Immediate` Operation calling one would panic, which is
+/// why none is wired as one.
+fn guarded_answer(
+    url: &str,
+    noun: &str,
+    timeout: Duration,
+    cap: impl FnOnce(reqwest::StatusCode) -> Option<usize>,
+) -> Result<Answered, OpError> {
     let parsed = parse_fetchable_url(url)?;
     let acl = guarded_acl();
     acl.validate_url(&parsed)
@@ -475,19 +501,45 @@ fn guarded_get(url: &str, noun: &str, cap: usize) -> Result<(Vec<u8>, String), O
     tokio::runtime::Handle::current().block_on(async move {
         let response = client
             .get(parsed)
+            .timeout(timeout)
             .send()
             .await
             .map_err(|e| OpError::bad_request(format!("cannot reach {noun}: {e}")))?;
-        if !response.status().is_success() {
-            return Err(OpError::bad_request(format!(
-                "{noun} answered with {}",
-                response.status()
-            )));
-        }
+        let status = response.status();
+        let zip = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("application/zip"));
         let effective_url = response.url().to_string();
-        let bytes = read_capped(response, cap).await?;
-        Ok((bytes, effective_url))
+        let body = match cap(status) {
+            Some(cap) => read_capped(response, cap).await,
+            None => Ok(Vec::new()),
+        };
+        Ok(Answered {
+            status,
+            zip,
+            effective_url,
+            body,
+        })
     })
+}
+
+/// [`guarded_answer`], for a caller that wants only a success.
+fn guarded_get(url: &str, noun: &str, cap: usize) -> Result<(Vec<u8>, String), OpError> {
+    let answered = guarded_answer(
+        url,
+        noun,
+        Duration::from_secs(FETCH_TIMEOUT_SECS),
+        |status| status.is_success().then_some(cap),
+    )?;
+    if !answered.status.is_success() {
+        return Err(OpError::bad_request(format!(
+            "{noun} answered with {}",
+            answered.status
+        )));
+    }
+    Ok((answered.body?, answered.effective_url))
 }
 
 /// Fetch a page's HTML, bound to public addresses at the dialled address and
@@ -503,6 +555,118 @@ pub fn fetch_page(url: &str) -> Result<(String, String), OpError> {
 pub fn fetch_photo(url: &str) -> Result<Vec<u8>, OpError> {
     let (bytes, _effective_url) = guarded_get(url, "that photo", MAX_IMAGE_BYTES)?;
     Ok(bytes)
+}
+
+/// An address shaped like a Kamosu Share Link (#169).
+#[derive(Debug, PartialEq)]
+pub struct ShareLink {
+    /// The link's Secret, which is what this instance would know it by.
+    pub token: String,
+    /// Where the recipe file sits beside the page.
+    pub bundle_url: String,
+}
+
+/// Read an address as a Share Link: `/s/<token>`, or one of its Translations at
+/// `/s/<token>/in/<language>`, on any host. Every Share Link serves its Bundle
+/// at `/s/<token>/bundle` (#66, ADR 0020), the same file whichever of its pages
+/// was pasted.
+///
+/// Only the shape is read here. A stranger's site can have an `/s/…` path
+/// too, which is why [`fetch_shared_recipe`] asks what the address answers
+/// before anything is taken to be a Share Link.
+pub fn share_link(url: &str) -> Option<ShareLink> {
+    let mut parsed = Url::parse(url).ok()?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return None;
+    }
+    let segments: Vec<&str> = parsed.path_segments()?.collect();
+    let token = match segments.as_slice() {
+        ["s", token] | ["s", token, ""] => token.to_string(),
+        ["s", token, "in", language] | ["s", token, "in", language, ""] if !language.is_empty() => {
+            token.to_string()
+        }
+        _ => return None,
+    };
+    if token.is_empty() {
+        return None;
+    }
+    parsed.set_path(&format!("/s/{token}/bundle"));
+    parsed.set_query(None);
+    parsed.set_fragment(None);
+    Some(ShareLink {
+        token,
+        bundle_url: parsed.to_string(),
+    })
+}
+
+/// What an address shaped like a Share Link turned out to be (#169).
+#[derive(Debug)]
+pub enum SharedRecipe {
+    /// It served a Bundle: the recipe file, to be received as one.
+    Bundle(Vec<u8>),
+    /// It is a Kamosu Share Link that hands over nothing — ended, or never
+    /// minted — and this is what its own page says about that.
+    Refused(String),
+    /// Not a Share Link after all: read the address as a web page.
+    NotAShareLink,
+}
+
+/// Ask a Share Link's `/bundle` for its recipe file, under the same guard as
+/// every other fetch here (ADR 0033).
+///
+/// A zip that opens as a Bundle is the recipe. A refusal that carries
+/// Kamosu's own mark (`share_page::SHARE_PAGE_MARK`) is a link that hands over
+/// nothing, and its sentence is kept so the reader is told what the page
+/// says. A stranger's 404, some other download, or a host that does not
+/// answer at all is `NotAShareLink`, and the address is read as the web page
+/// it may well be. A zip that began arriving and could not be read whole is
+/// an error: falling through would land the title-only recipe this exists
+/// to prevent.
+pub fn fetch_shared_recipe(bundle_url: &str) -> Result<SharedRecipe, OpError> {
+    let Ok(answered) = guarded_answer(
+        bundle_url,
+        "that recipe file",
+        Duration::from_secs(BUNDLE_TIMEOUT_SECS),
+        |status| {
+            Some(if status.is_success() {
+                MAX_BUNDLE_BYTES
+            } else {
+                MAX_HTML_BYTES
+            })
+        },
+    ) else {
+        return Ok(SharedRecipe::NotAShareLink);
+    };
+    if answered.status.is_success() {
+        return match answered.body {
+            Ok(bytes) if crate::bundles::open(&bytes).is_ok() => Ok(SharedRecipe::Bundle(bytes)),
+            Ok(_) => Ok(SharedRecipe::NotAShareLink),
+            Err(e) if answered.zip => Err(OpError::bad_request(format!(
+                "the recipe file could not be read whole: {}",
+                e.to_sentence()
+            ))),
+            Err(_) => Ok(SharedRecipe::NotAShareLink),
+        };
+    }
+    let Ok(body) = answered.body else {
+        return Ok(SharedRecipe::NotAShareLink);
+    };
+    let page = String::from_utf8_lossy(&body);
+    if !page.contains(crate::share_page::SHARE_PAGE_MARK) {
+        return Ok(SharedRecipe::NotAShareLink);
+    }
+    // The refusal page is one heading and one sentence (`share_page::plain_page`);
+    // the sentence is the part that says why. Held to a sentence's length, since
+    // it becomes the Job's error and the far end wrote it.
+    let document = Html::parse_document(&page);
+    let said = Selector::parse("p").ok().and_then(|p| {
+        let text: String = document.select(&p).next()?.text().collect();
+        let text: String = text.trim().chars().take(300).collect();
+        (!text.is_empty()).then_some(text)
+    });
+    Ok(SharedRecipe::Refused(said.unwrap_or_else(|| {
+        format!("that Share Link answered with {}", answered.status)
+    })))
 }
 
 #[cfg(test)]
@@ -917,5 +1081,38 @@ mod tests {
 
         let six = client.get(chain_of(6).await).send().await;
         assert!(six.is_err(), "a 6th redirect must be refused");
+    }
+
+    #[test]
+    fn a_share_link_is_known_by_its_shape_and_its_file_sits_beside_it() {
+        let on = |url: &str| share_link(url).map(|link| link.bundle_url);
+        assert_eq!(
+            share_link("https://recipes.example/s/4b8c6f26"),
+            Some(ShareLink {
+                token: "4b8c6f26".to_string(),
+                bundle_url: "https://recipes.example/s/4b8c6f26/bundle".to_string(),
+            })
+        );
+        assert_eq!(
+            on("https://recipes.example/s/4b8c6f26/").as_deref(),
+            Some("https://recipes.example/s/4b8c6f26/bundle"),
+            "a trailing slash is the same link"
+        );
+        assert_eq!(
+            on("http://192.0.2.7:5266/s/4b8c6f26/in/fr?from=chat#method").as_deref(),
+            Some("http://192.0.2.7:5266/s/4b8c6f26/bundle"),
+            "a Translation's page shares the one file; query and fragment go"
+        );
+        for not_one in [
+            "https://recipes.example/s/",
+            "https://recipes.example/s/4b8c6f26/sheet",
+            "https://recipes.example/s/4b8c6f26/in/",
+            "https://recipes.example/blog/s/4b8c6f26",
+            "https://recipes.example/recipes/s",
+            "ftp://recipes.example/s/4b8c6f26",
+            "not a url",
+        ] {
+            assert_eq!(on(not_one), None, "{not_one}");
+        }
     }
 }

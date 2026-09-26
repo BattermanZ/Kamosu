@@ -1523,7 +1523,7 @@ export type ForgetImportOutput = {
 	import_id: string;
 };
 
-/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 export type ImportWebLinkInput = {
 	url: string;
 };
@@ -12205,7 +12205,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_web_link",
-		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
+		"summary": "Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -25765,7 +25765,7 @@ export interface KamosuClient {
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
 	/** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
-	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
+	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
 	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;

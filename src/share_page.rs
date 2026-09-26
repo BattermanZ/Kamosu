@@ -535,13 +535,21 @@ fn text_at<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
+/// What every page a Share Link serves says about itself, the refusals
+/// included. It is how an importer on any Kamosu tells an ended link from a
+/// stranger's site whose `/s/…/bundle` merely failed (#169,
+/// `web_import::fetch_shared_recipe`).
+pub const SHARE_PAGE_MARK: &str = r#"<meta name="generator" content="Kamosu">"#;
+
 fn shell(language: &str, title: &str, head: String, body: String) -> String {
+    let mark = SHARE_PAGE_MARK;
     format!(
         r#"<!doctype html>
 <html lang="{language}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+{mark}
 <title>{title}</title>
 <link rel="stylesheet" href="/assets/app.css">
 <link rel="icon" href="/favicon.svg">
