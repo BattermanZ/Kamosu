@@ -301,18 +301,28 @@ function display(of: Unit, language: string, plural: boolean): string {
 	return fixed[of.id] ?? of.id;
 }
 
+/**
+ * `units::plural`, the one rule on singular or plural (#147): English and
+ * Spanish go plural above one, French only from two. It exists twice because
+ * this copy runs without the server; `shopping_parity` in `src/shopping.rs`
+ * holds the two to the same cases.
+ */
+function plural(quantity: number, language: string): boolean {
+	return language === 'fr' ? quantity >= 2 : quantity > 1;
+}
+
 /** `units::word_it`. */
 function wordIt(measured: Measured, language: string): string {
 	const quantity = roundTo(measured.quantity, measured.unit.id);
 	const number = measured.unit.system === 'customary' ? asFraction(quantity) : asDecimal(quantity);
-	return `${about(language)} ${number} ${display(measured.unit, language, quantity !== 1)}`;
+	return `${about(language)} ${number} ${display(measured.unit, language, plural(quantity, language))}`;
 }
 
 function wordedMass(grams: number, measures: Measures, language: string): string {
 	return wordIt(measures === 'us' ? inCustomaryMass(grams) : inMetricMass(grams), language);
 }
 
-function wordedVolume(millilitres: number, measures: Measures, language: string): string {
+export function wordedVolume(millilitres: number, measures: Measures, language: string): string {
 	return wordIt(
 		measures === 'us' ? inCustomaryVolume(millilitres) : inMetricVolume(millilitres),
 		language,

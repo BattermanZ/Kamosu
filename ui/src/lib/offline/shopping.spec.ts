@@ -11,7 +11,15 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { asText, fold, parseAmount, rows, yieldScale, type Measures } from './shopping';
+import {
+	asText,
+	fold,
+	parseAmount,
+	rows,
+	wordedVolume,
+	yieldScale,
+	type Measures,
+} from './shopping';
 
 // Read from the repository root: the tests run from `ui/`, and the file is the
 // server's, so it lives beside the server's tests rather than under `ui/src`.
@@ -31,6 +39,13 @@ describe('the phone adds a Shopping List up as the server does', () => {
 	it('scales by a Yield only where the two Yields compare', () => {
 		for (const { wanted, written, scale } of parity.yield_scales)
 			expect(yieldScale(wanted, written)).toBe(scale);
+	});
+
+	it('writes a cup in the singular or plural as each Language does', () => {
+		for (const { millilitres, language, worded } of parity.cup_plurals)
+			expect(wordedVolume(millilitres, 'us', language), `${millilitres} ml, ${language}`).toBe(
+				worded,
+			);
 	});
 
 	it(`works out the same rows in all ${parity.cases.length} cases`, () => {

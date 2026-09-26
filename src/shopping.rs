@@ -1286,6 +1286,17 @@ mod tests {
             json!({ "wanted": wanted, "written": written, "scale": scale })
         })
         .collect::<Vec<_>>();
+        let cup_plurals = units::CUP_PLURALS
+            .iter()
+            .map(|&(cups, language, _)| {
+                let millilitres = units::cups_in_millilitres(cups);
+                json!({
+                    "millilitres": millilitres,
+                    "language": language,
+                    "worded": units::worded_volume(millilitres, Measures::Us, language),
+                })
+            })
+            .collect::<Vec<_>>();
         let cases = parity_cases();
         let texts = cases
             .iter()
@@ -1319,13 +1330,14 @@ mod tests {
                 .join(",\n")
         };
         let said = format!(
-            "{{\"about\": {},\n\"folds\": [\n{}\n],\n\"amounts\": [\n{}\n],\n\"yield_scales\": [\n{}\n],\n\"cases\": [\n{}\n],\n\"texts\": [\n{}\n]}}\n",
+            "{{\"about\": {},\n\"folds\": [\n{}\n],\n\"amounts\": [\n{}\n],\n\"yield_scales\": [\n{}\n],\n\"cup_plurals\": [\n{}\n],\n\"cases\": [\n{}\n],\n\"texts\": [\n{}\n]}}\n",
             json!(
                 "Written by shopping_parity in src/shopping.rs (#77). Do not edit: rewrite it with KAMOSU_WRITE_PARITY=1 cargo test shopping_parity."
             ),
             lines(&folds),
             lines(&amounts),
             lines(&yields),
+            lines(&cup_plurals),
             lines(&cases),
             lines(&texts),
         );

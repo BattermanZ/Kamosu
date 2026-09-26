@@ -1126,6 +1126,43 @@ fn display(unit: &Unit, language: &str, plural: bool) -> String {
     word.to_string()
 }
 
+/// Whether a Unit is written in the plural after this quantity, which each
+/// Language rules on differently (#147): English and Spanish go plural above
+/// one (*½ cup*, *1½ cups*), French only from two (*1½ tasse*, *2 tasses*).
+/// Only the cup has a plural for this to choose between. The phone's offline
+/// copy is `plural` in `ui/src/lib/offline/shopping.ts`, and `shopping_parity`
+/// holds the two to the same cases.
+fn plural(quantity: f64, language: &str) -> bool {
+    match language {
+        "fr" => quantity >= 2.0,
+        _ => quantity > 1.0,
+    }
+}
+
+/// The cases the plural rule is held to, in cups and each Language's word for
+/// them (#147). `shopping_parity` writes them out for the phone's copy too.
+#[cfg(test)]
+pub(crate) const CUP_PLURALS: &[(f64, &str, &str)] = &[
+    (0.5, "en", "about ½ cup"),
+    (1.0, "en", "about 1 cup"),
+    (1.5, "en", "about 1½ cups"),
+    (2.0, "en", "about 2 cups"),
+    (0.5, "fr", "environ ½ tasse"),
+    (1.0, "fr", "environ 1 tasse"),
+    (1.5, "fr", "environ 1½ tasse"),
+    (2.0, "fr", "environ 2 tasses"),
+    (0.5, "es", "aprox. ½ taza"),
+    (1.0, "es", "aprox. 1 taza"),
+    (1.5, "es", "aprox. 1½ tazas"),
+    (2.0, "es", "aprox. 2 tazas"),
+];
+
+/// A number of cups as millilitres, for a test that words them back.
+#[cfg(test)]
+pub(crate) fn cups_in_millilitres(cups: f64) -> f64 {
+    cups * unit_by_id("cup").base
+}
+
 fn word_it(measured: Measured, language: &str) -> String {
     let quantity = round_to(measured.quantity, measured.unit);
     // Metric stays whole numbers; the cups in the drawer are marked in
@@ -1139,7 +1176,7 @@ fn word_it(measured: Measured, language: &str) -> String {
         as_decimal(quantity)
     };
     let unit = match (&measured.unit, &measured.as_written) {
-        (Some(unit), _) => display(unit, language, quantity != 1.0),
+        (Some(unit), _) => display(unit, language, plural(quantity, language)),
         // The cook's own word, exactly as written.
         (None, Some(written)) => written.clone(),
         (None, None) => String::new(),
@@ -2078,5 +2115,22 @@ mod tests {
         assert_eq!(written_in(["g", "cup"]), None);
         assert_eq!(written_in(["tbsp", "clove"]), None);
         assert_eq!(written_in([]), None);
+    }
+
+    #[test]
+    fn a_cup_goes_plural_where_each_language_says_it_does() {
+        for &(cups, language, worded) in CUP_PLURALS {
+            assert_eq!(
+                worded_volume(cups_in_millilitres(cups), Measures::Us, language),
+                worded,
+                "{cups} cups in {language}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hundred_and_twenty_millilitres_is_half_a_cup_not_half_cups() {
+        // The line that found this, from production (#147).
+        assert_eq!(worded_volume(120.0, Measures::Us, "en"), "about ½ cup");
     }
 }
