@@ -84,8 +84,55 @@ impl Core {
         translates_version_id: Option<&str>,
     ) -> Result<Value, OpError> {
         let content = parse_recipe_content(input)?;
-        let (version_id, content_text) = stored_version(&content);
+        self.save_onto_branch(
+            caller,
+            branch_id,
+            NewContent::Whole(&content),
+            name,
+            change_note,
+            translates_version_id,
+        )
+    }
 
+    /// Change some fields of a Recipe and save the result onto its Branch
+    /// (#164): exactly `save_recipe_version`, except that `changes` names only
+    /// the fields that change and every field it leaves out is kept as the
+    /// head has it. `null` clears a field and `[]` clears a list; a list is
+    /// replaced whole, never edited line by line. The Version is still the
+    /// fingerprint of the complete content the merge produces (ADR 0004), so
+    /// an edit and a whole save of the same recipe name the same Version.
+    #[allow(clippy::too_many_arguments)]
+    pub fn edit_recipe(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        changes: &Value,
+        name: Option<&str>,
+        change_note: Option<&str>,
+        translates_version_id: Option<&str>,
+    ) -> Result<Value, OpError> {
+        self.save_onto_branch(
+            caller,
+            branch_id,
+            NewContent::Fields(changes),
+            name,
+            change_note,
+            translates_version_id,
+        )
+    }
+
+    /// What `save_recipe_version` and `edit_recipe` both are, once each has
+    /// said the new content its own way.
+    #[allow(clippy::too_many_arguments)]
+    fn save_onto_branch(
+        &self,
+        caller: &Caller,
+        branch_id: &str,
+        content: NewContent<'_>,
+        name: Option<&str>,
+        change_note: Option<&str>,
+        translates_version_id: Option<&str>,
+    ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             // Before anything else reads the Branch, the identical-content
             // shortcut below included: it answers with the head's Version id.
@@ -101,7 +148,7 @@ impl Core {
             // where a Copy goes when it is not theirs to write.
             let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
 
-            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content, head_translates): (
+            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates): (
                 i64,
                 String,
                 String,
@@ -131,6 +178,18 @@ impl Core {
                     },
                 )
                 .map_err(|e| OpError::internal(format!("cannot read Branch head: {e}")))?;
+            let head_content: Value = serde_json::from_str(&head_content_text)
+                .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
+
+            // An edit is merged onto the head read just above, under the same
+            // lock, so no save can land between the read and the write.
+            let content = match content {
+                NewContent::Whole(content) => content.clone(),
+                NewContent::Fields(changes) => {
+                    parse_recipe_content(&merged_onto_head(&head_content, changes))?
+                }
+            };
+            let (version_id, content_text) = stored_version(&content);
 
             // What this save renders of its source: the Version named here, or
             // — for the ordinary edit that names none — whatever the Version
@@ -181,8 +240,6 @@ impl Core {
             // "re-reading the edited line refreshes the Reading" — and the
             // refresh itself happens directly below. This holds identically
             // for a Copy's first save: it is starting exactly at this head.
-            let head_content: Value = serde_json::from_str(&head_content)
-                .map_err(|e| OpError::internal(format!("cannot read Version content: {e}")))?;
             carry_forward_readings(conn, &head_version_id, &head_content, &version_id, &content)?;
             // ADR 0002's other half, which the comment above used to defer:
             // a line this save actually wrote is read now (#71). A line it
@@ -1501,6 +1558,50 @@ fn whole_word_at(haystack: &str, start: usize, needle: &str) -> bool {
 /// (decided with Aurélien on issue #42).
 const COLLAPSE_WINDOW_SECONDS: i64 = 3600;
 
+/// How a save says the recipe's new content: whole, already parsed, or as
+/// only the fields that change (#164).
+enum NewContent<'a> {
+    Whole(&'a Value),
+    Fields(&'a Value),
+}
+
+/// Every field of a Recipe's content, as `parse_recipe_content` reads it.
+const CONTENT_FIELDS: [&str; 10] = [
+    "title",
+    "yield",
+    "prep_time_minutes",
+    "cook_time_minutes",
+    "note",
+    "main_photo",
+    "source",
+    "nutrition",
+    "ingredients",
+    "steps",
+];
+
+/// The head's content with each field `changes` names put in its place, for
+/// `parse_recipe_content` to read as a whole recipe. A field `changes` leaves
+/// out keeps what the head has. One it sends as `null` is taken out, so the
+/// parse gives it the empty value every field starts from: `null`, or `[]`
+/// for a list. The title has no empty value, so taking it out is refused.
+fn merged_onto_head(head: &Value, changes: &Value) -> Value {
+    let mut merged = head.clone();
+    if let (Some(merged), Some(changes)) = (merged.as_object_mut(), changes.as_object()) {
+        for field in CONTENT_FIELDS {
+            match changes.get(field) {
+                None => {}
+                Some(Value::Null) => {
+                    merged.remove(field);
+                }
+                Some(value) => {
+                    merged.insert(field.to_string(), value.clone());
+                }
+            }
+        }
+    }
+    merged
+}
+
 /// Build and validate the stored shape of a Recipe's content out of raw
 /// request input (#43): the title, the optional Yield, Prep/Cook Time, Note,
 /// Source and Nutrition figure, and the Ingredient Line and Step lists — each a flat, ordered
@@ -2336,6 +2437,24 @@ pub(super) fn branch_title(conn: &Connection, version_id: &str) -> Result<String
 mod tests {
     use crate::fingerprint::fingerprint_content;
     use serde_json::{Value, json};
+
+    /// `edit_recipe` merges only the fields `CONTENT_FIELDS` names (#164), so
+    /// a field added to `parse_recipe_content` and not to that list would be
+    /// accepted by the edit and then silently dropped.
+    #[test]
+    fn an_edit_can_change_every_field_a_recipe_holds() {
+        let parsed = super::parse_recipe_content(&json!({ "title": "Soupe" })).unwrap();
+        let mut held: Vec<&str> = parsed
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut editable = super::CONTENT_FIELDS.to_vec();
+        held.sort_unstable();
+        editable.sort_unstable();
+        assert_eq!(held, editable);
+    }
 
     /// **The gate on adding a field to a recipe** (ADR 0038, AGENTS.md).
     ///

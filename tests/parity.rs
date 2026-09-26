@@ -56,6 +56,7 @@ fn arguments_for(name: &str) -> Value {
         "set_operator" => json!({ "name": "Parity", "is_operator": true }),
         "create_recipe" => json!({ "title": "Parity Recipe" }),
         "save_recipe_version" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
+        "edit_recipe" => json!({ "branch_id": "b_parity", "title": "Parity Recipe" }),
         "read_pasted_recipe" => json!({ "text": "Parity Recipe\n\n1 tsp salt\nStir it in." }),
         "start_translation" => {
             json!({ "branch_id": "b_parity", "language": "fr", "title": "Recette Parité" })
@@ -149,6 +150,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "list_backups"
             | "create_recipe"
             | "save_recipe_version"
+            | "edit_recipe"
             | "read_pasted_recipe"
             | "start_translation"
             | "set_recipe_language"
@@ -339,6 +341,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "list_backups"
                 | "create_recipe"
                 | "save_recipe_version"
+                | "edit_recipe"
                 | "read_pasted_recipe"
                 | "start_translation"
                 | "set_recipe_language"

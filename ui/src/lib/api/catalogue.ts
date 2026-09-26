@@ -881,6 +881,52 @@ export type SaveRecipeVersionOutput = {
 	version_id: string;
 };
 
+/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a rapid re-edit collapses into the Version being shaped, and changing a recipe your Cookbook did not write is a Copy. */
+export type EditRecipeInput = {
+	branch_id: string;
+	change_note?: string;
+	cook_time_minutes?: number | null;
+	ingredients?: {
+		kind: "section" | "ingredient";
+		text: string;
+	}[] | null;
+	main_photo?: string | null;
+	name?: string;
+	note?: string | null;
+	nutrition?: {
+		basis: "per_serving" | "per_100g";
+		calories: number;
+	} | null;
+	prep_time_minutes?: number | null;
+	source?: {
+		link: string | null;
+		text: string;
+	} | null;
+	steps?: {
+		kind: "section" | "step";
+		photo?: string | null;
+		text: string;
+	}[] | null;
+	title?: string;
+	translates_version_id?: string;
+	yield?: {
+		amount: string;
+		noun: string;
+	} | null;
+};
+/** What edit_recipe answers. */
+export type EditRecipeOutput = {
+	branch_id: string;
+	collapsed: boolean;
+	copied: boolean;
+	language: string;
+	language_offer: string | null;
+	parent_version_id: string | null;
+	sequence: number;
+	translates_version_id: string | null;
+	version_id: string;
+};
+
 /** Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it ("Vegetarian"). Changing one never changes the other. */
 export type StartVariationInput = {
 	branch_id: string;
@@ -4336,6 +4382,12 @@ export interface Operations {
 	save_recipe_version: {
 		input: SaveRecipeVersionInput;
 		output: SaveRecipeVersionOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	edit_recipe: {
+		input: EditRecipeInput;
+		output: EditRecipeOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -8650,6 +8702,242 @@ export const CATALOGUE = [
 			"required": [
 				"branch_id",
 				"title"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"collapsed": {
+					"type": "boolean"
+				},
+				"copied": {
+					"description": "True when this save was a Copy: branch_id names the new Branch it started, never the one asked for.",
+					"type": "boolean"
+				},
+				"language": {
+					"description": "The Language this recipe still carries. A save never changes it.",
+					"type": "string"
+				},
+				"language_offer": {
+					"description": "The Language this text reads as, when that disagrees with the one the recipe carries — an offer to put to the cook, never a change. Null when they agree, when there is too little text to tell, and always when the Language is unknown.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"parent_version_id": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"sequence": {
+					"type": "integer"
+				},
+				"translates_version_id": {
+					"description": "The Version of the source this Version renders, for a Translation. Carried forward from the Version replaced unless this save named a new one; null on a recipe that translates nothing.",
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id",
+				"parent_version_id",
+				"sequence",
+				"collapsed",
+				"copied",
+				"language",
+				"language_offer",
+				"translates_version_id"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "edit_recipe",
+		"summary": "Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a rapid re-edit collapses into the Version being shaped, and changing a recipe your Cookbook did not write is a Copy.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"change_note": {
+					"type": "string"
+				},
+				"cook_time_minutes": {
+					"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"ingredient"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				},
+				"main_photo": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"name": {
+					"type": "string"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"nutrition": {
+					"additionalProperties": false,
+					"properties": {
+						"basis": {
+							"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+							"enum": [
+								"per_serving",
+								"per_100g"
+							]
+						},
+						"calories": {
+							"description": "Calories, zero or more.",
+							"minimum": 0,
+							"type": "number"
+						}
+					},
+					"required": [
+						"calories",
+						"basis"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"prep_time_minutes": {
+					"description": "Whole minutes of active preparation.",
+					"type": [
+						"integer",
+						"null"
+					]
+				},
+				"source": {
+					"additionalProperties": false,
+					"properties": {
+						"link": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"text",
+						"link"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"section",
+									"step"
+								]
+							},
+							"photo": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"kind",
+							"text"
+						],
+						"type": "object"
+					},
+					"type": [
+						"array",
+						"null"
+					]
+				},
+				"title": {
+					"type": "string"
+				},
+				"translates_version_id": {
+					"description": "For a Translation, the Version of the source this save now renders — how bringing a Translation up to date is said. Left out, whatever the Version being replaced pointed at is carried forward, so editing a Translation's wording never claims it has caught up.",
+					"type": "string"
+				},
+				"yield": {
+					"additionalProperties": false,
+					"properties": {
+						"amount": {
+							"type": "string"
+						},
+						"noun": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"amount",
+						"noun"
+					],
+					"type": [
+						"object",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"branch_id"
 			],
 			"type": "object"
 		},
@@ -25288,6 +25576,7 @@ export const METHOD_NAMES = {
 	set_related_recipe: 'setRelatedRecipe',
 	create_recipe: 'createRecipe',
 	save_recipe_version: 'saveRecipeVersion',
+	edit_recipe: 'editRecipe',
 	start_variation: 'startVariation',
 	rename_branch: 'renameBranch',
 	delete_recipe: 'deleteRecipe',
@@ -25454,6 +25743,8 @@ export interface KamosuClient {
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
 	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
+	/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a rapid re-edit collapses into the Version being shaped, and changing a recipe your Cookbook did not write is a Copy. */
+	editRecipe(input: EditRecipeInput): Promise<Answer<'edit_recipe'>>;
 	/** Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it ("Vegetarian"). Changing one never changes the other. */
 	startVariation(input: StartVariationInput): Promise<Answer<'start_variation'>>;
 	/** Name one of your Cookbook's Branches of a recipe, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */

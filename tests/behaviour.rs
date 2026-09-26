@@ -18073,6 +18073,15 @@ async fn every_version_a_door_writes_fingerprints_to_its_own_id() {
     let (status, saved) = app.post_op("save_recipe_version", Some(&key), &edited.to_string());
     assert_eq!(status, 200, "{saved}");
 
+    // An edit of one field, merged onto the head rather than sent whole (#164).
+    age_branch_head(&app, &branch_id);
+    let (status, retitled) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Katsu Curry maison" }).to_string(),
+    );
+    assert_eq!(status, 200, "{retitled}");
+
     // The same recipe edited by a Kitchen-mate, which starts a Copy in his
     // own Cookbook.
     let (_, other_key, _) = person_with_kitchen(&app, "Marc");
@@ -25295,4 +25304,187 @@ fn no_operation_mentions_a_home_kitchen() {
             "{recipe_op} still takes a Kitchen"
         );
     }
+}
+
+/// The content of a Branch's head Version, as `get_recipe` answers it.
+fn head_content(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+    let (status, recipe) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{recipe}");
+    let recipe = &recipe["result"];
+    recipe["versions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["version_id"] == recipe["head_version_id"])
+        .expect("the head is among the Versions")["content"]
+        .clone()
+}
+
+/// A list as `get_recipe` answers it: a step always carries its photo.
+fn head_content_list(recipe: &Value, list: &str) -> Value {
+    let mut items = recipe[list].clone();
+    if list == "steps" {
+        for step in items.as_array_mut().unwrap() {
+            step["photo"] = step.get("photo").cloned().unwrap_or(json!(null));
+        }
+    }
+    items
+}
+
+/// #164. `edit_recipe` changes the fields it is given and leaves every other
+/// one as the head has it, so renaming a recipe no longer means sending every
+/// ingredient and step back. A field left out is left alone; `null` (or `[]`
+/// for a list) clears it; a list is replaced whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editing_a_recipe_changes_only_the_fields_it_names() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Aurélien");
+    let edit = |input: Value| {
+        let mut input = input;
+        input["branch_id"] = json!(branch_id);
+        app.post_op("edit_recipe", Some(&key), &input.to_string())
+    };
+
+    // The title alone: everything else is still there.
+    age_branch_head(&app, &branch_id);
+    let (status, renamed) = edit(json!({ "title": "Katsu Curry du jeudi", "note": "Doux." }));
+    assert_eq!(status, 200, "{renamed}");
+    assert_eq!(renamed["result"]["collapsed"], json!(false));
+    let head = head_content(&app, &key, &branch_id);
+    let mut expected = katsu_as_written();
+    expected["title"] = json!("Katsu Curry du jeudi");
+    expected["note"] = json!("Doux.");
+    assert_eq!(head["title"], expected["title"]);
+    assert_eq!(head["note"], expected["note"]);
+    assert_eq!(
+        head["ingredients"],
+        head_content_list(&expected, "ingredients")
+    );
+    assert_eq!(head["steps"], head_content_list(&expected, "steps"));
+
+    // The fingerprint is the complete content's (ADR 0004): the same recipe
+    // sent whole by save_recipe_version names the very same Version.
+    let mut whole = expected.clone();
+    whole["branch_id"] = json!(branch_id);
+    let (_, same) = app.post_op("save_recipe_version", Some(&key), &whole.to_string());
+    assert_eq!(
+        same["result"]["version_id"],
+        renamed["result"]["version_id"]
+    );
+    assert_eq!(same["result"]["sequence"], renamed["result"]["sequence"]);
+
+    // Nothing to change mints nothing, however it is said.
+    for nothing in [json!({}), json!({ "title": "Katsu Curry du jeudi" })] {
+        let (status, unchanged) = edit(nothing);
+        assert_eq!(status, 200, "{unchanged}");
+        assert_eq!(
+            unchanged["result"]["version_id"],
+            renamed["result"]["version_id"]
+        );
+        assert_eq!(
+            unchanged["result"]["sequence"],
+            renamed["result"]["sequence"]
+        );
+    }
+
+    // A second edit straight after folds into the Version being shaped.
+    let (_, fixed) = edit(json!({ "prep_time_minutes": 20 }));
+    assert_eq!(fixed["result"]["collapsed"], json!(true), "{fixed}");
+    assert_eq!(
+        head_content(&app, &key, &branch_id)["prep_time_minutes"],
+        json!(20)
+    );
+
+    // A list is replaced whole; the other list is not touched.
+    let (status, relisted) = edit(json!({ "ingredients": [
+        { "kind": "ingredient", "text": "2 escalopes de poulet" },
+        { "kind": "ingredient", "text": "250 g de riz" },
+    ] }));
+    assert_eq!(status, 200, "{relisted}");
+    let head = head_content(&app, &key, &branch_id);
+    assert_eq!(head["ingredients"][1]["text"], json!("250 g de riz"));
+    assert_eq!(head["ingredients"].as_array().unwrap().len(), 2);
+    assert_eq!(head["steps"], head_content_list(&expected, "steps"));
+    assert_eq!(head["title"], json!("Katsu Curry du jeudi"));
+
+    // null clears a field, a list too, and so does [] for a list; only what
+    // was named is cleared.
+    let (status, cleared) = edit(json!({ "note": null, "steps": null, "yield": null }));
+    assert_eq!(status, 200, "{cleared}");
+    let head = head_content(&app, &key, &branch_id);
+    assert!(head["note"].is_null(), "{head}");
+    assert_eq!(head["steps"].as_array().map_or(0, Vec::len), 0, "{head}");
+    assert_eq!(head["prep_time_minutes"], json!(20));
+    assert_eq!(head["ingredients"].as_array().unwrap().len(), 2);
+    let (status, emptied) = edit(json!({ "ingredients": [] }));
+    assert_eq!(status, 200, "{emptied}");
+    let head = head_content(&app, &key, &branch_id);
+    assert_eq!(
+        head["ingredients"].as_array().map_or(0, Vec::len),
+        0,
+        "{head}"
+    );
+    assert_eq!(head["prep_time_minutes"], json!(20));
+
+    // A recipe keeps its title: clearing it is refused, and nothing moves.
+    let before = head_content(&app, &key, &branch_id);
+    for bad in [json!({ "title": null }), json!({ "title": "  " })] {
+        let (status, refused) = edit(bad);
+        assert_eq!(status, 400, "{refused}");
+    }
+    assert_eq!(head_content(&app, &key, &branch_id), before);
+}
+
+/// #164. An edit is a save in every respect but how the content is said: on a
+/// recipe the caller's Cookbook did not write, it starts a Copy of their own
+/// and leaves the recipe they changed exactly as it was.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editing_a_recipe_you_did_not_write_is_a_copy() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, kitchen_id) = recipe_ready_to_cook(&app, "Aurélien");
+    let (_, other_key, _) = person_with_kitchen(&app, "Marc");
+    let (_, invited) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let invite = invited["result"]["secret"].as_str().unwrap().to_string();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&other_key),
+        &json!({ "secret": invite }).to_string(),
+    );
+    let before = head_content(&app, &key, &branch_id);
+
+    let (status, copied) = app.post_op(
+        "edit_recipe",
+        Some(&other_key),
+        &json!({ "branch_id": branch_id, "title": "Katsu de Marc" }).to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    assert_eq!(copied["result"]["copied"], json!(true));
+    let copy = copied["result"]["branch_id"].as_str().unwrap();
+    assert_ne!(copy, branch_id);
+    let theirs = head_content(&app, &other_key, copy);
+    assert_eq!(theirs["title"], json!("Katsu de Marc"));
+    assert_eq!(theirs["steps"], before["steps"], "the Copy keeps the steps");
+    assert_eq!(
+        head_content(&app, &key, &branch_id),
+        before,
+        "the recipe Marc changed is untouched"
+    );
+
+    // And a Branch nobody may see answers as if it were not there (ADR 0040).
+    let (_, stranger_key, _) = person_with_kitchen(&app, "Inconnu");
+    let (status, refused) = app.post_op(
+        "edit_recipe",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_id, "title": "Volé" }).to_string(),
+    );
+    assert_ne!(status, 200, "{refused}");
+    assert_eq!(head_content(&app, &key, &branch_id), before);
 }

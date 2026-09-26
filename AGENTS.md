@@ -299,7 +299,9 @@ predates it.**
   that migration deliberately and say so in an ADR.
 
 `a_field_added_to_a_recipe_moves_no_existing_id` in `src/core/recipes.rs` fails the build
-on the second case. Two behaviour tests guard the rest: one sweeps a database
+on the second case. A new field also goes into `CONTENT_FIELDS` beside
+`parse_recipe_content`, the list `edit_recipe` merges onto the head (#164);
+`an_edit_can_change_every_field_a_recipe_holds` fails the build until it does. Two behaviour tests guard the rest: one sweeps a database
 carried forward from an earlier schema, which fails if a migration rewrote
 `versions.content` without re-fingerprinting it, and one drives every path that
 writes a Version and checks the same thing on what the Doors produced. `version_fingerprint(content)`

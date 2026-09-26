@@ -733,6 +733,30 @@ pub fn save_recipe_version(
     )
 }
 
+pub fn edit_recipe(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            OpError::bad_request(
+                "edit_recipe takes { branch_id, name?, change_note?, \
+             translates_version_id?, and any of the recipe's fields to change }",
+            )
+        })?;
+    let name = input.get("name").and_then(Value::as_str);
+    let change_note = input.get("change_note").and_then(Value::as_str);
+    let translates_version_id = input.get("translates_version_id").and_then(Value::as_str);
+    let caller = caller_of(invocation)?;
+    core.edit_recipe(
+        caller,
+        branch_id,
+        &input,
+        name,
+        change_note,
+        translates_version_id,
+    )
+}
+
 /// **Read a whole recipe pasted as text** (#94).
 ///
 /// Pure, and the only handler in this file that touches neither the database

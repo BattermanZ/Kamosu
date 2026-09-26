@@ -928,6 +928,27 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::save_recipe_version,
         },
         Operation {
+            name: "edit_recipe",
+            summary: "Change some fields of a Recipe and leave the rest as they \
+                      are: send only the fields that change. A field left out \
+                      keeps what the recipe has, and null clears it; the title \
+                      alone can be changed but never cleared. Ingredients and steps are each replaced whole, \
+                      so changing one line means sending that whole list, \
+                      but not the other one. Otherwise exactly \
+                      save_recipe_version: the result is saved as the \
+                      recipe's new state, a rapid re-edit collapses into the \
+                      Version being shaped, and changing a recipe your \
+                      Cookbook did not write is a Copy.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: edit_recipe_input_schema(),
+            output_schema: saved_version_schema(),
+            handler: crate::operations::edit_recipe,
+        },
+        Operation {
             name: "start_variation",
             summary: "Start a variation of a recipe: a Branch of it, unchanged, \
                       in your own Cookbook, under a name you give it \
@@ -3984,6 +4005,31 @@ fn save_recipe_version_input_schema() -> Value {
         "required": ["branch_id", "title"],
         "additionalProperties": false,
     })
+}
+
+/// `edit_recipe`'s input: a Branch and only the fields of its recipe that
+/// change (#164). Nothing is required but the Branch, and `{ branch_id }` alone
+/// changes nothing and mints nothing. Every field but the title takes `null`
+/// to clear it, the two lists included, which a whole save never needs: there
+/// a list is cleared by leaving it out. No `kitchen_id`, since no client ever
+/// sent one to an Operation this new.
+fn edit_recipe_input_schema() -> Value {
+    let mut schema = save_recipe_version_input_schema();
+    let map = schema.as_object_mut().expect("object schema");
+    map.insert("required".to_string(), json!(["branch_id"]));
+    let properties = map
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .expect("save_recipe_version declares its properties");
+    properties.remove("kitchen_id");
+    for list in ["ingredients", "steps"] {
+        properties
+            .get_mut(list)
+            .and_then(Value::as_object_mut)
+            .expect("the content properties declare both lists")
+            .insert("type".to_string(), json!(["array", "null"]));
+    }
+    schema
 }
 
 /// `start_translation`'s input: the recipe as it now reads in the new Language,

@@ -1431,9 +1431,12 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
     // Every Operation that works a Kitchen out from a Branch id, with the
     // Branch under probe first. `save_recipe_version` is here twice: a change,
     // and content identical to Marc's head, which once answered with his head's
-    // Version id rather than refusing (#100).
+    // Version id rather than refusing (#100). So is `edit_recipe` (#164), whose
+    // empty edit is that same identical content.
     let by_branch: Vec<(&str, serde_json::Value)> = vec![
         ("save_recipe_version", json!({ "title": "Mine now" })),
+        ("edit_recipe", json!({ "title": "Mine now" })),
+        ("edit_recipe", json!({})),
         (
             "save_recipe_version",
             json!({
@@ -1879,6 +1882,10 @@ async fn a_kitchen_mate_may_see_and_cook_a_recipe_and_change_none_of_it() {
             "save_recipe_version",
             json!({ "branch_id": his_recipe, "title": "Pizza, hers" }),
         ),
+        (
+            "edit_recipe",
+            json!({ "branch_id": his_recipe, "note": "Hers too." }),
+        ),
     ];
     for (operation, input) in &allowed {
         let (status, answered) = app.post_op(operation, Some(&nadia.key), &input.to_string());
@@ -2016,24 +2023,31 @@ async fn a_copy_starts_only_from_a_branch_a_kitchen_of_yours_holds() {
 
     // The body's two-call reproduction, both with a change and with Marc's head
     // word for word: the second once answered with his head's Version id.
+    // `edit_recipe` is the same save said field by field (#164), and its
+    // empty edit is Marc's head word for word.
     let before = recipe_rows(&app);
-    for content in [
-        json!({ "title": "Mine now" }),
-        json!({
-            "title": "Pizza",
-            "ingredients": [{ "kind": "ingredient", "text": "200 g flour" }],
-        }),
+    for (operation, content) in [
+        ("save_recipe_version", json!({ "title": "Mine now" })),
+        (
+            "save_recipe_version",
+            json!({
+                "title": "Pizza",
+                "ingredients": [{ "kind": "ingredient", "text": "200 g flour" }],
+            }),
+        ),
+        ("edit_recipe", json!({ "title": "Mine now" })),
+        ("edit_recipe", json!({})),
     ] {
         let mut held = content.clone();
         held["branch_id"] = json!(his_recipe);
         let mut absent = content;
         absent["branch_id"] = json!(no_recipe);
-        let refused = whole_answer(&app, &nadia.key, "save_recipe_version", held);
+        let refused = whole_answer(&app, &nadia.key, operation, held);
         assert_eq!(refused.0, 404, "{}", refused.1);
         assert_eq!(
             refused,
-            whole_answer(&app, &nadia.key, "save_recipe_version", absent),
-            "save_recipe_version tells Nadia Marc's recipe is here"
+            whole_answer(&app, &nadia.key, operation, absent),
+            "{operation} tells Nadia Marc's recipe is here"
         );
     }
     assert_eq!(recipe_rows(&app), before, "a refused save writes nothing");
