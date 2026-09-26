@@ -14,6 +14,19 @@ mod support;
 
 use serde_json::{Value, json};
 
+/// The stranger-lane test drives `probe_job`, so it exists only under
+/// `test-jobs`. Without the feature this failure stands in for it, as the one
+/// in `behaviour.rs` does for that suite (#123): a defence compiled out in
+/// silence reads the same as a defence that holds.
+#[cfg(not(feature = "test-jobs"))]
+#[test]
+fn the_defences_need_the_test_jobs_feature() {
+    panic!(
+        "\n\n    The stranger-lane defence needs `--features test-jobs`: run `just test`, \
+         or `cargo test --features test-jobs`.\n\n"
+    );
+}
+
 /// The first Person on a fresh instance, who is its Operator, and an Access
 /// Key that acts as them.
 fn operator(app: &support::TestApp) -> (String, String) {
@@ -886,12 +899,28 @@ async fn a_new_password_must_be_fifteen_characters() {
 /// Work nobody signed in for runs one piece at a time behind a short line.
 /// When the line is full the ask is refused outright, so the worst a stranger
 /// can inflict is other strangers waiting. A member never queues behind them.
+///
+/// It needs `probe_job` to hold the lane's one worker, so it exists only under
+/// `test-jobs`, which `just test` builds with.
+///
+/// The hold is a second, and filling the line takes five asks of a few
+/// milliseconds each. That margin is wide but it is still a margin: a probe
+/// that waited to be released would remove it, at the cost of a test-only
+/// control nothing else needs.
+#[cfg(feature = "test-jobs")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unauthenticated_job_work_runs_in_one_lane() {
     let app = support::spawn_app();
     let (_person, key) = operator(&app);
 
     let (token, branch_id) = a_shared_recipe(&app, &key);
+
+    // Hold the stranger lane's one worker first. A Sheet of this small recipe
+    // is made faster than the next ask arrives, so a crowd of Sheets alone
+    // never filled the line and the test passed or failed on timing (#154).
+    // With the worker busy for a second, the line can only fill.
+    let (status, answer) = app.post_op("probe_job", None, r#"{"steps":40,"delay_ms":25}"#);
+    assert_eq!(status, 200, "a stranger's probe is taken: {answer}");
 
     // A crowd of strangers, each asking for a Sheet with no Credential. Asking
     // answers a job id at once, so these stack up rather than taking turns.
