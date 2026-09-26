@@ -1845,13 +1845,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       permanent, unguessable address per Recipe, never \
                       expiring, freely passed on. Asking twice for a Recipe \
                       already shared answers the link it already has rather \
-                      than minting a second one. The link's Secret is answered \
-                      exactly once — here, at the moment it is minted — \
-                      because only its hash is stored. The instance's public \
-                      address is asked for at the first Share Link and stored \
-                      once; a link is kept as a token rather than a URL, so \
-                      setting the address later makes every link already \
-                      minted render correctly.",
+                      than minting a second one, with its `url` again. The \
+                      instance's public address is asked for at the first \
+                      Share Link and stored once; a link is kept as a token \
+                      rather than a URL, so `url` is always built against the \
+                      address stored now.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1882,7 +1880,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       working and turning sharing back on mints a new one, so \
                       a withdrawn link stays dead. It reaches no copy already \
                       sent, and Kamosu says so rather than letting that be \
-                      discovered.",
+                      discovered. Answers `shared: false` and no `url`.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1899,10 +1897,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_share_link",
-            summary: "Whether a Recipe is shared, and by whom. The link's URL \
-                      is answered only at the moment it is minted, since only \
-                      the Secret's hash is stored — so this says a link \
-                      exists without being able to reprint it.",
+            summary: "Whether a Recipe is shared, by whom, and at what \
+                      address. A live link answers its `url` for as long as it \
+                      lives, to send again. A link minted before Kamosu kept \
+                      its address answers none: ending it and sharing again \
+                      mints one that does.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1944,9 +1943,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       environment variable, so moving an instance is one act \
                       rather than a redeployment. It fixes the future, not the \
                       past: Share Links minted after it carry the new address, \
-                      while a link already sent stays the text it was sent as \
-                      and cannot be reissued — only the secret's hash is kept, \
-                      so Kamosu can no longer print that link at all.",
+                      while a link already sent stays the text it was sent as. \
+                      A live link's `url`, as `get_share_link` answers it, is \
+                      built against the new address, so the owner can send the \
+                      one that opens now. A link minted before Kamosu kept its \
+                      address has none to show.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,
@@ -4429,11 +4430,10 @@ fn import_report_schema() -> Value {
 /// target names a Food by the word alone; Foods (#47) carry no id here.
 /// Whether a Recipe is shared, and by whom (#65, ADR 0026).
 ///
-/// `url` is answered **only at the moment a link is minted**, and is null
-/// every other time. Only the Secret's hash is stored, so there is nothing to
-/// reprint later — the same bargain every Secret in Kamosu makes (ADR 0031).
-/// The share screen therefore knows a link exists without being able to show
-/// it again, which is honest about what an instance actually holds.
+/// `url` is answered for as long as a live link's Secret is kept, which is
+/// every link minted since #171: a Share Link is the one Secret kept readable
+/// (ADR 0031 as amended). It is null once the link is ended, and on a link
+/// minted before #171, whose Secret was only ever stored as a hash.
 fn share_link_schema() -> Value {
     json!({
         "type": "object",
@@ -4446,7 +4446,10 @@ fn share_link_schema() -> Value {
             "share_id": { "type": ["string", "null"] },
             "url": {
                 "type": ["string", "null"],
-                "description": "The link itself, answered once, at the moment it is minted.",
+                "description": "The link itself, for as long as it is live. Null once \
+                                 it is ended, and on a link minted before Kamosu kept \
+                                 its address (#171), which still opens but cannot be \
+                                 shown again.",
             },
             "shared_by": {
                 "type": ["string", "null"],

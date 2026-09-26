@@ -812,7 +812,7 @@
   "share_file_save": "Guardarlo",
   "share_file_waiting": "Lo que contiene espera al servidor.",
   "share_is_shared": "Cualquiera con este enlace puede leer esta receta.",
-  "share_link_shown_once": "Cópialo ahora. No se volverá a mostrar. Para obtener uno nuevo, termina el enlace y reactívalo.",
+  "share_link_made_before": "Este enlace se creó antes de que Kamosu guardara su dirección. Termínalo y vuelve a activarlo para obtener uno que puedas copiar.",
   "share_not_shared": "Esta receta no tiene enlace. Solo tu Cocina la ve.",
   "share_open": "Abrir la página",
   "share_shared_by": "Compartida por {name} el {when}",

@@ -105,7 +105,7 @@ describe('the share screen', () => {
 		expect(await screen.findByText(/Only your Kitchen can see it\./)).toBeInTheDocument();
 	});
 
-	it('asks for the public address once, at the first link, and shows the link exactly once', async () => {
+	it('asks for the public address once, at the first link, and shows the link it mints', async () => {
 		const { kamosu } = renderShare({
 			get_share_link: NOT_SHARED,
 			share_recipe: {
@@ -129,10 +129,10 @@ describe('the share screen', () => {
 			public_address: 'https://kamosu.example',
 		});
 
-		// The link is shown, and the screen says plainly that it is shown once —
-		// Kamosu keeps only its fingerprint (ADR 0031).
+		// The link is shown, with no warning that it will vanish: it is shown
+		// again every time this screen opens (#171, ADR 0031 as amended).
 		expect(await screen.findByText('https://kamosu.example/s/abc')).toBeInTheDocument();
-		expect(screen.getByText(/It won't be shown again/)).toBeInTheDocument();
+		expect(screen.queryByText(/shown again/)).toBeNull();
 		expect(screen.getByText(/Shared by Aurélien/)).toBeInTheDocument();
 	});
 
@@ -145,14 +145,48 @@ describe('the share screen', () => {
 		expect(screen.queryByLabelText(/public address/i)).toBeNull();
 	});
 
-	it('ends a link, and cannot reprint one it is only holding the fingerprint of', async () => {
+	it('shows a live link again on a fresh visit, to copy and open, not only at minting', async () => {
+		const writes: string[] = [];
+		const real = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+		Object.defineProperty(navigator, 'clipboard', {
+			configurable: true,
+			value: { writeText: async (text: string) => void writes.push(text) },
+		});
+		try {
+			renderShare({
+				get_share_link: {
+					shared: true,
+					share_id: 'sl_1',
+					url: 'https://kamosu.example/s/abc',
+					shared_by: 'Aurélien',
+					created_at: '2026-08-30T00:00:00Z',
+					public_address: 'https://kamosu.example',
+				},
+			});
+
+			expect(await screen.findByText('https://kamosu.example/s/abc')).toBeInTheDocument();
+			expect(screen.getByRole('link', { name: /Open the page/ })).toHaveAttribute(
+				'href',
+				'https://kamosu.example/s/abc',
+			);
+			expect(screen.queryByText(/made before Kamosu kept its address/)).toBeNull();
+
+			await fireEvent.click(screen.getByRole('button', { name: /Copy the link/ }));
+			expect(writes).toEqual(['https://kamosu.example/s/abc']);
+			expect(await screen.findByRole('button', { name: /Copied/ })).toBeInTheDocument();
+		} finally {
+			if (real) Object.defineProperty(navigator, 'clipboard', real);
+			else Reflect.deleteProperty(navigator, 'clipboard');
+		}
+	});
+
+	it('ends a link, and says why one made before Kamosu kept its address has none to copy', async () => {
 		const { kamosu } = renderShare({
 			get_share_link: {
 				shared: true,
 				share_id: 'sl_1',
-				// Null because the Secret was answered at minting and only its
-				// hash is stored: a screen opened later knows a link exists and
-				// cannot show it.
+				// Null because this link was minted before #171, when only the
+				// Secret's hash was stored: it still opens, and cannot be shown.
 				url: null,
 				shared_by: 'Aurélien',
 				created_at: '2026-08-30T00:00:00Z',
@@ -162,7 +196,9 @@ describe('the share screen', () => {
 		});
 
 		expect(await screen.findByText(/Anyone with this link can read/)).toBeInTheDocument();
+		expect(screen.getByText(/made before Kamosu kept its address/)).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: /Copy the link/ })).toBeNull();
+		expect(screen.queryByRole('link', { name: /Open the page/ })).toBeNull();
 
 		await fireEvent.click(screen.getByRole('button', { name: /End the link/ }));
 		const ended = kamosu.calls.find((call) => call.operation === 'end_share_link');
@@ -172,8 +208,8 @@ describe('the share screen', () => {
 	// --- The recipe file (#65, #66, ADR 0020) --------------------------------
 	//
 	// Described before it is taken, which is the habit this whole screen keeps:
-	// the standing line, the line about Components and the shown-once note all
-	// say what an act means before you do it (option C, Aurélien, 20 September
+	// the standing line and the line about Components both say what an act
+	// means before you do it (option C, Aurélien, 20 September
 	// 2026).
 
 	it('says what the recipe file holds before offering to save it', async () => {

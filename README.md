@@ -117,8 +117,10 @@ anything a request claims about itself. No proxy header is read as authority,
 so Kamosu on its open port with no proxy at all is exactly as safe as Kamosu
 behind one, minus encryption in transit.
 
-Every secret is 256 bits, stored only as a hash, shown once when it is made,
-revocable one at a time, and on no clock. A new password needs at least 15
+Every secret is 256 bits, revocable one at a time, and on no clock. All but
+one are stored only as a hash and shown once when they are made. The exception
+is a Share Link, whose address the share screen shows for as long as it lives:
+it reads one recipe, which whoever holds the database already has. A new password needs at least 15
 characters. A wrong one makes the next try at that name wait, up to 30 seconds,
 and one try at a time is checked, so guesses sent together are no faster than
 guesses sent in turn. The right password clears the count, and waiting holds

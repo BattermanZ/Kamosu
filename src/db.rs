@@ -1547,6 +1547,23 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 38,
+        description: "a Share Link keeps its address readable (#171)",
+        sql: r#"
+        -- A Share Link's Secret, kept as it was minted so the share screen can
+        -- show the address for as long as the link lives (#171, ADR 0031 as
+        -- amended). A link grants reading one recipe, and whoever holds this
+        -- file already holds every recipe a link could open (ADR 0028), so a
+        -- hash here protects nothing. Every other Secret stays hashed.
+        --
+        -- Null on every row written before, whose Secret was never kept: those
+        -- links go on opening by `secret_hash`, and the screen says why it has
+        -- no address to show. A visitor is still looked up by the hash alone.
+        ALTER TABLE share_links ADD COLUMN secret TEXT;
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

@@ -421,11 +421,11 @@ fn a_shared_recipe(app: &support::TestApp, key: &str) -> (String, String) {
     (token, branch_id)
 }
 
-/// ADR 0031's whole rule, checked against every Secret the instance can hand
-/// out: 256 bits, kept only as a hash, answered exactly once, ended one at a
-/// time, and never ended by a clock.
+/// ADR 0031's rule, checked against every Secret the instance can hand out:
+/// 256 bits, and kept only as a hash — save the Share Link, the one Secret
+/// kept readable (#171, ADR 0031 as amended), and only in its own row.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn every_secret_is_256_bits_hashed_at_rest_shown_once_and_on_no_clock() {
+async fn every_secret_is_256_bits_and_all_but_a_share_link_hashed_at_rest() {
     let app = support::spawn_app();
     let (_person, key) = operator(&app);
     let secrets = every_secret(&app, &key);
@@ -448,13 +448,46 @@ async fn every_secret_is_256_bits_hashed_at_rest_shown_once_and_on_no_clock() {
         );
 
         // Hashed at rest. Whoever holds the disk holds everything Kamosu
-        // stores, so what it stores must not be the Secret itself.
+        // stores, so what it stores must not be the Secret itself — except a
+        // Share Link's, which reads one recipe that the disk already holds, and
+        // is kept so the share screen can show its address again (#171).
+        if secret.what == "a Share Link" {
+            continue;
+        }
         assert!(
             !stored.contains(&secret.raw),
             "{} is stored in the clear somewhere in the database",
             secret.what
         );
     }
+
+    // The Share Link's Secret is kept in its own row and nowhere else, and it
+    // is still looked up by its hash.
+    let link = &secrets
+        .iter()
+        .find(|s| s.what == "a Share Link")
+        .expect("a Share Link")
+        .raw;
+    let (kept, hashed): (String, String) = app
+        .core
+        .db()
+        .with_conn(|conn| {
+            conn.query_row("SELECT secret, secret_hash FROM share_links", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))
+        })
+        .expect("the Share Link's row");
+    assert_eq!(&kept, link);
+    assert_ne!(
+        &hashed, link,
+        "the lookup column holds a hash, not the Secret"
+    );
+    assert_eq!(
+        stored.matches(link.as_str()).count(),
+        1,
+        "a Share Link's Secret is kept once, in its own row, and nowhere else"
+    );
 
     // No two Secrets are alike, which is the entropy claim made concrete
     // rather than asserted about a generator.
@@ -570,9 +603,11 @@ async fn a_secret_still_works_a_year_after_it_was_made() {
 
 /// Shown once: a Secret is answered at the moment it is minted and never
 /// again. Listing what exists names it and says when it was last used, which
-/// is the whole answer to a leak (ADR 0031).
+/// is the whole answer to a leak (ADR 0031). A Share Link's address is read
+/// again only through its own recipe's `get_share_link` (#171), never in a
+/// listing like these.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_secret_is_answered_once_and_never_read_back() {
+async fn a_secret_is_never_read_back_in_a_listing() {
     let app = support::spawn_app();
     let (_person, key) = operator(&app);
     let secrets = every_secret(&app, &key);
@@ -594,8 +629,8 @@ async fn a_secret_is_answered_once_and_never_read_back() {
         }
     }
 
-    // A Share Link is the same: its address is answered once at minting, and
-    // afterwards only the fact that sharing is on.
+    // A Share Link's address is read again only by asking for that recipe's
+    // link (`get_share_link`, #171), never in an ordinary answer like this.
     let (status, standing) = app.post_op("list_kitchens", Some(&key), &json!({}).to_string());
     assert_eq!(status, 200, "{standing}");
     assert!(

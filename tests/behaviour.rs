@@ -15082,8 +15082,8 @@ async fn a_share_link_is_one_permanent_address_and_asking_twice_does_not_mint_a_
     );
     assert_eq!(status, 200, "{again}");
     assert_eq!(again["result"]["shared"], json!(true));
-    // The Secret is answered once, at minting, because only its hash is kept.
-    assert_eq!(again["result"]["url"], Value::Null);
+    // With its address, to send again (#171).
+    assert_eq!(again["result"]["url"], json!(url));
 
     // And the link still opens the recipe.
     let (status, _type, page) = app.get(&format!("/s/{token}"));
@@ -15129,6 +15129,136 @@ async fn ending_a_share_link_is_permanent_and_re_enabling_mints_a_new_one() {
         dead.contains("This link was ended"),
         "a withdrawn link stays dead"
     );
+}
+
+/// The share screen's read, as each Door answers it.
+fn share_link_at_both_doors(app: &support::TestApp, key: &str, branch_id: &str) -> (Value, Value) {
+    let (status, web) = app.post_op(
+        "get_share_link",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{web}");
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "get_share_link", "arguments": { "branch_id": branch_id } },
+    });
+    let (status, mcp) = app.post_mcp(&call.to_string(), Some(key));
+    assert_eq!(status, 200, "{mcp}");
+    assert_eq!(mcp["result"]["isError"], json!(false), "{mcp}");
+    (
+        web["result"].clone(),
+        mcp["result"]["structuredContent"].clone(),
+    )
+}
+
+/// **A live link's address can be seen again** (#171, ADR 0031 as amended):
+/// the share screen reads it long after minting, at either Door, and it opens
+/// the recipe for a visitor holding nothing else.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_live_share_link_answers_its_address_at_both_doors_for_as_long_as_it_lives() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Gratin dauphinois" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (token, url) = share(&app, &key, &branch_id);
+
+    let (web, mcp) = share_link_at_both_doors(&app, &key, &branch_id);
+    assert_eq!(web["shared"], json!(true), "{web}");
+    assert_eq!(web["url"], json!(url), "the web Door answers the address");
+    assert_eq!(mcp["url"], json!(url), "the MCP Door answers the same one");
+
+    // A visitor holding exactly the address answered opens the recipe.
+    let path = url
+        .strip_prefix("https://kamosu.example")
+        .expect("built against the stored address");
+    assert_eq!(path, format!("/s/{token}"));
+    let (status, _type, page) = app.get(path);
+    assert_eq!(status, 200, "{page}");
+    assert!(page.contains("Gratin dauphinois"), "{page}");
+
+    // Somebody who cannot see the recipe is not told its address.
+    let (_stranger, stranger_key, _) = person_with_kitchen(&app, "Stranger");
+    let (status, refused) = app.post_op(
+        "get_share_link",
+        Some(&stranger_key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 404, "{refused}");
+    assert!(!refused.to_string().contains(&token), "{refused}");
+
+    // Ended, it answers no address at either Door, and the old one is dead.
+    let (status, ended) = app.post_op(
+        "end_share_link",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{ended}");
+    assert_eq!(ended["result"]["url"], Value::Null, "{ended}");
+    let (web, mcp) = share_link_at_both_doors(&app, &key, &branch_id);
+    assert_eq!(web["shared"], json!(false), "{web}");
+    assert_eq!(web["url"], Value::Null, "{web}");
+    assert_eq!(mcp["url"], Value::Null, "{mcp}");
+    let (status, _type, dead) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200);
+    assert!(dead.contains("This link was ended"), "{dead}");
+    assert!(!dead.contains("Gratin dauphinois"), "{dead}");
+}
+
+/// **A link minted before Kamosu kept its address still opens** (#171). Its
+/// row holds a hash and no Secret, which is exactly what migration 38 leaves
+/// on every link already live: a visitor holding it reads the recipe, and the
+/// share screen is answered no address it cannot have.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_share_link_minted_before_its_address_was_kept_opens_and_answers_no_url() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = support::spawn_app_in(dir.path());
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Pot-au-feu" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (token, _url) = share(&app, &key, &branch_id);
+
+    let conn = rusqlite::Connection::open(dir.path().join(db::DATABASE_FILE)).unwrap();
+    let forgotten = conn
+        .execute(
+            "UPDATE share_links SET secret = NULL WHERE branch_id = ?1",
+            [&branch_id],
+        )
+        .unwrap();
+    assert_eq!(forgotten, 1);
+
+    let (status, _type, page) = app.get(&format!("/s/{token}"));
+    assert_eq!(status, 200, "{page}");
+    assert!(
+        page.contains("Pot-au-feu"),
+        "the visitor still reads it: {page}"
+    );
+
+    let (web, mcp) = share_link_at_both_doors(&app, &key, &branch_id);
+    assert_eq!(web["shared"], json!(true), "{web}");
+    assert_eq!(web["url"], Value::Null, "{web}");
+    assert_eq!(mcp["shared"], json!(true), "{mcp}");
+    assert_eq!(mcp["url"], Value::Null, "{mcp}");
+    // Asking to share it again answers the same live link, still without an
+    // address, rather than minting a second one behind the first.
+    let (status, again) = app.post_op(
+        "share_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["result"]["share_id"], web["share_id"], "{again}");
+    assert_eq!(again["result"]["url"], Value::Null, "{again}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -15468,6 +15598,18 @@ async fn a_share_link_is_a_token_so_moving_the_instance_does_not_break_it() {
     assert!(
         page.contains(&format!("https://cuisine.example/s/{token}/card")),
         "the card and the canonical URL follow the address: {page}"
+    );
+    // So does the address the share screen offers to send again (#171): the
+    // one that opens now, rather than the one that used to.
+    let (status, read) = app.post_op(
+        "get_share_link",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(
+        read["result"]["url"],
+        json!(format!("https://cuisine.example/s/{token}"))
     );
 
     // An address that is not one is refused rather than stored.

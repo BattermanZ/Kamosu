@@ -21,11 +21,12 @@
 	dismiss. It does not change the dough's own Visibility: the dough gets no
 	page and no link of its own, and is read only through this one.
 
-	THE LINK IS SHOWN ONCE, at the moment it is minted, and the screen says so.
-	Kamosu keeps only the Secret's hash, exactly as it does for every other
-	Secret (ADR 0031), so afterwards this screen can say a link exists and
-	cannot reprint it. That is honest about what the instance actually holds,
-	and it is why the copy button is offered while it can still do something.
+	THE LINK IS SHOWN FOR AS LONG AS IT LIVES (#171, ADR 0031 as amended), in
+	the block it had at minting: the address, Copy and Open, above "End the
+	link" (option 1, Aurélien, 26 September 2026). Sending the recipe to a
+	second person is copying it again, never ending the link and minting a new
+	one, which would break every copy already sent. A link minted before Kamosu
+	kept its address has none to show, and the screen says so and how to get one.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -67,8 +68,6 @@
 	 * names are the ones actually travelling in the zip.
 	 */
 	let file = $state<ExportBundleOutput | undefined>(undefined);
-	/** The link itself, held only for as long as this screen is open. */
-	let minted = $state<string | undefined>(undefined);
 	let address = $state('');
 	let working = $state(false);
 	let copied = $state(false);
@@ -150,7 +149,6 @@
 				knowsAddress ? { branch_id: branchId } : { branch_id: branchId, public_address: offered },
 			);
 			link = answer;
-			minted = answer.url ?? undefined;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = error.message;
@@ -165,7 +163,6 @@
 		failed = undefined;
 		try {
 			link = await kamosu.endShareLink({ branch_id: branchId });
-			minted = undefined;
 			copied = false;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -176,8 +173,8 @@
 	}
 
 	async function copy() {
-		if (!minted) return;
-		await navigator.clipboard.writeText(minted);
+		if (!link?.url) return;
+		await navigator.clipboard.writeText(link.url);
 		copied = true;
 	}
 
@@ -238,9 +235,8 @@
 			</p>
 		{/if}
 
-		{#if minted}
-			<p class="mt-4 border border-rule bg-card p-3 text-read break-all">{minted}</p>
-			<p class="mt-2 text-read text-ink-2">{m.share_link_shown_once()}</p>
+		{#if link.url}
+			<p class="mt-4 border border-rule bg-card p-3 text-read break-all">{link.url}</p>
 			<button
 				type="button"
 				onclick={copy}
@@ -249,13 +245,19 @@
 				{copied ? m.share_copied() : m.share_copy()}
 			</button>
 			<a
-				href={minted}
+				href={link.url}
 				target="_blank"
 				rel="noreferrer"
 				class="mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
 			>
 				{m.share_open()}
 			</a>
+		{:else}
+			<!-- Minted before Kamosu kept a link's address: it still opens for
+			     whoever holds it, but there is nothing here to copy (#171). -->
+			<p class="mt-4 border-l-2 border-support-2 py-1 pl-4 text-read text-ink-2">
+				{m.share_link_made_before()}
+			</p>
 		{/if}
 
 		<button

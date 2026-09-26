@@ -2055,7 +2055,7 @@ export type GetThreadOutput = {
 	}[];
 };
 
-/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one. The link's Secret is answered exactly once — here, at the moment it is minted — because only its hash is stored. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so setting the address later makes every link already minted render correctly. */
+/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one, with its `url` again. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so `url` is always built against the address stored now. */
 export type ShareRecipeInput = {
 	branch_id: string;
 	public_address?: string;
@@ -2070,7 +2070,7 @@ export type ShareRecipeOutput = {
 	url: string | null;
 };
 
-/** End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered. */
+/** End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered. Answers `shared: false` and no `url`. */
 export type EndShareLinkInput = {
 	branch_id: string;
 };
@@ -2084,7 +2084,7 @@ export type EndShareLinkOutput = {
 	url: string | null;
 };
 
-/** Whether a Recipe is shared, and by whom. The link's URL is answered only at the moment it is minted, since only the Secret's hash is stored — so this says a link exists without being able to reprint it. */
+/** Whether a Recipe is shared, by whom, and at what address. A live link answers its `url` for as long as it lives, to send again. A link minted before Kamosu kept its address answers none: ending it and sharing again mints one that does. */
 export type GetShareLinkInput = {
 	branch_id: string;
 };
@@ -2105,7 +2105,7 @@ export type GetPublicAddressOutput = {
 	public_address: string | null;
 };
 
-/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as and cannot be reissued — only the secret's hash is kept, so Kamosu can no longer print that link at all. */
+/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
 export type SetPublicAddressInput = {
 	public_address: string;
 };
@@ -14981,7 +14981,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "share_recipe",
-		"summary": "Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one. The link's Secret is answered exactly once — here, at the moment it is minted — because only its hash is stored. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so setting the address later makes every link already minted render correctly.",
+		"summary": "Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one, with its `url` again. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so `url` is always built against the address stored now.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15033,7 +15033,7 @@ export const CATALOGUE = [
 					]
 				},
 				"url": {
-					"description": "The link itself, answered once, at the moment it is minted.",
+					"description": "The link itself, for as long as it is live. Null once it is ended, and on a link minted before Kamosu kept its address (#171), which still opens but cannot be shown again.",
 					"type": [
 						"string",
 						"null"
@@ -15053,7 +15053,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "end_share_link",
-		"summary": "End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered.",
+		"summary": "End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered. Answers `shared: false` and no `url`.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15101,7 +15101,7 @@ export const CATALOGUE = [
 					]
 				},
 				"url": {
-					"description": "The link itself, answered once, at the moment it is minted.",
+					"description": "The link itself, for as long as it is live. Null once it is ended, and on a link minted before Kamosu kept its address (#171), which still opens but cannot be shown again.",
 					"type": [
 						"string",
 						"null"
@@ -15121,7 +15121,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_share_link",
-		"summary": "Whether a Recipe is shared, and by whom. The link's URL is answered only at the moment it is minted, since only the Secret's hash is stored — so this says a link exists without being able to reprint it.",
+		"summary": "Whether a Recipe is shared, by whom, and at what address. A live link answers its `url` for as long as it lives, to send again. A link minted before Kamosu kept its address answers none: ending it and sharing again mints one that does.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15169,7 +15169,7 @@ export const CATALOGUE = [
 					]
 				},
 				"url": {
-					"description": "The link itself, answered once, at the moment it is minted.",
+					"description": "The link itself, for as long as it is live. Null once it is ended, and on a link minted before Kamosu kept its address (#171), which still opens but cannot be shown again.",
 					"type": [
 						"string",
 						"null"
@@ -15215,7 +15215,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_public_address",
-		"summary": "Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as and cannot be reissued — only the secret's hash is kept, so Kamosu can no longer print that link at all.",
+		"summary": "Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -25955,15 +25955,15 @@ export interface KamosuClient {
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;
-	/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one. The link's Secret is answered exactly once — here, at the moment it is minted — because only its hash is stored. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so setting the address later makes every link already minted render correctly. */
+	/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one, with its `url` again. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so `url` is always built against the address stored now. */
 	shareRecipe(input: ShareRecipeInput): Promise<Answer<'share_recipe'>>;
-	/** End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered. */
+	/** End a Recipe's Share Link. Permanent: the link stops working and turning sharing back on mints a new one, so a withdrawn link stays dead. It reaches no copy already sent, and Kamosu says so rather than letting that be discovered. Answers `shared: false` and no `url`. */
 	endShareLink(input: EndShareLinkInput): Promise<Answer<'end_share_link'>>;
-	/** Whether a Recipe is shared, and by whom. The link's URL is answered only at the moment it is minted, since only the Secret's hash is stored — so this says a link exists without being able to reprint it. */
+	/** Whether a Recipe is shared, by whom, and at what address. A live link answers its `url` for as long as it lives, to send again. A link minted before Kamosu kept its address answers none: ending it and sharing again mints one that does. */
 	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
 	/** Where this instance currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
 	getPublicAddress(input?: GetPublicAddressInput): Promise<Answer<'get_public_address'>>;
-	/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as and cannot be reissued — only the secret's hash is kept, so Kamosu can no longer print that link at all. */
+	/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
 	/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;

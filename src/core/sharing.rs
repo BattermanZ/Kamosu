@@ -48,7 +48,7 @@ impl Core {
             }
 
             if let Some(live) = live_share_link(conn, branch_id)? {
-                return share_link_summary(conn, Some(live), None);
+                return share_link_summary(conn, Some(live));
             }
 
             // The address is required at the first Share Link and never
@@ -68,19 +68,19 @@ impl Core {
 
             let secret = generate_secret();
             let id = format!("sl_{}", hex::encode(random_bytes(8)));
+            // The Secret is kept beside its hash, so the share screen can show
+            // the address for as long as the link lives (#171, ADR 0031 as
+            // amended). A visitor is still looked up by the hash alone, which
+            // is what keeps a link minted before the Secret was kept opening.
             conn.execute(
-                "INSERT INTO share_links (id, branch_id, secret_hash, shared_by) \
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![id, branch_id, hash_secret(&secret), person_id],
+                "INSERT INTO share_links (id, branch_id, secret_hash, secret, shared_by) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, branch_id, hash_secret(&secret), secret, person_id],
             )
             .map_err(|e| OpError::internal(format!("cannot mint a Share Link: {e}")))?;
 
             let live = live_share_link(conn, branch_id)?;
-            // The Secret itself is answered exactly once, here, at the moment
-            // it is minted — only its hash is stored, so nothing can hand it
-            // back later. `get_share_link` therefore answers the URL it
-            // already knows rather than re-deriving the Secret.
-            share_link_summary(conn, live, Some(&secret))
+            share_link_summary(conn, live)
         })
     }
 
@@ -95,7 +95,7 @@ impl Core {
                 params![branch_id],
             )
             .map_err(|e| OpError::internal(format!("cannot end the Share Link: {e}")))?;
-            share_link_summary(conn, None, None)
+            share_link_summary(conn, None)
         })
     }
 
@@ -104,7 +104,7 @@ impl Core {
         self.db().with_conn(|conn| {
             ensure_sees_branch(conn, branch_id, person_id)?;
             let live = live_share_link(conn, branch_id)?;
-            share_link_summary(conn, live, None)
+            share_link_summary(conn, live)
         })
     }
 
@@ -207,15 +207,19 @@ impl Core {
     /// **It fixes the future, not the past** (#103). This said the opposite
     /// until then — that every link already minted "must follow it, which is
     /// exactly what storing a token rather than a URL buys" — and that is
-    /// false. A Share Link is `<address>/s/<secret>`; only the secret's *hash*
-    /// is kept (`share_link_summary`) and a visitor is looked up by that hash
-    /// alone (`read_shared_recipe`), the address never entering the lookup. So
-    /// a link already sent is a string in somebody else's phone that nothing
-    /// here can reach; if the old address stops resolving it is dead; and
-    /// Kamosu cannot reissue it, having discarded the secret at minting. What
-    /// storing a token rather than a URL actually buys is that the *instance*
-    /// keeps serving every link it ever minted, at whatever address reaches
-    /// it — not that a link already handed out changes its own text.
+    /// false. A Share Link is `<address>/s/<secret>`, and a visitor is looked
+    /// up by the secret's hash alone (`read_shared_recipe`), the address never
+    /// entering the lookup. So a link already sent is a string in somebody
+    /// else's phone that nothing here can reach, and if the old address stops
+    /// resolving it is dead. What storing a token rather than a URL buys is
+    /// that the *instance* keeps serving every link it ever minted, at whatever
+    /// address reaches it — not that a link already handed out changes its
+    /// own text.
+    ///
+    /// What does change is the address the share screen shows. Since #171 a
+    /// link keeps its secret, and `share_link_summary` builds the URL against
+    /// the address stored now, so after a move the screen offers the address
+    /// that opens, ready to send again. That is intended (ADR 0031).
     pub fn set_public_address(&self, address: &str) -> Result<Value, OpError> {
         let address = normalise_public_address(address)?;
         self.db().with_conn(|conn| {
@@ -1374,15 +1378,28 @@ fn normalise_public_address(address: &str) -> Result<String, OpError> {
     Ok(trimmed.to_string())
 }
 
-/// The live Share Link on a Branch: its id, who shared it, and when.
-type LiveShare = (String, String, String);
+/// The live Share Link on a Branch.
+struct LiveShare {
+    id: String,
+    shared_by: String,
+    created_at: String,
+    /// Kept since #171, and never on a link minted before it.
+    secret: Option<String>,
+}
 
 fn live_share_link(conn: &Connection, branch_id: &str) -> Result<Option<LiveShare>, OpError> {
     conn.query_row(
-        "SELECT id, shared_by, created_at FROM share_links \
+        "SELECT id, shared_by, created_at, secret FROM share_links \
           WHERE branch_id = ?1 AND ended_at IS NULL",
         params![branch_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| {
+            Ok(LiveShare {
+                id: row.get(0)?,
+                shared_by: row.get(1)?,
+                created_at: row.get(2)?,
+                secret: row.get(3)?,
+            })
+        },
     )
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read the Share Link: {e}")))
@@ -1390,17 +1407,20 @@ fn live_share_link(conn: &Connection, branch_id: &str) -> Result<Option<LiveShar
 
 /// What the share screen and `share_recipe` both answer.
 ///
-/// `secret` is present exactly once in a link's life — at the moment it is
-/// minted — because only its hash is kept. So `url` is answered then, and
-/// afterwards the screen knows a link exists without being able to reprint it.
-/// That is the same bargain every other Secret in Kamosu makes (ADR 0031).
-fn share_link_summary(
-    conn: &Connection,
-    live: Option<LiveShare>,
-    secret: Option<&str>,
-) -> Result<Value, OpError> {
+/// `url` is answered for as long as a live link's Secret is kept, which is
+/// every link minted since #171 (ADR 0031 as amended). It is built against the
+/// public address as it stands now, so moving the instance moves the address
+/// the screen shows: the new one is the one that opens. A link minted before
+/// #171 kept only its hash and answers no `url`, and the screen says why.
+fn share_link_summary(conn: &Connection, live: Option<LiveShare>) -> Result<Value, OpError> {
     let address = stored_public_address(conn)?;
-    let Some((id, shared_by, created_at)) = live else {
+    let Some(LiveShare {
+        id,
+        shared_by,
+        created_at,
+        secret,
+    }) = live
+    else {
         return Ok(json!({
             "shared": false,
             "share_id": Value::Null,
@@ -1413,7 +1433,7 @@ fn share_link_summary(
     Ok(json!({
         "shared": true,
         "share_id": id,
-        "url": match (secret, address.as_deref()) {
+        "url": match (secret.as_deref(), address.as_deref()) {
             (Some(secret), Some(address)) => json!(format!("{address}/s/{secret}")),
             _ => Value::Null,
         },

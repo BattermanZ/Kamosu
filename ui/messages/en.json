@@ -812,7 +812,7 @@
   "share_file_save": "Save it",
   "share_file_waiting": "What it holds waits for the server.",
   "share_is_shared": "Anyone with this link can read this recipe.",
-  "share_link_shown_once": "Copy it now. It won't be shown again. To get a new one, end the link and turn it back on.",
+  "share_link_made_before": "This link was made before Kamosu kept its address. End it and turn it back on to get one you can copy.",
   "share_not_shared": "This recipe has no link. Only your Kitchen can see it.",
   "share_open": "Open the page",
   "share_shared_by": "Shared by {name} on {when}",
