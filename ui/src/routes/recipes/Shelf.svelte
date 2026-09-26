@@ -29,15 +29,15 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { MeaningSearch } from '$lib/meaning.svelte';
+	import { RecipeSearch } from '$lib/search.svelte';
 	import { byWord, tagWord, type Tag } from '$lib/tags';
-	import type { ListKitchensOutput, SearchRecipesOutput } from '$lib/api/catalogue';
+	import type { ListKitchensOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
 	import AddOrImport from '$lib/AddOrImport.svelte';
 	import BringIn from '$lib/BringIn.svelte';
 	import MeaningOffer from './MeaningOffer.svelte';
-	import { refreshed } from '$lib/offline/device.svelte';
 
 	interface Props {
 		/** The Tag named by `?tag=`, where the reader arrived from a chip (#104). */
@@ -87,8 +87,6 @@
 	 * really files by.
 	 */
 	let kitchenTags = $state<Record<string, Tag[]>>({});
-	let answer = $state<SearchRecipesOutput | undefined>(undefined);
-	let failed = $state(false);
 	/**
 	 * Whether this Kamosu matches on meaning, and whether this reader is the
 	 * one to be asked about it. Both come from the Operation rather than being
@@ -149,7 +147,7 @@
 	 * worse than no chip.
 	 */
 	const chips = $derived.by(() => {
-		// Read into a local first, as the search effect below does: a union held
+		// Read into a local first, as the search below does: a union held
 		// in state does not stay narrowed across the closure that reads it.
 		const held = filter;
 		return byWord(held.kind === 'kitchen' ? (kitchenTags[held.id] ?? []) : tags);
@@ -176,47 +174,30 @@
 	// it changed the answer — so the offer disappears the moment it is answered.
 	$effect(() => meaning.ask());
 
-	$effect(() => {
-		// Read every input this ask depends on before the delay, so the effect
-		// re-runs when any of them changes rather than only on the first.
-		const query = typed.trim();
-		const asked = filter;
-		const tagged = tag;
-		// Turning Meaning Search on changes what this same search finds, so the
-		// search is asked again — which is the only confirmation worth giving:
-		// the recipe you were looking for appears.
-		const generation = meaning.generation;
-		// The phone answered first and the server has since answered otherwise (#76).
-		void refreshed.get('search_recipes');
-
-		let current = true;
-		const timer = setTimeout(() => {
-			void (async () => {
-				try {
-					const found = await kamosu.searchRecipes({
-						query: query === '' ? null : query,
-						kitchen_id: asked.kind === 'kitchen' ? asked.id : null,
-						mine: asked.kind === 'mine',
-						tag_id: tagged,
-					});
-					if (current && generation === meaning.generation) {
-						answer = found;
-						failed = false;
-					}
-				} catch (error) {
-					if (!(error instanceof OperationError)) throw error;
-					if (current) failed = true;
-				}
-			})();
-			// Long enough that typing a recipe's name is one ask rather than
-			// twelve, short enough that the shelf keeps up with the thumb.
-		}, 180);
-
-		return () => {
-			current = false;
-			clearTimeout(timer);
-		};
-	});
+	/**
+	 * The shelf's search: whatever is typed, under whichever filters are held.
+	 * Turning Meaning Search on changes what this same search finds, so it is
+	 * asked again — which is the only confirmation worth giving: the recipe you
+	 * were looking for appears.
+	 */
+	const search = new RecipeSearch(
+		kamosu,
+		() => {
+			const query = typed.trim();
+			// Read into a local first: a union held in state does not stay
+			// narrowed across the property reads below.
+			const asked = filter;
+			return {
+				query: query === '' ? null : query,
+				kitchen_id: asked.kind === 'kitchen' ? asked.id : null,
+				mine: asked.kind === 'mine',
+				tag_id: tag,
+			};
+		},
+		() => meaning.generation,
+	);
+	const answer = $derived(search.answer);
+	const failed = $derived(search.failed);
 
 	const entries = $derived(answer?.recipes ?? []);
 	/** What the answer was actually for — never what the field says now. */

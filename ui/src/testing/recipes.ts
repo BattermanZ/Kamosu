@@ -5,6 +5,7 @@
  */
 
 import type { GetRecipeOutput, GetThreadOutput, ListKitchensOutput } from '$lib/api/catalogue';
+import { refreshed } from '$lib/offline/device.svelte';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -193,3 +194,26 @@ export function kitchenAnswer(id: string, over: Partial<Kitchen> = {}): Kitchen 
 		...over,
 	};
 }
+
+/** One entry as `search_recipes` answers it, with everything the Catalogue requires. */
+export const searchEntry = (id: string, title: string) => ({
+	branch_id: `b_${id}`,
+	lineage_id: `l_${id}`,
+	title,
+	language: 'en',
+	language_fallback: false,
+	main_photo: null,
+	matched: null,
+	yield: null,
+});
+
+/** Every `search_recipes` a screen has sent, in order (#121). */
+export const searchesSent = (kamosu: { calls: { operation: string; input: unknown }[] }) =>
+	kamosu.calls.filter((call) => call.operation === 'search_recipes').map((call) => call.input);
+
+/**
+ * What the service worker does when the server answers `search_recipes`
+ * otherwise than the phone's cache did (#76): tells every screen reading it.
+ */
+export const serverAnsweredSearchesOtherwise = () =>
+	refreshed.set('search_recipes', (refreshed.get('search_recipes') ?? 0) + 1);

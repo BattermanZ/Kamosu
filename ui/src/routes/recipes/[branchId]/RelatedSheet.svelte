@@ -57,9 +57,8 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import { refreshed } from '$lib/offline/device.svelte';
+	import { RecipeSearch } from '$lib/search.svelte';
 	import { fallbackLanguage } from '../matched';
-	import type { SearchRecipesOutput } from '$lib/api/catalogue';
 
 	/**
 	 * What a row in either list holds. A link this recipe already has and a
@@ -89,52 +88,24 @@
 
 	/** What is typed, moment to moment. The Operation is asked on a short delay. */
 	let typed = $state('');
-	let answer = $state<SearchRecipesOutput | undefined>(undefined);
-	let failed = $state(false);
 	/** The link being made or broken right now, so a row cannot be double-tapped. */
 	let working = $state<string | null>(null);
 	/** A refusal, said in the words it came in. */
 	let refused = $state<string | null>(null);
 
-	/**
-	 * The same ask the shelf makes, with the same delay, and deliberately the
-	 * same Operation: Meaning Search arrived inside `search_recipes` rather than
-	 * beside it (ADR 0029), so a picker that asked its own way would find fewer
-	 * recipes than the shelf does for the same words.
-	 */
-	$effect(() => {
+	/** The shelf's own search, through the same helper (#121). */
+	const search = new RecipeSearch(kamosu, () => {
 		const query = typed.trim();
-		// The phone answered first and the server has since answered otherwise (#76).
-		void refreshed.get('search_recipes');
-		let current = true;
-		const timer = setTimeout(() => {
-			void (async () => {
-				try {
-					const found = await kamosu.searchRecipes({
-						// The whole shelf: a link may reach any recipe the reader
-						// sees, in whichever Cookbook (#131, question 8).
-						query: query === '' ? null : query,
-						kitchen_id: null,
-						mine: false,
-					});
-					if (current) {
-						answer = found;
-						failed = false;
-					}
-				} catch (error) {
-					if (!(error instanceof OperationError)) throw error;
-					if (current) failed = true;
-				}
-			})();
-			// Long enough that typing a recipe's name is one ask rather than
-			// twelve, short enough that the list keeps up with the thumb — the
-			// shelf's own delay, because it is the same search.
-		}, 180);
-		return () => {
-			current = false;
-			clearTimeout(timer);
+		return {
+			// The whole shelf: a link may reach any recipe the reader sees, in
+			// whichever Cookbook (#131, question 8).
+			query: query === '' ? null : query,
+			kitchen_id: null,
+			mine: false,
 		};
 	});
+	const answer = $derived(search.answer);
+	const failed = $derived(search.failed);
 
 	/** Which Lineages this recipe is linked to, as the server last said. */
 	const on = $derived(new Set(carried.map((entry) => entry.lineage_id)));

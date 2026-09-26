@@ -46,10 +46,14 @@ export type Answered<N extends OperationName> =
 /** What a Job answers when asked for: an id at once, nothing more (ADR 0032). */
 export type AnsweredJob = { job_id: string } | { refuse: ErrorKind; message?: string };
 
+/**
+ * A function answer is handed what the screen sent, so a test can answer a
+ * search for *naan* differently from a search for *rice*.
+ */
 export type Answers = {
 	[N in OperationName]?: Operations[N]['kind'] extends 'job'
-		? AnsweredJob | (() => AnsweredJob)
-		: Answered<N> | (() => Answered<N>);
+		? AnsweredJob | ((input: Operations[N]['input']) => AnsweredJob)
+		: Answered<N> | ((input: Operations[N]['input']) => Answered<N>);
 };
 
 export interface StandIn {
@@ -202,7 +206,7 @@ export function standIn(answers: Answers = {}): StandIn {
 
 		const answer =
 			typeof programmedAnswer === 'function'
-				? (programmedAnswer as () => unknown)()
+				? (programmedAnswer as (input: unknown) => unknown)(input ?? {})
 				: programmedAnswer;
 
 		if (isRefusal(answer)) {

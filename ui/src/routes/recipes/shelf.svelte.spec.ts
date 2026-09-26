@@ -19,7 +19,12 @@ import { standIn } from '$lib/api/stand-in';
 import { renderScreen } from '../../testing/render';
 import ShelfTestHarness from './ShelfTestHarness.svelte';
 import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
-import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
+import {
+	cookbookLabel,
+	kitchenAnswer,
+	searchesSent as searches,
+	serverAnsweredSearchesOtherwise,
+} from '../../testing/recipes';
 
 const kitchen = kitchenAnswer('k_home', {
 	name: 'Maison',
@@ -813,5 +818,113 @@ describe('the recipes screen', () => {
 			'aria-pressed',
 			'true',
 		);
+	});
+
+	// --- Searching as you type (#121) ---------------------------------------
+	//
+	// The shelf, the Component picker and the Related sheet share one helper for
+	// the waiting and the dropping of stale answers. Svelte re-asks only when a
+	// value it SAW read changes, so a helper that reads the search box in the
+	// wrong place still works on first open and then silently stops following
+	// the thumb. These drive the real inputs, which is the only place that fails.
+
+	it('follows what is typed, and asks again when a filter or a tag changes', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [shelfTag('t_spicy', 'spicy', 1)] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: ({ query }) =>
+				query === 'curry'
+					? {
+							query,
+							closest: false,
+							recipes: [entry({ lineage_id: 'l_curry', title: 'Katsu Curry' })],
+						}
+					: { query: query ?? null, closest: false, recipes: [entry()] },
+		});
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'curry' } });
+
+		expect(await screen.findByText('Katsu Curry')).toBeInTheDocument();
+		expect(screen.queryByText('Miso Soup')).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'My recipes' }));
+		await vi.waitFor(() => {
+			expect(searches(kamosu).at(-1)).toMatchObject({ query: 'curry', mine: true });
+		});
+
+		await fireEvent.click(screen.getByRole('button', { name: /spicy/ }));
+		await vi.waitFor(() => {
+			expect(searches(kamosu).at(-1)).toMatchObject({
+				query: 'curry',
+				mine: true,
+				tag_id: 't_spicy',
+			});
+		});
+	});
+
+	it('asks the same search again once Meaning Search is on, so what it finds appears', async () => {
+		let on = false;
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: () =>
+				on ? meaningOff({ state: 'on', on: true }) : meaningOff({ offer: true }),
+			accept_meaning_search_terms: { state: 'accepted' },
+			download_meaning_model: { job_id: 'j_model' },
+			build_meaning_index: () => {
+				on = true;
+				return { job_id: 'j_index' };
+			},
+			get_job: ({ job_id }) => ({
+				id: job_id,
+				operation: job_id === 'j_model' ? 'download_meaning_model' : 'build_meaning_index',
+				status: 'completed',
+				progress: {},
+				error: null,
+				errorCode: null,
+				created_at: '2026-09-26T10:00:00.000Z',
+				updated_at: '2026-09-26T10:00:01.000Z',
+				result: {},
+			}),
+			// Words alone find nothing; by meaning, the stew is close enough.
+			search_recipes: ({ query }) => ({
+				query: query ?? null,
+				closest: false,
+				recipes: on ? [entry({ lineage_id: 'l_stew', title: 'Veal Stew' })] : [],
+			}),
+		});
+
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'osso buco' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /Turn it on/ }));
+
+		expect(await screen.findByText('Veal Stew')).toBeInTheDocument();
+		expect(searches(kamosu).at(-1)).toMatchObject({ query: 'osso buco' });
+	});
+
+	it('asks its current search again when the server answers otherwise than the phone did (#76)', async () => {
+		let served = 'phone';
+		const { kamosu } = renderScreen(Recipes, {
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: ({ query }) => ({
+				query: query ?? null,
+				closest: false,
+				recipes: [
+					served === 'phone' ? entry() : entry({ lineage_id: 'l_curry', title: 'Katsu Curry' }),
+				],
+			}),
+		});
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'soup' } });
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ query: 'soup' }));
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+
+		served = 'server';
+		serverAnsweredSearchesOtherwise();
+
+		expect(await screen.findByText('Katsu Curry')).toBeInTheDocument();
+		expect(searches(kamosu).at(-1)).toMatchObject({ query: 'soup' });
 	});
 });

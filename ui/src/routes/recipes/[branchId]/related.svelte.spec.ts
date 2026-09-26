@@ -18,11 +18,16 @@
  *   there, and no Lineage is merged by any of this.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RelatedTestHarness from './RelatedTestHarness.svelte';
+import {
+	searchEntry as found,
+	searchesSent as searches,
+	serverAnsweredSearchesOtherwise,
+} from '../../../testing/recipes';
 
 type Related = GetRecipeOutput['related_recipes'][number];
 
@@ -53,18 +58,6 @@ const DEPARTED: Related = {
 
 const NAAN = link('naan', 'Naan', 'p_naan');
 const RICE = link('rice', 'Avocado Rice');
-
-/** One entry as `search_recipes` answers it, which is what the sheet lists. */
-const found = (id: string, title: string) => ({
-	branch_id: `b_${id}`,
-	lineage_id: `l_${id}`,
-	title,
-	language: 'en',
-	language_fallback: false,
-	main_photo: null,
-	matched: null,
-	yield: null,
-});
 
 function draw(related: Related[], answers: Answers = {}) {
 	const kamosu = standIn(answers);
@@ -238,5 +231,47 @@ describe('a recipe’s related recipes', () => {
 		expect(screen.queryByText(/\bsaved\b/i)).not.toBeInTheDocument();
 		expect(screen.queryByText(/merge|combine|join/i)).not.toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('save_recipe_version');
+	});
+
+	// --- Searching as you type (#121) ---------------------------------------
+
+	it('follows what is typed, and reaches recipes in any Cookbook the reader sees (#131)', async () => {
+		const kamosu = draw([], {
+			search_recipes: ({ query }) => ({
+				query: query ?? null,
+				closest: false,
+				// Marc's rice, from a Cookbook this recipe is not in.
+				recipes: query === 'rice' ? [found('marcs_rice', 'Marc’s Rice')] : [found('naan', 'Naan')],
+			}),
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		expect(await screen.findByRole('switch', { name: /Naan/ })).toBeInTheDocument();
+
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'rice' } });
+
+		expect(await screen.findByRole('switch', { name: /Marc’s Rice/ })).toBeInTheDocument();
+		expect(screen.queryByRole('switch', { name: /Naan/ })).not.toBeInTheDocument();
+		expect(searches(kamosu).at(-1)).toEqual({ query: 'rice', kitchen_id: null, mine: false });
+	});
+
+	it('asks its current search again when the server answers otherwise than the phone did (#76)', async () => {
+		let served = 'phone';
+		const kamosu = draw([], {
+			search_recipes: ({ query }) => ({
+				query: query ?? null,
+				closest: false,
+				recipes: [served === 'phone' ? found('naan', 'Naan') : found('rice', 'Avocado Rice')],
+			}),
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Relate a recipe' }));
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'side' } });
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ query: 'side' }));
+		expect(await screen.findByRole('switch', { name: /Naan/ })).toBeInTheDocument();
+
+		served = 'server';
+		serverAnsweredSearchesOtherwise();
+
+		expect(await screen.findByRole('switch', { name: /Avocado Rice/ })).toBeInTheDocument();
+		expect(searches(kamosu).at(-1)).toMatchObject({ query: 'side' });
 	});
 });

@@ -44,9 +44,7 @@
 	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import { refreshed } from '$lib/offline/device.svelte';
-	import type { SearchRecipesOutput } from '$lib/api/catalogue';
+	import { RecipeSearch } from '$lib/search.svelte';
 
 	interface Props {
 		/** The line this picker was opened for, said at the top so a sheet
@@ -62,51 +60,23 @@
 
 	/** What is typed, moment to moment. The Operation is asked on a short delay. */
 	let typed = $state('');
-	let answer = $state<SearchRecipesOutput | undefined>(undefined);
-	let failed = $state(false);
 
 	/**
-	 * The same ask the shelf makes, with the same delay, and deliberately the
-	 * same Operation: Meaning Search arrived inside `search_recipes` rather
-	 * than beside it (ADR 0029), so a picker that asked its own way would find
-	 * fewer recipes than the shelf does for the same words.
+	 * The shelf's own search, through the same helper (#121).
 	 *
 	 * No filters. The shelf has two and holds them nowhere (#62); a filter here
 	 * would be a mode inside a sheet you opened to do one thing.
 	 */
-	$effect(() => {
+	const search = new RecipeSearch(kamosu, () => {
 		const query = typed.trim();
-		// The phone answered first and the server has since answered otherwise
-		// (#76), which matters more here than on the shelf: a stale entry there
-		// is read, and a stale entry here is written into a Reading.
-		void refreshed.get('search_recipes');
-		let current = true;
-		const timer = setTimeout(() => {
-			void (async () => {
-				try {
-					const found = await kamosu.searchRecipes({
-						query: query === '' ? null : query,
-						kitchen_id: null,
-						mine: false,
-					});
-					if (current) {
-						answer = found;
-						failed = false;
-					}
-				} catch (error) {
-					if (!(error instanceof OperationError)) throw error;
-					if (current) failed = true;
-				}
-			})();
-			// Long enough that typing a recipe's name is one ask rather than
-			// twelve, short enough that the list keeps up with the thumb — the
-			// shelf's own delay, because it is the same search.
-		}, 180);
-		return () => {
-			current = false;
-			clearTimeout(timer);
+		return {
+			query: query === '' ? null : query,
+			kitchen_id: null,
+			mine: false,
 		};
 	});
+	const answer = $derived(search.answer);
+	const failed = $derived(search.failed);
 
 	const entries = $derived(answer?.recipes ?? []);
 	/** Whether these matched or are merely the nearest there were (ADR 0027). */
