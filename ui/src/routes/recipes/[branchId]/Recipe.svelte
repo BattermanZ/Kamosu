@@ -1293,7 +1293,7 @@
 	<Writing
 		{branchId}
 		lineageId={recipe.lineage_id}
-		writes={recipe.writes}
+		whose={recipe}
 		{content}
 		components={recipe.versions.at(-1)?.components ?? []}
 		{translatingInto}
@@ -2105,7 +2105,7 @@
 			{#if recipe}
 				<Promotion
 					{branchId}
-					writes={recipe.writes}
+					whose={recipe}
 					{attempts}
 					versions={recipe.versions}
 					promoted={() => (reread += 1)}

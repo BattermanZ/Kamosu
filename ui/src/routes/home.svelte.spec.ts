@@ -170,6 +170,8 @@ describe('Home', () => {
 				cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
 				name: null,
 				writes: true,
+				mine: true,
+				arrived: false,
 				hand_id: 'h_1',
 				language: 'en',
 				origin_address: null,

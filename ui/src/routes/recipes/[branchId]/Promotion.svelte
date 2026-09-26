@@ -51,13 +51,14 @@
 	import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { Online } from '$lib/offline/device.svelte';
+	import { copySaid, type Whose } from '$lib/cookbook';
 
 	type Attempt = GetThreadOutput['attempts'][number];
 
 	interface Props {
 		branchId: string;
-		/** Whether keeping lands on this Branch, or starts the cook's own Copy. */
-		writes: boolean;
+		/** Whether keeping lands on this Branch, or starts the cook's own Copy, and why (#132). */
+		whose: Whose;
 		/** Every Attempt on this Lineage, whatever Branch it cooked. */
 		attempts: Attempt[];
 		/** This Branch's chain, which says what has already been kept. */
@@ -66,7 +67,7 @@
 		promoted: () => void;
 	}
 
-	let { branchId, writes, attempts, versions, promoted }: Props = $props();
+	let { branchId, whose, attempts, versions, promoted }: Props = $props();
 
 	const kamosu = useKamosu();
 
@@ -107,7 +108,7 @@
 	);
 
 	/** Keeping onto a recipe that is not the cook's to change starts their own. */
-	const forking = $derived(!writes);
+	const forking = $derived(!whose.writes);
 
 	/**
 	 * Whether the recipe has moved since this cooking. Promotion appends onto
@@ -236,7 +237,7 @@
 			{#if forking && pending.as_cooked}
 				<p class="mt-4 text-label text-support uppercase">{m.write_will_fork()}</p>
 				<p class="mt-1 text-read">
-					{m.write_said_fork({ title: pending.as_cooked.content.title })}
+					{copySaid(whose, pending.as_cooked.content.title)}
 				</p>
 			{/if}
 			<NeedsServer

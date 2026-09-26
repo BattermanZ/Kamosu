@@ -41,6 +41,8 @@ const recipe = (branch_id: string): GetRecipeOutput => ({
 	cookbook: cookbookLabel(),
 	name: null,
 	writes: true,
+	mine: true,
+	arrived: false,
 	hand_id: 'h_1',
 	language: 'en',
 	origin_address: null,

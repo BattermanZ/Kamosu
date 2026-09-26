@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
+import type { Whose } from '$lib/cookbook';
 import PromotionTestHarness from './PromotionTestHarness.svelte';
 
 type Attempt = GetThreadOutput['attempts'][number];
@@ -119,14 +120,27 @@ const version = (id: string): GetRecipeOutput['versions'][number] => ({
 	cooking: { steps: [{ uses: [], timer_seconds: null }] },
 });
 
-function show(attempts: Attempt[], versions: string[], answers: Answers = {}, writes = true) {
+function show(
+	attempts: Attempt[],
+	versions: string[],
+	answers: Answers = {},
+	writes = true,
+	/** Why keeping makes a Copy, where it does; Hélène's Cookbook unless given (#132). */
+	whose?: Omit<Whose, 'writes'>,
+) {
 	const kamosu = standIn({
 		promote_as_cooked: saved,
 		decline_promotion: attempt(),
 		...answers,
 	});
 	render(PromotionTestHarness, {
-		props: { client: kamosu.client, attempts, versions: versions.map(version), writes },
+		props: {
+			client: kamosu.client,
+			attempts,
+			versions: versions.map(version),
+			writes,
+			...(whose ? { whose } : {}),
+		},
 	});
 	return kamosu;
 }
@@ -260,11 +274,29 @@ describe('promotion onto a recipe somebody else writes (#111, #131)', () => {
 		await fireEvent.click(await screen.findByRole('button', { name: /keep it as your own copy/i }));
 
 		expect(await screen.findByText(/will start your own copy/i)).toBeInTheDocument();
-		expect(screen.getByText(/your own Chicken Katsu Curry in your Cookbook/)).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'This recipe is in Hélène’s Cookbook, so your changes go into your own copy of Chicken Katsu Curry, in your Cookbook. Hélène’s stays as it is.',
+			),
+		).toBeInTheDocument();
 		expect(screen.queryAllByRole('radio')).toHaveLength(0);
 		await fireEvent.click(await screen.findByRole('button', { name: 'Start my own copy' }));
 		const promoted = kamosu.calls.find((call) => call.operation === 'promote_as_cooked');
 		expect(promoted?.input).toEqual({ attempt_id: 'at_1', branch_id: 'b_1' });
+	});
+
+	it('says keeping makes a Copy because the recipe was sent to you (#132)', async () => {
+		show([attempt()], ['v_1'], {}, false, {
+			mine: true,
+			arrived: true,
+			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Aurélien' }] },
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: /keep it as your own copy/i }));
+		expect(
+			await screen.findByText(
+				'You were sent this recipe, so your changes go into your own copy of Chicken Katsu Curry, in your Cookbook. The one you were sent stays as it arrived.',
+			),
+		).toBeInTheDocument();
 	});
 
 	it('keeps onto the recipe itself where you write its Cookbook', async () => {

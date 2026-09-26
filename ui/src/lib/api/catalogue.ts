@@ -668,6 +668,7 @@ export type CreateRecipeInput = {
 };
 /** What create_recipe answers. */
 export type CreateRecipeOutput = {
+	arrived: boolean;
 	branch_id: string;
 	cookbook: {
 		authors: {
@@ -691,6 +692,7 @@ export type CreateRecipeOutput = {
 	head_version_id: string;
 	language: string;
 	lineage_id: string;
+	mine: boolean;
 	name: string | null;
 	origin_address: string | null;
 	related_recipes: {
@@ -934,6 +936,7 @@ export type StartVariationInput = {
 };
 /** What start_variation answers. */
 export type StartVariationOutput = {
+	arrived: boolean;
 	branch_id: string;
 	cookbook: {
 		authors: {
@@ -957,6 +960,7 @@ export type StartVariationOutput = {
 	head_version_id: string;
 	language: string;
 	lineage_id: string;
+	mine: boolean;
 	name: string | null;
 	origin_address: string | null;
 	related_recipes: {
@@ -1171,6 +1175,7 @@ export type StartTranslationInput = {
 };
 /** What start_translation answers. */
 export type StartTranslationOutput = {
+	arrived: boolean;
 	branch_id: string;
 	cookbook: {
 		authors: {
@@ -1194,6 +1199,7 @@ export type StartTranslationOutput = {
 	head_version_id: string;
 	language: string;
 	lineage_id: string;
+	mine: boolean;
 	name: string | null;
 	origin_address: string | null;
 	related_recipes: {
@@ -1761,6 +1767,7 @@ export type GetRecipeInput = {
 };
 /** What get_recipe answers. */
 export type GetRecipeOutput = {
+	arrived: boolean;
 	branch_id: string;
 	cookbook: {
 		authors: {
@@ -1784,6 +1791,7 @@ export type GetRecipeOutput = {
 	head_version_id: string;
 	language: string;
 	lineage_id: string;
+	mine: boolean;
 	name: string | null;
 	origin_address: string | null;
 	related_recipes: {
@@ -7584,6 +7592,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"arrived": {
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -7690,6 +7701,9 @@ export const CATALOGUE = [
 				},
 				"lineage_id": {
 					"type": "string"
+				},
+				"mine": {
+					"type": "boolean"
 				},
 				"name": {
 					"type": [
@@ -8546,6 +8560,8 @@ export const CATALOGUE = [
 				"cookbook",
 				"name",
 				"writes",
+				"mine",
+				"arrived",
 				"hand_id",
 				"language",
 				"origin_address",
@@ -9054,6 +9070,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"arrived": {
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -9160,6 +9179,9 @@ export const CATALOGUE = [
 				},
 				"lineage_id": {
 					"type": "string"
+				},
+				"mine": {
+					"type": "boolean"
 				},
 				"name": {
 					"type": [
@@ -10016,6 +10038,8 @@ export const CATALOGUE = [
 				"cookbook",
 				"name",
 				"writes",
+				"mine",
+				"arrived",
 				"hand_id",
 				"language",
 				"origin_address",
@@ -10354,6 +10378,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"arrived": {
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -10460,6 +10487,9 @@ export const CATALOGUE = [
 				},
 				"lineage_id": {
 					"type": "string"
+				},
+				"mine": {
+					"type": "boolean"
 				},
 				"name": {
 					"type": [
@@ -11316,6 +11346,8 @@ export const CATALOGUE = [
 				"cookbook",
 				"name",
 				"writes",
+				"mine",
+				"arrived",
 				"hand_id",
 				"language",
 				"origin_address",
@@ -13321,6 +13353,9 @@ export const CATALOGUE = [
 		"output_schema": {
 			"additionalProperties": false,
 			"properties": {
+				"arrived": {
+					"type": "boolean"
+				},
 				"branch_id": {
 					"type": "string"
 				},
@@ -13427,6 +13462,9 @@ export const CATALOGUE = [
 				},
 				"lineage_id": {
 					"type": "string"
+				},
+				"mine": {
+					"type": "boolean"
 				},
 				"name": {
 					"type": [
@@ -14283,6 +14321,8 @@ export const CATALOGUE = [
 				"cookbook",
 				"name",
 				"writes",
+				"mine",
+				"arrived",
 				"hand_id",
 				"language",
 				"origin_address",

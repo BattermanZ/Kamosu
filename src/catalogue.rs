@@ -3526,6 +3526,11 @@ fn recipe_schema() -> Value {
             // anybody else's recipe and on one that arrived from elsewhere,
             // where a save starts a Branch of the reader's own instead.
             "writes": { "type": "boolean" },
+            // Why not, where the reader does not write it (#132): `mine` where
+            // their own Cookbook holds it, `arrived` where it was sent from
+            // elsewhere — as on a Thread's Branch.
+            "mine": { "type": "boolean" },
+            "arrived": { "type": "boolean" },
             "hand_id": { "type": "string" },
             "language": { "type": "string" },
             "origin_address": { "type": ["string", "null"] },
@@ -3583,7 +3588,8 @@ fn recipe_schema() -> Value {
             "cooked": cooking_record_schema(),
         },
         "required": [
-            "branch_id", "lineage_id", "cookbook", "name", "writes", "hand_id", "language",
+            "branch_id", "lineage_id", "cookbook", "name", "writes", "mine", "arrived", "hand_id",
+            "language",
             "origin_address", "head_version_id", "versions", "translation",
             "tags", "related_recipes", "cooked"
         ],

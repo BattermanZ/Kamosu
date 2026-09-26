@@ -429,7 +429,11 @@ describe('putting a cooking’s picture on the recipe', () => {
 		const on = within(await sheet());
 		await fireEvent.click(await on.findByRole('button', { name: /The recipe's photo/ }));
 		expect(on.getByText('This will start your own copy')).toBeInTheDocument();
-		expect(on.getByText(/isn't yours to change/)).toBeInTheDocument();
+		expect(
+			on.getByText(
+				'This recipe is in Aurélien’s Cookbook, so your changes go into your own copy of Miso Soup, in your Cookbook. Aurélien’s stays as it is.',
+			),
+		).toBeInTheDocument();
 		await fireEvent.click(on.getByRole('button', { name: 'Start my own copy' }));
 
 		await vi.waitFor(() =>
@@ -444,6 +448,21 @@ describe('putting a cooking’s picture on the recipe', () => {
 			'href',
 			'/recipes/b_copy',
 		);
+	});
+
+	it('says a copy starts because the recipe was sent to you (#132)', async () => {
+		await open({ get_recipe: recipeAnswer({ writes: false, arrived: true }) });
+		await fireEvent.click(
+			screen.getAllByRole('button', { name: 'Put this photo on the recipe' })[0],
+		);
+		const on = within(await sheet());
+		await fireEvent.click(await on.findByRole('button', { name: /The recipe's photo/ }));
+		expect(on.getByText('This will start your own copy')).toBeInTheDocument();
+		expect(
+			on.getByText(
+				'You were sent this recipe, so your changes go into your own copy of Miso Soup, in your Cookbook. The one you were sent stays as it arrived.',
+			),
+		).toBeInTheDocument();
 	});
 
 	it('says why, and keeps the sheet open, when the Core refuses', async () => {

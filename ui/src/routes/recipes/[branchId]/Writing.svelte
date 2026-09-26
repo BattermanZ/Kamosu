@@ -112,6 +112,7 @@
 	import type { Nutrition } from './divergence';
 	import { languageName, type WrittenLanguage } from '$lib/language';
 	import { hostOf } from '$lib/source';
+	import { copySaid, type Whose } from '$lib/cookbook';
 	import Cover from '$lib/cover/Cover.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 
@@ -121,11 +122,12 @@
 		branchId: string;
 		lineageId: string;
 		/**
-		 * Whether a save lands on this Branch: the Core's answer, from whose
-		 * Cookbook the Branch is in and whether it arrived there (ADR 0041).
-		 * False, a save starts the cook's own Branch in their own Cookbook.
+		 * Whether a save lands on this Branch, and why not where it does not:
+		 * the Core's answer, from whose Cookbook the Branch is in and whether
+		 * it arrived there (ADR 0041, #132). Where it does not, a save starts
+		 * the cook's own Branch in their own Cookbook.
 		 */
-		writes: boolean;
+		whose: Whose;
 		/** The recipe as it stands, which is what the draft below starts from. */
 		content: Content;
 		/**
@@ -183,7 +185,7 @@
 	let {
 		branchId,
 		lineageId,
-		writes,
+		whose,
 		content,
 		components = [],
 		translatingInto,
@@ -451,7 +453,7 @@
 	 * which on the recipe itself, so there is nothing to ask first and
 	 * nothing to guess.
 	 */
-	const forking = $derived(!writes);
+	const forking = $derived(!whose.writes);
 
 	/**
 	 * **Onto the recipe, or beside it** (#131, screen choice 3). Saving your
@@ -493,7 +495,7 @@
 		if (forking) {
 			return {
 				called: m.write_will_fork(),
-				said: m.write_said_fork({ title: title.trim() }),
+				said: copySaid(whose, title.trim()),
 				does: m.write_do_fork(),
 				grave: true,
 			};

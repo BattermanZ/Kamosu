@@ -46,6 +46,7 @@
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
 	import { focusInAndBack } from '$lib/focus-in-and-back';
+	import { copySaid } from '$lib/cookbook';
 
 	interface Props {
 		/** The recipe to put it on: any Branch of the Lineage that was cooked. */
@@ -262,8 +263,8 @@
 				{forking ? m.write_will_fork() : m.write_will_save()}
 			</p>
 			<p class="mt-1 text-read">
-				{forking
-					? m.write_said_fork({ title: content.title })
+				{forking && recipe
+					? copySaid(recipe, content.title)
 					: `${m.write_said_save({ title: content.title })} ${m.promote_in_thread()}`}
 			</p>
 			<p class="mt-2 text-read">{m.promote_public()}</p>

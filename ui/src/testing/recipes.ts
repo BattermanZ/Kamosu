@@ -17,15 +17,30 @@ export const STEPS: Content['steps'] = [
 ];
 
 export function recipeAnswer(
-	over: { branch_id?: string; writes?: boolean; lineage_id?: string } & Partial<Content> = {},
+	over: {
+		branch_id?: string;
+		writes?: boolean;
+		/** Sent to the reader, and so in their own Cookbook though not theirs to write (#132). */
+		arrived?: boolean;
+		lineage_id?: string;
+	} & Partial<Content> = {},
 ): GetRecipeOutput {
-	const { branch_id = 'b_1', writes = true, lineage_id = 'l_1', ...content } = over;
+	const {
+		branch_id = 'b_1',
+		writes = true,
+		arrived = false,
+		lineage_id = 'l_1',
+		...content
+	} = over;
 	return {
 		branch_id,
 		lineage_id,
 		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
 		name: null,
 		writes,
+		// Anybody else's, unless it was sent to the reader.
+		mine: writes || arrived,
+		arrived,
 		hand_id: 'h_1',
 		language: 'en',
 		origin_address: null,

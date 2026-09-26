@@ -153,7 +153,7 @@ describe('a cooking photo that makes a Copy (#111)', () => {
 
 	it('starts the Copy in your own Cookbook and asks nothing about where (#131)', async () => {
 		const { kamosu, on } = await openOnSomeoneElses();
-		expect(on.getByText(/your own Miso Soup in your Cookbook/)).toBeInTheDocument();
+		expect(on.getByText(/your own copy of Miso Soup, in your Cookbook/)).toBeInTheDocument();
 		expect(on.queryAllByRole('radio')).toHaveLength(0);
 		await fireEvent.click(on.getByRole('button', { name: 'Start my own copy' }));
 		await vi.waitFor(() => expect(sentTo(kamosu)).toMatchObject({ photograph_id: 'p_first' }));

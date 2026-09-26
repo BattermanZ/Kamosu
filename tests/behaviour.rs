@@ -21106,6 +21106,72 @@ fn branches_of_lineage(app: &support::TestApp, lineage_id: &str) -> Vec<String> 
         .unwrap()
 }
 
+/// **A recipe you do not write says why** (#132). Two recipes answer
+/// `writes: false` for two different reasons, and the writing screens say
+/// which before a save starts the reader's own copy: one was sent to them and
+/// sits in their own Cookbook, the other is in a Kitchen-mate's. `get_recipe`
+/// answers `mine` and `arrived` from the Core, meaning what they mean on a
+/// Thread's Branch, so no screen works it out by comparing ids.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_recipe_tells_a_recipe_sent_to_you_from_a_kitchen_mates() {
+    let there = support::spawn_app();
+    let (_, sender_key, _) = person_with_kitchen(&there, "Mireille");
+    let (_, sent) = there.post_op(
+        "create_recipe",
+        Some(&sender_key),
+        &json!({ "title": "Tarte au citron" }).to_string(),
+    );
+    let sent_id = sent["result"]["branch_id"].as_str().unwrap().to_string();
+    let bytes = bundle_of(&there, &sender_key, &sent_id);
+
+    let app = support::spawn_app();
+    let (_, owner_key, owner_kitchen) = person_with_kitchen(&app, "Aurélien");
+    let (_, mate_key, _) = person_with_kitchen(&app, "Marie");
+    ask_into_kitchen(&app, &owner_key, &owner_kitchen, &mate_key);
+    let received = landed_as(&receive(&app, &mate_key, &bytes), &sent_id);
+    let (_, his) = app.post_op(
+        "create_recipe",
+        Some(&owner_key),
+        &json!({ "title": "Tartiflette" }).to_string(),
+    );
+    let his_id = his["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // (writes, mine, arrived) for one reader of one recipe.
+    let whose = |key: &str, branch_id: &str| {
+        let (status, read) = app.post_op(
+            "get_recipe",
+            Some(key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+        let read = &read["result"];
+        (
+            read["writes"].clone(),
+            read["mine"].clone(),
+            read["arrived"].clone(),
+        )
+    };
+    let (yes, no) = (json!(true), json!(false));
+    // Sent to Marie: in her own Cookbook, and not hers to write.
+    assert_eq!(
+        whose(&mate_key, &received),
+        (no.clone(), yes.clone(), yes.clone())
+    );
+    // Aurélien's, read by Marie: in somebody else's Cookbook.
+    assert_eq!(
+        whose(&mate_key, &his_id),
+        (no.clone(), no.clone(), no.clone())
+    );
+    // His own, read by him: his to write.
+    assert_eq!(
+        whose(&owner_key, &his_id),
+        (yes.clone(), yes.clone(), no.clone())
+    );
+    // What was sent to Marie, read by Aurélien: it arrived, but in her
+    // Cookbook, so what he is told is whose Cookbook it is in.
+    assert_eq!(whose(&owner_key, &received), (no.clone(), no, yes));
+}
+
 /// **Receiving a Bundle places the sender's Branch here under their ids**
 /// (ADR 0020): the Branch id, the Lineage id, every Version id, the Hand on the
 /// Branch and on each Version, the names, the *what changed* lines and the

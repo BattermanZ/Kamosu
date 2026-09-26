@@ -47,6 +47,34 @@ export function cookbookCalled(cookbook: CookbookLabel): string {
 }
 
 /**
+ * Whether a save lands on the recipe, and why not where it does not: the
+ * Core's answer (#132), never an id compared here.
+ */
+export type Whose = Pick<GetRecipeOutput, 'writes' | 'mine' | 'arrived' | 'cookbook'>;
+
+/**
+ * **Why a save starts the reader's own copy, and what stays** (#132): the one
+ * sentence the writing screen, Promotion and a cooking's photo all say before
+ * the tap, where `writes` is false. It says where the changes go, never that
+ * the recipe is not the reader's to change, which read as a telling-off.
+ *
+ * - Sent to the reader: it sits in their own Cookbook, so the reason is that
+ *   it was sent.
+ * - In anybody else's Cookbook: the reason is whose Cookbook it is in, and
+ *   what stays is its writers'. A named Cookbook is a message of its own
+ *   rather than `cookbookCalled` set into one, because French and Spanish put
+ *   an unnamed one's writers inside the phrase ("le Carnet de Marie").
+ */
+export function copySaid(whose: Whose, title: string): string {
+	if (whose.mine && whose.arrived) return m.write_said_fork_sent({ title });
+	const names = joinedNames(whose.cookbook.authors.map((author) => author.name));
+	if (whose.cookbook.name !== null) {
+		return m.write_said_fork_theirs_named({ cookbook: whose.cookbook.name, names, title });
+	}
+	return m.write_said_fork_theirs({ names, title });
+}
+
+/**
  * **One version of a recipe, as the switch labels it** (#131, screen choice
  * 1): a name, and a line under it saying whose.
  *

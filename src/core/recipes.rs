@@ -589,16 +589,18 @@ impl Core {
     ) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
             let cookbook_id = ensure_sees_branch(conn, branch_id, person_id)?;
-            let (lineage_id, hand_id, language, origin_address, head_version_id, branch_name): (
+            let (lineage_id, hand_id, language, origin_address, head_version_id, branch_name, arrived): (
                 String,
                 String,
                 String,
                 Option<String>,
                 String,
                 Option<String>,
+                bool,
             ) = conn
                 .query_row(
-                    "SELECT lineage_id, hand_id, language, origin_address, head_version_id, name \
+                    "SELECT lineage_id, hand_id, language, origin_address, head_version_id, name, \
+                            arrived \
                        FROM branches WHERE id = ?1",
                     params![branch_id],
                     |row| {
@@ -609,6 +611,7 @@ impl Core {
                             row.get(3)?,
                             row.get(4)?,
                             row.get(5)?,
+                            row.get(6)?,
                         ))
                     },
                 )
@@ -713,6 +716,7 @@ impl Core {
                 version["components"] = json!(walk.found);
             }
 
+            let own_cookbook_id = cookbook_of_person(conn, person_id)?;
             Ok(json!({
                 "branch_id": branch_id,
                 "lineage_id": lineage_id,
@@ -721,11 +725,12 @@ impl Core {
                 // which the writing screens say before the tap.
                 "cookbook": cookbook_label(conn, &cookbook_id)?,
                 "name": branch_name,
-                "writes": cookbook_writes_branch(
-                    conn,
-                    &cookbook_of_person(conn, person_id)?,
-                    branch_id,
-                )?,
+                "writes": cookbook_writes_branch(conn, &own_cookbook_id, branch_id)?,
+                // And why not, where not (#132): in the reader's own Cookbook
+                // but sent from elsewhere, or in somebody else's Cookbook. The
+                // same two facts a Thread's Branch answers.
+                "mine": cookbook_id == own_cookbook_id,
+                "arrived": arrived,
                 "hand_id": hand_id,
                 "language": language,
                 "origin_address": origin_address,

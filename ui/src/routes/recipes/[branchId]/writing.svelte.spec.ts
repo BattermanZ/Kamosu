@@ -20,6 +20,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
+import type { Whose } from '$lib/cookbook';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer } from '../../../testing/recipes';
 
@@ -75,6 +76,8 @@ function renderWriting(
 	start: Content = content(),
 	/** Translating into this Language rather than editing (#106). */
 	translatingInto?: 'en' | 'fr' | 'es',
+	/** Why a save makes a Copy, where it does; Hélène's Cookbook unless given (#132). */
+	whose?: Omit<Whose, 'writes'>,
 ) {
 	const onSaved = vi.fn();
 	const onCancel = vi.fn();
@@ -86,6 +89,7 @@ function renderWriting(
 			writes,
 			components,
 			translatingInto,
+			...(whose ? { whose } : {}),
 			onSaved,
 			onCancel,
 		},
@@ -133,6 +137,8 @@ const READ_BACK = {
 		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
 		name: null,
 		writes: true,
+		mine: true,
+		arrived: false,
 		hand_id: 'h_mine',
 		language: 'en',
 		origin_address: null,
@@ -680,10 +686,51 @@ describe('writing a recipe', () => {
 		await fireEvent.click(
 			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
 		);
-		expect(screen.getByText(/isn't yours to change/)).toBeInTheDocument();
-		expect(screen.getByText(/the original stays as it is/)).toBeInTheDocument();
+		// Why, and what stays: whose Cookbook it is in, never "not yours" (#132).
+		expect(
+			screen.getByText(
+				'This recipe is in Hélène’s Cookbook, so your changes go into your own copy of Dan Dan Noodles, in your Cookbook. Hélène’s stays as it is.',
+			),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/yours to change/)).not.toBeInTheDocument();
 		// Where it goes is not a question: your own Cookbook, always (#131).
 		expect(screen.queryAllByRole('radio')).toHaveLength(0);
+	});
+
+	it('says a recipe sent to you makes a copy because it was sent (#132)', async () => {
+		const sent: Omit<Whose, 'writes'> = {
+			mine: true,
+			arrived: true,
+			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Aurélien' }] },
+		};
+		renderWriting({}, false, [], content(), undefined, sent);
+		await fireEvent.click(
+			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
+		);
+		expect(
+			screen.getByText(
+				'You were sent this recipe, so your changes go into your own copy of Dan Dan Noodles, in your Cookbook. The one you were sent stays as it arrived.',
+			),
+		).toBeInTheDocument();
+		// Not "in Aurélien's Cookbook": it is in the reader's own.
+		expect(screen.queryByText(/Aurélien/)).not.toBeInTheDocument();
+	});
+
+	it('names a Cookbook by the name its writers gave it (#132)', async () => {
+		const named: Omit<Whose, 'writes'> = {
+			mine: false,
+			arrived: false,
+			cookbook: { id: 'c_n', name: 'Chez nous', authors: [{ person_id: 'p_h', name: 'Hélène' }] },
+		};
+		renderWriting({}, false, [], content(), undefined, named);
+		await fireEvent.click(
+			(await screen.findAllByRole('button', { name: /Start my own copy/ }))[0]!,
+		);
+		expect(
+			screen.getByText(
+				'This recipe is in Chez nous, so your changes go into your own copy of Dan Dan Noodles, in your Cookbook. Hélène’s stays as it is.',
+			),
+		).toBeInTheDocument();
 	});
 
 	it('hands a collapse up to the page, which is what is still on screen afterwards', async () => {
@@ -841,7 +888,7 @@ describe('where a Copy goes (#111, #131)', () => {
 		const sheet = await screen.findByRole('dialog');
 		expect(within(sheet).queryAllByRole('radio')).toHaveLength(0);
 		expect(
-			within(sheet).getByText(/your own Dan Dan Noodles in your Cookbook/),
+			within(sheet).getByText(/your own copy of Dan Dan Noodles, in your Cookbook/),
 		).toBeInTheDocument();
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Start my own copy' }));
 		await waitFor(() => expect(sent(kamosu)).toBeDefined());

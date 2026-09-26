@@ -420,6 +420,8 @@ describe('the Thread screen', () => {
 				cookbook: cookbookLabel('c_1', ['Aurélien']),
 				name: null,
 				writes: true,
+				mine: true,
+				arrived: false,
 				hand_id: 'h_aurelien',
 				language: 'en',
 				origin_address: null,

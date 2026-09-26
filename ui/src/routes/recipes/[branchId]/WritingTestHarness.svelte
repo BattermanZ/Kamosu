@@ -7,6 +7,7 @@
 <script lang="ts">
 	import type { KamosuClient, GetRecipeOutput } from '$lib/api/catalogue';
 	import type { WrittenLanguage } from '$lib/language';
+	import type { Whose } from '$lib/cookbook';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 	import Writing from './Writing.svelte';
 
@@ -15,6 +16,8 @@
 		content: GetRecipeOutput['versions'][number]['content'];
 		/** Whether the reader writes this recipe's Cookbook; a Copy is saved where not. */
 		writes?: boolean;
+		/** Why a save makes a Copy where it does: Hélène's Cookbook, unless a test says otherwise (#132). */
+		whose?: Omit<Whose, 'writes'>;
 		/** The lines that already name a Recipe, as the Core unfolds them (#87). */
 		components?: GetRecipeOutput['versions'][number]['components'];
 		photograph?: (file: Blob) => Promise<string>;
@@ -34,6 +37,11 @@
 		client,
 		content,
 		writes = true,
+		whose = {
+			mine: false,
+			arrived: false,
+			cookbook: { id: 'c_h', name: null, authors: [{ person_id: 'p_h', name: 'Hélène' }] },
+		},
 		components = [],
 		photograph,
 		translatingInto,
@@ -46,7 +54,7 @@
 	<Writing
 		branchId="mine"
 		lineageId="l_1"
-		{writes}
+		whose={{ ...whose, writes }}
 		{content}
 		{components}
 		{translatingInto}
