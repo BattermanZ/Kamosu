@@ -268,6 +268,7 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
     let mut choices = 0usize;
     let mut choices_named_as_foods = Vec::new();
     let mut measures_named_as_foods = Vec::new();
+    let mut descriptions_named_as_foods = Vec::new();
 
     for (title, lines) in &recipes {
         let ingredients: Vec<Value> = lines
@@ -367,6 +368,15 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
                 measures_named_as_foods
                     .push(format!("{title}: {:?} read as {target:?}", line.written));
             }
+            // The same, for a Food that is only a describing word, `boneless`,
+            // or that kept `to taste` in its name, in any Language (#163).
+            if let Some(target) = reading["target"].as_str()
+                && (kamosu::reading::is_only_describing(target)
+                    || kamosu::reading::keeps_to_taste(target))
+            {
+                descriptions_named_as_foods
+                    .push(format!("{title}: {:?} read as {target:?}", line.written));
+            }
         }
     }
 
@@ -424,6 +434,12 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
     assert!(
         measures_named_as_foods.is_empty(),
         "no Reading names a Unit as its Food: {measures_named_as_foods:#?}"
+    );
+
+    assert!(
+        descriptions_named_as_foods.is_empty(),
+        "no Reading names a Food by how it is prepared or seasoned: \
+         {descriptions_named_as_foods:#?}"
     );
 
     // **An unread line is a working line** (ADR 0002): the whole library came

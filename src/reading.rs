@@ -254,6 +254,181 @@ const GLUE: &[&str] = &[
 /// the 200 has to reach the amount rather than the Food.
 const A_FEW: &[&str] = &["quelques", "unos", "unas"];
 
+/// The ways a recipe says *as much as you like*, each written as its words.
+/// Such a phrase measures nothing and names nothing, so it is dropped from the
+/// front or the end of what a Reading reads (#163): `to taste sea salt` and
+/// `salt and pepper to taste` read exactly as `sea salt` and `salt and pepper`
+/// do. Inside brackets or after a comma it was already the cook's aside.
+///
+/// Only the two ends, because in the middle a phrase can mean something else:
+/// `huile au goût de truffe` is truffle-flavoured oil, one thing to buy.
+const TO_TASTE: &[&[&str]] = &[
+    &["to", "taste"],
+    &["to", "your", "taste"],
+    &["au", "goût"],
+    &["selon", "le", "goût"],
+    &["selon", "votre", "goût"],
+    &["selon", "goût"],
+    &["à", "volonté"],
+    &["al", "gusto"],
+    &["a", "gusto"],
+];
+
+/// Words that say how a food is prepared or bought, never what it is: a Food
+/// made of nothing else is not a Food (#163). `4 cloves, minced` measures
+/// garlic that the line never names, and a Food called *minced* would sit on
+/// the shopping list meaning nothing.
+///
+/// Beside a food they stay part of its name, as they always have — `minced
+/// garlic` and `boneless chicken thighs` are what the cook wrote. Only a name
+/// that is **all** of these is refused, and where a comma cut such a run off
+/// from its food, as in `boneless, skinless chicken thighs`, the Food is read
+/// on past the comma instead.
+///
+/// Every form a French or Spanish word takes is listed, because the fold in
+/// [`folded`] strips accents but not endings. A word that is also a food is
+/// left out, whatever else it means: *fondue*, *cocido*, *confit*, *cortado*
+/// the coffee and *picada* the Catalan sauce.
+const DESCRIBING: &[&str] = &[
+    // English
+    "boneless",
+    "skinless",
+    "bone-in",
+    "skin-on",
+    "minced",
+    "divided",
+    "chopped",
+    "diced",
+    "sliced",
+    "grated",
+    "shredded",
+    "crushed",
+    "peeled",
+    "seeded",
+    "deseeded",
+    "pitted",
+    "cubed",
+    "halved",
+    "quartered",
+    "trimmed",
+    "melted",
+    "softened",
+    "beaten",
+    "sifted",
+    "drained",
+    "rinsed",
+    "cooked",
+    "uncooked",
+    "toasted",
+    "julienned",
+    "zested",
+    "juiced",
+    "mashed",
+    "packed",
+    "heaping",
+    "heaped",
+    "level",
+    "rounded",
+    "optional",
+    "fresh",
+    "dried",
+    "frozen",
+    "ground",
+    "raw",
+    "finely",
+    "roughly",
+    "coarsely",
+    "thinly",
+    "freshly",
+    "lightly",
+    // French
+    "haché",
+    "hachée",
+    "hachés",
+    "hachées",
+    "émincé",
+    "émincée",
+    "émincés",
+    "émincées",
+    "désossé",
+    "désossée",
+    "désossés",
+    "désossées",
+    "coupé",
+    "coupée",
+    "coupés",
+    "coupées",
+    "râpé",
+    "râpée",
+    "râpés",
+    "râpées",
+    "pelé",
+    "pelée",
+    "pelés",
+    "pelées",
+    "écrasé",
+    "écrasée",
+    "écrasés",
+    "écrasées",
+    "concassé",
+    "concassée",
+    "concassés",
+    "concassées",
+    "cuit",
+    "cuite",
+    "cuits",
+    "cuites",
+    "surgelé",
+    "surgelée",
+    "surgelés",
+    "surgelées",
+    "frais",
+    "fraîche",
+    "fraîches",
+    "sec",
+    "sèche",
+    "secs",
+    "sèches",
+    "finement",
+    "grossièrement",
+    // Spanish
+    "picado",
+    "picados",
+    "deshuesado",
+    "deshuesada",
+    "deshuesados",
+    "deshuesadas",
+    "rallado",
+    "rallada",
+    "rallados",
+    "ralladas",
+    "pelado",
+    "pelada",
+    "pelados",
+    "peladas",
+    "troceado",
+    "troceada",
+    "troceados",
+    "troceadas",
+    "molido",
+    "molida",
+    "molidos",
+    "molidas",
+    "fresco",
+    "fresca",
+    "frescos",
+    "frescas",
+    "seco",
+    "seca",
+    "secos",
+    "secas",
+    "finamente",
+];
+
+/// What may join two [`DESCRIBING`] words without naming anything itself:
+/// `peeled and chopped`.
+const DESCRIBING_JOINS: &[&str] = &["and", "et", "y"];
+
 /// The elided articles French and Spanish write against the next word. Split
 /// off so [`GLUE`] can see them, and glued back wherever one survives inside a
 /// name — `un filet d'huile d'olive` keeps its *d'huile*.
@@ -295,8 +470,10 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// honest to say.
 ///
 /// Nothing is an ordinary answer and never an error (ADR 0002). It is what
-/// `salt and pepper to taste` gets, and what any line whose words Kamosu
-/// cannot place gets, and the line goes on working exactly as written.
+/// `to taste` alone gets, and what any line whose words Kamosu cannot place
+/// gets, and the line goes on working exactly as written. `salt and pepper to
+/// taste` is not such a line: the phrase is dropped and it reads as `salt and
+/// pepper` does (#163).
 pub fn read_line(line: &str) -> Option<Reading> {
     let line = without_brackets(line);
     // The slashes are stood apart only to find a restated measure. Where
@@ -316,14 +493,21 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
     let mut tokens: Vec<&str> = head.split_whitespace().collect();
     let a_few = tokens.iter().take_while(|word| listed(A_FEW, word)).count();
     tokens.drain(..a_few);
+    // `to taste` goes before anything else is read, so a line reads exactly
+    // as it would without the phrase: `cloves to taste` as `cloves` (#163).
+    let to_taste = to_taste_at(&tokens, End::Start);
+    tokens.drain(..to_taste);
+    let to_taste = to_taste_at(&tokens, End::Finish);
+    tokens.truncate(tokens.len() - to_taste);
     if tokens.is_empty() {
         return (None, false);
     }
     // What follows the first comma is ordinarily the cook's aside, never part
     // of the Reading: in `garlic, minced` the cook is talking *about* the
-    // garlic. It is kept here only for the one case below where the comma
-    // fell between the measure and the thing measured.
-    let past_the_comma = clauses.next().map(split_elisions);
+    // garlic. It is kept here only for the cases below where the comma fell
+    // between the measure and the thing measured, or inside the thing's name.
+    let later: Vec<String> = clauses.map(split_elisions).collect();
+    let past_the_comma = later.first();
 
     let mut reading = Reading::default();
 
@@ -362,12 +546,13 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
         }
     }
 
-    // The Food is what the measure leaves. Only where it leaves nothing, and
-    // something *was* measured, is the Food looked for past the comma — the
+    // The Food is what the measure leaves. Where it leaves nothing, and
+    // something *was* measured, the Food is looked for past the comma — the
     // aside after *that* still dropped, so `4 , hamburger buns, toasted if
-    // desired` is hamburger buns. Where there is nothing there either, the
-    // Reading names no Food rather than promoting the Unit into one
-    // (ADR 0002).
+    // desired` is hamburger buns. Where it leaves only describing words, the
+    // comma cut the Food's own name, and the name is read on past it (#163).
+    // Where there is nothing there either, the Reading names no Food rather
+    // than promoting the Unit or a describing word into one (ADR 0002).
     let mut named = &rest[unit_taken..];
     let mut restating = false;
     if reading.amount.is_some() && reading.unit.is_some() {
@@ -377,25 +562,126 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
         }
     }
     let food = strip_glue(named);
+    let measured = reading.amount.is_some() || reading.unit.is_some();
     reading.target = if offers_a_choice(named) {
         None
-    } else if !food.is_empty() {
+    } else if !food.is_empty() && !only_describing(food) {
         rejoin(food)
-    } else if reading.amount.is_some() || reading.unit.is_some() {
-        let words: Vec<&str> = past_the_comma
-            .as_deref()
-            .unwrap_or_default()
-            .split_whitespace()
-            .collect();
-        if offers_a_choice(&words) {
-            None
-        } else {
-            rejoin(strip_glue(&words))
-        }
+    } else if !food.is_empty() || measured {
+        food_past_the_comma(food, &later)
     } else {
         None
     };
     (reading.is_something().then_some(reading), restating)
+}
+
+/// The Food's name carried on past a comma: the describing words before it
+/// (`boneless`), then each clause in turn while it too only describes
+/// (`skinless`), until one names something (`chicken thighs`). The commas the
+/// cook wrote stay in the name.
+///
+/// **Once describing words are carried, the next clause must open with one.**
+/// That is what says the run goes on: `boneless, skinless chicken thighs` is
+/// one name, and `boneless, cut into 1-inch pieces` is a describing word
+/// followed by the cook's aside, which names nothing. With nothing carried,
+/// a measure straight before the comma, the first clause is the Food, as
+/// #160 made it. A choice, an empty clause, or running out of clauses before
+/// anything is named leaves the Reading naming no Food.
+fn food_past_the_comma(describing: &[&str], later: &[String]) -> Option<String> {
+    let mut name: Vec<String> = describing.iter().map(|word| word.to_string()).collect();
+    for clause in later {
+        let words: Vec<&str> = clause.split_whitespace().collect();
+        if offers_a_choice(&words) {
+            return None;
+        }
+        let words = strip_glue(without_to_taste(&words));
+        let carries_on = words.first().is_some_and(|word| listed(DESCRIBING, word));
+        if words.is_empty() || !(name.is_empty() || carries_on) {
+            return None;
+        }
+        if let Some(last) = name.last_mut() {
+            last.push(',');
+        }
+        name.extend(words.iter().map(|word| word.to_string()));
+        if !only_describing(words) {
+            let name: Vec<&str> = name.iter().map(String::as_str).collect();
+            return rejoin(&name);
+        }
+    }
+    None
+}
+
+/// Whether every word says how a food is prepared or bought and none says what
+/// it is: [`DESCRIBING`] words, joined by [`DESCRIBING_JOINS`] at most.
+fn only_describing(words: &[&str]) -> bool {
+    words.iter().any(|word| listed(DESCRIBING, word))
+        && words
+            .iter()
+            .all(|word| listed(DESCRIBING, word) || listed(DESCRIBING_JOINS, word))
+}
+
+/// **Whether a Food is made only of describing words**, `boneless` or
+/// `minced`: the fault #163 fixed. The corpus test asks this of every Reading,
+/// beside [`is_a_unit_word`], so it cannot come back unseen.
+pub fn is_only_describing(target: &str) -> bool {
+    let words: Vec<&str> = target
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|word| !word.is_empty())
+        .collect();
+    only_describing(&words)
+}
+
+/// One end of a run of words.
+#[derive(Clone, Copy)]
+enum End {
+    Start,
+    Finish,
+}
+
+/// How many words at one end are a [`TO_TASTE`] phrase, the longest first.
+fn to_taste_at(words: &[&str], end: End) -> usize {
+    TO_TASTE
+        .iter()
+        .filter(|phrase| {
+            let Some(rest) = words.len().checked_sub(phrase.len()) else {
+                return false;
+            };
+            let there = match end {
+                End::Start => &words[..phrase.len()],
+                End::Finish => &words[rest..],
+            };
+            same_words(phrase, there)
+        })
+        .map(|phrase| phrase.len())
+        .max()
+        .unwrap_or(0)
+}
+
+/// Whether two runs of words are the same once folded.
+fn same_words(expected: &[&str], words: &[&str]) -> bool {
+    expected.len() == words.len()
+        && expected
+            .iter()
+            .zip(words)
+            .all(|(expected, word)| folded(expected) == folded(word))
+}
+
+/// The words with a [`TO_TASTE`] phrase dropped from either end.
+fn without_to_taste<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
+    words = &words[to_taste_at(words, End::Start)..];
+    &words[..words.len() - to_taste_at(words, End::Finish)]
+}
+
+/// **Whether a Food still carries a [`TO_TASTE`] phrase** anywhere in its
+/// name, in any of the three Languages: the other fault #163 fixed, asked by
+/// the corpus test of every Reading.
+pub fn keeps_to_taste(target: &str) -> bool {
+    let words: Vec<&str> = target.split_whitespace().collect();
+    TO_TASTE.iter().any(|phrase| {
+        words
+            .windows(phrase.len())
+            .any(|window| same_words(phrase, window))
+    })
 }
 
 /// Whether a word is a measure: a Unit the closed set recognises, or one of
@@ -1146,6 +1432,119 @@ mod tests {
         assert_eq!(read(", Salt and pepper"), None);
         // A Unit with nothing at all to measure is still the Food it names.
         assert_eq!(read("cloves"), parts(None, None, Some("cloves")));
+    }
+
+    #[test]
+    fn to_taste_is_no_part_of_the_food() {
+        // The corpus's own lines: Crouton filed the phrase at the front (#163).
+        for (line, food) in [
+            ("to taste sea salt", "sea salt"),
+            ("to taste pepper", "pepper"),
+            ("to taste Salt and pepper", "Salt and pepper"),
+            (
+                "to taste Freshly ground black pepper",
+                "Freshly ground black pepper",
+            ),
+            ("to taste Blue cheese", "Blue cheese"),
+            ("to taste Grated old gouda", "Grated old gouda"),
+            // At the end, it reads as the same line would without it.
+            ("salt and pepper to taste", "salt and pepper"),
+            ("sel au goût", "sel"),
+            ("poivre selon le goût", "poivre"),
+            ("à volonté sel", "sel"),
+            ("sal al gusto", "sal"),
+            ("pimienta a gusto", "pimienta"),
+        ] {
+            assert_eq!(read(line), parts(None, None, Some(food)), "{line}");
+        }
+        assert_eq!(read("salt and pepper to taste"), read("salt and pepper"));
+        assert_eq!(
+            read("2 tbsp olive oil to taste"),
+            parts(Some("2"), Some("tbsp"), Some("olive oil"))
+        );
+        // Nothing left once the phrase is gone, so nothing is named.
+        assert_eq!(read("to taste"), None);
+        assert_eq!(read("2 tbsp to taste"), read("2 tbsp"));
+        assert_eq!(read("cloves to taste"), read("cloves"));
+        assert_eq!(read("cloves to taste"), parts(None, None, Some("cloves")));
+        // Already right inside brackets, and still so.
+        assert_eq!(
+            read("black pepper (to taste)"),
+            parts(None, None, Some("black pepper"))
+        );
+    }
+
+    #[test]
+    fn a_food_is_never_only_describing_words() {
+        // The two corpus lines, where the comma cut the food off (#163).
+        assert_eq!(
+            read("1 1/2 lb boneless, skinless chicken thighs, cut into 1-inch pieces"),
+            parts(
+                Some("1 1/2"),
+                Some("lb"),
+                Some("boneless, skinless chicken thighs")
+            )
+        );
+        assert_eq!(
+            read("2 , boneless, skinless chicken breasts, trimmed (8-ounce)"),
+            parts(Some("2"), None, Some("boneless, skinless chicken breasts"))
+        );
+        // The cook's aside past the comma, where the measure named no food
+        // before it, is not a Food (#160 made this possible).
+        assert_eq!(
+            read("4 cloves, minced"),
+            parts(Some("4"), Some("cloves"), None)
+        );
+        assert_eq!(
+            read("2 tablespoons, divided"),
+            parts(Some("2"), Some("tablespoons"), None)
+        );
+        assert_eq!(read("1 lb boneless"), parts(Some("1"), Some("lb"), None));
+        assert_eq!(
+            read("1 cup finely chopped"),
+            parts(Some("1"), Some("cup"), None)
+        );
+        assert_eq!(
+            read("500 g, désossées"),
+            parts(Some("500"), Some("g"), None)
+        );
+        assert_eq!(
+            read("2 gousses, hachées"),
+            parts(Some("2"), Some("gousses"), None)
+        );
+        assert_eq!(
+            read("2 dientes, picados"),
+            parts(Some("2"), Some("dientes"), None)
+        );
+        // A describing word before the cook's aside is not the start of a
+        // name: the run carries on past a comma only into another one.
+        assert_eq!(
+            read("1 lb boneless, cut into 1-inch pieces"),
+            parts(Some("1"), Some("lb"), None)
+        );
+        assert_eq!(
+            read("1 lb boneless, skinless, cut into pieces"),
+            parts(Some("1"), Some("lb"), None)
+        );
+        assert_eq!(
+            read("2 cups cooked, rice"),
+            parts(Some("2"), Some("cups"), None)
+        );
+        // Neither a coffee nor a sauce is a describing word.
+        assert_eq!(read("1 cortado"), parts(Some("1"), None, Some("cortado")));
+        assert_eq!(
+            read("2 tbsp picada"),
+            parts(Some("2"), Some("tbsp"), Some("picada"))
+        );
+        // A describing word beside a food is still part of its name.
+        assert_eq!(
+            read("2 cloves minced garlic"),
+            parts(Some("2"), Some("cloves"), Some("minced garlic"))
+        );
+        assert_eq!(
+            read("1 lb boneless chicken thighs"),
+            parts(Some("1"), Some("lb"), Some("boneless chicken thighs"))
+        );
     }
 
     #[test]
