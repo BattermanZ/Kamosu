@@ -369,10 +369,12 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
                     .push(format!("{title}: {:?} read as {target:?}", line.written));
             }
             // The same, for a Food that is only a describing word, `boneless`,
-            // or that kept `to taste` in its name, in any Language (#163).
+            // or that kept `to taste` in its name, in any Language (#163), or
+            // a size or how warm it is, `tomates moyennes` (#185).
             if let Some(target) = reading["target"].as_str()
                 && (kamosu::reading::is_only_describing(target)
-                    || kamosu::reading::keeps_to_taste(target))
+                    || kamosu::reading::keeps_to_taste(target)
+                    || kamosu::reading::keeps_warmth_or_size(target))
             {
                 descriptions_named_as_foods
                     .push(format!("{title}: {:?} read as {target:?}", line.written));

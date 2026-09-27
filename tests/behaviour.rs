@@ -19248,7 +19248,7 @@ async fn choosing_a_recipe_buys_the_ingredients_of_the_recipes_inside_it() {
         "the dough's half and the pizza's own, merged"
     );
     assert_eq!(
-        amounts(row(list, "cold water")),
+        amounts(row(list, "water")),
         vec!["about 200 ml"],
         "the dough's water, halved and then rounded for the jug in the drawer"
     );
@@ -19373,7 +19373,7 @@ async fn the_factor_compounds_through_nested_components_and_the_shopping_yield_s
         "the Shopping Yield is the outer scale over the compounded factor"
     );
     assert_eq!(
-        amounts(row(doubled, "cold water")),
+        amounts(row(doubled, "water")),
         vec!["about 390 ml"],
         "and it reaches the first level down just the same"
     );
@@ -19414,7 +19414,7 @@ async fn a_component_kamosu_cannot_measure_puts_its_foods_on_the_list_unmeasured
 
     // The dough's water is on the list and carries no number.
     assert_eq!(
-        amounts(row(list, "cold water")),
+        amounts(row(list, "water")),
         vec!["some"],
         "on the list, and honest about not being a quantity"
     );
@@ -19449,7 +19449,7 @@ async fn a_component_kamosu_cannot_measure_puts_its_foods_on_the_list_unmeasured
         .to_string(),
     );
     assert_eq!(
-        amounts(row(&doubled["result"], "cold water")),
+        amounts(row(&doubled["result"], "water")),
         vec!["some"],
         "twice nothing is still nothing"
     );
@@ -19642,7 +19642,7 @@ async fn a_component_whose_recipe_is_missing_keeps_its_written_line_on_the_list(
     // A row Kamosu did read has nothing to say about itself.
     assert_eq!(row(list, "tipo 00 flour")["said"], Value::Null);
     assert!(
-        !names.iter().any(|name| name == "cold water"),
+        !names.iter().any(|name| name == "water"),
         "and nothing of the recipe nobody holds is invented: {names:?}"
     );
     // The pizza's own flour is untouched by any of it.
@@ -19703,7 +19703,7 @@ async fn a_loop_of_components_stops_at_the_first_repeat_and_says_nothing_alarmin
 
     // It went round once and stopped: the dough's own lines are there, and the
     // pizza's did not arrive a second time.
-    assert_eq!(amounts(row(list, "cold water")), vec!["about 200 ml"]);
+    assert_eq!(amounts(row(list, "water")), vec!["about 200 ml"]);
     assert_eq!(
         amounts(row(list, "tipo 00 flour")),
         vec!["about 400 g"],

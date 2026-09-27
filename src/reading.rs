@@ -223,10 +223,93 @@ const OPEN_UNITS: &[&str] = &[
 /// Words that stand exactly where a Unit stands and are not one: they describe
 /// the thing rather than measure it. Dropped so `1 large onion` and `2 onions`
 /// point at one Food rather than two.
+///
+/// Every form a French or Spanish size takes is listed, plurals included,
+/// because the fold in [`folded`] strips accents but not endings: without
+/// `petits`, `2 petits poireaux` named a Food *petits poireaux* (#185).
 const SIZES: &[&str] = &[
-    "large", "small", "medium", "big", "whole", "extra", "jumbo", "gros", "grosse", "petit",
-    "petite", "moyen", "moyenne", "grand", "grande", "pequeno", "pequena", "mediano", "mediana",
-    "grandes", "entier", "entiere",
+    "large", "small", "medium", "big", "whole", "extra", "jumbo", "gros", "grosse", "grosses",
+    "petit", "petite", "petits", "petites", "moyen", "moyenne", "moyens", "moyennes", "grand",
+    "grande", "grands", "grandes", "pequeno", "pequena", "pequenos", "pequenas", "mediano",
+    "mediana", "medianos", "medianas", "entier", "entiere", "entiers", "entieres",
+];
+
+/// The [`SIZES`] French and Spanish write after the food rather than before
+/// it, `2 tomates moyennes` and `1 cebolla grande`, dropped from the end of
+/// the Food's name as the others are from its start (#185).
+///
+/// **`entier` is not one of them.** After the food it says *whole* the way a
+/// product does: `farine de blé entier` is whole-wheat flour, and `lait
+/// entier` whole milk, neither the same thing to buy as plain flour or milk.
+/// Nor is `gros`, for the same reason: `sel gros` is coarse salt.
+/// English `whole` before the food is still dropped as a size, as it was
+/// before #185, so `whole milk` reads as *milk*; that was left alone there.
+///
+/// Kept as its own list rather than derived from [`SIZES`]: a new French or
+/// Spanish size goes into both.
+const SIZES_AFTER: &[&str] = &[
+    "petit", "petite", "petits", "petites", "moyen", "moyenne", "moyens", "moyennes", "grand",
+    "grande", "grands", "grandes", "pequeno", "pequena", "pequenos", "pequenas", "mediano",
+    "mediana", "medianos", "medianas",
+];
+
+/// The ways a recipe says how warm a food should be when it goes in, each
+/// written as its words. How warm the butter is says nothing about which
+/// butter to buy, so a phrase at either end of a Food's name is dropped:
+/// `100 g de beurre froid` is a Reading of *beurre* (#185).
+///
+/// **`hot` and `glacé` are left out on purpose.** Hot sauce and a hot dog are
+/// things to buy, and the fold in [`folded`] makes `glacé` one word with the
+/// `glace` of *sucre glace*, which is icing sugar. `chaud` is in, although
+/// *chocolat chaud* is a drink: the question Aurélien answered on #185 named
+/// `chaud` among the words to drop, and an Ingredient Line far more often
+/// means warm milk than hot chocolate.
+///
+/// A word that only says *very* goes with the temperature it strengthens, so
+/// `eau très chaude` is *eau* and not *eau très* ([`VERY`]).
+///
+/// Only temperature, and never strength: `fond de volaille corsé` and
+/// `moutarde forte` keep their names, because a strong mustard is not the
+/// mustard beside it on the shelf.
+const WARMTH: &[&[&str]] = &[
+    // English
+    &["cold"],
+    &["warm"],
+    &["lukewarm"],
+    &["room-temperature"],
+    &["room", "temperature"],
+    &["at", "room", "temperature"],
+    // French
+    &["froid"],
+    &["froide"],
+    &["froids"],
+    &["froides"],
+    &["chaud"],
+    &["chaude"],
+    &["chauds"],
+    &["chaudes"],
+    &["tiède"],
+    &["tièdes"],
+    &["température", "ambiante"],
+    &["à", "température", "ambiante"],
+    &["à", "la", "température", "ambiante"],
+    // Spanish
+    &["frío"],
+    &["fría"],
+    &["fríos"],
+    &["frías"],
+    &["caliente"],
+    &["calientes"],
+    &["tibio"],
+    &["tibia"],
+    &["tibios"],
+    &["tibias"],
+    &["templado"],
+    &["templada"],
+    &["templados"],
+    &["templadas"],
+    &["temperatura", "ambiente"],
+    &["a", "temperatura", "ambiente"],
 ];
 
 /// The article or preposition gluing an amount to what it is an amount of.
@@ -561,7 +644,7 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
             restating = true;
         }
     }
-    let food = strip_glue(named);
+    let food = without_warmth_or_size(strip_glue(named));
     let measured = reading.amount.is_some() || reading.unit.is_some();
     reading.target = if offers_a_choice(named) {
         None
@@ -594,7 +677,7 @@ fn food_past_the_comma(describing: &[&str], later: &[String]) -> Option<String> 
         if offers_a_choice(&words) {
             return None;
         }
-        let words = strip_glue(without_to_taste(&words));
+        let words = without_warmth_or_size(strip_glue(without_to_taste(&words)));
         let carries_on = words.first().is_some_and(|word| listed(DESCRIBING, word));
         if words.is_empty() || !(name.is_empty() || carries_on) {
             return None;
@@ -640,7 +723,12 @@ enum End {
 
 /// How many words at one end are a [`TO_TASTE`] phrase, the longest first.
 fn to_taste_at(words: &[&str], end: End) -> usize {
-    TO_TASTE
+    phrase_at(TO_TASTE, words, end)
+}
+
+/// How many words at one end are one of `phrases`, the longest first.
+fn phrase_at(phrases: &[&[&str]], words: &[&str], end: End) -> usize {
+    phrases
         .iter()
         .filter(|phrase| {
             let Some(rest) = words.len().checked_sub(phrase.len()) else {
@@ -670,6 +758,82 @@ fn same_words(expected: &[&str], words: &[&str]) -> bool {
 fn without_to_taste<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
     words = &words[to_taste_at(words, End::Start)..];
     &words[..words.len() - to_taste_at(words, End::Finish)]
+}
+
+/// A Food's name without how warm it is ([`WARMTH`], at either end) or a size
+/// ([`SIZES`] before it, [`SIZES_AFTER`] after), taken off one at a time until
+/// neither end holds one: `oeufs moyens à température ambiante` is *oeufs*,
+/// and `cold large eggs` is *eggs*.
+fn without_warmth_or_size<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
+    loop {
+        words = strip_glue(words);
+        let from_start = if opens_a_fixed_name(words) {
+            0
+        } else {
+            warmth_at(words, End::Start)
+        };
+        let from_end = match words.last() {
+            Some(word) if listed(SIZES_AFTER, word) => 1,
+            _ => warmth_at(words, End::Finish),
+        };
+        if from_start + from_end == 0 {
+            return words;
+        }
+        words = &words[from_start..];
+        words = &words[..words.len().saturating_sub(from_end)];
+    }
+}
+
+/// **Whether a Food still carries a size or how warm it is** at either end of
+/// its name: the fault #185 fixed, asked by the corpus test of every Reading
+/// beside [`is_only_describing`].
+pub fn keeps_warmth_or_size(target: &str) -> bool {
+    let words: Vec<&str> = target.split_whitespace().collect();
+    without_warmth_or_size(&words).len() < words.len()
+}
+
+/// Names that open with a [`SIZES`] or [`WARMTH`] word which is no size or
+/// temperature there: *petits pois* are green peas, not small *pois*, and
+/// *cold cuts* are not cold *cuts* (#185). Neither end-stripping touches the
+/// opening word of one.
+const FIXED_NAMES: &[&[&str]] = &[
+    &["petit", "pois"],
+    &["petits", "pois"],
+    &["petit", "suisse"],
+    &["petits", "suisses"],
+    &["cold", "cuts"],
+    &["cold", "brew"],
+];
+
+/// The words that strengthen a [`WARMTH`] word and mean nothing without one.
+const VERY: &[&str] = &["very", "très", "bien", "muy"];
+
+/// How many words at one end are a [`WARMTH`] phrase, with the [`VERY`] word
+/// in front of it where there is one.
+fn warmth_at(words: &[&str], end: End) -> usize {
+    match end {
+        End::Start => {
+            let very = usize::from(words.first().is_some_and(|word| listed(VERY, word)));
+            match phrase_at(WARMTH, &words[very..], End::Start) {
+                0 => 0,
+                warmth => very + warmth,
+            }
+        }
+        End::Finish => match phrase_at(WARMTH, words, End::Finish) {
+            0 => 0,
+            warmth => {
+                let very = words
+                    .len()
+                    .checked_sub(warmth + 1)
+                    .is_some_and(|at| listed(VERY, words[at]));
+                warmth + usize::from(very)
+            }
+        },
+    }
+}
+
+fn opens_a_fixed_name(words: &[&str]) -> bool {
+    phrase_at(FIXED_NAMES, words, End::Start) > 0
 }
 
 /// **Whether a Food still carries a [`TO_TASTE`] phrase** anywhere in its
@@ -788,7 +952,7 @@ fn offers_a_choice(words: &[&str]) -> bool {
 /// sides of the Unit so `a pinch of salt` reads exactly as `pinch of salt`
 /// does, which is the whole point: an article is not a measurement.
 fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
-    while words.first().is_some_and(|word| is_glue(word)) {
+    while !opens_a_fixed_name(words) && words.first().is_some_and(|word| is_glue(word)) {
         words = &words[1..];
     }
     words
@@ -1079,7 +1243,7 @@ fn food_after(rest: &str) -> Option<String> {
         .iter()
         .position(|word| listed(FOOD_ENDS, word))
         .map_or(words.len(), |at| from + at);
-    let name = words[from..until]
+    let name = without_warmth_or_size(&words[from..until])
         .join(" ")
         .replace("' ", "'")
         .replace("\u{2019} ", "\u{2019}");
@@ -1143,6 +1307,107 @@ mod tests {
             read("cloves, roughly chopped garlic"),
             parts(None, Some("cloves"), Some("roughly chopped garlic"))
         );
+    }
+
+    #[test]
+    fn a_size_in_the_plural_is_dropped_like_one_in_the_singular() {
+        // Two of the lines #185 was filed from, beside the singular that
+        // already read as `oignon`.
+        assert_eq!(
+            read("2 petits poireaux, le blanc et le vert clair seulement, émincés finement"),
+            parts(Some("2"), None, Some("poireaux"))
+        );
+        assert_eq!(
+            read("5 petites échalotes, émincées finement"),
+            parts(Some("5"), None, Some("échalotes"))
+        );
+        assert_eq!(
+            read("1 petit oignon"),
+            parts(Some("1"), None, Some("oignon"))
+        );
+        assert_eq!(read("3 grosses carottes"), read("3 carottes"));
+        assert_eq!(read("2 pequeños tomates"), read("2 tomates"));
+        // Green peas are *petits pois*, one name, not small *pois*.
+        assert_eq!(
+            read("200 g de petits pois"),
+            parts(Some("200"), Some("g"), Some("petits pois"))
+        );
+    }
+
+    #[test]
+    fn a_size_written_after_the_food_is_dropped_too() {
+        // French and Spanish put the size after the noun. From the dev
+        // library, where it named a Food *tomates moyennes*.
+        assert_eq!(read("2 tomates moyennes"), read("2 tomates"));
+        assert_eq!(read("1 oignon moyen"), read("1 oignon"));
+        // Coarse salt is a salt of its own, so `gros` after it stays.
+        assert_eq!(
+            read("1 c. à soupe de sel gros"),
+            parts(Some("1"), Some("c. à soupe"), Some("sel gros"))
+        );
+        assert_eq!(
+            read("1 cebolla grande"),
+            parts(Some("1"), None, Some("cebolla"))
+        );
+        // *Whole* is not a size there: whole-wheat flour is a flour of its own.
+        assert_eq!(
+            read("500 g de farine de blé entier"),
+            parts(Some("500"), Some("g"), Some("farine de blé entier"))
+        );
+    }
+
+    #[test]
+    fn how_warm_a_food_is_is_no_part_of_its_name() {
+        // The line #185 was filed from, and Aurélien's choice on it: cold
+        // butter is bought as butter.
+        assert_eq!(
+            read("100 g de beurre froid (7 c. à soupe)"),
+            parts(Some("100"), Some("g"), Some("beurre"))
+        );
+        assert_eq!(read("1 tasse d'eau tiède"), read("1 tasse d'eau"));
+        assert_eq!(read("250 ml de lait chaud"), read("250 ml de lait"));
+        assert_eq!(read("1 taza de agua tibia"), read("1 taza de agua"));
+        assert_eq!(read("1/2 cup cold butter"), read("1/2 cup butter"));
+        assert_eq!(read("1 cup warm water"), read("1 cup water"));
+        assert_eq!(read("1 cup lukewarm milk"), read("1 cup milk"));
+        assert_eq!(read("2 oeufs à température ambiante"), read("2 oeufs"));
+        assert_eq!(read("1 cup room temperature butter"), read("1 cup butter"));
+        assert_eq!(read("1 cup room-temperature butter"), read("1 cup butter"));
+        // *Hot* is left alone, because hot sauce is a thing to buy.
+        assert_eq!(
+            read("2 tbsp hot sauce"),
+            parts(Some("2"), Some("tbsp"), Some("hot sauce"))
+        );
+        // So is a word for strength: *moutarde forte* is not *moutarde*, and
+        // the stock stays as the cook named it.
+        assert_eq!(
+            read("300 g de fond de volaille corsé (ou 300 g d'eau)"),
+            parts(Some("300"), Some("g"), Some("fond de volaille corsé"))
+        );
+        // A size behind the temperature goes too.
+        assert_eq!(read("2 cold large eggs"), read("2 eggs"));
+        assert_eq!(read("2 room temperature large eggs"), read("2 eggs"));
+        // Where *cold* is the name's own word it stays.
+        assert_eq!(
+            read("200 g cold cuts"),
+            parts(Some("200"), Some("g"), Some("cold cuts"))
+        );
+        assert_eq!(
+            read("1 cup cold brew coffee"),
+            parts(Some("1"), Some("cup"), Some("cold brew coffee"))
+        );
+        // *Very* goes with the temperature it strengthens.
+        assert_eq!(read("500 ml d'eau très chaude"), read("500 ml d'eau"));
+        assert_eq!(read("1 taza de agua muy fría"), read("1 taza de agua"));
+        assert_eq!(read("1/2 cup very cold butter"), read("1/2 cup butter"));
+        // A line that is only a temperature names no Food.
+        assert_eq!(read("1 cup warm"), parts(Some("1"), Some("cup"), None));
+    }
+
+    #[test]
+    fn a_step_amount_names_the_food_without_its_temperature() {
+        let amounts = amounts_in_step("Ajouter 100 g de beurre froid en dés.");
+        assert_eq!(amounts[0].food.as_deref(), Some("beurre"));
     }
 
     #[test]
