@@ -272,7 +272,7 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// cannot place gets, and the line goes on working exactly as written.
 pub fn read_line(line: &str) -> Option<Reading> {
     let line = without_brackets(line);
-    let mut clauses = line.split(',');
+    let mut clauses = split_clauses(&line).into_iter();
     let head = split_elisions(clauses.next().unwrap_or_default());
     let tokens: Vec<&str> = head.split_whitespace().collect();
     if tokens.is_empty() {
@@ -368,6 +368,29 @@ fn strip_glue<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
         words = &words[1..];
     }
     words
+}
+
+/// The line cut at each comma that ends a clause. **A comma with a digit on
+/// both sides ends nothing**: it is the decimal comma French and Spanish write
+/// `1,2` with, and [`units::parse_amount`] reads it as part of the amount
+/// (#180). Every other comma is a clause's end, so `salt, 2 pinches` still
+/// cuts. An English thousands separator, `1,500 g`, reads as 1.5 by the same
+/// rule; the text alone cannot tell the two apart.
+fn split_clauses(line: &str) -> Vec<&str> {
+    let digit = |at: Option<usize>| {
+        at.and_then(|at| line.as_bytes().get(at))
+            .is_some_and(u8::is_ascii_digit)
+    };
+    let mut pieces = Vec::new();
+    let mut from = 0;
+    for (at, _) in line.match_indices(',') {
+        if !(digit(at.checked_sub(1)) && digit(Some(at + 1))) {
+            pieces.push(&line[from..at]);
+            from = at + 1;
+        }
+    }
+    pieces.push(&line[from..]);
+    pieces
 }
 
 /// Anything in brackets is what the cook said *about* this line — what it
@@ -693,6 +716,35 @@ mod tests {
     }
 
     #[test]
+    fn a_decimal_comma_is_part_of_the_amount() {
+        // Beef short ribs, translated into French (#180).
+        assert_eq!(
+            read("1,2 kg de viande"),
+            parts(Some("1,2"), Some("kg"), Some("viande"))
+        );
+        assert_eq!(
+            read("2,5 dl de lait"),
+            parts(Some("2,5"), Some("dl"), Some("lait"))
+        );
+        assert_eq!(
+            read("1.2 kg meat"),
+            parts(Some("1.2"), Some("kg"), Some("meat"))
+        );
+        // A decimal comma and a clause comma on one line.
+        assert_eq!(
+            read("0,5 l de lait, tiède"),
+            parts(Some("0,5"), Some("l"), Some("lait"))
+        );
+        // Any comma not held between two digits still ends the clause.
+        assert_eq!(
+            read("1 onion, chopped"),
+            parts(Some("1"), None, Some("onion"))
+        );
+        assert_eq!(read("salt, 2 pinches"), parts(None, None, Some("salt")));
+        assert_eq!(read("salt,2 pinches"), parts(None, None, Some("salt")));
+    }
+
+    #[test]
     fn a_stock_cube_or_a_bundle_is_counted_not_named() {
         // Both Beef Bourguignons, doubled word and all (#161).
         assert_eq!(
@@ -820,6 +872,15 @@ mod tests {
                 "1½ cups",
                 Some("homemade or store-bought marinara sauce".into())
             )]
+        );
+        // A Step's decimal comma stays inside its word, and one further on
+        // only ends the Food (#180).
+        assert_eq!(
+            written("Ajoutez 1,2 kg de viande, 1,5 dl de lait."),
+            vec![
+                ("1,2 kg", Some("viande".into())),
+                ("1,5 dl", Some("lait".into()))
+            ]
         );
     }
 
