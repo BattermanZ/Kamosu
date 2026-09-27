@@ -750,6 +750,7 @@
   "settings_meaning_turn_off": "La désactiver",
   "settings_measures": "Mesures",
   "settings_name_held_off": "Quelqu'un qui connaît votre nom peut ralentir votre connexion : chaque mauvais mot de passe fait attendre l'essai suivant, jusqu'à 30 secondes. Beaucoup d'essais sous des noms inventés peuvent ralentir tout le monde. Les appareils déjà connectés ne sont pas touchés, et un Opérateur peut vous envoyer un lien de récupération.",
+  "settings_first_person_taken": "Avant la configuration, une page web ouverte sur votre réseau peut configurer Kamosu elle-même. Si vous voyez « Bon retour » au lieu de « Configurer Kamosu », videz /data et recommencez.",
   "settings_operator_boundary": "La frontière de l’opérateur est une courtoisie : qui détient le disque détient tout.",
   "settings_phone": "Ce téléphone",
   "settings_reading_language": "Recettes en",

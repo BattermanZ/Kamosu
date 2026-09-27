@@ -750,6 +750,7 @@
   "settings_meaning_turn_off": "Turn it off",
   "settings_measures": "Measures",
   "settings_name_held_off": "Someone who knows your name can slow your sign-in: each wrong password makes the next try wait, up to 30 seconds. Many guesses at made-up names can slow everyone. Signed-in devices aren't affected, and an Operator can send you a recovery link.",
+  "settings_first_person_taken": "Before setup, a web page opened on your network can set Kamosu up itself. If you see \"Welcome back\" instead of \"Set up Kamosu\", empty /data and start again.",
   "settings_operator_boundary": "The Operator boundary is a courtesy: whoever holds the disk holds everything.",
   "settings_phone": "This phone",
   "settings_reading_language": "Recipes in",

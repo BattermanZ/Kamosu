@@ -750,6 +750,7 @@
   "settings_meaning_turn_off": "Desactivarla",
   "settings_measures": "Medidas",
   "settings_name_held_off": "Alguien que conozca tu nombre puede frenar tu inicio de sesión: cada contraseña incorrecta hace esperar el siguiente intento, hasta 30 segundos. Muchos intentos con nombres inventados pueden frenar a todos. Los dispositivos con la sesión ya abierta no se ven afectados, y un Operador puede enviarte un enlace de recuperación.",
+  "settings_first_person_taken": "Antes de configurarlo, una página web abierta en tu red puede configurar Kamosu por su cuenta. Si ves «Bienvenido de nuevo» en lugar de «Configura Kamosu», vacía /data y empieza de nuevo.",
   "settings_operator_boundary": "El límite del Operador es una cortesía: quien tiene el disco lo tiene todo.",
   "settings_phone": "Este teléfono",
   "settings_reading_language": "Recetas en",

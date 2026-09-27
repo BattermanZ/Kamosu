@@ -1519,7 +1519,7 @@
 		</Section>
 	{/if}
 
-	<!-- The honest list ADR 0034 ships, the same seven items README.md carries
+	<!-- The honest list ADR 0034 ships, the same items README.md carries
 	     and worded shorter, because this one is read standing up. It is part of
 	     the product rather than an internal note: the people who need it are
 	     the ones deciding whether to run this and whether to mint an agent a
@@ -1534,6 +1534,7 @@
 			<li>{m.settings_stranger_waits()}</li>
 			<li>{m.settings_stolen_phone()}</li>
 			<li>{m.settings_name_held_off()}</li>
+			<li>{m.settings_first_person_taken()}</li>
 			<li>{m.settings_agent_reads()}</li>
 			<li>{m.settings_unaudited()}</li>
 		</ul>

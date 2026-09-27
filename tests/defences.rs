@@ -1053,7 +1053,7 @@ async fn a_share_links_card_is_drawn_once_and_kept() {
 
 // --- The list is part of the product (ADR 0034) ------------------------------
 
-/// The seven things Kamosu does not defend, shipped where the people who need
+/// The things Kamosu does not defend, shipped where the people who need
 /// them will see them.
 ///
 /// ADR 0034 says the list must be maintained, and an entry that stops being
@@ -1100,6 +1100,11 @@ fn the_honest_list_is_shipped_whole_in_both_places() {
             "a name held off",
             "keep you from signing in",
             "settings_name_held_off",
+        ),
+        (
+            "the first setup",
+            "whoever sets Kamosu up",
+            "settings_first_person_taken",
         ),
         (
             "an agent",

@@ -92,6 +92,18 @@ at once, for as long as the crowd keeps coming, because only two passwords are
 checked at a time. Devices already signed in are untouched, and an Operator can
 send you a recovery link.
 
+**A web page opened on your network before you set up a new instance can do the
+setup itself.** Until the first Person exists, whoever sets Kamosu up becomes
+its Operator. A trick called DNS rebinding lets a hostile page, open in any
+browser on your network while the instance waits to be set up, send that setup
+itself. Kamosu does not check where it came from. The page cannot sign in with
+what it made, because sign-in cookies only travel over HTTPS and a page tricked
+this way runs over plain HTTP. But it chose the password. You find out at once:
+where you expected "Set up Kamosu", Kamosu greets you with "Welcome back". The
+instance holds nothing yet, so stop it, empty `/data`, and start again. Never
+keep an instance you did not set up yourself, because the day it is reachable
+over HTTPS, whoever did can sign in.
+
 **An agent does what it is told, including by text it reads.** This one is
 Kamosu's own, and it comes straight from making an agent a first-class user. An
 agent holding your Access Key reads recipe pages and recipe files that other
