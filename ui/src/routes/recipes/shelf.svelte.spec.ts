@@ -12,7 +12,7 @@
  * this screen and nowhere else.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
 import { standIn } from '$lib/api/stand-in';
@@ -25,6 +25,7 @@ import {
 	searchesSent as searches,
 	serverAnsweredSearchesOtherwise,
 } from '../../testing/recipes';
+import { went } from '../../testing/navigation';
 
 const kitchen = kitchenAnswer('k_home', {
 	name: 'Maison',
@@ -114,27 +115,7 @@ describe('the recipes screen', () => {
 		expect(screen.getByText('2 recipes')).toBeInTheDocument();
 	});
 
-	it('keeps both ways in above the shelf, not only at the dead end below it', async () => {
-		renderScreen(Recipes, {
-			list_tags: { tags: [] },
-			list_kitchens: { kitchens: [kitchen] },
-			meaning_search_status: meaningOff(),
-			search_recipes: {
-				query: null,
-				closest: false,
-				recipes: [entry({ title: 'Katsu curry' })],
-			},
-		});
-
-		// A person holding a recipe file a friend has just sent has no failed
-		// search to arrive through, so the row is there with the shelf (#93).
-		expect(
-			await screen.findByRole('button', { name: 'Add a recipe from a recipe file' }),
-		).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Add a recipe from a link' })).toBeInTheDocument();
-	});
-
-	it('does not say the same thing twice when nothing was found', async () => {
+	it('keeps the + beside the search box when nothing was found, and says each offer once', async () => {
 		renderScreen(Recipes, {
 			list_tags: { tags: [] },
 			list_kitchens: { kitchens: [kitchen] },
@@ -143,13 +124,14 @@ describe('the recipes screen', () => {
 		});
 
 		await screen.findByText(/Nothing matched .osso buco./);
-		// Nothing-found offers both acts itself, so the quiet row above the shelf
-		// stands down: two ways to do one thing on one screen is worse than one
-		// in the wrong place.
-		expect(
-			screen.queryByRole('button', { name: 'Add a recipe from a link' }),
-		).not.toBeInTheDocument();
+		// The + is small and always in the same place, so it stays; its list is
+		// closed, so the three big offers below are the only ones showing (#174).
+		expect(screen.getByRole('button', { name: 'Add a recipe' })).toHaveAttribute(
+			'aria-expanded',
+			'false',
+		);
 		expect(screen.getAllByRole('button', { name: /Import from a link/ })).toHaveLength(1);
+		expect(screen.getAllByRole('button', { name: 'Bring in a Kamosu zip file' })).toHaveLength(1);
 	});
 
 	it('explains why nothing matched, and offers the two things you were about to do', async () => {
@@ -930,5 +912,230 @@ describe('the recipes screen', () => {
 
 		expect(await screen.findByText('Katsu Curry')).toBeInTheDocument();
 		expect(searches(kamosu).at(-1)).toMatchObject({ query: 'soup' });
+	});
+});
+
+describe('the + for every new recipe (#174)', () => {
+	afterEach(() => {
+		Reflect.deleteProperty(navigator, 'onLine');
+	});
+
+	/** A full shelf that already holds a chicken curry, which is the whole case. */
+	const fullShelf = {
+		list_tags: { tags: [] },
+		list_kitchens: { kitchens: [kitchen] },
+		meaning_search_status: meaningOff(),
+		search_recipes: {
+			query: null,
+			closest: false,
+			recipes: [
+				entry({ title: 'Chicken katsu curry' }),
+				entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' }),
+			],
+		},
+	};
+
+	const made = {
+		branch_id: 'b_new',
+		lineage_id: 'l_new',
+		cookbook: cookbookLabel(),
+		name: null,
+		writes: true,
+		mine: true,
+		arrived: false,
+		hand_id: 'h_1',
+		language: 'en',
+		origin_address: null,
+		head_version_id: 'v_new',
+		versions: [],
+		translation: null,
+		tags: [],
+		related_recipes: [],
+		cooked: { count: 0, last_cooked_at: null, ratings: [] },
+	};
+
+	async function openThePlus() {
+		const plus = await screen.findByRole('button', { name: 'Add a recipe' });
+		expect(plus).toHaveAttribute('aria-expanded', 'false');
+		await fireEvent.click(plus);
+		expect(plus).toHaveAttribute('aria-expanded', 'true');
+		return plus;
+	}
+
+	it('is there with a full library and no search, and offers the three sources', async () => {
+		renderScreen(Recipes, fullShelf);
+		await screen.findByText('Chicken katsu curry');
+
+		await openThePlus();
+		expect(screen.getByRole('button', { name: /From a link/ })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /From a Kamosu zip file/ })).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /Write it yourself/ })).toBeInTheDocument();
+		// The quiet row #93 put above the shelf is gone, replaced by this.
+		expect(screen.queryByText('Add a recipe from a link')).not.toBeInTheDocument();
+	});
+
+	it('writes a recipe whose title shares words with one already here, and opens it', async () => {
+		const { kamosu } = renderScreen(Recipes, { ...fullShelf, create_recipe: made });
+
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /Write it yourself/ }));
+		// The list closes and the title is asked for in place (ADR 0027).
+		expect(screen.queryByRole('button', { name: /From a link/ })).not.toBeInTheDocument();
+		const field = screen.getByLabelText('What is it called?');
+		await fireEvent.input(field, { target: { value: 'Chicken curry' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		// A search for these words finds the katsu curry and never offers to add
+		// one. The + asks for no search, and a title is a whole recipe (#6), made
+		// in the writer's own Cookbook with nothing asked (ADR 0041).
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_new'));
+		const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
+		expect(asked?.input).toEqual({ title: 'Chicken curry' });
+	});
+
+	it('says why writing was refused, where the title was typed', async () => {
+		renderScreen(Recipes, {
+			...fullShelf,
+			create_recipe: { refuse: 'bad_request', message: 'a recipe needs a title' },
+		});
+
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /Write it yourself/ }));
+		const field = screen.getByLabelText('What is it called?');
+		await fireEvent.input(field, { target: { value: 'Chicken curry' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('a recipe needs a title');
+		expect(went).not.toHaveBeenCalled();
+	});
+
+	it('reads a link in place, waiting on the Job it is', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			...fullShelf,
+			import_web_link: { job_id: 'j_1' },
+			get_job: {
+				id: 'j_1',
+				operation: 'import_web_link',
+				status: 'completed',
+				progress: {},
+				error: null,
+				errorCode: null,
+				created_at: '2026-09-27T10:00:00.000Z',
+				updated_at: '2026-09-27T10:00:01.000Z',
+				result: {
+					import_id: 'i_1',
+					cookbook_id: 'c_1',
+					source_kind: 'web',
+					arrived: [
+						{
+							branch_id: 'b_landed',
+							lineage_id: 'l_landed',
+							foreign_id: 'https://example.test/chicken-curry',
+							status: 'created',
+							title: 'Chicken curry',
+						},
+					],
+					offered: [],
+					unreadable: [],
+				},
+			},
+		});
+
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /From a link/ }));
+		const field = screen.getByLabelText(/web address/);
+		await fireEvent.input(field, { target: { value: 'https://example.test/chicken-curry' } });
+		await fireEvent.submit(field.closest('form')!);
+
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_landed'));
+		expect(kamosu.calls.find((call) => call.operation === 'import_web_link')?.input).toEqual({
+			url: 'https://example.test/chicken-curry',
+		});
+	});
+
+	it('opens the phone’s own picker for a Kamosu zip file, and brings the file in', async () => {
+		const upload = vi.fn(async () => 'u_staged');
+		const kamosu = standIn({
+			...fullShelf,
+			import_bundle: { job_id: 'j_9' },
+			get_job: {
+				id: 'j_9',
+				operation: 'import_bundle',
+				status: 'completed',
+				progress: { done: 1, total: 1 },
+				error: null,
+				errorCode: null,
+				created_at: '2026-09-27T10:00:00.000Z',
+				updated_at: '2026-09-27T10:00:02.000Z',
+				result: {
+					import_id: 'i_1',
+					kitchen_id: 'k_home',
+					source_kind: 'bundle',
+					arrived: [
+						{
+							foreign_id: 'b_theirs',
+							status: 'created',
+							lineage_id: 'l_soba',
+							branch_id: 'b_soba',
+							title: 'Soba with walnut miso',
+							subject: true,
+						},
+					],
+					offered: [],
+					unreadable: [],
+					left_out: [],
+					related_candidates: [],
+				},
+			},
+		});
+		render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
+		const picked = vi.spyOn(HTMLInputElement.prototype, 'click');
+
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /From a Kamosu zip file/ }));
+		// No field of its own: the tap is the picker (ADR 0027).
+		const field = screen.getByLabelText('Add a recipe from a Kamosu zip file');
+		expect(picked.mock.contexts).toContain(field);
+		picked.mockRestore();
+
+		await fireEvent.change(field, {
+			target: { files: [new File(['PK'], 'soba.zip', { type: 'application/zip' })] },
+		});
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_soba'));
+		expect(kamosu.calls.find((call) => call.operation === 'import_bundle')?.input).toEqual({
+			upload_id: 'u_staged',
+		});
+	});
+
+	it('closes its list on Escape, and when the + is tapped again', async () => {
+		renderScreen(Recipes, fullShelf);
+
+		const plus = await openThePlus();
+		await fireEvent.keyDown(window, { key: 'Escape' });
+		expect(plus).toHaveAttribute('aria-expanded', 'false');
+		expect(screen.queryByRole('button', { name: /From a link/ })).not.toBeInTheDocument();
+
+		await fireEvent.click(plus);
+		await fireEvent.click(plus);
+		expect(plus).toHaveAttribute('aria-expanded', 'false');
+	});
+
+	it('says offline that each source waits for the server', async () => {
+		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+		renderScreen(Recipes, fullShelf);
+
+		await openThePlus();
+		// None of the three is queued: an offline import queue would be a
+		// merge, and Kamosu never merges (#76, ADR 0013). The outbox keeps no
+		// new recipe either, so each row stays and says what it waits for.
+		expect(
+			screen.getByRole('button', { name: 'Importing from a link waits for the server' }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole('button', { name: 'Bringing a recipe in waits for the server' }),
+		).toBeDisabled();
+		expect(
+			screen.getByRole('button', { name: 'Writing a recipe waits for the server' }),
+		).toBeDisabled();
 	});
 });

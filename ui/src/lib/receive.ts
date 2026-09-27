@@ -2,7 +2,7 @@
  * Receiving a recipe file already staged on the server, and going where it
  * leads: the one ending two screens share (#93, #170).
  *
- * `BringIn` stages a file somebody chose; the page a Share Link's *Import this
+ * `$lib/adding` stages a file somebody chose; the page a Share Link's *Import this
  * recipe* opens has the file its preview staged. Both then ask `import_bundle`
  * with the upload's id and end the same way, which is `outcomeOf`'s three
  * answers: open the recipe with its line above it, open the Import Report,

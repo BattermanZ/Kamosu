@@ -1,5 +1,7 @@
 /**
- * Bringing a recipe file in, at the screen seam (#93).
+ * Bringing a recipe in at the dead ends `AddOrImport` draws, at the screen
+ * seam (#93, #174). The acts are `$lib/adding`'s, shared with the + beside the
+ * search box, so these hold for both.
  *
  * The file itself travels out of band (ADR 0001), so the test stands in for
  * the upload and checks what happens around it: the id it answers is what
@@ -14,7 +16,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import BringInTestHarness from './BringInTestHarness.svelte';
+import AddOrImportTestHarness from './AddOrImportTestHarness.svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import { OperationError } from '$lib/api/client';
 import { forgetArrival } from './arrival.svelte';
@@ -94,10 +96,10 @@ const running = (operation: string) => ({
 
 async function bringIn(answers: Answers, upload = vi.fn(async () => 'u_staged')) {
 	const kamosu = standIn(answers);
-	render(BringInTestHarness, {
+	render(AddOrImportTestHarness, {
 		props: { client: kamosu.client, upload, pathname: '/recipes/b_soba' },
 	});
-	await fireEvent.change(screen.getByLabelText('Add a recipe from a recipe file'), {
+	await fireEvent.change(screen.getByLabelText('Add a recipe from a Kamosu zip file'), {
 		target: { files: [file()] },
 	});
 	return { kamosu, upload };
@@ -192,14 +194,14 @@ describe('bringing a recipe file in', () => {
 				}),
 			),
 		);
-		render(BringInTestHarness, {
+		render(AddOrImportTestHarness, {
 			props: {
 				client: kamosu.client,
 				upload: vi.fn(async () => 'u_staged'),
 				pathname: '/recipes/b_soba',
 			},
 		});
-		await fireEvent.change(screen.getByLabelText('Add a recipe from a recipe file'), {
+		await fireEvent.change(screen.getByLabelText('Add a recipe from a Kamosu zip file'), {
 			target: { files: [file()] },
 		});
 
@@ -253,8 +255,8 @@ describe('bringing a recipe file in', () => {
 		const upload = vi.fn(async () => {
 			throw new OperationError('upload', 'bad_request', 'the file is larger than 2 GB');
 		});
-		render(BringInTestHarness, { props: { client: kamosu.client, upload } });
-		await fireEvent.change(screen.getByLabelText('Add a recipe from a recipe file'), {
+		render(AddOrImportTestHarness, { props: { client: kamosu.client, upload } });
+		await fireEvent.change(screen.getByLabelText('Add a recipe from a Kamosu zip file'), {
 			target: { files: [file()] },
 		});
 
@@ -299,7 +301,7 @@ describe('bringing a recipe file in', () => {
 	it('waits for the server offline rather than failing when pressed', async () => {
 		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
 		const kamosu = standIn({});
-		render(BringInTestHarness, {
+		render(AddOrImportTestHarness, {
 			props: { client: kamosu.client, upload: vi.fn(async () => 'u_staged') },
 		});
 
@@ -311,52 +313,8 @@ describe('bringing a recipe file in', () => {
 		});
 		expect(waiting).toBeDisabled();
 		expect(
-			screen.queryByRole('button', { name: 'Bring in a recipe file' }),
+			screen.queryByRole('button', { name: 'Bring in a Kamosu zip file' }),
 		).not.toBeInTheDocument();
-	});
-});
-
-describe('the quiet line above the shelf', () => {
-	it('says the one thing once offline, rather than two greyed acts', async () => {
-		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
-		const kamosu = standIn({});
-		render(BringInTestHarness, {
-			props: { client: kamosu.client, upload: vi.fn(async () => 'u_staged'), look: 'quiet' },
-		});
-
-		// One sentence, not "Add a recipe Importing from a link waits for the
-		// server · Bringing a recipe in waits for the server" (#93, seen live).
-		expect(
-			await screen.findByText('Bringing a recipe in waits for the server'),
-		).toBeInTheDocument();
-		expect(screen.queryByText('Add a recipe')).not.toBeInTheDocument();
-		expect(
-			screen.queryByRole('button', { name: 'Add a recipe from a link' }),
-		).not.toBeInTheDocument();
-		expect(
-			screen.queryByRole('button', { name: 'Add a recipe from a recipe file' }),
-		).not.toBeInTheDocument();
-	});
-
-	it('offers both ways in, each naming the whole act it performs', async () => {
-		const kamosu = standIn({});
-		render(BringInTestHarness, {
-			props: { client: kamosu.client, upload: vi.fn(async () => 'u_staged'), look: 'quiet' },
-		});
-
-		// The visible words are a fragment, so the accessible name carries the
-		// whole act with the fragment inside it (WCAG 2.5.3).
-		const link = screen.getByRole('button', { name: 'Add a recipe from a link' });
-		expect(link).toHaveTextContent('from a link');
-		expect(
-			screen.getByRole('button', { name: 'Add a recipe from a recipe file' }),
-		).toHaveTextContent('from a recipe file');
-
-		// And the link offer *does* the thing rather than navigating anywhere
-		// (ADR 0027): the address field appears in place.
-		await fireEvent.click(link);
-		expect(await screen.findByLabelText(/web address/)).toBeInTheDocument();
-		expect(went).not.toHaveBeenCalled();
 	});
 });
 
@@ -367,7 +325,7 @@ describe('importing from a link', () => {
 				import_web_link: { job_id: 'j_9' },
 				get_job: outlivingTheWait(running('import_web_link')),
 			});
-			render(BringInTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
+			render(AddOrImportTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
 			await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
 			const field = screen.getByLabelText(/web address/);
 			await fireEvent.input(field, { target: { value: 'https://example.test/osso-buco' } });
@@ -397,7 +355,7 @@ describe('importing from a link', () => {
 				result: report({ arrived: [passenger, subject] }),
 			},
 		});
-		render(BringInTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
+		render(AddOrImportTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
 		await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
 		const field = screen.getByLabelText(/web address/);
 		await fireEvent.input(field, { target: { value: 'https://recipes.example/s/4b8c6f26' } });
@@ -424,7 +382,7 @@ describe('importing from a link', () => {
 				result: null,
 			},
 		});
-		render(BringInTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
+		render(AddOrImportTestHarness, { props: { client: kamosu.client, upload: vi.fn() } });
 		await fireEvent.click(screen.getByRole('button', { name: /Import from a link/ }));
 		const field = screen.getByLabelText(/web address/);
 		await fireEvent.input(field, { target: { value: 'https://recipes.example/s/4b8c6f26' } });

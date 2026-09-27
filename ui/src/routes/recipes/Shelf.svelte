@@ -36,7 +36,7 @@
 	import Empty from '$lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
 	import AddOrImport from '$lib/AddOrImport.svelte';
-	import BringIn from '$lib/BringIn.svelte';
+	import Plus from './Plus.svelte';
 	import MeaningOffer from './MeaningOffer.svelte';
 
 	interface Props {
@@ -212,29 +212,33 @@
 	/**
 	 * What was searched for and not found, or `null` where this screen is
 	 * showing a shelf rather than *nothing found*. Carries the query rather
-	 * than a flag because the block below needs both facts at once — that
-	 * nothing matched, and what did not match — and because two things read it:
-	 * that block, and the row above the shelf that stands down while it is up
-	 * (#93).
+	 * than a flag because the block below needs both facts at once: that
+	 * nothing matched, and what did not match.
 	 */
 	const unmatched = $derived(query !== null && (entries.length === 0 || closest) ? query : null);
 
-	// The two things nothing-found offers live in `AddOrImport`, because Home
+	// The things nothing-found offers live in `AddOrImport`, because Home
 	// reaches the same dead end from the other direction (#64) and both must
 	// *do* the thing rather than point at a screen to do it on (ADR 0027).
 </script>
 
 <Screen title={m.recipes_title()} blurb={m.recipes_blurb()}>
 	<search>
-		<label class="block">
-			<span class="sr-only">{m.recipes_search()}</span>
-			<input
-				type="search"
-				bind:value={typed}
-				placeholder={m.recipes_search()}
-				class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
-			/>
-		</label>
+		<!--
+			The + for every new recipe sits at the end of the search box (#174),
+			there with the shelf, while a search runs, and when it finds nothing.
+		-->
+		<Plus>
+			<label class="block">
+				<span class="sr-only">{m.recipes_search()}</span>
+				<input
+					type="search"
+					bind:value={typed}
+					placeholder={m.recipes_search()}
+					class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
+				/>
+			</label>
+		</Plus>
 
 		<div class="mt-3 flex flex-wrap gap-2">
 			{#snippet chip(name: string, held: boolean, choose: () => void)}
@@ -315,21 +319,6 @@
 			</div>
 		{/if}
 	</search>
-
-	<!--
-		The two ways a recipe comes from outside, above the shelf and there every
-		day (#93). They used to appear only at the dead ends below — a search that
-		matched nothing, an empty Home — which is the right place to *offer* them
-		and the wrong place to *keep* them: a person holding a recipe file a friend
-		has just sent has no failed search to arrive through.
-
-		Not drawn in the nothing-found state, because `AddOrImport` already offers
-		both acts there, and saying the same thing twice on one screen is worse
-		than saying it once in the wrong place.
-	-->
-	{#if answer && unmatched === null}
-		<BringIn look="quiet" />
-	{/if}
 
 	{#if failed}
 		<p class="mt-6 text-body text-support" role="alert">{m.recipes_failed()}</p>

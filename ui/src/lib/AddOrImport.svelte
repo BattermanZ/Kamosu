@@ -8,9 +8,9 @@
 	suggest from (#64). Both are the same situation: you do not have it yet, and
 	adding it was the next thing you were going to do.
 
-	**Both offers *do* the thing rather than pointing at a screen to do it on.**
-	That is the whole point of them: an offer that only navigates has put a
-	screen between a person and the one act they came for — and on an empty
+	**Every offer *does* the thing rather than pointing at a screen to do it
+	on.** That is the whole point of them: an offer that only navigates has put
+	a screen between a person and the one act they came for — and on an empty
 	instance it can put them on a second empty screen, which is worse than
 	saying nothing.
 
@@ -19,20 +19,21 @@
 	into the search box — it passes it and the field disappears: asking for a
 	word somebody has just finished typing is asking them to type it twice.
 
-	**Bringing one in from outside lives in `BringIn`**, which this draws in its
-	`offer` look. It used to be here, and moved when the recipe file joined the
-	link beside it (#93): the same pair is now above the shelf every day as well
-	as at these two dead ends, and one act written twice is one act that will
-	eventually be two.
+	**The acts themselves live in `$lib/adding`**, shared with the + beside the
+	search box (#174), which offers the same three every day. This is only how
+	the dead ends draw them: full-width buttons, since an empty screen should
+	say what to do rather than point at a small button.
 	**Nobody is asked where it goes.** A recipe you write goes into your own
 	Cookbook, always (ADR 0041), so the tap writes it.
 -->
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
-	import { useKamosu } from '$lib/kamosu';
-	import { OperationError } from '$lib/api/client';
-	import BringIn from '$lib/BringIn.svelte';
+	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import { useAdding } from '$lib/adding/adding.svelte';
+	import AddressForm from '$lib/adding/AddressForm.svelte';
+	import TitleForm from '$lib/adding/TitleForm.svelte';
+	import FilePicker from '$lib/adding/FilePicker.svelte';
+	import Said from '$lib/adding/Said.svelte';
 
 	interface Props {
 		/**
@@ -44,84 +45,51 @@
 
 	let { title }: Props = $props();
 
-	const kamosu = useKamosu();
+	const adding = useAdding();
 
-	let typed = $state('');
-	let adding = $state(false);
-	/** Whether `BringIn` is working, so writing a recipe quiets while it is. */
-	let bringing = $state(false);
-	let failed = $state<string | undefined>(undefined);
-
-	/** What *Write a recipe* would write. The caller's title wins where there is one. */
-	const naming = $derived((title ?? typed).trim());
-
-	/** A recipe needs only a title (#6), so the title *is* the recipe. */
-	async function add() {
-		if (naming === '') return;
-		adding = true;
-		failed = undefined;
-		try {
-			const made = await kamosu.createRecipe({ title: naming });
-			await goto(`/recipes/${made.branch_id}`);
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			failed = error.message;
-			adding = false;
-		}
-	}
+	/** Whether the link offer has been taken, which swaps its button for the address field. */
+	let asking = $state(false);
+	let picker = $state<FilePicker | undefined>(undefined);
 </script>
+
+<FilePicker {adding} bind:this={picker} />
 
 <div class="grid gap-2">
 	{#if title === undefined}
-		<!--
-			No title was handed down, so this is the one place it can come from.
-			Submitting the field is the same act as the button, because a person
-			who has typed a name and pressed enter has already asked.
-		-->
-		<form
-			class="grid gap-2"
-			onsubmit={(event) => {
-				event.preventDefault();
-				add();
-			}}
-		>
-			<!--
-				`w-full` is load-bearing. Without a width, Safari sizes a text field
-				at twenty of the font's average character, and Zen Kaku Gothic New
-				is a Japanese face whose average character is a full em. That made
-				the field about 340px wide on an iPhone and pushed this whole card
-				past the edge of the screen (24 September 2026).
-			-->
-			<label class="grid gap-1 text-read text-ink-2">
-				{m.add_title()}
-				<input
-					type="text"
-					bind:value={typed}
-					required
-					class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink"
-				/>
-			</label>
-			<button
-				class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
-				disabled={adding || bringing}
-			>
-				{m.add_write()}
-			</button>
-		</form>
+		<!-- No title was handed down, so this is the one place it can come from. -->
+		<TitleForm {adding} />
 	{:else}
 		<button
 			type="button"
-			onclick={add}
-			disabled={adding || bringing}
+			onclick={() => adding.write(title)}
+			disabled={adding.working !== null}
 			class="min-h-12 rounded-sm bg-accent px-4 py-3 text-center font-display text-body text-on-accent disabled:opacity-60"
 		>
 			{m.recipes_nothing_add({ query: title })}
 		</button>
 	{/if}
 
-	<BringIn look="offer" disabled={adding} onBusy={(working) => (bringing = working)} />
-
-	{#if failed}
-		<p class="text-read text-support" role="alert">{failed}</p>
+	{#if !asking}
+		<NeedsServer
+			label={m.recipes_nothing_import()}
+			waiting={m.offline_waits_import_link()}
+			disabled={adding.working !== null}
+			onclick={() => (asking = true)}
+			shapeClass="min-h-12 rounded-sm px-4 py-3 text-center font-display text-body"
+			lookClass="border border-rule bg-card text-accent disabled:opacity-60"
+		/>
+	{:else}
+		<AddressForm {adding} />
 	{/if}
+
+	<NeedsServer
+		label={adding.working === 'file' ? m.bring_in_file_working() : m.bring_in_file()}
+		waiting={m.offline_waits_bring_in()}
+		disabled={adding.working !== null}
+		onclick={() => picker?.open()}
+		shapeClass="min-h-12 rounded-sm px-4 py-3 text-center font-display text-body"
+		lookClass="border border-rule bg-card text-accent disabled:opacity-60"
+	/>
 </div>
+
+<Said {adding} />
