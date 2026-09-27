@@ -853,8 +853,9 @@ fn record_merge_suggestion(
 /// correction, which ADR 0003 refuses in as many words.
 ///
 /// A line that already carries a Reading is never overwritten here, whoever
-/// wrote it: `INSERT OR IGNORE` is doing real work, not defending against a
-/// race.
+/// wrote it, and its word is never resolved either: resolving can create a
+/// Food, and a read line needs none (#178). The check comes first; the
+/// `INSERT OR IGNORE` behind it is what a Reading would meet if it did not.
 ///
 /// **This returns no error, and that is the point** (#71): reading a line may
 /// never fail a save, an import or a recipe. A line Kamosu cannot read is not
@@ -886,6 +887,21 @@ pub(super) fn read_unread_lines(
         let Some(text) = line["text"].as_str() else {
             continue;
         };
+        // Before the word is resolved, not after: resolving can create a Food
+        // (#178). A failed check leaves the line unread rather than risk one.
+        let already_read = conn
+            .prepare_cached("SELECT 1 FROM readings WHERE version_id = ?1 AND line_index = ?2")
+            .and_then(|mut statement| statement.exists(params![version_id, index as i64]))
+            .inspect_err(|error| {
+                tracing::warn!(
+                    target: "kamosu::reading",
+                    %error, version_id, index,
+                    "a line was left unread"
+                )
+            });
+        if already_read.unwrap_or(true) {
+            continue;
+        }
         let Some(reading) = crate::reading::read_line(text) else {
             continue;
         };

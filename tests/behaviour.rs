@@ -2840,6 +2840,81 @@ async fn reading_the_library_reads_what_is_unread_and_leaves_a_correction_alone(
     );
 }
 
+/// **Reading the library mints no Food for a line that is already read**
+/// (#178). The Job once resolved every line's word before noticing the line
+/// had a Reading, so an old spelling a merge or a correction had let go came
+/// back as an orphan Food — and the next line with that word attached to it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_brings_back_no_food_a_read_line_let_go() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Garlic Bread",
+            "ingredients": [{ "kind": "ingredient", "text": "2 garlic cloves" }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // The line now points at "garlic", and the Food its own word made is
+    // deleted, as somebody tidying the Foods would.
+    let (status, corrected) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 0,
+            "amount": "2", "unit": null, "target": "garlic",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{corrected}");
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let mut deleted_count = 0;
+    for food in listed["result"]["foods"].as_array().unwrap() {
+        if food["reading_count"] == 0 {
+            deleted_count += 1;
+            let (status, deleted) = app.post_op(
+                "delete_food",
+                Some(&key),
+                &json!({ "food_id": food["id"] }).to_string(),
+            );
+            assert_eq!(status, 200, "{deleted}");
+        }
+    }
+    assert_eq!(
+        deleted_count, 1,
+        "the Food 'garlic cloves' made was let go, so the Job had one to bring back: {listed}"
+    );
+    let (_, before) = app.post_op("list_foods", Some(&key), "{}");
+    let names = |listed: &Value| -> Vec<String> {
+        listed["result"]["foods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|food| food["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(names(&before), ["garlic"], "{before}");
+
+    let (status, asked) = app.post_op("read_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = support::wait_terminal(&app, Some(&key), job_id);
+    assert_eq!(finished["status"], "completed", "{finished}");
+    assert_eq!(finished["result"]["read"], 0, "{finished}");
+
+    let (_, after) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(
+        names(&after),
+        ["garlic"],
+        "the Job left the Foods exactly as it found them: {after}"
+    );
+}
+
 /// The Job is the Operator's, because it walks every recipe on the instance
 /// and not one Kitchen's (ADR 0032's neighbourhood: what a stranger may cause
 /// is bounded, and this is not something a stranger may cause at all).
