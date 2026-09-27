@@ -611,32 +611,38 @@ impl Core {
     /// deleting a recipe must never quietly discard the fact that a cup of
     /// this flour is 125 g. A Food nothing points at is *kept* by Kamosu on
     /// its own — this Operation is the deliberate act, never a sweep.
+    ///
+    /// "Points at" means a Reading some Branch still holds
+    /// ([`REACHABLE_READING`]). Readings a deleted recipe or a collapsed save
+    /// left behind are deleted here with the Food, since nobody can see them
+    /// and the foreign key would refuse the Food's row while they stood.
     pub fn delete_food(&self, food_id: &str) -> Result<(), OpError> {
         self.db().with_conn(|conn| {
             ensure_food_exists(conn, food_id)?;
-            let reading_count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM readings WHERE food_id = ?1",
-                    params![food_id],
-                    |row| row.get(0),
-                )
-                .map_err(|e| OpError::internal(format!("cannot count a Food's Readings: {e}")))?;
+            let reading_count = reachable_reading_count(conn, food_id)?;
             if reading_count > 0 {
                 let readings = if reading_count == 1 {
                     "1 Reading still points".to_string()
                 } else {
                     format!("{reading_count} Readings still point")
                 };
-                // The way round is #162's: a deleted recipe leaves Readings no
-                // Door can reach, so only a Merge can move them. Said without
-                // an Operation's name, since the Operator's screen shows this
-                // too. The second sentence goes when that issue is fixed.
                 return Err(OpError::bad_request(format!(
-                    "{readings} at this Food: only one nothing points at may be deleted. \
-                     If no recipe shows it any more, a Merge into another Food clears it"
+                    "{readings} at this Food: only one nothing points at may be deleted"
                 )));
             }
+            // One transaction, so a Food is never left standing with the
+            // Readings that named it already gone.
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            conn.execute("DELETE FROM readings WHERE food_id = ?1", params![food_id])
+                .map_err(|e| {
+                    OpError::internal(format!("cannot clear a Food's unreachable Readings: {e}"))
+                })?;
             erase_food(conn, food_id)?;
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot delete Food: {e}")))?;
             Ok(())
         })
     }
@@ -654,7 +660,8 @@ struct MergeBlastRadius {
     /// Branch's head Version, which is the recipe as it stands today.
     ingredient_lines: i64,
     /// Every Reading row that changes hands, the head Versions' and the past
-    /// Versions' alike — what the merge does to the database.
+    /// Versions' alike. Rows no Branch holds move too but are not counted:
+    /// they are on no recipe anybody can open (#162).
     readings: i64,
 }
 
@@ -672,17 +679,32 @@ fn merge_blast_radius(
             |row| row.get(0),
         )
         .map_err(|e| OpError::internal(format!("cannot count the lines a Merge moves: {e}")))?;
-    let readings: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM readings WHERE food_id = ?1",
-            params![absorbed_food_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| OpError::internal(format!("cannot count the Readings a Merge moves: {e}")))?;
     Ok(MergeBlastRadius {
         ingredient_lines,
-        readings,
+        readings: reachable_reading_count(conn, absorbed_food_id)?,
     })
+}
+
+/// A Reading on a Version some Branch still holds, as its head or in its
+/// history — a condition on a query whose `readings` table is unaliased.
+///
+/// A Version outlives every Branch that held it (ADR 0004), and so do its
+/// Readings: a deleted recipe leaves them, and so does a save the collapse
+/// window replaced. No Door reaches those, so they must not keep a Food alive
+/// (#162, Aurélien's choice of 27 September 2026). Every count of a Food's
+/// Readings asks this same question, or the Foods screen would offer to
+/// delete a Food `delete_food` refuses, or the reverse.
+const REACHABLE_READING: &str = "EXISTS (SELECT 1 FROM branch_versions \
+                                   WHERE branch_versions.version_id = readings.version_id)";
+
+/// How many Readings some Branch still holds point at a Food.
+fn reachable_reading_count(conn: &Connection, food_id: &str) -> Result<i64, OpError> {
+    conn.query_row(
+        &format!("SELECT COUNT(*) FROM readings WHERE food_id = ?1 AND {REACHABLE_READING}"),
+        params![food_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot count a Food's Readings: {e}")))
 }
 
 /// Delete a Food and everything held about it — its names, and the Merge
@@ -1505,12 +1527,12 @@ fn busiest_food(
         .map(|_| "?")
         .collect::<Vec<_>>()
         .join(", ");
-    let join_condition = if exclude.is_some() {
-        "readings.food_id = foods.id \
-         AND NOT (readings.version_id = ? AND readings.line_index = ?)"
-    } else {
-        "readings.food_id = foods.id"
-    };
+    // Only Readings some Branch holds, so this agrees with the count a Food
+    // reports (#162).
+    let mut join_condition = format!("readings.food_id = foods.id AND {REACHABLE_READING}");
+    if exclude.is_some() {
+        join_condition.push_str(" AND NOT (readings.version_id = ? AND readings.line_index = ?)");
+    }
     let sql = format!(
         "SELECT foods.id FROM foods \
          LEFT JOIN readings ON {join_condition} \
@@ -1584,13 +1606,7 @@ fn food_summary(
         )
         .map_err(|e| OpError::internal(format!("cannot read Food: {e}")))?;
 
-    let reading_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM readings WHERE food_id = ?1",
-            params![food_id],
-            |row| row.get(0),
-        )
-        .map_err(|e| OpError::internal(format!("cannot count a Food's Readings: {e}")))?;
+    let reading_count = reachable_reading_count(conn, food_id)?;
 
     let mut statement = conn
         .prepare("SELECT language, name FROM food_names WHERE food_id = ?1")

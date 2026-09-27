@@ -4408,7 +4408,7 @@ export type MergeFoodOutput = {
 	readings: number;
 };
 
-/** Delete a Food nothing points at. One a Reading still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. */
+/** Delete a Food nothing points at. One a Reading on some recipe still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. Readings only a deleted recipe held count for nothing and go with the Food. */
 export type DeleteFoodInput = {
 	food_id: string;
 };
@@ -27430,7 +27430,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "delete_food",
-		"summary": "Delete a Food nothing points at. One a Reading still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act.",
+		"summary": "Delete a Food nothing points at. One a Reading on some recipe still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. Readings only a deleted recipe held count for nothing and go with the Food.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -28039,7 +28039,7 @@ export interface KamosuClient {
 	previewFoodMerge(input: PreviewFoodMergeInput): Promise<Answer<'preview_food_merge'>>;
 	/** Join two Foods into one. A Food has one name per Language, so the survivor keeps its own and takes the other's only in a Language it has no name for, and the other's remaining names are dropped. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
 	mergeFood(input: MergeFoodInput): Promise<Answer<'merge_food'>>;
-	/** Delete a Food nothing points at. One a Reading still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. */
+	/** Delete a Food nothing points at. One a Reading on some recipe still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. Readings only a deleted recipe held count for nothing and go with the Food. */
 	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;
 	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;

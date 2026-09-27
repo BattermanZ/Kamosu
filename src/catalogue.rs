@@ -3060,9 +3060,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "delete_food",
-            summary: "Delete a Food nothing points at. One a Reading still \
-                      points at is refused: what a Food knows was expensive to \
-                      learn and is never discarded by an unrelated act.",
+            summary: "Delete a Food nothing points at. One a Reading on some \
+                      recipe still points at is refused: what a Food knows was \
+                      expensive to learn and is never discarded by an unrelated \
+                      act. Readings only a deleted recipe held count for nothing \
+                      and go with the Food.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,

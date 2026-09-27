@@ -24616,6 +24616,142 @@ async fn deleting_a_recipe_deletes_no_version_and_no_other_branchs_reading() {
     assert_eq!(status, 200, "{other}");
 }
 
+// ── A Food a deleted recipe left behind (#162) ──────────────────────────────
+//
+// A Reading belongs to a Version, and a Version outlives every Branch that
+// held it. So a deleted recipe, or a save the collapse window replaced, leaves
+// Readings no Door can reach. Aurélien's choice on #162: a Food counts only
+// the Readings some Branch still holds, and deleting it clears the rest.
+
+/// A Food as `get_food` answers it.
+fn food_of(app: &support::TestApp, key: &str, food_id: &str) -> Value {
+    let (status, food) = app.post_op(
+        "get_food",
+        Some(key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{food}");
+    food["result"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_food_only_a_deleted_recipe_named_can_be_deleted_and_keeps_its_cup_weight_until_then() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    let branch_id = read_a_word(&app, &key, "en", "cassava starch");
+    let food_id = food_named(&app, &key, "en", "cassava starch");
+    let (status, weighed) = app.post_op(
+        "set_food_cup_weight",
+        Some(&key),
+        &json!({ "food_id": food_id, "cup_weight_grams": 130 }).to_string(),
+    );
+    assert_eq!(status, 200, "{weighed}");
+    assert_eq!(food_of(&app, &key, &food_id)["reading_count"], json!(1));
+
+    let versions_before = count_of(&app, "SELECT COUNT(*) FROM versions");
+    let (status, answered) = delete_recipe(&app, &key, &branch_id);
+    assert_eq!(status, 200, "{answered}");
+
+    // The Foods screen and `delete_food` ask the same question: nothing any
+    // recipe shows names it now. What the Food itself learned is still there.
+    let food = food_of(&app, &key, &food_id);
+    assert_eq!(food["reading_count"], json!(0), "{food}");
+    assert_eq!(food["cup_weight_grams"], json!(130.0), "{food}");
+
+    let (status, deleted) = app.post_op(
+        "delete_food",
+        Some(&key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(
+        count_of(&app, "SELECT COUNT(*) FROM readings"),
+        0,
+        "the Reading nobody could reach stayed behind, pointing at nothing"
+    );
+
+    // Deleting a Branch, and then the Food, still deletes no Version.
+    assert_eq!(
+        count_of(&app, "SELECT COUNT(*) FROM versions"),
+        versions_before,
+        "a Version was deleted"
+    );
+    assert_eq!(
+        count_of(
+            &app,
+            "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)"
+        ),
+        0,
+        "a Version no longer fingerprints to its own id"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_food_the_other_branch_of_a_deleted_recipe_still_names_is_still_refused() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    let mine = read_a_word(&app, &key, "en", "cardamom");
+    let food_id = food_named(&app, &key, "en", "cardamom");
+
+    // An unchanged variation holds the very Version the Reading is on.
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": mine, "name": "Spicier" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+
+    let (status, answered) = delete_recipe(&app, &key, &mine);
+    assert_eq!(status, 200, "{answered}");
+
+    assert_eq!(food_of(&app, &key, &food_id)["reading_count"], json!(1));
+    let (status, refused) = app.post_op(
+        "delete_food",
+        Some(&key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert_eq!(
+        refused["error"]["message"],
+        json!("1 Reading still points at this Food: only one nothing points at may be deleted")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_food_only_a_collapsed_save_named_can_then_be_deleted() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    let branch_id = read_a_word(&app, &key, "en", "chiken");
+    let food_id = food_named(&app, &key, "en", "chiken");
+
+    // The typo fixed at once: inside the collapse window, so the new Version
+    // *replaces* the one the Reading is on rather than following it.
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "title": "Food Match fixture, fixed",
+            "ingredients": [{ "kind": "ingredient", "text": "chicken" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(
+        count_of(&app, "SELECT COUNT(*) FROM branch_versions"),
+        1,
+        "the save followed the first Version instead of replacing it"
+    );
+
+    assert_eq!(food_of(&app, &key, &food_id)["reading_count"], json!(0));
+    let (status, deleted) = app.post_op(
+        "delete_food",
+        Some(&key),
+        &json!({ "food_id": food_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{deleted}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deleted_recipes_share_link_stops_resolving() {
     let app = support::spawn_app();
