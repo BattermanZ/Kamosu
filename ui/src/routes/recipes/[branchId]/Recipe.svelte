@@ -132,7 +132,7 @@
 	import Hero from './Hero.svelte';
 	import { ratingLabel } from '$lib/rating';
 	import VersionStrip from './VersionStrip.svelte';
-	import { branchPlainName } from '$lib/cookbook';
+	import { branchPlainName, yoursAmong } from '$lib/cookbook';
 	import MarkedRow from './MarkedRow.svelte';
 	import StepWords from '$lib/StepWords.svelte';
 	import Correcting from './Correcting.svelte';
@@ -194,8 +194,8 @@
 	 * every Copy and variation of it and never a Translation (see below).
 	 */
 	let versions = $state<GetThreadOutput['branches']>([]);
-	/** Whether the page is the reader's own recipe, the one marks compare against. */
-	let onYours = $state(false);
+	/** Your own version, the one the others are marked against (#136). */
+	let yoursId = $state<string | undefined>();
 	let failed = $state(false);
 	/**
 	 * The cookings of this dish, which the Thread already answers. Kept because
@@ -920,13 +920,14 @@
 						[...(versionsOf.get(each.branch_id) ?? [])].some((id) => onPage.has(id)),
 				);
 				// **Marks compare against your own** (#131, screen choice 1): the
-				// unnamed version in your own Cookbook that you wrote. On it there
-				// is nothing to mark; on any other version the rows are read with
-				// yours as `mine`, and the page draws `theirs`. With none of your
-				// own there is nothing to compare against at all.
-				const yours = versions.find((each) => each.mine && !each.arrived && each.name === null);
-				onYours = yours?.branch_id === branchId;
-				if (!yours || onYours) return;
+				// version in your own Cookbook that you wrote, unnamed or, once
+				// named, kept longest (#136). On it there is nothing to mark; on
+				// any other version the rows are read with yours as `mine`, and
+				// the page draws `theirs`. With none of your own there is
+				// nothing to compare against at all.
+				const yours = yoursAmong(versions);
+				yoursId = yours?.branch_id;
+				if (!yours || yours.branch_id === branchId) return;
 
 				// Read on its own, so a refusal costs the Divergence and never
 				// the recipe. Whatever the Core declines to pair, the cook is
@@ -1388,8 +1389,8 @@
 				<VersionStrip
 					{versions}
 					current={branchId}
+					yours={yoursId}
 					compared={divergence ? { unshared, with: otherKitchen } : undefined}
-					{onYours}
 					{marks}
 					{toggleMarks}
 				/>

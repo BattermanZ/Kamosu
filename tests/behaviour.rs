@@ -26884,6 +26884,94 @@ async fn naming_a_branch_writes_no_version_and_moves_no_id() {
     );
 }
 
+/// **A Branch arriving never takes over from your own named one** (#136).
+/// The recipe page compares every version with yours, and yours is the one
+/// that goes without a name. Once you name it, a Copy landing in your
+/// Cookbook, or a joiner's Branch, must still be named after where it came
+/// from; landing unnamed, it would quietly become the one the marks compare
+/// against.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_branch_arriving_beside_your_named_one_is_named_too() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (_, camille) = someone(&app, "Camille");
+    kitchen_of(&app, &aurelien, "Family", &[&camille]);
+    let his = written(&app, &aurelien, "Soupe");
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&camille),
+        &json!({ "branch_id": his, "title": "Soupe, with chervil" }).to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let hers = saved["result"]["branch_id"].as_str().unwrap().to_string();
+
+    let (status, renamed) = app.post_op(
+        "rename_branch",
+        Some(&aurelien),
+        &json!({ "branch_id": his, "name": "Classic" }).to_string(),
+    );
+    assert_eq!(status, 200, "{renamed}");
+
+    // His save on hers starts his own Copy of it, in his Cookbook.
+    let (status, copied) = app.post_op(
+        "save_recipe_version",
+        Some(&aurelien),
+        &json!({ "branch_id": hers, "title": "Soupe, with chervil and cream" }).to_string(),
+    );
+    assert_eq!(status, 200, "{copied}");
+    let copy = copied["result"]["branch_id"].as_str().unwrap().to_string();
+    assert_ne!(copy, hers, "a Copy, not her Branch");
+    assert_eq!(
+        scalar::<Option<String>>(
+            &app,
+            &format!("SELECT name FROM branches WHERE id = '{copy}'")
+        ),
+        Some("Camille".to_string()),
+        "named after her Cookbook, beside his named one"
+    );
+
+    // Joining, her own unnamed soupe meets his named one: named after her too.
+    let (status, removed) = app.post_op(
+        "delete_recipe",
+        Some(&aurelien),
+        &json!({ "branch_id": copy }).to_string(),
+    );
+    assert_eq!(status, 200, "{removed}");
+    write_together(&app, &aurelien, &camille);
+    assert_eq!(
+        scalar::<Option<String>>(
+            &app,
+            &format!("SELECT name FROM branches WHERE id = '{hers}'")
+        ),
+        Some("Camille".to_string()),
+        "joined, hers is named after her"
+    );
+    assert_eq!(
+        scalar::<i64>(
+            &app,
+            &format!(
+                "SELECT COUNT(*) FROM branches WHERE cookbook_id = '{}' AND name IS NULL",
+                cookbook_of(&app, &aurelien_id)
+            )
+        ),
+        0,
+        "nothing in his Cookbook went unnamed"
+    );
+
+    // Leaving, the soupe she wrote is her own unnamed one again, though his
+    // copy she takes with her carries his name for it.
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(
+        scalar::<Option<String>>(
+            &app,
+            &format!("SELECT name FROM branches WHERE id = '{hers}'")
+        ),
+        None,
+        "left, hers goes without a name again"
+    );
+}
+
 /// **Whose cooking a reader sees** (#131, question 1): an Attempt shows to
 /// the people its cook cooks with, not everywhere its recipe is seen. A
 /// mother's note on her son's recipe is the family Kitchen's to read, not his

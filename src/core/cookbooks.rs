@@ -115,7 +115,8 @@ impl Core {
     /// Everything the caller's Cookbook held moves across: its Branches, its
     /// Tags, its Related Recipes and its import ledger. Two Branches of one
     /// recipe that meet here are settled as question 6 on #131 says: an
-    /// unnamed one the joiner brings is named after the joiner, and the same
+    /// unnamed one the joiner brings is named after the joiner wherever the
+    /// Cookbook already holds one of its own, named or not (#136), and the same
     /// friend's Branch received on both sides is folded into the longer where
     /// one history holds the other, and otherwise kept under a new Travelling
     /// id.
@@ -1025,9 +1026,32 @@ pub(super) fn unnamed_branch_in(
     .map_err(|e| OpError::internal(format!("cannot read Branches: {e}")))
 }
 
+/// Whether a Cookbook already holds a Branch of its own of a recipe in one
+/// Language, named or not. A Branch that arrived is not counted, as in
+/// [`unnamed_branch_in`].
+fn holds_own_branch(
+    conn: &Connection,
+    cookbook_id: &str,
+    lineage_id: &str,
+    language: &str,
+) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM branches \
+          WHERE cookbook_id = ?1 AND lineage_id = ?2 AND language = ?3 AND arrived = 0)",
+        params![cookbook_id, lineage_id, language],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Branches: {e}")))
+}
+
 /// The name a Branch arriving in `cookbook_id` needs, if any: none when the
-/// Cookbook has no unnamed Branch of that recipe in that Language yet, and
-/// otherwise `fallback` — whose it was — so the two can be told apart.
+/// Cookbook holds no Branch of its own of that recipe in that Language yet,
+/// and otherwise `fallback` — whose it was — so the two can be told apart.
+///
+/// **Any own Branch, named or not** (#136): the recipe page compares every
+/// version with the cook's own, which is their unnamed one where they have
+/// one. Once they name it, a Branch landing here unnamed would quietly become
+/// the one the marks compare against.
 pub(super) fn name_on_arrival(
     conn: &Connection,
     cookbook_id: &str,
@@ -1035,10 +1059,7 @@ pub(super) fn name_on_arrival(
     language: &str,
     fallback: &str,
 ) -> Result<Option<String>, OpError> {
-    Ok(
-        unnamed_branch_in(conn, cookbook_id, lineage_id, language, None)?
-            .map(|_| fallback.to_string()),
-    )
+    Ok(holds_own_branch(conn, cookbook_id, lineage_id, language)?.then(|| fallback.to_string()))
 }
 
 /// Whose a Branch is, in words, for naming a Copy of it after: the sender's
@@ -1109,7 +1130,7 @@ pub(super) fn carry_chain(conn: &Connection, from: &str, onto: &str) -> Result<(
 /// as two households receiving it would each hold it. A Branch written here
 /// becomes the receiver's own, under their Cookbook's Hand. `name` names it
 /// where given; otherwise it is named after the Cookbook it came from only if
-/// the receiver already holds an unnamed one of that recipe.
+/// the receiver already holds one of its own of that recipe (#136).
 pub(super) fn copy_branch_into(
     conn: &Connection,
     source: &str,
@@ -1153,7 +1174,7 @@ pub(super) fn copy_branch_into(
     let new_branch_id = format!("b_{}", hex::encode(random_bytes(8)));
     // A variation keeps the name it was given wherever it goes; an unnamed
     // Branch is named after the Cookbook it came from only where the
-    // receiver already holds an unnamed one of the same recipe.
+    // receiver already holds one of its own of the same recipe (#136).
     let name = match name.map(str::to_string).or(source_name) {
         Some(name) => Some(name),
         None => name_on_arrival(
@@ -1603,8 +1624,7 @@ fn join_cookbooks(conn: &Connection, from: &str, into: &str, joiner: &str) -> Re
                 }
             }
         }
-        if name.is_none() && unnamed_branch_in(conn, into, &lineage_id, &language, None)?.is_some()
-        {
+        if name.is_none() && holds_own_branch(conn, into, &lineage_id, &language)? {
             conn.execute(
                 "UPDATE branches SET name = ?1 WHERE id = ?2",
                 params![joiner_name, branch_id],
@@ -2036,7 +2056,8 @@ pub(super) fn separate(
 /// their copy of the other side's. Opening "your own" would then open the
 /// copy. So the two swap: the Branch they started loses the name, and the
 /// copy is named after the Cookbook it came from, as any copy arriving beside
-/// an unnamed one is.
+/// one of your own is. Where every copy already has a name, the Branch they
+/// started simply loses its own (#136).
 fn give_back_own_names(
     conn: &Connection,
     stayed: &str,
@@ -2065,6 +2086,7 @@ fn give_back_own_names(
         if arrived || name.as_deref() != Some(leaver_name.as_str()) {
             continue;
         }
+        let mut swapped = false;
         for copy in copies {
             let (copy_lineage, copy_language, copy_name, copy_arrived) = recipe_of(copy)?;
             if copy_lineage != lineage
@@ -2084,7 +2106,22 @@ fn give_back_own_names(
                 params![theirs],
             )
             .map_err(|e| OpError::internal(format!("cannot name Branch: {e}")))?;
+            swapped = true;
             break;
+        }
+        // No unnamed copy to swap with: the copies carry the names the other
+        // side gave theirs (#136). Theirs still goes without a name, as the
+        // one their new Cookbook compares the others with, unless it already
+        // keeps an unnamed one of that recipe.
+        if !swapped {
+            let cookbook = branch_cookbook(conn, theirs)?;
+            if unnamed_branch_in(conn, &cookbook, &lineage, &language, Some(theirs))?.is_none() {
+                conn.execute(
+                    "UPDATE branches SET name = NULL WHERE id = ?1",
+                    params![theirs],
+                )
+                .map_err(|e| OpError::internal(format!("cannot name Branch: {e}")))?;
+            }
         }
     }
     Ok(())

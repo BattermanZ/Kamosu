@@ -2098,7 +2098,7 @@ fn place_carried_branch(
                 .as_str()
                 .map(str::trim)
                 .filter(|name| !name.is_empty());
-            // Its own recipe coming home keeps the one-unnamed rule the Cookbook
+            // Its own recipe coming home keeps the naming rule the Cookbook
             // keeps for everything it writes.
             let name = match name {
                 Some(name) => Some(name.to_string()),

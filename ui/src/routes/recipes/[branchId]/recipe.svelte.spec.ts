@@ -454,6 +454,33 @@ describe('a Divergence', () => {
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('divergence');
 	});
 
+	it('marks your variation against your own once it has a name (#136)', async () => {
+		// Your own named "Classic", and your variation "Spicy" beside it.
+		const named = {
+			...(forked().get_thread as Record<string, unknown>),
+			branches: [
+				{ ...MINE_IN_THREAD, name: 'Classic' },
+				{ ...THEIRS_IN_THREAD, cookbook: MY_COOKBOOK, mine: true, name: 'Spicy' },
+			],
+		} as Answers['get_thread'];
+		const { kamosu } = renderRecipe(onTheirs({ get_thread: named }), 'theirs');
+		await compared();
+		expect(kamosu.calls.find((call) => call.operation === 'divergence')?.input).toEqual({
+			branch_id: 'mine',
+			other_branch_id: 'theirs',
+		});
+		// The strip says which one the others are measured against.
+		expect(screen.getByRole('link', { name: /Classic/ })).toHaveTextContent('your Cookbook');
+		expect(screen.getByRole('link', { name: /Spicy/ })).toHaveTextContent('yours too');
+		cleanup();
+
+		// On Classic itself: nothing to mark, and the strip says how to see the others.
+		const onClassic = renderRecipe(forked({ get_thread: named }));
+		expect(await screen.findByText(/Tap another version to read it/)).toBeInTheDocument();
+		expect(onClassic.kamosu.calls.map((call) => call.operation)).not.toContain('divergence');
+		expect(screen.getByRole('link', { name: /Classic/ })).toHaveTextContent('your Cookbook');
+	});
+
 	it('marks nothing where you have no version of your own to compare with', async () => {
 		// Two of other people's versions and none of yours: there is no "how
 		// is theirs different from mine" to answer.

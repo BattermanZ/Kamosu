@@ -10,7 +10,8 @@
 	recipe it says it is.
 
 	WHAT A MARK COMPARES AGAINST: YOUR OWN. Whatever version is open, the lines
-	marked are the ones it does not share with the recipe in your own Cookbook
+	marked are the ones it does not share with your own recipe (`yoursAmong`,
+	#136: your unnamed one, or once named, the one you have kept longest)
 	— the question a reader has is *how is theirs different from mine*, never
 	*how is Luc's different from Hélène's*. On your own there is nothing to
 	mark, and the strip says how to see the others instead. A reader with no
@@ -28,19 +29,22 @@
 		versions: (LabelledBranch & { branch_id: string })[];
 		/** The version open on this page. */
 		current: string;
+		/** Your own version, the one the others are marked against, if you have one (#136). */
+		yours: string | undefined;
 		/**
 		 * Lines the open version does not share with yours, and the name of
 		 * whose it is; absent where there is nothing to compare — on your own,
 		 * or where you have none.
 		 */
 		compared?: { unshared: number; with: string };
-		/** Whether the page is your own recipe, so the strip says how to see the others. */
-		onYours: boolean;
 		marks: boolean;
 		toggleMarks: () => void;
 	}
 
-	let { versions, current, compared, onYours, marks, toggleMarks }: Props = $props();
+	let { versions, current, yours, compared, marks, toggleMarks }: Props = $props();
+
+	/** Whether the page is your own recipe, so the strip says how to see the others. */
+	const onYours = $derived(yours !== undefined && yours === current);
 </script>
 
 <div class="strip bg-[var(--whose)] px-gutter pt-3 text-on-accent">
@@ -50,7 +54,7 @@
 	<!-- Scrolls sideways past four, with the gutter still there at the end. -->
 	<ul class="-mx-gutter mt-2 flex gap-2 overflow-x-auto px-gutter pb-1">
 		{#each versions as version (version.branch_id)}
-			{@const label = branchLabel(version)}
+			{@const label = branchLabel(version, version.branch_id === yours)}
 			{@const here = version.branch_id === current}
 			<li class="shrink-0">
 				<a

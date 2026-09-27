@@ -16,7 +16,7 @@
 	import { isUnknown, languageName } from '$lib/language';
 	import { OperationError } from '$lib/api/client';
 	import { useKamosu } from '$lib/kamosu';
-	import { branchLabel } from '$lib/cookbook';
+	import { branchLabel, yoursAmong } from '$lib/cookbook';
 	import {
 		foldedLines,
 		graphOf,
@@ -59,6 +59,8 @@
 	const kamosu = useKamosu();
 
 	const branches = $derived(new Map(thread.branches.map((branch) => [branch.branch_id, branch])));
+	/** Your own version, which the switch labels *your Cookbook* (#136). */
+	const yoursId = $derived(yoursAmong(thread.branches)?.branch_id);
 	const graph = $derived(
 		graphOf(
 			thread.branches.map((branch) => branch.branch_id),
@@ -146,8 +148,8 @@
 			.filter((branch): branch is ThreadBranch => !!branch)
 			.map((branch) =>
 				branch.language === 'en' || isUnknown(branch.language)
-					? branchLabel(branch).name
-					: `${branchLabel(branch).name} (${languageName(branch.language)})`,
+					? branchLabel(branch, branch.branch_id === yoursId).name
+					: `${branchLabel(branch, branch.branch_id === yoursId).name} (${languageName(branch.language)})`,
 			)
 			.join(', ');
 	}

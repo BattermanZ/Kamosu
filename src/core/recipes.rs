@@ -2321,9 +2321,9 @@ fn version_is_held_by_another_branch(
 /// *what changed* lines, nothing truncated (ADR 0018). The caller appends the
 /// change that made it; the source Branch is never touched.
 ///
-/// Where the Cookbook already holds an unnamed Branch of this recipe in this
-/// Language, the Copy is named after the Cookbook it came from, so the two can
-/// be told apart on the switch (#131, question 6).
+/// Where the Cookbook already holds a Branch of its own of this recipe in this
+/// Language, named or not (#136), the Copy is named after the Cookbook it came
+/// from, so the two can be told apart on the switch (#131, question 6).
 pub(super) fn start_copy(
     conn: &Connection,
     branch_id: &str,

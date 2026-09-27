@@ -18,6 +18,7 @@ import type { KamosuClient } from '$lib/api/catalogue';
 import { OperationError } from '$lib/api/client';
 import { PHOTOGRAPHS_CACHE, keptAt } from './reads';
 import { forgetEverythingHeld } from './outbox';
+import { yoursAmong } from '$lib/cookbook';
 
 /**
  * What one recipe costs the phone, measured on the dev library (2026-09-19,
@@ -252,7 +253,8 @@ export class Library {
 		const family = thread.branches.filter((each) =>
 			[...(held.get(each.branch_id) ?? [])].some((id) => own.has(id)),
 		);
-		const yours = family.find((each) => each.mine && !each.arrived && each.name === null);
+		// The page's own rule for which is yours (#136).
+		const yours = yoursAmong(family);
 		// Every version is filled, Translations included: the Thread names only
 		// what this Person may see, and the page's language switch opens those.
 		const others = thread.branches.filter((each) => each.branch_id !== entry.branch_id);

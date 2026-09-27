@@ -75,15 +75,36 @@ export function copySaid(whose: Whose, title: string): string {
 }
 
 /**
+ * **Which version of a recipe is yours** (#136, Aurélien's choice A of 27
+ * September 2026): the one every other version is marked against. It is your
+ * own unnamed one where you have one (#131), and once you name it, the one you
+ * have kept longest. Never one sent to you, which is somebody else's writing.
+ *
+ * `versions` comes oldest first, as the Thread answers its Branches. The
+ * recipe page and the library a phone keeps offline both ask this, so the two
+ * cannot compare against different versions.
+ */
+export function yoursAmong<T extends Pick<LabelledBranch, 'mine' | 'arrived' | 'name'>>(
+	versions: T[],
+): T | undefined {
+	const own = versions.filter((each) => each.mine && !each.arrived);
+	return own.find((each) => each.name === null) ?? own[0];
+}
+
+/**
  * **One version of a recipe, as the switch labels it** (#131, screen choice
  * 1): a name, and a line under it saying whose.
  *
- * - The reader's own, unnamed: *Yours*, in *your Cookbook*.
- * - A variation of the reader's: its name, *yours too*.
+ * - The reader's own, the one the others are marked against (`yours`): its
+ *   name, or *Yours* while it has none, in *your Cookbook* (#136).
+ * - Another of the reader's: its name, *yours too*.
  * - One that arrived from somebody else: the sender's name, *sent to you*.
  * - Anybody else's: its name where it has one, else whose it is.
  */
-export function branchLabel(branch: LabelledBranch): { name: string; whose: string } {
+export function branchLabel(
+	branch: LabelledBranch,
+	yours: boolean,
+): { name: string; whose: string } {
 	if (branch.arrived) {
 		return {
 			name: branch.name ?? branch.hand_name ?? cookbookWhose(branch.cookbook),
@@ -91,9 +112,10 @@ export function branchLabel(branch: LabelledBranch): { name: string; whose: stri
 		};
 	}
 	if (branch.mine) {
-		return branch.name
-			? { name: branch.name, whose: m.switch_yours_too() }
-			: { name: m.switch_yours(), whose: m.switch_your_cookbook() };
+		return {
+			name: branch.name ?? m.switch_yours(),
+			whose: yours ? m.switch_your_cookbook() : m.switch_yours_too(),
+		};
 	}
 	return {
 		name: branch.name ?? cookbookWhose(branch.cookbook),
