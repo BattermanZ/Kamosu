@@ -328,6 +328,9 @@
   .my-4 {
     margin-block: var(--spacing-4);
   }
+  .ms-1 {
+    margin-inline-start: var(--spacing-1);
+  }
   .ms-auto {
     margin-inline-start: auto;
   }
@@ -528,6 +531,9 @@
   }
   .w-12 {
     width: var(--spacing-12);
+  }
+  .w-\[5\.5rem\] {
+    width: 5.5rem;
   }
   .w-\[18\.75rem\] {
     width: 18.75rem;

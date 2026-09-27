@@ -100,6 +100,13 @@ function renderWriting(
 /** A recipe that holds nothing yet — a new one, which is where a paste lands. */
 const empty = (): Content => ({ ...content(), title: '', ingredients: [], steps: [] });
 
+/**
+ * The facts strip's boxes by the words drawn beside them (#175): each time's
+ * label and its unit, and the yield's heading and each half's caption.
+ */
+const TIME_BOXES = ['Prep time h', 'Prep time min', 'Cook time h', 'Cook time min'];
+const YIELD_BOXES = ['Makes How many', 'Makes Of what: servings, a loaf, jars…'];
+
 // ---- naming another recipe from a line (#87) -----------------------------
 //
 // The library the picker searches, and the recipe read back after a save so
@@ -508,7 +515,7 @@ describe('writing a recipe', () => {
 	it('says that resting, proving, marinating and chilling belong in Cook', async () => {
 		renderWriting();
 
-		const cook = await screen.findByRole('textbox', { name: 'Cook, in whole minutes' });
+		const cook = await screen.findByLabelText('Cook time h');
 		expect(cook).toHaveAccessibleDescription(
 			'Include time spent resting, proving, marinating or chilling.',
 		);
@@ -520,13 +527,8 @@ describe('writing a recipe', () => {
 	it('lets every fact be emptied, and sends nothing rather than a blank', async () => {
 		const { kamosu } = renderWriting();
 
-		for (const name of ['Prep, in whole minutes', 'Cook, in whole minutes']) {
-			await fireEvent.input(await screen.findByRole('textbox', { name }), {
-				target: { value: '' },
-			});
-		}
-		for (const name of ['Yield, how many', 'Yield, of what']) {
-			await fireEvent.input(screen.getByRole('textbox', { name }), { target: { value: '' } });
+		for (const name of [...TIME_BOXES, ...YIELD_BOXES]) {
+			await fireEvent.input(await screen.findByLabelText(name), { target: { value: '' } });
 		}
 		await fireEvent.input(screen.getByRole('textbox', { name: 'Source' }), {
 			target: { value: '' },
@@ -818,22 +820,71 @@ describe('writing a recipe', () => {
 		// carries neither alone. Typing `4` and no noun used to be thrown away
 		// on the way out.
 		const { kamosu } = renderWriting();
-		await fireEvent.input(await screen.findByRole('textbox', { name: 'Yield, of what' }), {
+		await fireEvent.input(await screen.findByLabelText(YIELD_BOXES[1]), {
 			target: { value: '' },
 		});
-		expect(
-			await screen.findByText('A Yield needs both a number and a word for what it makes.'),
-		).toBeInTheDocument();
+		expect(await screen.findByText('Makes needs both how many and of what.')).toBeInTheDocument();
 		expect(sent(kamosu)).toBeUndefined();
 	});
 
 	it('will not let a time that is not minutes be dropped in silence', async () => {
 		const { kamosu } = renderWriting();
-		await fireEvent.input(await screen.findByRole('textbox', { name: 'Prep, in whole minutes' }), {
+		await fireEvent.input(await screen.findByLabelText('Prep time h'), {
 			target: { value: 'about an hour' },
 		});
-		expect(await screen.findByText(/must be whole minutes/)).toBeInTheDocument();
+		expect(
+			await screen.findByText('Prep time takes whole hours and minutes, or nothing.'),
+		).toBeInTheDocument();
 		expect(sent(kamosu)).toBeUndefined();
+	});
+
+	// #175: "What does min mean? There are two boxes without a name."
+	it('names every fact by words on the screen, never by an aria-label alone', async () => {
+		renderWriting();
+		await screen.findByLabelText('Prep time h');
+		for (const name of [...TIME_BOXES, ...YIELD_BOXES]) {
+			const field = screen.getByLabelText(name);
+			expect(field).not.toHaveAttribute('aria-label');
+			// Every word of its name is drawn on the page, so a sighted person
+			// reads the same label with the box empty.
+			// jsdom paints nothing, so `toBeVisible` cannot see `sr-only`: the
+			// class is what hides it, so the class is what is checked.
+			for (const id of field.getAttribute('aria-labelledby')!.split(' ')) {
+				const words = document.getElementById(id)!;
+				expect(words).toBeVisible();
+				expect(words.closest('.sr-only')).toBeNull();
+				expect(words.textContent!.trim()).not.toBe('');
+			}
+		}
+		expect(screen.getByText('Prep time')).toBeVisible();
+		expect(screen.getByText('Cook time')).toBeVisible();
+		expect(screen.getByText('Makes')).toBeVisible();
+		expect(screen.queryByText(/min prep|min cook/i)).not.toBeInTheDocument();
+	});
+
+	it('opens each time split into hours and minutes', async () => {
+		renderWriting({}, true, [], {
+			...content(),
+			prep_time_minutes: 90,
+			cook_time_minutes: 540,
+		});
+		expect(await screen.findByLabelText('Prep time h')).toHaveValue('1');
+		expect(screen.getByLabelText('Prep time min')).toHaveValue('30');
+		expect(screen.getByLabelText('Cook time h')).toHaveValue('9');
+		expect(screen.getByLabelText('Cook time min')).toHaveValue('');
+	});
+
+	it('saves hours and minutes as the minutes Kamosu keeps, so nobody works out 9 hours', async () => {
+		const { kamosu } = renderWriting();
+		await fireEvent.input(await screen.findByLabelText('Prep time h'), { target: { value: '1' } });
+		await fireEvent.input(screen.getByLabelText('Prep time min'), { target: { value: '30' } });
+		await fireEvent.input(screen.getByLabelText('Cook time h'), { target: { value: '9' } });
+		await fireEvent.input(screen.getByLabelText('Cook time min'), { target: { value: '' } });
+
+		await saveThrough(/Save onto mine/);
+		const input = sent(kamosu);
+		expect(input?.prep_time_minutes).toBe(90);
+		expect(input?.cook_time_minutes).toBe(540);
 	});
 
 	it('starts a variation beside the recipe, under the name it is given', async () => {
@@ -1108,9 +1159,16 @@ const NO_HEADINGS = {
 	},
 } as Answers;
 
-/** Open the paste sheet, put text in it, and have it read. */
-async function pasteIn(text = 'anything, since the stand-in answers') {
-	await fireEvent.click(screen.getByRole('button', { name: 'Paste a whole recipe' }));
+/**
+ * Open the paste sheet, put text in it, and have it read. The offer is the
+ * empty recipe's card unless it is named: on a recipe that holds something it
+ * is `⋯`'s "Replace with pasted text" (#175).
+ */
+async function pasteIn(
+	text = 'anything, since the stand-in answers',
+	offer = 'Paste it, Kamosu sorts it out',
+) {
+	await fireEvent.click(screen.getByRole('button', { name: offer }));
 	const field = await screen.findByRole('textbox', { name: 'The recipe, pasted as text' });
 	await fireEvent.input(field, { target: { value: text } });
 	await fireEvent.click(screen.getByRole('button', { name: 'Read it' }));
@@ -1243,12 +1301,30 @@ describe('pasting a whole recipe', () => {
 		const { kamosu } = renderWriting(WITH_HEADINGS);
 		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
 		await fireEvent.click(screen.getByRole('button', { name: 'More' }));
-		await pasteIn();
+		// Named for what it does here (#175), and the empty recipe's card is gone.
+		expect(
+			screen.queryByRole('button', { name: 'Paste it, Kamosu sorts it out' }),
+		).not.toBeInTheDocument();
+		await pasteIn(undefined, 'Replace with pasted text');
 
 		// The three ingredients and two steps of Dan Dan Noodles, named before
 		// they go.
 		expect(screen.getByText(/replaces the 3 ingredients and 2 steps here/)).toBeInTheDocument();
 		expect(reads(kamosu)).toHaveLength(1);
+	});
+
+	// #175: the quiet outlined button became a card with the page's one filled
+	// button, and a name that says Kamosu sorts the text out.
+	it('offers pasting on an empty recipe as a card saying what Kamosu does with it', async () => {
+		renderWriting(WITH_HEADINGS, true, [], { ...empty(), title: 'Tuesday supper' });
+		expect(
+			await screen.findByRole('heading', { name: 'Have the recipe as text already?' }),
+		).toBeVisible();
+		expect(screen.getByText(/Kamosu sorts it into title, ingredients and method/)).toBeVisible();
+		expect(screen.getByRole('button', { name: 'Paste it, Kamosu sorts it out' })).toBeVisible();
+		expect(screen.getByText('or fill it in yourself below')).toBeVisible();
+		// Nothing to replace, so nothing under `⋯`.
+		expect(screen.queryByRole('button', { name: 'More' })).not.toBeInTheDocument();
 	});
 
 	it('says the title goes too, on a recipe that is only a title', async () => {
@@ -1285,7 +1361,7 @@ describe('pasting a whole recipe', () => {
 			[],
 			empty(),
 		);
-		await fireEvent.click(screen.getByRole('button', { name: 'Paste a whole recipe' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Paste it, Kamosu sorts it out' }));
 		const field = await screen.findByRole('textbox', { name: 'The recipe, pasted as text' });
 		await fireEvent.input(field, { target: { value: 'something' } });
 		await fireEvent.click(screen.getByRole('button', { name: 'Read it' }));

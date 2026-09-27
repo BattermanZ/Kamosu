@@ -1,6 +1,7 @@
 /**
- * The three ways a new recipe starts, written once (#174): a web page, a
- * Bundle somebody sent you (a Kamosu zip file, ADR 0020), and a title you type yourself.
+ * The ways a new recipe starts, written once (#174): a web page, a Bundle
+ * somebody sent you (a Kamosu zip file, ADR 0020), a title you type yourself,
+ * and a whole recipe pasted as text (#175).
  *
  * Two places offer them. The + beside the search box offers all three every
  * day, and the dead ends `AddOrImport` draws (a search that matched nothing,
@@ -24,8 +25,9 @@ import { OperationError } from '$lib/api/client';
 import { StillRunning, waitForJob } from '$lib/api/job';
 import { receiveStaged } from '$lib/receive';
 import type { ImportWebLinkOutput, KamosuClient } from '$lib/api/catalogue';
+import { holdPaste, type PastedDraft } from '$lib/pasted.svelte';
 
-export type Act = 'link' | 'file' | 'write';
+export type Act = 'link' | 'file' | 'write' | 'paste';
 
 export class Adding {
 	/** The act running now, or none. Every button offering an act quiets while one runs. */
@@ -90,6 +92,22 @@ export class Adding {
 		});
 
 	/**
+	 * A pasted recipe, already read and checked (#175). The recipe is made from
+	 * its title alone, like writing one, and opens on its writing screen with
+	 * the lines filled in and NOT saved: they wait for Save, as a paste made
+	 * on that screen does (#83). Nothing about the lines can be refused here,
+	 * so only the title's refusal is this act's to say.
+	 */
+	paste = (title: string, draft: PastedDraft) =>
+		this.#run('paste', async () => {
+			if (title.trim() === '') return undefined;
+			const made = await this.#kamosu.createRecipe({ title: title.trim() });
+			holdPaste(made.branch_id, { ...draft, title: title.trim() });
+			await goto(`/recipes/${made.branch_id}`);
+			return undefined;
+		});
+
+	/**
 	 * Every act starts and ends through here. An act answers the sentence to
 	 * say where it was asked when nothing landed, or nothing once it has gone
 	 * to the recipe.
@@ -109,11 +127,12 @@ export class Adding {
 			this.failed = await perform();
 		} catch (error) {
 			if (!(error instanceof Error)) throw error;
-			// Writing is one Operation and no Job, so only a refusal is its to
-			// say; anything else is a Mistake for the layers that catch those.
+			// Writing and pasting are one Operation each and no Job, so only a
+			// refusal is theirs to say; anything else is a Mistake for the
+			// layers that catch those.
 			// Kept here rather than in `write`, so every act leaves `working`
 			// the same way.
-			if (act === 'write' && !(error instanceof OperationError)) throw error;
+			if ((act === 'write' || act === 'paste') && !(error instanceof OperationError)) throw error;
 			if (error instanceof StillRunning) this.stillGoing = true;
 			else this.failed = error.message;
 		} finally {

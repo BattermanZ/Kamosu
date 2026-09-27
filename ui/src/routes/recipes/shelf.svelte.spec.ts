@@ -18,7 +18,7 @@ import Recipes from './+page.svelte';
 import { standIn } from '$lib/api/stand-in';
 import { renderScreen } from '../../testing/render';
 import ShelfTestHarness from './ShelfTestHarness.svelte';
-import type { MeaningSearchStatusOutput } from '$lib/api/catalogue';
+import type { MeaningSearchStatusOutput, ReadPastedRecipeOutput } from '$lib/api/catalogue';
 import {
 	cookbookLabel,
 	kitchenAnswer,
@@ -26,6 +26,7 @@ import {
 	serverAnsweredSearchesOtherwise,
 } from '../../testing/recipes';
 import { went } from '../../testing/navigation';
+import { takePaste } from '$lib/pasted.svelte';
 
 const kitchen = kitchenAnswer('k_home', {
 	name: 'Maison',
@@ -962,7 +963,7 @@ describe('the + for every new recipe (#174)', () => {
 		return plus;
 	}
 
-	it('is there with a full library and no search, and offers the three sources', async () => {
+	it('is there with a full library and no search, and offers the four sources', async () => {
 		renderScreen(Recipes, fullShelf);
 		await screen.findByText('Chicken katsu curry');
 
@@ -970,6 +971,12 @@ describe('the + for every new recipe (#174)', () => {
 		expect(screen.getByRole('button', { name: /From a link/ })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /From a Kamosu zip file/ })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /Write it yourself/ })).toBeInTheDocument();
+		// The fourth, from #175: pasted text, before any recipe page exists.
+		expect(
+			screen.getByRole('button', {
+				name: /From pasted text.*Kamosu sorts it into title, ingredients and method/,
+			}),
+		).toBeInTheDocument();
 		// The quiet row #93 put above the shelf is gone, replaced by this.
 		expect(screen.queryByText('Add a recipe from a link')).not.toBeInTheDocument();
 	});
@@ -991,6 +998,105 @@ describe('the + for every new recipe (#174)', () => {
 		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_new'));
 		const asked = kamosu.calls.find((call) => call.operation === 'create_recipe');
 		expect(asked?.input).toEqual({ title: 'Chicken curry' });
+	});
+
+	/** A lemon loaf as `read_pasted_recipe` answers it: a title, a heading, and the split. */
+	const LEMON_LOAF: ReadPastedRecipeOutput = {
+		title: 'Lemon drizzle loaf',
+		lines: [
+			{ kind: 'line', text: '225g butter, softened' },
+			{ kind: 'line', text: '4 eggs' },
+			{ kind: 'section', text: 'For the drizzle' },
+			{ kind: 'line', text: '1½ lemons, juiced' },
+			{ kind: 'line', text: 'Beat the butter and sugar until pale.' },
+			{ kind: 'line', text: 'Pour the drizzle over the warm cake.' },
+		],
+		boundary: 4,
+	};
+
+	async function pasteThroughThePlus(text = 'Lemon drizzle loaf\n225g butter…') {
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+		const field = screen.getByLabelText('The recipe, pasted as text');
+		await fireEvent.input(field, { target: { value: text } });
+		await fireEvent.submit(field.closest('form')!);
+		return screen.findByRole('dialog', { name: 'From pasted text' });
+	}
+
+	// #175, Aurélien's choice: pasted text is a fourth source, so the recipe
+	// is made from the text rather than from a title somebody makes up first.
+	it('reads pasted text, shows what it made, and makes the recipe from it unsaved', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			...fullShelf,
+			read_pasted_recipe: LEMON_LOAF,
+			create_recipe: made,
+		});
+
+		const sheet = await pasteThroughThePlus();
+		expect(kamosu.calls.find((call) => call.operation === 'read_pasted_recipe')?.input).toEqual({
+			text: 'Lemon drizzle loaf\n225g butter…',
+		});
+		expect(sheet).toHaveTextContent('3 ingredients and 2 steps.');
+		expect(screen.getByLabelText('Title')).toHaveValue('Lemon drizzle loaf');
+		expect(sheet).toHaveTextContent('Nothing is saved until you save.');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Make this recipe' }));
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_new'));
+		// Made from its title alone; the lines wait on the writing screen for Save.
+		expect(kamosu.calls.find((call) => call.operation === 'create_recipe')?.input).toEqual({
+			title: 'Lemon drizzle loaf',
+		});
+		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
+		expect(takePaste('b_new')).toEqual({
+			title: 'Lemon drizzle loaf',
+			ingredients: [
+				{ kind: 'ingredient', text: '225g butter, softened' },
+				{ kind: 'ingredient', text: '4 eggs' },
+				{ kind: 'section', text: 'For the drizzle' },
+				{ kind: 'ingredient', text: '1½ lemons, juiced' },
+			],
+			steps: [
+				{ kind: 'step', text: 'Beat the butter and sugar until pale.' },
+				{ kind: 'step', text: 'Pour the drizzle over the warm cake.' },
+			],
+		});
+		// Taken once: a reload later opens the recipe as it is saved.
+		expect(takePaste('b_new')).toBeUndefined();
+	});
+
+	it('asks for a title when the paste carried none, before anything is made', async () => {
+		const { kamosu } = renderScreen(Recipes, {
+			...fullShelf,
+			read_pasted_recipe: { ...LEMON_LOAF, title: null },
+			create_recipe: made,
+		});
+
+		const sheet = await pasteThroughThePlus();
+		expect(sheet).toHaveTextContent('No title in it, so give it one here.');
+		const make = screen.getByRole('button', { name: 'Make this recipe' });
+		expect(make).toBeDisabled();
+
+		await fireEvent.input(screen.getByLabelText('Title'), { target: { value: 'Lemon loaf' } });
+		await fireEvent.click(make);
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_new'));
+		expect(kamosu.calls.find((call) => call.operation === 'create_recipe')?.input).toEqual({
+			title: 'Lemon loaf',
+		});
+		expect(takePaste('b_new')?.title).toBe('Lemon loaf');
+	});
+
+	it('says why the paste could not be read, where it was pasted', async () => {
+		renderScreen(Recipes, {
+			...fullShelf,
+			read_pasted_recipe: { refuse: 'bad_request', message: 'too long' },
+		});
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+		const field = screen.getByLabelText('The recipe, pasted as text');
+		await fireEvent.input(field, { target: { value: 'something' } });
+		await fireEvent.submit(field.closest('form')!);
+		expect(await screen.findByRole('alert')).toHaveTextContent('too long');
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 	});
 
 	it('says why writing was refused, where the title was typed', async () => {

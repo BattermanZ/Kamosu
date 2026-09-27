@@ -115,6 +115,9 @@
 	import { copySaid, type Whose } from '$lib/cookbook';
 	import Cover from '$lib/cover/Cover.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
+	import PasteCheck from '$lib/PasteCheck.svelte';
+	import { drafted as splitPaste, readPasted } from '$lib/pasted.svelte';
+	import { joined, split } from '$lib/duration';
 
 	type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -236,10 +239,15 @@
 	let title = $state(content.title);
 	// svelte-ignore state_referenced_locally
 	let mainPhoto = $state<string | null>(content.main_photo);
+	/**
+	 * Each time is two boxes, hours and minutes (#175): a 9-hour prove is `9`
+	 * in the hours box, and nobody works out that it is 540 minutes. What is
+	 * saved is still whole minutes, joined on the way out.
+	 */
 	// svelte-ignore state_referenced_locally
-	let prep = $state(content.prep_time_minutes === null ? '' : String(content.prep_time_minutes));
+	const prep = $state(split(content.prep_time_minutes));
 	// svelte-ignore state_referenced_locally
-	let cook = $state(content.cook_time_minutes === null ? '' : String(content.cook_time_minutes));
+	const cook = $state(split(content.cook_time_minutes));
 	// svelte-ignore state_referenced_locally
 	let yieldAmount = $state(content.yield?.amount ?? '');
 	// svelte-ignore state_referenced_locally
@@ -337,13 +345,9 @@
 	// (#83): paste a whole recipe, and Kamosu says what it made of it BEFORE
 	// anything lands. The engine is `read_pasted_recipe`, an Operation rather
 	// than a second parser in a second language — it rests on `reading.rs`,
-	// whose Unit vocabulary is `units.rs`'s in three Languages.
-	//
-	// THE GUESS IS NEVER APPLIED SILENTLY. Measured on the real 86-recipe
-	// export, the boundary lands exactly on 77.5% of recipes and within one
-	// line on 95%. The 5% is why this sheet exists at all: it names the
-	// counts, draws the split, and lets it be moved. A parser right four
-	// times in five and silent the fifth is worse than one that says so.
+	// whose Unit vocabulary is `units.rs`'s in three Languages. What it made is
+	// drawn by `PasteCheck`, which holds why the guess is never applied
+	// silently.
 	//
 	// NOTHING IS SAVED HERE. Using a paste fills the fields on this page and
 	// stops. The save is the ordinary save underneath, which still states
@@ -367,15 +371,6 @@
 	/** Whether this recipe already holds something a paste would replace. */
 	const holdsSomething = $derived(lines.length > 0 || steps.length > 0);
 
-	/** How many lines the paste holds, readable from a callback that runs later. */
-	const pastedLines = $derived(pasted?.lines.length ?? 0);
-	const above = $derived(pasted ? pasted.lines.slice(0, boundary) : []);
-	const below = $derived(pasted ? pasted.lines.slice(boundary) : []);
-	/** The counts the sheet names — a Section is neither an ingredient nor a step. */
-	const countOf = (rows: { kind: string }[]) => rows.filter((row) => row.kind === 'line').length;
-	const sectionsIn = (rows: { kind: string }[]) =>
-		rows.filter((row) => row.kind === 'section').length;
-
 	/**
 	 * **What using this paste would overwrite.** A recipe made by
 	 * `create_recipe` holds a title and two empty lists, so the lists alone do
@@ -396,49 +391,34 @@
 	}
 
 	async function readPaste() {
-		if (pasteText.trim() === '') {
-			pasteFailed = m.write_paste_nothing();
-			return;
-		}
 		reading = true;
 		pasteFailed = undefined;
 		try {
-			const answer = await kamosu.readPastedRecipe({ text: pasteText });
-			if (answer.lines.length === 0) {
-				pasteFailed = m.write_paste_nothing();
+			const answer = await readPasted(kamosu, pasteText);
+			if (typeof answer === 'string') {
+				pasteFailed = answer;
 			} else {
 				pasted = answer;
 				boundary = answer.boundary;
 			}
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			pasteFailed = error.message;
+		} finally {
+			reading = false;
 		}
-		reading = false;
 	}
 
-	/**
-	 * Put the paste onto the page. The two kinds map straight across — a
-	 * heading is a Section in whichever list it landed in — and every line
-	 * goes in exactly as it came back (ADR 0002).
-	 */
+	/** Put the paste onto the page, split where the sheet last put the method's start. */
 	function usePaste() {
 		if (!pasted) return;
-		if (pasted.title !== null && pasted.title.trim() !== '') title = pasted.title;
-		lines = above.map((row) => ({
+		const draft = splitPaste(pasted, boundary);
+		if (draft.title !== null) title = draft.title;
+		lines = draft.ingredients.map((row) => ({
 			id: id(),
-			kind: row.kind === 'section' ? ('section' as const) : ('ingredient' as const),
-			text: row.text,
+			...row,
 			// A pasted line naming a recipe on the shelf is an ordinary
 			// Ingredient Line until somebody says otherwise (ADR 0008).
 			namedRecipe: null,
 		}));
-		steps = below.map((row) => ({
-			id: id(),
-			kind: row.kind === 'section' ? ('section' as const) : ('step' as const),
-			text: row.text,
-			photo: null,
-		}));
+		steps = draft.steps.map((row) => ({ id: id(), ...row, photo: null }));
 		cursor = null;
 		pasteOpen = false;
 		pasted = null;
@@ -738,10 +718,10 @@
 
 	/** A field left blank is a field with nothing in it, never an empty string. */
 	const orNothing = (value: string) => (value.trim() === '' ? null : value.trim());
-	/** Whole minutes, or nothing. A word where a number goes is nothing. */
-	const minutes = (value: string) => {
-		const n = Number.parseInt(value.trim(), 10);
-		return value.trim() === '' || Number.isNaN(n) || n < 0 ? null : n;
+	/** A time's two boxes as whole minutes, or nothing. `wrong` never gets this far. */
+	const minutes = (time: { hours: string; minutes: string }) => {
+		const total = joined(time.hours, time.minutes);
+		return total === 'wrong' ? null : total;
 	};
 	/**
 	 * The Nutrition figure in kcal, or nothing. Not whole, unlike minutes: the
@@ -761,7 +741,7 @@
 	/**
 	 * What cannot be saved as typed, in words. A Yield is one amount AND one
 	 * noun — `4` on its own says nothing and the Catalogue will not carry it —
-	 * and a time is whole minutes. Both were being dropped in silence, which
+	 * and a time is whole hours and minutes. Both were being dropped in silence, which
 	 * loses something somebody typed on purpose.
 	 */
 	const wrong = $derived.by(() => {
@@ -769,11 +749,11 @@
 		const noun = yieldNoun.trim();
 		if (title.trim() === '') return m.write_needs_title();
 		if ((amount === '') !== (noun === '')) return m.write_needs_both_yield();
-		for (const [value, label] of [
-			[prep, m.recipe_min_prep()],
-			[cook, m.recipe_min_cook()],
+		for (const [time, label] of [
+			[prep, m.write_prep_time()],
+			[cook, m.write_cook_time()],
 		] as const) {
-			if (value.trim() !== '' && minutes(value) === null) {
+			if (joined(time.hours, time.minutes) === 'wrong') {
 				return m.write_needs_minutes({ field: label });
 			}
 		}
@@ -1015,6 +995,9 @@
 	const HEADING_FIELD =
 		'block w-full resize-none rounded-sm border border-rule bg-card px-2 py-1 text-label text-ink-2 uppercase';
 	const SMALL = 'min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body text-ink';
+	/** A time's hours or minutes box: SMALL, narrower inside, since two share half a phone. */
+	const TIME_BOX =
+		'min-h-12 w-full min-w-0 rounded-sm border border-rule bg-card px-2 text-body text-ink';
 	const QUIET = 'rounded-sm border border-rule px-2 py-1 text-read text-ink-2';
 	/**
 	 * The way in to the library, in matcha — the colour of a Reading that points
@@ -1047,7 +1030,8 @@
 			The way in to a paste, once the page holds something (#83). Pasting
 			over a recipe REPLACES it, so it does not sit in the open beside
 			*Add a line*; it sits under `⋯`, and the sheet says what it replaces
-			before it does it.
+			before it does it. Its name says so too (#175): "Replace with
+			pasted text", not the offer's own words.
 		-->
 		{#if holdsSomething}
 			<div class="relative">
@@ -1067,7 +1051,7 @@
 							class="block w-full px-2 py-2 text-start text-body text-accent"
 							onclick={openPaste}
 						>
-							{m.write_paste_offer()}
+							{m.write_paste_replace()}
 						</button>
 					</div>
 				{/if}
@@ -1086,14 +1070,23 @@
 	<!--
 		And in the open on a recipe that holds nothing yet, which is when you
 		actually have one as text and there is nothing to lose by pasting it.
+		A card with the page's one filled button (#175, Aurélien's option 1):
+		it was a quiet outlined button before, easy to miss, and its name said
+		"paste" but not that Kamosu sorts the text out for you.
 	-->
 	{#if !holdsSomething}
-		<div class="border-b border-rule px-gutter py-2">
-			<button type="button" class="{QUIET} w-full text-accent" onclick={openPaste}>
+		<div class="mx-gutter mt-3 rounded-sm border border-accent bg-card p-4">
+			<h2 class="font-display text-body font-semibold text-ink">{m.write_paste_card_title()}</h2>
+			<p class="mt-1 text-read text-ink-2">{m.write_paste_card_body()}</p>
+			<button
+				type="button"
+				class="mt-3 block w-full rounded-sm bg-accent p-4 text-center font-display text-body text-on-accent"
+				onclick={openPaste}
+			>
 				{m.write_paste_offer()}
 			</button>
-			<p class="pt-2 text-read text-ink-2">{m.write_paste_hint()}</p>
 		</div>
+		<p class="mt-2 mb-3 text-center text-read text-ink-2">{m.write_paste_or_yourself()}</p>
 	{/if}
 
 	<!-- The hero, and the title typed onto it — #81's layout, made writable. -->
@@ -1143,36 +1136,49 @@
 		<p class="px-gutter pt-2 text-read text-support" role="alert">{m.write_photo_failed()}</p>
 	{/if}
 
-	<!-- The facts: #81's one strip of three cells, each a field, each able to
-	     stay empty. The reading page's idiom, not a second one. -->
-	<div class="flex border-y border-rule">
-		<label class="flex-1 border-l border-rule p-2 first:border-l-0">
-			<span class="block text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
-			<input
-				bind:value={prep}
-				inputmode="numeric"
-				aria-label={m.write_prep_label()}
-				class={SMALL}
-			/>
-		</label>
-		<label class="flex-1 border-l border-rule p-2 first:border-l-0">
-			<span class="block text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
-			<input
-				bind:value={cook}
-				inputmode="numeric"
-				aria-label={m.write_cook_label()}
-				aria-describedby={cookHintId}
-				class={SMALL}
-			/>
-		</label>
-		<div class="flex flex-1 flex-col gap-1 border-l border-rule p-2 first:border-l-0">
-			<input
-				bind:value={yieldAmount}
-				inputmode="numeric"
-				aria-label={m.write_yield_amount()}
-				class={SMALL}
-			/>
-			<input bind:value={yieldNoun} aria-label={m.write_yield_noun()} class={SMALL} />
+	<!--
+		The facts (#175, Aurélien's option A): #81's strip, in two rows now so
+		real labels fit on a phone. Every field is named by words on the screen,
+		not by an `aria-label` only a screen reader hears. The reading page's
+		"min prep" read as nonsense here, above an empty box, and the yield was
+		two boxes with no name at all (2026-09-26).
+
+		Each time is two boxes, hours and minutes, because a time can be either
+		and nobody should work out that 9 hours is 540 minutes. Each box is named
+		by the time's label AND its unit, `Prep time h`, both drawn beside it.
+	-->
+	<div class="border-y border-rule">
+		<div class="flex">
+			{@render time(prep, m.write_prep_time(), 'prep')}
+			{@render time(cook, m.write_cook_time(), 'cook', cookHintId)}
+		</div>
+		<div class="border-t border-rule p-2">
+			<span id="{uid}-makes" class="block text-label text-ink-2 uppercase">{m.write_makes()}</span>
+			<div class="mt-1 flex gap-2">
+				<div class="w-[5.5rem] shrink-0">
+					<input
+						bind:value={yieldAmount}
+						inputmode="numeric"
+						placeholder={m.write_makes_amount_example()}
+						aria-labelledby="{uid}-makes {uid}-makes-amount"
+						class={SMALL}
+					/>
+					<span id="{uid}-makes-amount" class="mt-1 block text-read text-ink-2">
+						{m.write_makes_amount()}
+					</span>
+				</div>
+				<div class="min-w-0 flex-1">
+					<input
+						bind:value={yieldNoun}
+						placeholder={m.write_makes_noun_example()}
+						aria-labelledby="{uid}-makes {uid}-makes-noun"
+						class={SMALL}
+					/>
+					<span id="{uid}-makes-noun" class="mt-1 block text-read text-ink-2">
+						{m.write_makes_noun()}
+					</span>
+				</div>
+			</div>
 		</div>
 	</div>
 	<!-- An overnight prove is cook time, or the quick tonight shelf suggests the
@@ -1462,7 +1468,7 @@
 {#if pasteOpen}
 	<div class="fixed inset-0 z-40 bg-accent/40"></div>
 	<div
-		class="py-5 fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[85vh] max-w-2xl overflow-y-auto bg-ground px-gutter pb-safe"
+		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[85vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
 		role="dialog"
 		aria-modal="true"
 		aria-label={m.write_paste_offer()}
@@ -1489,55 +1495,13 @@
 				{reading ? m.write_paste_reading() : m.write_paste_read()}
 			</button>
 		{:else}
-			<!-- What it made of it: the title, the counts, and the split drawn. -->
+			<!-- What it made of it: the title, then the counts and the split, drawn by PasteCheck. -->
 			<p class="mt-2 text-body">
 				{pasted.title === null || pasted.title.trim() === ''
 					? m.write_paste_no_title()
 					: m.write_paste_found_title({ title: pasted.title })}
 			</p>
-			<p class="mt-1 text-read text-ink-2">
-				{m.write_paste_made({ ingredients: countOf(above), steps: countOf(below) })}
-				{#if sectionsIn(pasted.lines) > 0}
-					{m.write_paste_headings({ headings: sectionsIn(pasted.lines) })}
-				{/if}
-			</p>
-
-			<div class="mt-3 flex items-center gap-2">
-				<span class="flex-1 text-label text-ink-2 uppercase">{m.write_paste_boundary()}</span>
-				<button
-					type="button"
-					class={QUIET}
-					disabled={boundary === 0}
-					onclick={() => (boundary = Math.max(0, boundary - 1))}
-				>
-					{m.write_paste_earlier()}
-				</button>
-				<button
-					type="button"
-					class={QUIET}
-					disabled={boundary >= pastedLines}
-					onclick={() => (boundary = Math.min(pastedLines, boundary + 1))}
-				>
-					{m.write_paste_later()}
-				</button>
-			</div>
-
-			<!--
-				Every line, in the order it was pasted, on the side it landed.
-				Each one takes the split itself, so a boundary eight lines out is
-				one tap rather than eight — and the row is a real button, so it
-				is reachable from a keyboard.
-			-->
-			<h3 class="mt-4 font-display text-label font-semibold text-accent uppercase">
-				{m.recipe_ingredients()}
-			</h3>
-			{@render pasteRows(above, 0, m.write_empty_ingredients())}
-			<h3
-				class="mt-3 border-t border-rule pt-3 font-display text-label font-semibold text-accent uppercase"
-			>
-				{m.recipe_method()}
-			</h3>
-			{@render pasteRows(below, boundary, m.write_empty_steps())}
+			<PasteCheck {pasted} bind:boundary />
 
 			<p class="mt-4 text-read {holdsSomething || replacesTitle ? 'text-support' : 'text-ink-2'}">
 				{#if holdsSomething}
@@ -1574,26 +1538,34 @@
 	</div>
 {/if}
 
-{#snippet pasteRows(rows: ReadPastedRecipeOutput['lines'], from: number, empty: string)}
-	{#if rows.length === 0}
-		<p class="py-1 text-read text-ink-2">{empty}</p>
-	{/if}
-	<ul>
-		{#each rows as row, index (from + index)}
-			<li>
-				<button
-					type="button"
-					aria-label={m.write_paste_start_here()}
-					class="block w-full border-b border-rule py-1 text-start {row.kind === 'section'
-						? 'text-label text-ink-2 uppercase'
-						: 'text-line text-ink'}"
-					onclick={() => (boundary = from + index)}
-				>
-					{row.text}
-				</button>
-			</li>
-		{/each}
-	</ul>
+{#snippet time(
+	value: { hours: string; minutes: string },
+	label: string,
+	key: string,
+	/** The line beneath the strip that says what goes in this time, if one does. */
+	hint?: string,
+)}
+	<div class="min-w-0 flex-1 border-l border-rule p-2 first:border-l-0">
+		<span id="{uid}-{key}" class="block text-label text-ink-2 uppercase">{label}</span>
+		<div class="mt-1 flex items-center gap-1">
+			<input
+				bind:value={value.hours}
+				inputmode="numeric"
+				aria-labelledby="{uid}-{key} {uid}-{key}-h"
+				aria-describedby={hint}
+				class={TIME_BOX}
+			/>
+			<span id="{uid}-{key}-h" class="text-read text-ink-2">{m.time_unit_hours()}</span>
+			<input
+				bind:value={value.minutes}
+				inputmode="numeric"
+				aria-labelledby="{uid}-{key} {uid}-{key}-min"
+				aria-describedby={hint}
+				class={TIME_BOX}
+			/>
+			<span id="{uid}-{key}-min" class="text-read text-ink-2">{m.time_unit_minutes()}</span>
+		</div>
+	</div>
 {/snippet}
 
 <!--
@@ -1605,7 +1577,7 @@
 {#if asking}
 	<div class="fixed inset-0 z-40 bg-accent/40"></div>
 	<div
-		class="py-5 fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pb-safe"
+		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
 		role="dialog"
 		aria-modal="true"
 		aria-label={act.called}

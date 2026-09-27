@@ -158,6 +158,8 @@
 	import { said, same, toSearch, type Wanted } from '$lib/how-much';
 	import { useLibrary } from '$lib/offline/library.svelte';
 	import { keptAt } from '$lib/offline/reads';
+	import { figureOf, timeText, unitWord } from '$lib/duration';
+	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
 	import { standing } from '$lib/offline/standing.svelte';
 	import {
 		prose,
@@ -337,6 +339,19 @@
 	 * chose: no second route, no compose screen.
 	 */
 	let writing = $state(false);
+	/**
+	 * A paste the + on Recipes read and made this recipe from (#175). The
+	 * recipe holds only its title; the lines wait here, on the writing screen,
+	 * for Save, the way a paste made on that screen does (#83).
+	 */
+	let pastedDraft = $state<PastedDraft | undefined>(undefined);
+	$effect(() => {
+		if (!recipe || !content || writing) return;
+		const draft = takePaste(branchId);
+		if (!draft) return;
+		pastedDraft = draft;
+		writing = true;
+	});
 	/**
 	 * What the last save did, said HERE rather than on the writing screen:
 	 * saving closes that screen, so anything it drew would be destroyed before
@@ -1165,6 +1180,16 @@
 	 * The marking covers the whole recipe, not only the two lists (ADR 0019):
 	 * a Title renamed or a Yield halved is a difference a cook needs to see.
 	 */
+	/**
+	 * A marked value in words. The two times are minutes, so they read with
+	 * their unit, `1 h 30`, as they do in the strip (#175); everything else is
+	 * `fieldText`'s.
+	 */
+	function markText(name: keyof DivergenceOutput['fields'], value: unknown): string {
+		const time = name === 'prep_time_minutes' || name === 'cook_time_minutes';
+		return time && typeof value === 'number' ? timeText(value) : fieldText(value);
+	}
+
 	function markOf(name: keyof DivergenceOutput['fields']): string | null {
 		if (!marking || !divergence) return null;
 		const field = divergence.fields[name];
@@ -1175,12 +1200,12 @@
 			// Their value is the page, so the mark says what YOURS has (#131):
 			// naming them beside your value would say something false about
 			// their recipe.
-			const value = fieldText(field.mine);
+			const value = markText(name, field.mine);
 			return name === 'note'
 				? m.divergence_field_note_yours({ value })
 				: m.divergence_field_yours({ value });
 		}
-		const value = fieldText(field.theirs);
+		const value = markText(name, field.theirs);
 		return name === 'note'
 			? m.divergence_field_note({ kitchen: otherKitchen, value })
 			: m.divergence_field_differs({ kitchen: otherKitchen, value });
@@ -1283,6 +1308,24 @@
 {/snippet}
 
 <!--
+	A time in the strip, with its unit in the figure: `15 min`, `1 h 30`, `9 h`
+	(#175, Aurélien's reading option 1). It printed the stored minutes bare
+	before, over "min prep", so a 9-hour prove read 540. The label beneath is
+	now only Prep or Cook, since the figure says its own unit.
+-->
+{#snippet timeFigure(minutes: number)}
+	<b class="block font-display text-panel-figure font-semibold">
+		{#each figureOf(minutes) as part, index (index)}
+			<span class={index > 0 ? 'ms-1' : ''}
+				>{part.value}{#if part.unit}<small class="ms-1 text-read font-normal"
+						>{unitWord(part.unit)}</small
+					>{/if}</span
+			>
+		{/each}
+	</b>
+{/snippet}
+
+<!--
 	Writing (#83). The page becomes writable in place, which is why this is a
 	swap on the same route and not a screen of its own: Aurélien chose that
 	over a separate compose screen, and a `/recipes/<id>/edit` route would be
@@ -1294,15 +1337,24 @@
 		{branchId}
 		lineageId={recipe.lineage_id}
 		whose={recipe}
-		{content}
+		content={pastedDraft
+			? {
+					...content,
+					title: pastedDraft.title ?? content.title,
+					ingredients: pastedDraft.ingredients,
+					steps: pastedDraft.steps.map((step) => ({ ...step, photo: null })),
+				}
+			: content}
 		components={recipe.versions.at(-1)?.components ?? []}
 		{translatingInto}
 		onCancel={() => {
 			writing = false;
+			pastedDraft = undefined;
 			translatingInto = undefined;
 		}}
 		onSaved={(landed) => {
 			writing = false;
+			pastedDraft = undefined;
 			const wasTranslating = translatingInto !== undefined;
 			translatingInto = undefined;
 			// A Translation is a Branch of its own, and the cook has just
@@ -1411,18 +1463,14 @@
 				<div class="mt-4 flex border-y border-rule">
 					{#if content.prep_time_minutes !== null}
 						<div class="flex-1 px-2 py-3 text-center">
-							<b class="block font-display text-panel-figure font-semibold">
-								{content.prep_time_minutes}
-							</b>
-							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_prep()}</span>
+							{@render timeFigure(content.prep_time_minutes)}
+							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_prep()}</span>
 						</div>
 					{/if}
 					{#if content.cook_time_minutes !== null}
 						<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
-							<b class="block font-display text-panel-figure font-semibold">
-								{content.cook_time_minutes}
-							</b>
-							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_min_cook()}</span>
+							{@render timeFigure(content.cook_time_minutes)}
+							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_cook()}</span>
 						</div>
 					{/if}
 					{#if content.yield}
@@ -2360,7 +2408,7 @@
 {#if saving && divergence}
 	<div class="fixed inset-0 z-40 bg-accent/40"></div>
 	<div
-		class="py-5 fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pb-safe"
+		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
 		role="dialog"
 		aria-modal="true"
 		aria-label={m.divergence_save()}

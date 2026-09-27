@@ -1,10 +1,11 @@
 <!--
 	The + at the end of the search box: one way in for every new recipe (#174).
 
-	Tapping it opens a small list hanging from it with three sources, and each
+	Tapping it opens a small list hanging from it with four sources, and each
 	one does its thing in place (ADR 0027): a link opens the address field under
 	the search row, a Bundle (a Kamosu zip file) opens the phone's own picker
-	straight away, and writing one asks for a title under the search row. The acts are
+	straight away, pasted text opens a box for it under the search row (#175,
+	Aurélien's choice), and writing one asks for a title under the search row. The acts are
 	`$lib/adding`'s, the same ones the dead ends below offer.
 
 	**The arrangement is Aurélien's, chosen on 27 September 2026** from two
@@ -19,11 +20,11 @@
 	It is small and always in the same place, and hiding it on exactly the
 	screen where adding is on your mind would be the stranger choice.
 
-	The list is a disclosure, not an ARIA menu: three ordinary buttons behind a
+	The list is a disclosure, not an ARIA menu: four ordinary buttons behind a
 	button that says whether it is open. A menu role promises arrow-key
-	behaviour, and three buttons in the tab order need none of it.
+	behaviour, and four buttons in the tab order need none of it.
 
-	**Offline all three wait for the server** and say so in their own row,
+	**Offline all four wait for the server** and say so in their own row,
 	greyed, as every act that needs it does (#76). None is queued: the outbox
 	keeps Attempts and the shopping list, never a new recipe (ADR 0013). The
 	rows are drawn here rather than with `NeedsServer`, whose button holds one
@@ -36,6 +37,7 @@
 	import { useAdding, type Act } from '$lib/adding/adding.svelte';
 	import AddressForm from '$lib/adding/AddressForm.svelte';
 	import TitleForm from '$lib/adding/TitleForm.svelte';
+	import PasteForm from '$lib/adding/PasteForm.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
 
@@ -82,6 +84,12 @@
 			icon: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
 		},
 		{
+			act: 'paste',
+			label: m.plus_paste,
+			why: m.plus_paste_why,
+			icon: 'M9 4h6v3H9zM8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2M8 12h8M8 16h5',
+		},
+		{
 			act: 'write',
 			label: m.plus_write,
 			why: m.plus_write_why,
@@ -94,6 +102,7 @@
 		link: m.offline_waits_import_link,
 		file: m.offline_waits_bring_in,
 		write: m.offline_waits_write,
+		paste: m.offline_waits_paste,
 	};
 </script>
 
@@ -191,7 +200,7 @@
 	<div class="mt-3 rounded-sm border border-rule bg-ground-2 p-3">
 		<div class="mb-2 flex items-baseline justify-between gap-3">
 			<h2 class="text-label text-ink-2 uppercase">
-				{showing === 'link' ? m.plus_link() : m.plus_write()}
+				{sources.find((source) => source.act === showing)?.label()}
 			</h2>
 			<button type="button" onclick={() => (showing = null)} class="text-read text-accent underline"
 				>{m.plus_cancel()}</button
@@ -199,6 +208,8 @@
 		</div>
 		{#if showing === 'link'}
 			<AddressForm {adding} />
+		{:else if showing === 'paste'}
+			<PasteForm {adding} />
 		{:else}
 			<TitleForm {adding} />
 		{/if}
@@ -208,4 +219,7 @@
 {#if adding.working === 'file'}
 	<p class="mt-2 text-read text-ink-2" role="status">{m.bring_in_file_working()}</p>
 {/if}
-<Said {adding} />
+<!-- A paste says its own refusal inside the sheet it was made from, over this. -->
+{#if showing !== 'paste'}
+	<Said {adding} />
+{/if}

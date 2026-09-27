@@ -22,6 +22,7 @@ import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
 import { cookbookLabel, threadBranch } from '../../../testing/recipes';
+import { holdPaste, takePaste } from '$lib/pasted.svelte';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
 // stand on. Where that goes is the router's business, not this screen's, so
@@ -674,7 +675,8 @@ describe('a Divergence', () => {
 		// something false about his recipe.
 		expect(screen.queryByText(/Chez Marc has 30/)).not.toBeInTheDocument();
 		expect(screen.getByText('Yours: Korean Fried Chicken')).toBeInTheDocument();
-		expect(screen.getByText(/Yours: 30/)).toBeInTheDocument();
+		// A time reads with its unit, as it does in the strip (#175).
+		expect(screen.getByText('Yours: 30 min')).toBeInTheDocument();
 		expect(screen.queryByText(/Chez Marc has Korean Fried Chicken/)).not.toBeInTheDocument();
 	});
 
@@ -1829,6 +1831,60 @@ describe('the recipe screen', () => {
 		expect(kamosu.calls.filter((call) => call.operation === 'get_recipe')).toHaveLength(1);
 	});
 
+	// #175, reading option 1: the unit moves into the figure, so a 9-hour
+	// prove reads 9 h rather than 540 over "min cook".
+	it('writes each time with its unit in the figure, in hours once it passes an hour', async () => {
+		renderRecipe(solo({ prep_time_minutes: 90, cook_time_minutes: 540 }));
+		const prep = (await screen.findByText('prep')).previousElementSibling;
+		const cook = screen.getByText('cook').previousElementSibling;
+		expect(prep).toHaveTextContent(/^1\s*h\s*30$/);
+		expect(cook).toHaveTextContent(/^9\s*h$/);
+		expect(screen.queryByText(/540/)).not.toBeInTheDocument();
+	});
+
+	// #175: the + on Recipes makes the recipe from its title and hands the
+	// pasted lines here, where they wait for Save like a paste made here does.
+	it('opens a recipe the + made from pasted text on its writing screen, filled and unsaved', async () => {
+		holdPaste('mine', {
+			title: 'Korean Fried Chicken',
+			ingredients: [
+				{ kind: 'section', text: 'Brine' },
+				{ kind: 'ingredient', text: '1 lemon' },
+			],
+			steps: [{ kind: 'step', text: 'Squeeze it over.' }],
+		});
+		const { kamosu } = renderRecipe(solo({ ingredients: [], steps: [] }));
+
+		expect(await screen.findByDisplayValue('1 lemon')).toBeInTheDocument();
+		expect(screen.getByDisplayValue('Brine')).toBeInTheDocument();
+		expect(screen.getByDisplayValue('Squeeze it over.')).toBeInTheDocument();
+		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
+		// Held once: nothing is waiting for this recipe any more.
+		expect(takePaste('mine')).toBeUndefined();
+	});
+
+	it('leaves a paste held for another recipe where it is', async () => {
+		const draft = {
+			title: 'Not this one',
+			ingredients: [{ kind: 'ingredient' as const, text: 'a stray line' }],
+			steps: [],
+		};
+		holdPaste('someone-else', draft);
+		renderRecipe(solo());
+
+		expect(await screen.findByRole('button', { name: 'Edit this recipe' })).toBeInTheDocument();
+		expect(screen.queryByDisplayValue('a stray line')).not.toBeInTheDocument();
+		expect(takePaste('someone-else')).toEqual(draft);
+	});
+
+	it('writes a time under an hour in minutes', async () => {
+		renderRecipe(solo({ prep_time_minutes: 20, cook_time_minutes: 5 }));
+		expect((await screen.findByText('prep')).previousElementSibling).toHaveTextContent(
+			/^20\s*min$/,
+		);
+		expect(screen.getByText('cook').previousElementSibling).toHaveTextContent(/^5\s*min$/);
+	});
+
 	it('reads whole with no photo, no Yield, no times, no Note and no Source', async () => {
 		renderRecipe(
 			solo({
@@ -1849,8 +1905,8 @@ describe('the recipe screen', () => {
 		expect(screen.getByRole('heading', { name: 'Korean Fried Chicken' })).toBeInTheDocument();
 
 		// Nothing is left standing empty where a field used to be.
-		expect(screen.queryByText(/min prep/i)).not.toBeInTheDocument();
-		expect(screen.queryByText(/min cook/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/^prep$/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/^cook$/i)).not.toBeInTheDocument();
 		expect(screen.queryByText(/^From /i)).not.toBeInTheDocument();
 	});
 
