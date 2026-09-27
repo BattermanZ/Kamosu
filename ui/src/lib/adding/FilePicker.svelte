@@ -1,6 +1,7 @@
 <!--
 	The file field a Bundle (a Kamosu zip file) is chosen with, opened by a button
-	somewhere else (#93).
+	somewhere else (#93), or a recipe PDF (#176): one field per kind, since each
+	offers the phone's picker only the files it can take.
 
 	A file cannot be chosen from a `<button>`, and the button has to be able to
 	say offline what it is waiting for (#76) rather than fail when pressed. So
@@ -23,9 +24,26 @@
 
 	interface Props {
 		adding: Adding;
+		/** What it picks. A Bundle unless said otherwise. */
+		kind?: 'bundle' | 'pdf';
 	}
 
-	let { adding }: Props = $props();
+	let { adding, kind = 'bundle' }: Props = $props();
+
+	/** What each kind offers the picker, calls itself, and does once chosen. */
+	const KINDS = {
+		bundle: {
+			accept: '.zip,application/zip',
+			label: m.bring_in_file_full,
+			take: (file: File) => adding.file(file),
+		},
+		pdf: {
+			accept: '.pdf,application/pdf',
+			label: m.plus_pdf_full,
+			take: (file: File) => adding.pdf(file),
+		},
+	};
+	const picks = $derived(KINDS[kind]);
 
 	let field = $state<HTMLInputElement | undefined>(undefined);
 
@@ -37,9 +55,9 @@
 
 <input
 	type="file"
-	accept=".zip,application/zip"
+	accept={picks.accept}
 	class="hidden"
-	aria-label={m.bring_in_file_full()}
+	aria-label={picks.label()}
 	aria-hidden="true"
 	tabindex="-1"
 	bind:this={field}
@@ -48,6 +66,6 @@
 		const file = event.currentTarget.files?.[0];
 		// Cleared at once, so choosing the same file twice is two choices.
 		event.currentTarget.value = '';
-		if (file) adding.file(file);
+		if (file) picks.take(file);
 	}}
 />

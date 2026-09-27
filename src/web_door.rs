@@ -655,6 +655,9 @@ fn error_body(err: &OpError) -> Value {
     if let Some(seconds) = err.retry_after_seconds {
         error["retry_after_seconds"] = json!(seconds);
     }
+    if let Some(reason) = err.reason {
+        error["reason"] = json!(reason);
+    }
     json!({ "ok": false, "error": error })
 }
 

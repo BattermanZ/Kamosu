@@ -30,6 +30,7 @@ pub mod meaning;
 pub mod operations;
 pub mod pairing;
 pub mod pasting;
+pub mod pdf;
 pub mod photographs;
 pub mod reading;
 pub mod schema;

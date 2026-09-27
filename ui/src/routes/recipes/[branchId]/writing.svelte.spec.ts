@@ -1143,6 +1143,7 @@ const WITH_HEADINGS = {
 			{ kind: 'line', text: 'Mix the sauce and pour it over the noodles.' },
 		],
 		boundary: 3,
+		note: null,
 	},
 } as Answers;
 
@@ -1156,6 +1157,7 @@ const NO_HEADINGS = {
 			{ kind: 'line', text: 'Heat the oven and butter a tin thoroughly.' },
 		],
 		boundary: 2,
+		note: null,
 	},
 } as Answers;
 
@@ -1195,6 +1197,26 @@ const reads = (kamosu: ReturnType<typeof standIn>) =>
 	kamosu.calls.filter((call) => call.operation === 'read_pasted_recipe');
 
 describe('pasting a whole recipe', () => {
+	// #176: what the paste said about the recipe goes to its note, after
+	// whatever the note already held, since nothing warned it would go.
+	it('puts what the paste said about the recipe in its note, after the note it had', async () => {
+		const withNote = {
+			read_pasted_recipe: {
+				...(WITH_HEADINGS.read_pasted_recipe as object),
+				note: 'Suggestions de service : une salade de fruits.',
+			},
+		} as Answers;
+		renderWriting(withNote, true, [], { ...empty(), note: 'From Grand-mère.' });
+		const use = await pasteIn();
+		expect(screen.getByRole('dialog')).toHaveTextContent(
+			'Suggestions de service : une salade de fruits.',
+		);
+		await fireEvent.click(use);
+
+		const note = screen.getByRole('textbox', { name: 'A note about this recipe' });
+		expect(note).toHaveValue('From Grand-mère.\n\nSuggestions de service : une salade de fruits.');
+	});
+
 	it('becomes a title, an ingredient list and a method, headings kept as Sections', async () => {
 		renderWriting(WITH_HEADINGS, true, [], empty());
 		await pasteIn();

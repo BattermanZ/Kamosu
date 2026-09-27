@@ -111,6 +111,15 @@ futures-util = { version = "0.3.34", default-features = false }
 typst = "0.15.1"
 typst-pdf = "0.15.1"
 typst-layout = "0.15.1"
+# Reads the text out of a recipe PDF (#176), and the behaviour suite reads a
+# Sheet's text back with it to assert what is on the page (#75). Chosen by
+# trying it, `lopdf` and `pdf_oxide` on the Biscuit de Savoie fixture and on
+# Chrome, LibreOffice and picture-only PDFs: lopdf put every bold run and every
+# bullet on a line of its own, and pdf_oxide ran a LibreOffice PDF's whole
+# ingredient list into one line. This one kept the lines, and wraps nothing it
+# is not asked to. It panics on some malformed files, which `src/pdf.rs`
+# contains.
+pdf-extract = "0.12.1"
 
 [features]
 # Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
@@ -120,9 +129,6 @@ typst-layout = "0.15.1"
 test-jobs = []
 
 [dev-dependencies]
-# Reads a Sheet's text back out of the PDF, so the behaviour suite can assert
-# what is on the page and what was left behind (#75).
-pdf-extract = "0.12.1"
 tempfile = "3.27.0"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
 

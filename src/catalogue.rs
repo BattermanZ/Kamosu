@@ -1088,38 +1088,47 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "required": ["text"],
                 "additionalProperties": false,
             }),
-            output_schema: json!({
+            output_schema: pasted_recipe_schema(),
+            handler: crate::operations::read_pasted_recipe,
+        },
+        Operation {
+            name: "read_recipe_pdf",
+            summary: "Read a recipe PDF — one printed from a web page or a \
+                      word processor — the way read_pasted_recipe reads \
+                      pasted text, and answer the same shape. A printed line \
+                      that wrapped is joined back into one, and the first \
+                      line is taken as the title. It writes nothing anywhere: \
+                      what comes back is shown to whoever sent the PDF, who \
+                      moves the boundary if it landed wrong, and only then is \
+                      a recipe saved by an ordinary create_recipe. A scan or \
+                      a photograph of a page holds no text and is refused \
+                      with reason `pdf_has_no_text`; text is never read out \
+                      of a picture. Send the file to POST /api/uploads and \
+                      pass the `upload_id` it answers, or pass it \
+                      base64-encoded as `data`.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
                 "type": "object",
                 "properties": {
-                    // The first line where it stands alone above a blank line,
-                    // or nothing. A guess, corrected by typing in the title.
-                    "title": { "type": ["string", "null"] },
-                    "lines": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "text": { "type": "string" },
-                                // A Section is a Section in either block, and
-                                // is spelt the way a recipe's own content
-                                // spells it, so a row goes onto the page as
-                                // itself. Every other line is an Ingredient
-                                // Line above the boundary and a Step below
-                                // it, which is the whole of why the boundary
-                                // can move without anything being read a
-                                // second time.
-                                "kind": { "enum": ["line", "section"] },
-                            },
-                            "required": ["text", "kind"],
-                            "additionalProperties": false,
-                        },
+                    "upload_id": {
+                        "type": "string",
+                        "description": "The id POST /api/uploads answered for the \
+                                         PDF. Used once, then deleted.",
                     },
-                    "boundary": { "type": "integer", "minimum": 0 },
+                    "data": {
+                        "type": "string",
+                        "description": "The PDF itself, base64-encoded — for a \
+                                         Door that can send only JSON.",
+                    },
                 },
-                "required": ["title", "lines", "boundary"],
                 "additionalProperties": false,
             }),
-            handler: crate::operations::read_pasted_recipe,
+            output_schema: pasted_recipe_schema(),
+            handler: crate::operations::read_recipe_pdf,
         },
         Operation {
             name: "start_translation",
@@ -4359,6 +4368,49 @@ fn import_input_schema() -> Value {
             },
         },
         "required": ["source_kind", "candidates"],
+        "additionalProperties": false,
+    })
+}
+
+/// What `read_pasted_recipe` and `read_recipe_pdf` both answer: a pasted
+/// recipe read into a title, its lines and where the method starts (#94,
+/// #176). One shape, so a PDF goes to the screen a paste already goes to.
+fn pasted_recipe_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            // The first line where it stands alone above a blank line (a
+            // PDF's first line, blank or none), or nothing. A guess,
+            // corrected by typing in the title.
+            "title": { "type": ["string", "null"] },
+            "lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "text": { "type": "string" },
+                        // A Section is a Section in either block, and
+                        // is spelt the way a recipe's own content
+                        // spells it, so a row goes onto the page as
+                        // itself. Every other line is an Ingredient
+                        // Line above the boundary and a Step below
+                        // it, which is the whole of why the boundary
+                        // can move without anything being read a
+                        // second time.
+                        "kind": { "enum": ["line", "section"] },
+                    },
+                    "required": ["text", "kind"],
+                    "additionalProperties": false,
+                },
+            },
+            "boundary": { "type": "integer", "minimum": 0 },
+            // What the paste said about the recipe rather than in it, every
+            // line as it came (#176): the block under `Description`, `Notes`
+            // or `Suggestions de service :`. It goes to the recipe's own
+            // note, and is in neither list.
+            "note": { "type": ["string", "null"] },
+        },
+        "required": ["title", "lines", "boundary", "note"],
         "additionalProperties": false,
     })
 }

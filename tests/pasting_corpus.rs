@@ -176,17 +176,23 @@ fn corpus() -> Option<Vec<Pasted>> {
 }
 
 /// Measured on 21 September 2026 against the 20 August 2026 export: the
-/// boundary is found **exactly in 77.5%** of the eighty recipes (62 of 80) and
-/// **within one line in 95.0%** (76 of 80). The floors sit two recipes under
-/// each, so this fails on a regression and never on a wobble.
+/// boundary was found **exactly in 77.5%** of the eighty recipes (62 of 80) and
+/// **within one line in 95.0%** (76 of 80).
+///
+/// Measured again on 27 September 2026, after #176 added headings known by
+/// name, bullets and notes, and moved a heading off the foot of the list:
+/// **exactly in 81.2%** (65 of 80) and **within one line in 95.0%** (76 of 80).
+/// #176 allowed those rules to raise the numbers and forbade them to lower
+/// them, so the floors are now the 21 September figures themselves rather than
+/// two recipes under them: falling back past either is the regression.
 ///
 /// The within-one figure is the one #94 set a bar for — 92%, what a throwaway
 /// fifteen-line scorer reached without `reading.rs` — and it clears it by four
 /// recipes. The four it misses by more than a line are named in the output:
 /// three have methods clipped short enough to read like a list, and one is a
 /// corrupt entry whose whole recipe is inside its title.
-const FOUND_EXACTLY: f64 = 0.75;
-const FOUND_WITHIN_ONE: f64 = 0.92;
+const FOUND_EXACTLY: f64 = 0.775;
+const FOUND_WITHIN_ONE: f64 = 0.95;
 
 #[test]
 #[ignore = "needs samples/crouton/, which is personal and gitignored"]
@@ -258,11 +264,13 @@ fn the_boundary_is_found_on_the_real_corpus() {
 /// than on the handful a unit test can hold. Nothing is reordered, nothing is
 /// dropped, and no amount is lifted out of a line (ADR 0002).
 ///
-/// The one repair allowed is the one every importer makes (#69): Crouton
+/// Two repairs are allowed. The one every importer makes (#69): Crouton
 /// scraped its pages without decoding them, so the real export carries
-/// `Noodles &amp; choi sum:`, and that is not what anybody typed. Comparing
-/// against the decoded text rather than skipping the check keeps the rule
-/// exact — any *other* change to a line fails here.
+/// `Noodles &amp; choi sum:`, and that is not what anybody typed. And the list
+/// marker in front of a line (#176), which marks a list item rather than being
+/// a word of it: `• 1 tablespoon soy sauce` comes back as `1 tablespoon soy
+/// sauce`. Comparing against the repaired text rather than skipping the check
+/// keeps the rule exact — any *other* change to a line fails here.
 #[test]
 #[ignore = "needs samples/crouton/, which is personal and gitignored"]
 fn every_line_of_the_real_corpus_arrives_as_it_was_pasted() {
@@ -278,6 +286,16 @@ fn every_line_of_the_real_corpus_arrives_as_it_was_pasted() {
             .skip(2)
             .filter(|line| !line.trim().is_empty())
             .map(kamosu::entities::decode_entities)
+            .map(|line| unbulleted(&line))
+            // A line about the recipe goes to its note (#176), and has arrived
+            // there rather than been dropped.
+            .filter(|line| {
+                !read
+                    .note
+                    .iter()
+                    .flat_map(|note| note.lines())
+                    .any(|kept| kept == line)
+            })
             .collect();
         let came_back: Vec<&str> = read.lines.iter().map(|row| row.text.as_str()).collect();
         assert_eq!(
@@ -288,4 +306,11 @@ fn every_line_of_the_real_corpus_arrives_as_it_was_pasted() {
         lines += came_back.len();
     }
     println!("{lines} real lines came back exactly as they were pasted");
+}
+
+/// A line without the list marker in front of it, written out here rather
+/// than borrowed from `pasting.rs`: a check that called the code it checks
+/// would agree with it whatever it did. The corpus holds only `• ` bullets.
+fn unbulleted(line: &str) -> String {
+    line.strip_prefix("• ").unwrap_or(line).to_string()
 }

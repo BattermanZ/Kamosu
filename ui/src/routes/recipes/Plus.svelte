@@ -1,12 +1,14 @@
 <!--
 	The + at the end of the search box: one way in for every new recipe (#174).
 
-	Tapping it opens a small list hanging from it with four sources, and each
+	Tapping it opens a small list hanging from it with five sources, and each
 	one does its thing in place (ADR 0027): a link opens the address field under
 	the search row, a Bundle (a Kamosu zip file) opens the phone's own picker
-	straight away, pasted text opens a box for it under the search row (#175,
-	Aurélien's choice), and writing one asks for a title under the search row. The acts are
-	`$lib/adding`'s, the same ones the dead ends below offer.
+	straight away, a PDF opens it too and raises the sheet a paste is checked
+	on (#176, a row of its own by Aurélien's choice on #174), pasted text opens
+	a box for it under the search row (#175, Aurélien's choice), and writing one
+	asks for a title under the search row. The acts are `$lib/adding`'s, the
+	same ones the dead ends below offer.
 
 	**The arrangement is Aurélien's, chosen on 27 September 2026** from two
 	options drawn over the real Recipes and Home screens (option 1, recorded on
@@ -20,11 +22,11 @@
 	It is small and always in the same place, and hiding it on exactly the
 	screen where adding is on your mind would be the stranger choice.
 
-	The list is a disclosure, not an ARIA menu: four ordinary buttons behind a
+	The list is a disclosure, not an ARIA menu: five ordinary buttons behind a
 	button that says whether it is open. A menu role promises arrow-key
-	behaviour, and four buttons in the tab order need none of it.
+	behaviour, and five buttons in the tab order need none of it.
 
-	**Offline all four wait for the server** and say so in their own row,
+	**Offline all five wait for the server** and say so in their own row,
 	greyed, as every act that needs it does (#76). None is queued: the outbox
 	keeps Attempts and the shopping list, never a new recipe (ADR 0013). The
 	rows are drawn here rather than with `NeedsServer`, whose button holds one
@@ -38,6 +40,7 @@
 	import AddressForm from '$lib/adding/AddressForm.svelte';
 	import TitleForm from '$lib/adding/TitleForm.svelte';
 	import PasteForm from '$lib/adding/PasteForm.svelte';
+	import PasteSheet from '$lib/adding/PasteSheet.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
 
@@ -55,8 +58,9 @@
 	/** Whether the list of sources is showing. */
 	let open = $state(false);
 	/** The source whose field is revealed under the search row, if any. */
-	let showing = $state<Exclude<Act, 'file'> | null>(null);
+	let showing = $state<Exclude<Act, 'file' | 'pdf'> | null>(null);
 	let picker = $state<FilePicker | undefined>(undefined);
+	let pdfPicker = $state<FilePicker | undefined>(undefined);
 	/** The + and its list, so a tap anywhere else can close the list. */
 	let anchor = $state<HTMLDivElement | undefined>(undefined);
 
@@ -65,6 +69,9 @@
 		if (act === 'file') {
 			showing = null;
 			picker?.open();
+		} else if (act === 'pdf') {
+			showing = null;
+			pdfPicker?.open();
 		} else {
 			showing = act;
 		}
@@ -84,6 +91,12 @@
 			icon: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
 		},
 		{
+			act: 'pdf',
+			label: m.plus_pdf,
+			why: m.plus_pdf_why,
+			icon: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4',
+		},
+		{
 			act: 'paste',
 			label: m.plus_paste,
 			why: m.plus_paste_why,
@@ -101,6 +114,7 @@
 	const waiting: Record<Act, () => string> = {
 		link: m.offline_waits_import_link,
 		file: m.offline_waits_bring_in,
+		pdf: m.offline_waits_pdf,
 		write: m.offline_waits_write,
 		paste: m.offline_waits_paste,
 	};
@@ -116,6 +130,7 @@
 />
 
 <FilePicker {adding} bind:this={picker} />
+<FilePicker {adding} kind="pdf" bind:this={pdfPicker} />
 
 <div class="flex items-stretch gap-2">
 	<div class="min-w-0 flex-1">{@render children()}</div>
@@ -218,8 +233,23 @@
 
 {#if adding.working === 'file'}
 	<p class="mt-2 text-read text-ink-2" role="status">{m.bring_in_file_working()}</p>
+{:else if adding.working === 'pdf'}
+	<p class="mt-2 text-read text-ink-2" role="status">{m.plus_pdf_working()}</p>
 {/if}
+
+<!-- A PDF, read, is checked on the sheet a paste is checked on (#176). -->
+{#if adding.fromPdf}
+	{#key adding.fromPdf}
+		<PasteSheet
+			{adding}
+			pasted={adding.fromPdf}
+			heading={m.plus_pdf()}
+			onback={() => (adding.fromPdf = null)}
+		/>
+	{/key}
+{/if}
+
 <!-- A paste says its own refusal inside the sheet it was made from, over this. -->
-{#if showing !== 'paste'}
+{#if showing !== 'paste' && !adding.fromPdf}
 	<Said {adding} />
 {/if}

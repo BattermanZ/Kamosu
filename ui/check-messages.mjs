@@ -27,6 +27,9 @@ const ALLOWED_LONGER = {
 	// The story's everyday card (#158): four features in one line, approved
 	// sentence by sentence by Aurélien on 25 September 2026.
 	story_10_said: 190,
+	// A scanned PDF's refusal (#176): why, and the two ways in that still
+	// work. Aurélien chose this wording word for word on 27 September 2026.
+	plus_pdf_no_text: 175,
 };
 
 const failures = [];

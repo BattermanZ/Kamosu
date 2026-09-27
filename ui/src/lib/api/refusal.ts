@@ -36,12 +36,19 @@ export class OperationError extends Error {
 	 * sign-in tried while its name still waits out wrong passwords (#138).
 	 */
 	readonly retryAfterSeconds: number | undefined;
+	/**
+	 * Which refusal this is, where the Core names it for a screen to say in
+	 * its own words: `pdf_has_no_text` for a scanned PDF (#176). The message
+	 * is the Core's English sentence, so a screen that knows the reason says
+	 * it in the reader's Language instead.
+	 */
+	readonly reason: string | undefined;
 
 	constructor(
 		operation: string,
 		kind: ErrorKind,
 		message: string,
-		options?: ErrorOptions & { reached?: boolean; retryAfterSeconds?: number },
+		options?: ErrorOptions & { reached?: boolean; retryAfterSeconds?: number; reason?: string },
 	) {
 		super(message, options);
 		this.name = 'OperationError';
@@ -49,5 +56,6 @@ export class OperationError extends Error {
 		this.operation = operation;
 		this.reached = options?.reached ?? true;
 		this.retryAfterSeconds = options?.retryAfterSeconds;
+		this.reason = options?.reason;
 	}
 }

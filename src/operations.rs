@@ -820,8 +820,13 @@ pub fn read_pasted_recipe(
         )));
     }
 
-    let paste = crate::pasting::read_paste(text);
-    Ok(serde_json::json!({
+    Ok(pasted_answer(&crate::pasting::read_paste(text)))
+}
+
+/// What both readers of a whole recipe answer, in the one shape the
+/// Catalogue declares for them.
+fn pasted_answer(paste: &crate::pasting::Paste) -> Value {
+    serde_json::json!({
         "title": paste.title,
         "lines": paste
             .lines
@@ -829,7 +834,93 @@ pub fn read_pasted_recipe(
             .map(|line| serde_json::json!({ "text": line.text, "kind": line.kind.as_str() }))
             .collect::<Vec<_>>(),
         "boundary": paste.boundary,
-    }))
+        "note": paste.note,
+    })
+}
+
+/// Read a recipe PDF into what `read_pasted_recipe` answers (#176), so it
+/// goes to the screen a paste already goes to. Writes nothing.
+///
+/// The file arrives the two ways `import_crouton`'s does (ADR 0001):
+/// `upload_id` names a file already sent to `POST /api/uploads`, and `data`
+/// carries it base64-encoded for a Door that can send only JSON. A staged
+/// upload is used once and deleted whatever the outcome.
+pub fn read_recipe_pdf(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    const USAGE: &str = "read_recipe_pdf takes { upload_id } or { data }: the PDF sent to \
+                       POST /api/uploads, or base64-encoded";
+    let caller = caller_of(invocation)?;
+    let bytes = sent_file(core, caller, &input, USAGE, Some(crate::pdf::LARGEST_PDF))?;
+
+    let text = crate::pdf::text_of(&bytes)?;
+    // The same bound as a paste, for the same reason: past it the text is a
+    // book, not a recipe somebody printed.
+    if text.len() > crate::pasting::LONGEST_PASTE {
+        return Err(OpError::bad_request(format!(
+            "a recipe PDF holds at most {} bytes of text, and that one holds {}",
+            crate::pasting::LONGEST_PASTE,
+            text.len()
+        )));
+    }
+    let paste = crate::pasting::read_printed(&text);
+    // Text that is only list markers and blank lines is no text either, and
+    // is refused as a scan is, at both Doors alike.
+    if paste.title.is_none() && paste.lines.is_empty() {
+        return Err(crate::pdf::no_text());
+    }
+    Ok(pasted_answer(&paste))
+}
+
+/// The bytes of a file sent to an Operation, the two ways a file arrives
+/// (ADR 0001, #93): `upload_id` names one already sent to `POST
+/// /api/uploads`, used once and deleted whatever the outcome, and `data`
+/// carries it base64-encoded for a Door that can send only JSON. `largest`,
+/// where given, is measured before a staged file is read, since an upload may
+/// be two gigabytes.
+fn sent_file(
+    core: &Core,
+    caller: &crate::core::Caller,
+    input: &Value,
+    usage: &str,
+    largest: Option<u64>,
+) -> Result<Vec<u8>, OpError> {
+    let too_large = |limit: u64| {
+        OpError::bad_request(format!(
+            "that file is at most {limit} bytes here, and this one is larger"
+        ))
+    };
+    match (
+        input.get("upload_id").and_then(Value::as_str),
+        input.get("data").and_then(Value::as_str),
+    ) {
+        (Some(upload_id), None) => {
+            let path = core.staged_upload(&caller.person_id, upload_id)?;
+            let cannot =
+                |e: std::io::Error| OpError::internal(format!("cannot open the upload: {e}"));
+            let read = std::fs::metadata(&path)
+                .map_err(cannot)
+                .and_then(|staged| match largest {
+                    Some(limit) if staged.len() > limit => Err(too_large(limit)),
+                    _ => std::fs::read(&path).map_err(cannot),
+                });
+            let _ = std::fs::remove_file(&path);
+            read
+        }
+        (None, Some(data)) => {
+            use base64::Engine;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
+            match largest {
+                Some(limit) if bytes.len() as u64 > limit => Err(too_large(limit)),
+                _ => Ok(bytes),
+            }
+        }
+        _ => Err(OpError::bad_request(usage)),
+    }
 }
 
 /// Start a Translation: an ordinary Branch of the same Lineage in another
@@ -1216,27 +1307,8 @@ pub fn import_bundle(core: &Core, invocation: &Invocation, input: Value) -> Resu
                        sent to POST /api/uploads, or base64-encoded";
     let caller = caller_of(invocation)?;
     let progress = invocation.job.as_ref();
-    match (
-        input.get("upload_id").and_then(Value::as_str),
-        input.get("data").and_then(Value::as_str),
-    ) {
-        (Some(upload_id), None) => {
-            let path = core.staged_upload(&caller.person_id, upload_id)?;
-            let outcome = std::fs::read(&path)
-                .map_err(|e| OpError::internal(format!("cannot open the upload: {e}")))
-                .and_then(|bytes| core.import_bundle(caller, &bytes, progress));
-            let _ = std::fs::remove_file(&path);
-            outcome
-        }
-        (None, Some(data)) => {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(data)
-                .map_err(|e| OpError::bad_request(format!("data is not valid base64: {e}")))?;
-            core.import_bundle(caller, &bytes, progress)
-        }
-        _ => Err(OpError::bad_request(USAGE)),
-    }
+    let bytes = sent_file(core, caller, &input, USAGE, None)?;
+    core.import_bundle(caller, &bytes, progress)
 }
 
 /// Bring in a Crouton export (#69) — the whole library as a zip of `.crumb`

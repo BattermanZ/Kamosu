@@ -14,7 +14,7 @@
 	long way (hence every line being able to take the split itself).
 
 	Two places draw it (#175): the writing screen's paste sheet, and the sheet
-	the + on Recipes raises. Each says its own title line and its own buttons
+	the + on Recipes raises, for pasted text or a PDF (#176). Each says its own title line and its own buttons
 	around it, because one fills a page and the other makes a recipe.
 -->
 <script lang="ts">
@@ -81,6 +81,20 @@
 	{m.recipe_method()}
 </h3>
 {@render rows(below, boundary, m.write_empty_steps())}
+
+<!--
+	What the paste said about the recipe rather than in it (#176): a
+	description, serving suggestions. It is in neither list, so it is shown
+	where it will land, and moving the split leaves it where it is.
+-->
+{#if pasted.note}
+	<h3
+		class="mt-3 border-t border-rule pt-3 font-display text-label font-semibold text-accent uppercase"
+	>
+		{m.write_paste_note()}
+	</h3>
+	<p class="py-1 text-read whitespace-pre-wrap text-ink-2">{pasted.note}</p>
+{/if}
 
 {#snippet rows(lines: ReadPastedRecipeOutput['lines'], from: number, empty: string)}
 	{#if lines.length === 0}

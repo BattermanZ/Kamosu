@@ -1,7 +1,7 @@
 /**
  * The ways a new recipe starts, written once (#174): a web page, a Bundle
  * somebody sent you (a Kamosu zip file, ADR 0020), a title you type yourself,
- * and a whole recipe pasted as text (#175).
+ * a whole recipe pasted as text (#175), and a recipe PDF (#176).
  *
  * Two places offer them. The + beside the search box offers all three every
  * day, and the dead ends `AddOrImport` draws (a search that matched nothing,
@@ -24,10 +24,10 @@ import { useUpload, type Uploader } from '$lib/api/upload';
 import { OperationError } from '$lib/api/client';
 import { StillRunning, waitForJob } from '$lib/api/job';
 import { receiveStaged } from '$lib/receive';
-import type { ImportWebLinkOutput, KamosuClient } from '$lib/api/catalogue';
-import { holdPaste, type PastedDraft } from '$lib/pasted.svelte';
+import type { ImportWebLinkOutput, KamosuClient, ReadPastedRecipeOutput } from '$lib/api/catalogue';
+import { holdPaste, readPdf, type PastedDraft } from '$lib/pasted.svelte';
 
-export type Act = 'link' | 'file' | 'write' | 'paste';
+export type Act = 'link' | 'file' | 'pdf' | 'write' | 'paste';
 
 export class Adding {
 	/** The act running now, or none. Every button offering an act quiets while one runs. */
@@ -39,6 +39,11 @@ export class Adding {
 	 * still arrives, and the screen says so rather than what went wrong.
 	 */
 	stillGoing = $state(false);
+	/**
+	 * A PDF read and waiting to be checked (#176), or none. It is checked on
+	 * the sheet a paste is checked on, and made the same way.
+	 */
+	fromPdf = $state<ReadPastedRecipeOutput | null>(null);
 
 	#kamosu: KamosuClient;
 	#upload: Uploader;
@@ -80,6 +85,20 @@ export class Adding {
 		this.#run('file', async () => receiveStaged(this.#kamosu, await this.#upload(file)));
 
 	/**
+	 * A recipe PDF (#176), sent as its own bytes the way a Bundle is and read
+	 * by `read_recipe_pdf`, which saves nothing. What it made waits in
+	 * `fromPdf` for the sheet a paste is checked on; nothing is made until
+	 * that sheet's "Make this recipe".
+	 */
+	pdf = (file: File) =>
+		this.#run('pdf', async () => {
+			const answer = await readPdf(this.#kamosu, await this.#upload(file));
+			if (typeof answer === 'string') return answer;
+			this.fromPdf = answer;
+			return undefined;
+		});
+
+	/**
 	 * A recipe needs only a title (#6), so the title *is* the recipe. A title of
 	 * nothing but spaces is not one, and asks nothing.
 	 */
@@ -103,6 +122,7 @@ export class Adding {
 			if (title.trim() === '') return undefined;
 			const made = await this.#kamosu.createRecipe({ title: title.trim() });
 			holdPaste(made.branch_id, { ...draft, title: title.trim() });
+			this.fromPdf = null;
 			await goto(`/recipes/${made.branch_id}`);
 			return undefined;
 		});

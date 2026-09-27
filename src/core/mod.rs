@@ -106,6 +106,11 @@ pub struct OpError {
     /// door carries it as `retry_after_seconds` and a `Retry-After` header, and
     /// the sign-in screen counts it down.
     pub retry_after_seconds: Option<u64>,
+    /// Which refusal this is, for the few a screen says in its own words
+    /// rather than the Core's English sentence: a scanned PDF (#176). The web
+    /// door carries it as `reason`. Nothing else is keyed on it; the sentence
+    /// is still the whole answer at the MCP door.
+    pub reason: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,6 +140,7 @@ impl OpError {
             message: message.into(),
             credential_names_nobody: false,
             retry_after_seconds: None,
+            reason: None,
         }
     }
     pub fn unauthorized(message: impl Into<String>) -> Self {
@@ -157,6 +163,13 @@ impl OpError {
     }
     pub fn bad_request(message: impl Into<String>) -> Self {
         OpError::of(ErrorKind::BadRequest, message)
+    }
+    /// A refusal a screen may say in its own words, named by `reason`.
+    pub fn refused_because(reason: &'static str, message: impl Into<String>) -> Self {
+        OpError {
+            reason: Some(reason),
+            ..OpError::bad_request(message)
+        }
     }
     pub fn not_found(message: impl Into<String>) -> Self {
         OpError::of(ErrorKind::NotFound, message)

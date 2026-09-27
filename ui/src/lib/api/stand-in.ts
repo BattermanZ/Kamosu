@@ -40,11 +40,13 @@ const DECLARATIONS = new Map<string, Declaration>(
 );
 
 /** What a test says an Operation should do. A value, or a refusal. */
-export type Answered<N extends OperationName> =
-	Operations[N]['output'] | { refuse: ErrorKind; message?: string };
+/** A refusal a test programs: its kind, its sentence, and its `reason` where it names one (#176). */
+export type Refusal = { refuse: ErrorKind; message?: string; reason?: string };
+
+export type Answered<N extends OperationName> = Operations[N]['output'] | Refusal;
 
 /** What a Job answers when asked for: an id at once, nothing more (ADR 0032). */
-export type AnsweredJob = { job_id: string } | { refuse: ErrorKind; message?: string };
+export type AnsweredJob = { job_id: string } | Refusal;
 
 /**
  * A function answer is handed what the screen sent, so a test can answer a
@@ -65,7 +67,7 @@ export interface StandIn {
 	answer<N extends OperationName>(operation: N, answer: Answers[N]): void;
 }
 
-const isRefusal = (value: unknown): value is { refuse: ErrorKind; message?: string } =>
+const isRefusal = (value: unknown): value is Refusal =>
 	typeof value === 'object' && value !== null && 'refuse' in value;
 
 /**
@@ -214,6 +216,7 @@ export function standIn(answers: Answers = {}): StandIn {
 				operation,
 				answer.refuse,
 				answer.message ?? `${operation} was refused.`,
+				{ reason: answer.reason },
 			);
 		}
 

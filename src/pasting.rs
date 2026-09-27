@@ -9,9 +9,19 @@
 //! **Every line goes in exactly as pasted** (ADR 0002). What is decided here
 //! is what a line *is* — an ingredient, a step, a heading — and never what it
 //! *says*. No amount is lifted out of a line, no word is rewritten, no line is
-//! reordered. The one repair made is [`crate::entities`]'s, which every
+//! reordered. Two repairs are made. [`crate::entities`]'s, which every
 //! importer makes and none of them owns: a page that escaped its own text
 //! leaves `Noodles &amp; choi sum:` behind, and that is not what anybody typed.
+//! And the list marker in front of a line (`•`, `-`, `*`, `–`, #176): it marks
+//! the line as a list item, which the list it lands in already says, and is
+//! not a word of it. A marker removed is a mark, not a word, so ADR 0002 holds.
+//!
+//! **A paste is not only two blocks, though.** A page puts prose about the
+//! recipe around its lists, under `Description`, `Notes` or `Suggestions de
+//! service :`, and that has nowhere to go in either. It goes to the recipe's
+//! own `note` instead, every line of it as pasted (#176), and is taken out
+//! before the split is looked for, so it never votes on where the method
+//! starts.
 //!
 //! **Nothing else is guessed.** No Yield, no times, no Source, and no
 //! Component: ADR 0008 refuses matching a written line against a recipe on the
@@ -35,9 +45,11 @@
 //! `reading.rs` reads in full, because [`crate::units`] holds the Unit
 //! vocabulary in three Languages.
 //!
-//! **The boundary is found exactly in 77.5% of them and within one line in
-//! 95.0%**, against the 92% within-one-line bar #94 set from the throwaway
-//! scorer. Four recipes miss by more than a line.
+//! **The boundary is found exactly in 81.2% of them (65 of 80) and within
+//! one line in 95.0% (76 of 80)**, against the 92% within-one-line bar #94 set
+//! from the throwaway scorer. Four recipes miss by more than a line. Measured
+//! on 27 September 2026 after #176's headings, bullets and notes; before them
+//! it was 77.5% and 95.0%, and #176 forbade either to fall.
 //!
 //! ## Which is why nothing here is applied silently
 //!
@@ -46,7 +58,7 @@
 //! *move where the method starts*. A parser right four times in five and silent
 //! the fifth is worse than one right four times in five that says so.
 //!
-//! The 22.5% it does not land exactly is mostly off by a single line. The four
+//! The 18.8% it does not land exactly is mostly off by a single line. The four
 //! that miss by more are the ones whose steps are short and imperative enough
 //! to read like ingredients — *Korean Beef Noodles* has 5 ingredients and 9
 //! clipped steps, and no weighting separates `Boil the noodles` from
@@ -66,6 +78,15 @@
 //! final stop — is refused, because `Salt and pepper` and `Spring onions` fit
 //! it exactly and turning either into a heading loses an ingredient. Missing a
 //! heading costs one tap; inventing one silently deletes a line of the recipe.
+//!
+//! **The one exception is a fixed list of words** (#176): a line that is
+//! exactly `Ingrédients`, `Préparation`, `Method`, `Instructions`,
+//! `Preparación` and a few more in the three Languages is a heading with no
+//! colon. That does not reopen the refusal above. A list of whole lines names
+//! what a heading *is*, and `Salt and pepper` is on no list; a rule about the
+//! shape of a line would guess. And a heading heads what follows it, so one
+//! left at the foot of the ingredients by the split goes to the top of the
+//! method.
 
 use crate::entities::decode_entities;
 use crate::reading;
@@ -116,6 +137,11 @@ pub struct Paste {
     /// `lines[boundary..]` are the steps. `0` and `lines.len()` are both real
     /// answers — a paste can be all method or all list.
     pub boundary: usize,
+    /// What the paste said *about* the recipe rather than in it: a block
+    /// under `Description`, `Notes` or `Suggestions de service :`, every line
+    /// of it exactly as pasted. It lands in the recipe's own `note`, and
+    /// nothing here is lost by leaving the two lists (#176).
+    pub note: Option<String>,
 }
 
 /// Past this many **bytes** a paste is not a recipe somebody typed. The
@@ -130,12 +156,88 @@ pub const LONGEST_PASTE: usize = 64 * 1024;
 /// against corpus fixtures with no server, the same way `extract_recipe` is.
 pub fn read_paste(text: &str) -> Paste {
     let (title, rest) = take_title(text);
+    read_lines(title, rest)
+}
+
+/// **Read the text a PDF printed** (#176): [`read_paste`] after two things
+/// only a printed page needs.
+///
+/// A PDF keeps where each printed line ended, not where the sentence did, so
+/// a step that wrapped comes out as three lines and would be read as three
+/// steps. [`join_wrapped`] puts them back together. And a printed page leaves
+/// no blank line under its title, so the first line is the title here without
+/// one. Neither happens to pasted text, whose line breaks are the ones the
+/// person typed.
+pub fn read_printed(text: &str) -> Paste {
+    let rows: Vec<String> = text
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+    let mut rows = join_wrapped(rows)
+        .into_iter()
+        .map(|line| clean(&line))
+        .filter(|line| !line.is_empty());
+    let title = rows.next();
+    read_lines(title, rows.collect())
+}
+
+/// **One printed line that wrapped is one line.** A line that does not end
+/// the way a sentence or a heading ends (`.` `!` `?` `:`), followed by one
+/// that starts in lowercase, is the same line carried on.
+///
+/// With one guard the ticket's rule did not name: only a line that ran most
+/// of the way across the page can have wrapped. `2 eggs` above `salt and
+/// pepper` fits the rule and is two ingredients, and what tells them apart is
+/// that `2 eggs` stopped far short of the margin. Half the longest line is the
+/// bar, since a wrapped line always runs close to the longest.
+fn join_wrapped(lines: Vec<String>) -> Vec<String> {
+    let longest = lines
+        .iter()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0);
+    let mut joined: Vec<String> = Vec::with_capacity(lines.len());
+    for line in lines {
+        let carries_on = joined.last().is_some_and(|above: &String| {
+            !above.ends_with(['.', '!', '?', ':'])
+                && above.chars().count() * 2 >= longest
+                && line.chars().next().is_some_and(char::is_lowercase)
+        });
+        match joined.last_mut() {
+            Some(above) if carries_on => {
+                above.push(' ');
+                above.push_str(&line);
+            }
+            _ => joined.push(line),
+        }
+    }
+    joined
+}
+
+/// What both ways in share once the title is settled: the notes taken out,
+/// every remaining line looked at once, and the one split.
+fn read_lines(title: Option<String>, rest: Vec<String>) -> Paste {
+    let (rest, note) = take_notes(rest);
+    let title = title.map(unbullet).filter(|title| !title.is_empty());
+    // A marker on a line of its own is a line of nothing, and goes.
+    let rest: Vec<String> = rest
+        .into_iter()
+        .filter(|line| unbulleted(line).is_none_or(|kept| !kept.trim().is_empty()))
+        .collect();
 
     // Read once, here. Everything below works off what this pass found, so no
     // line is put through `reading.rs` twice however often the score is asked
     // for.
+    //
+    // **Each line is judged as it was pasted, marker and all**, and only the
+    // text that comes back loses it. A bulleted list inside a method is its
+    // sub-list of things to add (`• ½ tablespoon red miso paste`), and read
+    // without the marker every one of them opens with an amount and drags the
+    // split down to it: one real recipe was missed by nine lines that way.
     let looked: Vec<Looked> = rest.iter().map(|line| look(line)).collect();
     let boundary = split(&looked);
+    let rest: Vec<String> = rest.into_iter().map(unbullet).collect();
 
     let lines = rest
         .into_iter()
@@ -149,6 +251,7 @@ pub fn read_paste(text: &str) -> Paste {
         title,
         lines,
         boundary,
+        note,
     }
 }
 
@@ -192,9 +295,196 @@ fn take_title(text: &str) -> (Option<String>, Vec<String>) {
 
 /// The one repair, made on every importer's behalf in one place (#69): text
 /// that was never HTML carrying HTML entities, plus the surrounding whitespace
-/// a paste always brings. Nothing inside the line is touched (ADR 0002).
+/// a paste always brings, and the list marker in front of it (#176). Nothing
+/// inside the line is touched (ADR 0002).
+///
+/// The marker comes off last, in [`read_lines`], because until the notes are
+/// taken out it is a sign that the recipe has started again.
 fn clean(line: &str) -> String {
     decode_entities(line.trim()).trim().to_string()
+}
+
+/// A line without its list marker.
+fn unbullet(line: String) -> String {
+    match unbulleted(&line) {
+        Some(rest) => rest.trim().to_string(),
+        None => line,
+    }
+}
+
+/// The list markers a copied page or a printed one puts before an item.
+const BULLETS: [char; 4] = ['•', '-', '*', '–'];
+
+/// What follows this line's list marker, or nothing where it has none.
+///
+/// A marker is a bullet followed by a space, or `•` on its own, which nobody
+/// types inside a word. `-5 °C` and `*optional*` keep what they start with,
+/// because there the mark is part of what was written. A line that is nothing
+/// but a marker cleans away to nothing and is dropped, which is how a PDF
+/// that printed each bullet on a line of its own reads.
+fn unbulleted(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix(BULLETS)?;
+    (line.starts_with('•') || rest.is_empty() || rest.starts_with(char::is_whitespace))
+        .then_some(rest)
+}
+
+// --- Headings known by name (#176) ------------------------------------------
+//
+// Two short, fixed lists, in the three Languages Kamosu reads. They are the
+// only words recognised as headings without a colon, and only when the line
+// is that word and nothing else: the module header's reason for refusing the
+// wider Title Case rule still holds, and a fixed list of whole lines cannot
+// swallow `Salt and pepper`.
+
+/// A line that is exactly one of these is a Section, colon or none. The words
+/// a recipe page puts over its two lists: `Préparation` has no colon, and was
+/// read as a step.
+const SECTION_WORDS: &[&str] = &[
+    // English
+    "ingredients",
+    "method",
+    "instructions",
+    "directions",
+    "preparation",
+    "steps",
+    // Français
+    "ingrédients",
+    "préparation",
+    "étapes",
+    "méthode",
+    "instructions",
+    "déroulé",
+    // Español
+    "ingredientes",
+    "preparación",
+    "elaboración",
+    "instrucciones",
+    "pasos",
+    "modo de preparación",
+];
+
+/// A block under one of these is about the recipe rather than in it, and
+/// goes to its `note`.
+const NOTE_WORDS: &[&str] = &[
+    // English
+    "description",
+    "notes",
+    "note",
+    "tips",
+    "serving suggestions",
+    "storage",
+    // Français
+    "description",
+    "notes",
+    "note",
+    "conseils",
+    "astuces",
+    "suggestions de service",
+    "suggestion de service",
+    "conservation",
+    // Español
+    "descripción",
+    "notas",
+    "nota",
+    "consejos",
+    "sugerencias",
+    "sugerencias de presentación",
+    "conservación",
+];
+
+/// The line as a heading reads, whatever its case and however its colon is
+/// spaced: `Préparation`, `PRÉPARATION :` and `préparation:` are one word.
+fn as_heading(line: &str) -> String {
+    line.trim().trim_end_matches(':').trim_end().to_lowercase()
+}
+
+fn is_section_word(line: &str) -> bool {
+    SECTION_WORDS.contains(&as_heading(line).as_str())
+}
+
+/// Where a line opens a note, and how far that note runs.
+enum NoteStart {
+    /// `Description` or `Notes :` alone on its line. The heading is the
+    /// field's own name, so it is not kept, and the block runs until
+    /// something that is plainly the recipe again.
+    Heading,
+    /// `Suggestions de service : Le biscuit…`: the heading and the note on
+    /// one line, kept whole. It runs on only through the lines that carry it
+    /// on in lowercase, so `Note: it freezes well.` in the middle of a method
+    /// takes its own line and not the steps after it.
+    Inline,
+}
+
+fn note_start(line: &str) -> Option<NoteStart> {
+    if NOTE_WORDS.contains(&as_heading(line).as_str()) {
+        return Some(NoteStart::Heading);
+    }
+    let (heading, said) = line.split_once(':')?;
+    (NOTE_WORDS.contains(&heading.trim().to_lowercase().as_str()) && !said.trim().is_empty())
+        .then_some(NoteStart::Inline)
+}
+
+/// **Take the notes out before anything is split.** They are neither
+/// ingredients nor steps, and left in they vote on the boundary: a
+/// description is long prose, which reads as method, and put the split of
+/// *Biscuit de Savoie* seven lines early.
+///
+/// A heading's block ends at the first line that is plainly the recipe
+/// again ([`ends_a_note`]). Answers the lines left, and the note.
+fn take_notes(lines: Vec<String>) -> (Vec<String>, Option<String>) {
+    let mut kept = Vec::with_capacity(lines.len());
+    let mut notes: Vec<Vec<String>> = Vec::new();
+    let mut open: Option<NoteStart> = None;
+
+    for line in lines {
+        if let Some(start) = note_start(&line) {
+            let mut block = Vec::new();
+            if matches!(start, NoteStart::Inline) {
+                block.push(line);
+            }
+            notes.push(block);
+            open = Some(start);
+            continue;
+        }
+        let carried_on = match open {
+            Some(NoteStart::Heading) => !ends_a_note(&line),
+            Some(NoteStart::Inline) => line.chars().next().is_some_and(char::is_lowercase),
+            None => false,
+        };
+        match notes.last_mut() {
+            Some(block) if carried_on => block.push(line),
+            _ => {
+                open = None;
+                kept.push(line);
+            }
+        }
+    }
+
+    let note = notes
+        .into_iter()
+        .filter(|block| !block.is_empty())
+        .map(|block| block.join("\n"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    (kept, Some(note).filter(|note| !note.is_empty()))
+}
+
+/// The recipe starting again after a note: one of its own headings, a
+/// numbered step, a list item, or a short line that opens with an amount and
+/// a Unit, which is what an ingredient is and a sentence of prose is not.
+/// An amount alone is not a safe sign: `180°` opens prose as readily as a
+/// list, so the Unit and the shortness are both asked for.
+fn ends_a_note(line: &str) -> bool {
+    let words = line.split_whitespace().count();
+    let reads_as_an_ingredient = words <= SHORT && {
+        let reading = reading::read_line(line).unwrap_or_default();
+        reading.amount.is_some() && reading.unit.is_some()
+    };
+    is_section_word(line)
+        || strip_step_number(line).is_some()
+        || unbulleted(line).is_some()
+        || reads_as_an_ingredient
+        || (line.ends_with(':') && words <= LONGEST_SECTION)
 }
 
 /// A Section: a line ending in a colon, short, carrying no quantity. See the
@@ -240,7 +530,9 @@ fn look(line: &str) -> Looked {
     let numbered = strip_step_number(text).is_some();
     let reading = reading::read_line(strip_step_number(text).unwrap_or(text)).unwrap_or_default();
 
-    let kind = if text.ends_with(':') && words <= LONGEST_SECTION && reading.amount.is_none() {
+    let kind = if is_section_word(text)
+        || (text.ends_with(':') && words <= LONGEST_SECTION && reading.amount.is_none())
+    {
         Kind::Section
     } else {
         Kind::Line
@@ -345,6 +637,13 @@ fn split(lines: &[Looked]) -> usize {
             boundary = at + 1;
         }
     }
+
+    // A heading heads what follows it. A Section has no opinion, so the tie
+    // above leaves `Préparation` at the foot of the ingredients, heading
+    // nothing; it goes to the top of the method instead (#176).
+    while boundary > 0 && lines[boundary - 1].kind == Kind::Section {
+        boundary -= 1;
+    }
     boundary
 }
 
@@ -418,9 +717,10 @@ Pile the noodles in and top them with the pork mixture.";
         );
         // The entity is undone, because it was never HTML (#69).
         assert_eq!(paste.lines[3].text, "Noodles & choi sum:");
+        // `Assemble:` heads the method rather than trailing the list (#176).
         let (ingredients, steps) = split_of(text);
-        assert_eq!(ingredients.len(), 6);
-        assert_eq!(steps.len(), 2);
+        assert_eq!(ingredients.len(), 5);
+        assert_eq!(steps.len(), 3);
     }
 
     #[test]
@@ -523,5 +823,171 @@ Pile the noodles in and top them with the pork mixture.";
         assert_eq!(paste.title.as_deref(), Some("Pizza"));
         assert!(paste.lines.iter().all(|row| !row.text.is_empty()));
         assert_eq!(paste.lines.len(), 4);
+    }
+
+    #[test]
+    fn a_list_marker_comes_off_and_nothing_else_does() {
+        let paste = read_paste(
+            "• Trois gros œufs\n- 150 g de sucre\n* 30 g de farine\n– 45 g de fécule\n•\n-5 °C freezer\n\
+             Beat everything together in a bowl until it is pale and thick.",
+        );
+        let texts: Vec<&str> = paste.lines.iter().map(|row| row.text.as_str()).collect();
+        // A marker on a line of its own is a line of nothing, and goes. A
+        // minus sign in front of a number is part of what was written.
+        assert_eq!(
+            texts[..5],
+            [
+                "Trois gros œufs",
+                "150 g de sucre",
+                "30 g de farine",
+                "45 g de fécule",
+                "-5 °C freezer"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_known_heading_word_is_a_section_with_no_colon() {
+        let paste = read_paste(
+            "Ingredients\n200 g flour\n2 eggs\nPréparation\n\
+             Heat the oven to 180C and butter a twenty centimetre tin.\n\
+             Beat the eggs into the flour until the batter is quite smooth.",
+        );
+        let kinds: Vec<&str> = paste.lines.iter().map(|row| row.kind.as_str()).collect();
+        assert_eq!(
+            kinds,
+            ["section", "line", "line", "section", "line", "line"]
+        );
+        // And it heads the method rather than trailing the ingredients.
+        assert_eq!(paste.boundary, 3);
+
+        // Only the whole line: a longer one merely starting with the word is
+        // whatever it would have been.
+        let paste = read_paste("Method for the sauce is below\n200 g flour");
+        assert_eq!(paste.lines[0].kind, Kind::Line);
+    }
+
+    #[test]
+    fn a_heading_heads_what_follows_it_rather_than_trailing_the_list() {
+        let (ingredients, steps) = split_of(
+            "Dan Dan Sauce:\n2 tbsp Chinese sesame paste\n200 g noodles\nAssemble:\n\
+             Mix the sauce ingredients in a bowl and set it aside.",
+        );
+        assert_eq!(ingredients.len(), 3);
+        assert_eq!(steps[0], "Assemble:");
+    }
+
+    #[test]
+    fn a_block_about_the_recipe_goes_to_its_note() {
+        let paste = read_paste(
+            "Biscuit\n\nIngrédients :\n• 150 g de sucre\n• 30 g de farine\nDescription\n\
+             Ce gros gâteau est incroyablement léger grâce aux blancs battus.\n\
+             La cuisson : la chaleur du four doit être assez douce.\nPréparation\n\
+             1. Préparer les jaunes : on ajoute le sucre et on travaille le mélange.\n\
+             2. Incorporer les poudres : on incorpore la farine, puis la fécule.\n\
+             Suggestions de service : avec une salade de fruits, une mousse\n\
+             aux fruits, de la crème.",
+        );
+        assert_eq!(
+            paste.note.as_deref(),
+            Some(
+                "Ce gros gâteau est incroyablement léger grâce aux blancs battus.\n\
+                 La cuisson : la chaleur du four doit être assez douce.\n\n\
+                 Suggestions de service : avec une salade de fruits, une mousse\n\
+                 aux fruits, de la crème."
+            )
+        );
+        let texts: Vec<&str> = paste.lines.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "Ingrédients :",
+                "150 g de sucre",
+                "30 g de farine",
+                "Préparation",
+                "1. Préparer les jaunes : on ajoute le sucre et on travaille le mélange.",
+                "2. Incorporer les poudres : on incorpore la farine, puis la fécule.",
+            ]
+        );
+        assert_eq!(paste.boundary, 3);
+    }
+
+    #[test]
+    fn a_note_inside_a_method_takes_only_its_own_line() {
+        let paste = read_paste(
+            "1. Heat the oven to 180C and butter a twenty centimetre tin.\n\
+             Note: it freezes well for a month.\n\
+             2. Beat the eggs into the flour until the batter is quite smooth.",
+        );
+        assert_eq!(
+            paste.note.as_deref(),
+            Some("Note: it freezes well for a month.")
+        );
+        assert_eq!(paste.lines.len(), 2);
+        assert_eq!(read_paste(PLAIN).note, None);
+    }
+
+    #[test]
+    fn a_printed_line_that_wrapped_is_joined_back_into_one() {
+        let paste = read_printed(
+            "Biscuit de Savoie\n\n• Trois gros œufs\n\n• 150 g de sucre\n\n\
+             1. Préparer les jaunes : On sépare les jaunes des blancs. On ajoute le sucre aux jaunes\n\n\
+             d'œuf et on travaille longuement et soigneusement le mélange. Il doit à peu près doubler de\n\n\
+             volume et devenir onctueux.\n\n\
+             2. Incorporer les poudres : À ce moment, on incorpore la farine, puis la fécule.",
+        );
+        // The first line is the title with no blank line under it.
+        assert_eq!(paste.title.as_deref(), Some("Biscuit de Savoie"));
+        let texts: Vec<&str> = paste.lines.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "Trois gros œufs",
+                "150 g de sucre",
+                "1. Préparer les jaunes : On sépare les jaunes des blancs. On ajoute le sucre aux \
+                 jaunes d'œuf et on travaille longuement et soigneusement le mélange. Il doit à peu \
+                 près doubler de volume et devenir onctueux.",
+                "2. Incorporer les poudres : À ce moment, on incorpore la farine, puis la fécule.",
+            ]
+        );
+        assert_eq!(paste.boundary, 2);
+    }
+
+    #[test]
+    fn a_short_line_did_not_wrap_whatever_follows_it() {
+        // `2 eggs` stopped far short of the margin, so `salt and pepper` is a
+        // line of its own.
+        let paste = read_printed(
+            "Omelette\n2 eggs\nsalt and pepper\n\
+             Beat the eggs with the salt and pepper, then cook them gently in butter.",
+        );
+        let texts: Vec<&str> = paste.lines.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(texts[..2], ["2 eggs", "salt and pepper"]);
+    }
+
+    #[test]
+    fn pasted_text_keeps_its_line_breaks() {
+        // The same wrapped lines, pasted rather than printed, are not joined:
+        // the person's own line breaks are theirs.
+        let paste = read_paste("volume et devenir\nonctueux et léger.");
+        assert_eq!(paste.lines.len(), 2);
+    }
+
+    #[test]
+    fn a_note_under_a_heading_stops_at_an_ingredient() {
+        // No `Ingredients` heading after the description, and no bullets: the
+        // first line that reads as an ingredient ends the note.
+        let paste = read_paste(
+            "Pancakes\n\nDescription\nThin French pancakes, best eaten straight from the pan.\n\
+             250 g flour\n500 ml milk\n3 eggs\n\
+             Whisk everything together and leave it to rest for an hour before cooking.",
+        );
+        assert_eq!(
+            paste.note.as_deref(),
+            Some("Thin French pancakes, best eaten straight from the pan.")
+        );
+        let texts: Vec<&str> = paste.lines.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(texts[..3], ["250 g flour", "500 ml milk", "3 eggs"]);
+        assert_eq!(paste.boundary, 3);
     }
 }

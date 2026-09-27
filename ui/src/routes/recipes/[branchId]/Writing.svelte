@@ -411,6 +411,10 @@
 		if (!pasted) return;
 		const draft = splitPaste(pasted, boundary);
 		if (draft.title !== null) title = draft.title;
+		// What the paste said about the recipe goes to its note (#176), after
+		// whatever the note already holds rather than over it: nothing
+		// warned that it would be replaced, so nothing is.
+		if (draft.note !== null) note = note.trim() === '' ? draft.note : `${note}\n\n${draft.note}`;
 		lines = draft.ingredients.map((row) => ({
 			id: id(),
 			...row,

@@ -1,6 +1,7 @@
 /**
  * A recipe pasted as text, read by `read_pasted_recipe` and split where the
- * method starts (#94, #175).
+ * method starts (#94, #175), or a recipe PDF read into the same shape by
+ * `read_recipe_pdf` (#176).
  *
  * Two places take one. The writing screen fills its own fields from it, and
  * the + beside the Recipes search box makes a new recipe from it (#175, both
@@ -31,9 +32,31 @@ export async function readPasted(
 	}
 }
 
-/** What a paste puts onto the writing screen: a title, if it had one, and the two lists. */
+/**
+ * A PDF already staged at `POST /api/uploads`, read by `read_recipe_pdf` into
+ * what a paste is read into (#176), or the sentence saying why it could not
+ * be. A scan is refused with a reason this says in the reader's own Language
+ * (Aurélien's wording, chosen on #176); any other refusal is the Core's.
+ */
+export async function readPdf(
+	kamosu: KamosuClient,
+	uploadId: string,
+): Promise<ReadPastedRecipeOutput | string> {
+	try {
+		return await kamosu.readRecipePdf({ upload_id: uploadId });
+	} catch (error) {
+		if (!(error instanceof OperationError)) throw error;
+		return error.reason === 'pdf_has_no_text' ? m.plus_pdf_no_text() : error.message;
+	}
+}
+
+/**
+ * What a paste puts onto the writing screen: a title, if it had one, the two
+ * lists, and what it said about the recipe, for its note (#176).
+ */
 export interface PastedDraft {
 	title: string | null;
+	note: string | null;
 	ingredients: { kind: 'ingredient' | 'section'; text: string }[];
 	steps: { kind: 'step' | 'section'; text: string }[];
 }
@@ -47,6 +70,7 @@ export function drafted(pasted: ReadPastedRecipeOutput, boundary: number): Paste
 	const title = pasted.title?.trim() ? pasted.title : null;
 	return {
 		title,
+		note: pasted.note?.trim() ? pasted.note : null,
 		ingredients: pasted.lines.slice(0, boundary).map((row) => ({
 			kind: row.kind === 'section' ? 'section' : 'ingredient',
 			text: row.text,

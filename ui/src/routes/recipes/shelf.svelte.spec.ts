@@ -963,13 +963,17 @@ describe('the + for every new recipe (#174)', () => {
 		return plus;
 	}
 
-	it('is there with a full library and no search, and offers the four sources', async () => {
+	it('is there with a full library and no search, and offers the five sources', async () => {
 		renderScreen(Recipes, fullShelf);
 		await screen.findByText('Chicken katsu curry');
 
 		await openThePlus();
 		expect(screen.getByRole('button', { name: /From a link/ })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /From a Kamosu zip file/ })).toBeInTheDocument();
+		// A PDF has a row of its own, apart from the zip file (#176, settled on #174).
+		expect(
+			screen.getByRole('button', { name: /From a PDF.*A recipe printed or saved as a PDF/ }),
+		).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: /Write it yourself/ })).toBeInTheDocument();
 		// The fourth, from #175: pasted text, before any recipe page exists.
 		expect(
@@ -1012,6 +1016,7 @@ describe('the + for every new recipe (#174)', () => {
 			{ kind: 'line', text: 'Pour the drizzle over the warm cake.' },
 		],
 		boundary: 4,
+		note: null,
 	};
 
 	async function pasteThroughThePlus(text = 'Lemon drizzle loaf\n225g butter…') {
@@ -1049,6 +1054,7 @@ describe('the + for every new recipe (#174)', () => {
 		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
 		expect(takePaste('b_new')).toEqual({
 			title: 'Lemon drizzle loaf',
+			note: null,
 			ingredients: [
 				{ kind: 'ingredient', text: '225g butter, softened' },
 				{ kind: 'ingredient', text: '4 eggs' },
@@ -1211,6 +1217,113 @@ describe('the + for every new recipe (#174)', () => {
 		expect(kamosu.calls.find((call) => call.operation === 'import_bundle')?.input).toEqual({
 			upload_id: 'u_staged',
 		});
+	});
+
+	/** Biscuit de Savoie as `read_recipe_pdf` answers it: headings, the split, and a note. */
+	const BISCUIT: ReadPastedRecipeOutput = {
+		title: 'Biscuit de Savoie',
+		lines: [
+			{ kind: 'section', text: 'Ingrédients :' },
+			{ kind: 'line', text: 'Trois gros œufs' },
+			{ kind: 'line', text: '150 g de sucre' },
+			{ kind: 'section', text: 'Préparation' },
+			{ kind: 'line', text: '1. Préparer les jaunes : on ajoute le sucre aux jaunes.' },
+			{ kind: 'line', text: '2. Incorporer les poudres : la farine, puis la fécule.' },
+		],
+		boundary: 3,
+		note: 'Ce gros gâteau est incroyablement léger.\n\nSuggestions de service : une salade de fruits.',
+	};
+
+	/** Pick a PDF from the + the way a phone does: the tap is the picker. */
+	async function pickAPdf() {
+		const picked = vi.spyOn(HTMLInputElement.prototype, 'click');
+		await openThePlus();
+		await fireEvent.click(screen.getByRole('button', { name: /From a PDF/ }));
+		const field = screen.getByLabelText('Add a recipe from a PDF');
+		expect(picked.mock.contexts).toContain(field);
+		picked.mockRestore();
+		expect(field).toHaveAttribute('accept', '.pdf,application/pdf');
+		await fireEvent.change(field, {
+			target: { files: [new File(['%PDF-1.4'], 'biscuit.pdf', { type: 'application/pdf' })] },
+		});
+	}
+
+	// #176: a PDF lands on the sheet a paste is checked on, with the reader's
+	// answer, and is made from there the way a paste is.
+	it('reads a picked PDF onto the paste sheet, where the split moves and the recipe is made', async () => {
+		const upload = vi.fn(async () => 'u_pdf');
+		const kamosu = standIn({ ...fullShelf, read_recipe_pdf: BISCUIT, create_recipe: made });
+		render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
+
+		await pickAPdf();
+		const sheet = await screen.findByRole('dialog', { name: 'From a PDF' });
+		expect(kamosu.calls.find((call) => call.operation === 'read_recipe_pdf')?.input).toEqual({
+			upload_id: 'u_pdf',
+		});
+		expect(screen.getByLabelText('Title')).toHaveValue('Biscuit de Savoie');
+		expect(sheet).toHaveTextContent('2 ingredients and 2 steps.');
+		// What it said about the recipe is shown, in neither list.
+		expect(sheet).toHaveTextContent('Ce gros gâteau est incroyablement léger.');
+
+		// The split moves, as it does for a paste.
+		await fireEvent.click(screen.getByRole('button', { name: 'A line earlier' }));
+		expect(sheet).toHaveTextContent('1 ingredients and 3 steps.');
+		await fireEvent.click(screen.getByRole('button', { name: 'A line later' }));
+		expect(sheet).toHaveTextContent('2 ingredients and 2 steps.');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Make this recipe' }));
+		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_new'));
+		expect(kamosu.calls.find((call) => call.operation === 'create_recipe')?.input).toEqual({
+			title: 'Biscuit de Savoie',
+		});
+		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
+		expect(takePaste('b_new')).toEqual({
+			title: 'Biscuit de Savoie',
+			note: BISCUIT.note,
+			ingredients: [
+				{ kind: 'section', text: 'Ingrédients :' },
+				{ kind: 'ingredient', text: 'Trois gros œufs' },
+				{ kind: 'ingredient', text: '150 g de sucre' },
+			],
+			steps: [
+				{ kind: 'section', text: 'Préparation' },
+				{ kind: 'step', text: '1. Préparer les jaunes : on ajoute le sucre aux jaunes.' },
+				{ kind: 'step', text: '2. Incorporer les poudres : la farine, puis la fécule.' },
+			],
+		});
+	});
+
+	it('says in its own words why a scanned PDF could not be read, and makes nothing', async () => {
+		const upload = vi.fn(async () => 'u_scan');
+		const kamosu = standIn({
+			...fullShelf,
+			read_recipe_pdf: {
+				refuse: 'bad_request',
+				message: 'the Core says it in English',
+				reason: 'pdf_has_no_text',
+			},
+		});
+		render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
+
+		await pickAPdf();
+		// Aurélien's wording, chosen on #176: why, and what to do instead.
+		expect(await screen.findByRole('alert')).toHaveTextContent(
+			"This PDF is a scan or a photo of a page, so it has no text to read. If it came from a website, use From a link instead, or copy the recipe's text and use From pasted text.",
+		);
+		expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+		expect(kamosu.calls.some((call) => call.operation === 'create_recipe')).toBe(false);
+	});
+
+	it('says any other refusal of a PDF in the words it was refused with', async () => {
+		const upload = vi.fn(async () => 'u_bad');
+		const kamosu = standIn({
+			...fullShelf,
+			read_recipe_pdf: { refuse: 'bad_request', message: 'that file is not a PDF' },
+		});
+		render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
+
+		await pickAPdf();
+		expect(await screen.findByRole('alert')).toHaveTextContent('that file is not a PDF');
 	});
 
 	it('closes its list on Escape, and when the + is tapped again', async () => {

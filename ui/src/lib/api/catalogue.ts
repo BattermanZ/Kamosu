@@ -1441,6 +1441,23 @@ export type ReadPastedRecipeOutput = {
 		kind: "line" | "section";
 		text: string;
 	}[];
+	note: string | null;
+	title: string | null;
+};
+
+/** Read a recipe PDF — one printed from a web page or a word processor — the way read_pasted_recipe reads pasted text, and answer the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+export type ReadRecipePdfInput = {
+	data?: string;
+	upload_id?: string;
+};
+/** What read_recipe_pdf answers. */
+export type ReadRecipePdfOutput = {
+	boundary: number;
+	lines: {
+		kind: "line" | "section";
+		text: string;
+	}[];
+	note: string | null;
 	title: string | null;
 };
 
@@ -4757,6 +4774,12 @@ export interface Operations {
 	read_pasted_recipe: {
 		input: ReadPastedRecipeInput;
 		output: ReadPastedRecipeOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	read_recipe_pdf: {
+		input: ReadRecipePdfInput;
+		output: ReadRecipePdfOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -12026,6 +12049,12 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
 				"title": {
 					"type": [
 						"string",
@@ -12036,7 +12065,78 @@ export const CATALOGUE = [
 			"required": [
 				"title",
 				"lines",
-				"boundary"
+				"boundary",
+				"note"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "read_recipe_pdf",
+		"summary": "Read a recipe PDF — one printed from a web page or a word processor — the way read_pasted_recipe reads pasted text, and answer the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"data": {
+					"description": "The PDF itself, base64-encoded — for a Door that can send only JSON.",
+					"type": "string"
+				},
+				"upload_id": {
+					"description": "The id POST /api/uploads answered for the PDF. Used once, then deleted.",
+					"type": "string"
+				}
+			},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"boundary": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"lines": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"kind": {
+								"enum": [
+									"line",
+									"section"
+								]
+							},
+							"text": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"text",
+							"kind"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"note": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"title": {
+					"type": [
+						"string",
+						"null"
+					]
+				}
+			},
+			"required": [
+				"title",
+				"lines",
+				"boundary",
+				"note"
 			],
 			"type": "object"
 		}
@@ -27555,6 +27655,7 @@ export const READS: readonly OperationName[] = [
 	'read_cookbook_invite',
 	'list_tags',
 	'read_pasted_recipe',
+	'read_recipe_pdf',
 	'list_imports',
 	'search_recipes',
 	'home_shelves',
@@ -27634,6 +27735,7 @@ export const METHOD_NAMES = {
 	rename_branch: 'renameBranch',
 	delete_recipe: 'deleteRecipe',
 	read_pasted_recipe: 'readPastedRecipe',
+	read_recipe_pdf: 'readRecipePdf',
 	start_translation: 'startTranslation',
 	set_recipe_language: 'setRecipeLanguage',
 	import: 'import',
@@ -27809,6 +27911,8 @@ export interface KamosuClient {
 	deleteRecipe(input: DeleteRecipeInput): Promise<Answer<'delete_recipe'>>;
 	/** Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
 	readPastedRecipe(input: ReadPastedRecipeInput): Promise<Answer<'read_pasted_recipe'>>;
+	/** Read a recipe PDF — one printed from a web page or a word processor — the way read_pasted_recipe reads pasted text, and answer the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	readRecipePdf(input: ReadRecipePdfInput): Promise<Answer<'read_recipe_pdf'>>;
 	/** Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
 	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */

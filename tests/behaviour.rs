@@ -26816,3 +26816,283 @@ async fn editing_a_recipe_you_did_not_write_is_a_copy() {
     assert_ne!(status, 200, "{refused}");
     assert_eq!(head_content(&app, &key, &branch_id), before);
 }
+
+/// Bringing in a recipe from a PDF (#176): read, shown, and never written
+/// until a person saves it.
+mod reading_a_recipe_pdf {
+    use super::*;
+
+    const BISCUIT: &[u8] = include_bytes!("fixtures/biscuit-de-savoie.pdf");
+    /// The same recipe's text as copying it off the page gives it: every
+    /// printed line break still in, which is what a paste would carry.
+    const BISCUIT_TEXT: &str = include_str!("fixtures/biscuit-de-savoie.txt");
+    /// A page printed as a picture: a PDF with no text in it at all.
+    const SCANNED: &[u8] = include_bytes!("fixtures/scanned-page.pdf");
+
+    fn a_reader(app: &support::TestApp) -> String {
+        let person = app.core.create_person("Aurélien").expect("person");
+        app.core
+            .mint_access_key(&person, "browser", false)
+            .unwrap()
+            .secret
+    }
+
+    fn staged(app: &support::TestApp, key: &str, bytes: &[u8]) -> String {
+        let (status, staged) = app.post_bytes("/api/uploads", Some(key), "application/pdf", bytes);
+        assert_eq!(status, 200, "{staged}");
+        staged["result"]["upload_id"].as_str().unwrap().to_string()
+    }
+
+    fn texts(lines: &[Value]) -> Vec<&str> {
+        lines
+            .iter()
+            .map(|row| row["text"].as_str().unwrap())
+            .collect()
+    }
+
+    fn of_kind<'a>(lines: &'a [Value], kind: &str) -> Vec<&'a Value> {
+        lines
+            .iter()
+            .filter(|row| row["kind"] == json!(kind))
+            .collect()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_recipe_pdf_is_read_into_a_title_a_list_a_method_and_a_note() {
+        let app = support::spawn_app();
+        let key = a_reader(&app);
+        let upload_id = staged(&app, &key, BISCUIT);
+
+        let (status, read) = app.post_op(
+            "read_recipe_pdf",
+            Some(&key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        assert_eq!(status, 200, "{read}");
+        let read = &read["result"];
+        assert_eq!(read["title"], json!("Biscuit de Savoie"), "{read}");
+
+        let lines = read["lines"].as_array().unwrap();
+        let boundary = read["boundary"].as_u64().unwrap() as usize;
+        let (above, below) = lines.split_at(boundary);
+
+        // Exactly four ingredients, with no bullets, under their heading.
+        let ingredients: Vec<&Value> = of_kind(above, "line");
+        assert_eq!(
+            ingredients
+                .iter()
+                .map(|row| row["text"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "Trois gros œufs",
+                "150 g de sucre",
+                "30 g de farine",
+                "45 g de fécule"
+            ],
+            "{read}"
+        );
+        assert_eq!(
+            texts(
+                &of_kind(above, "section")
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            ),
+            ["Ingrédients :"]
+        );
+
+        // The method starts at the first step, under `Préparation`, which
+        // has no colon and is a heading all the same.
+        assert_eq!(
+            below[0],
+            json!({ "text": "Préparation", "kind": "section" }),
+            "{read}"
+        );
+        let steps: Vec<&str> = of_kind(below, "line")
+            .into_iter()
+            .map(|row| row["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(steps.len(), 6, "one step per numbered step: {steps:#?}");
+        for (at, step) in steps.iter().enumerate() {
+            assert!(step.starts_with(&format!("{}. ", at + 1)), "{step}");
+        }
+        // Each joined back into the one line it was before the page wrapped it.
+        assert_eq!(
+            steps[0],
+            "1. Préparer les jaunes : On sépare les jaunes des blancs. On ajoute le sucre aux \
+             jaunes d'œuf et on travaille longuement et soigneusement le mélange. Il doit à peu \
+             près doubler de volume et devenir onctueux."
+        );
+        assert!(
+            steps[5].ends_with("On laisse refroidir complètement."),
+            "{}",
+            steps[5]
+        );
+
+        // The description and the serving suggestions are about the recipe,
+        // and went to its note, in neither list.
+        let note = read["note"].as_str().expect("a note");
+        assert!(
+            note.starts_with("Ce gros gâteau est incroyablement léger"),
+            "{note}"
+        );
+        assert!(note.contains("La cuisson : La chaleur du four"), "{note}");
+        assert!(
+            note.contains("Suggestions de service : Le biscuit de Savoie"),
+            "{note}"
+        );
+        assert!(note.ends_with("au sucre, chocolat..."), "{note}");
+        assert!(
+            !note.contains("Description"),
+            "the heading is the field's own name: {note}"
+        );
+        assert!(!read.to_string().contains('•'), "{read}");
+
+        // Nothing was written: no recipe, and the upload is gone.
+        let (_, shelves) = app.post_op("home_shelves", Some(&key), "{}");
+        assert!(!shelves.to_string().contains("Biscuit"), "{shelves}");
+        let (status, again) = app.post_op(
+            "read_recipe_pdf",
+            Some(&key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        assert_ne!(status, 200, "a staged upload is used once: {again}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_same_text_pasted_is_read_the_same_but_for_the_joining() {
+        let app = support::spawn_app();
+        let key = a_reader(&app);
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(BISCUIT);
+        let (_, printed) = app.post_op(
+            "read_recipe_pdf",
+            Some(&key),
+            &json!({ "data": data }).to_string(),
+        );
+        let (status, pasted) = app.post_op(
+            "read_pasted_recipe",
+            Some(&key),
+            &json!({ "text": BISCUIT_TEXT }).to_string(),
+        );
+        assert_eq!(status, 200, "{pasted}");
+        let (printed, pasted) = (&printed["result"], &pasted["result"]);
+
+        // The title is the one difference that is not joining. A PDF's first
+        // line is its title; pasted text keeps the rule that a title stands
+        // above a blank line, and copied off this page it has none, so it
+        // arrives as a line for the person to move into the title field.
+        assert_eq!(printed["title"], json!("Biscuit de Savoie"));
+        assert_eq!(pasted["title"], Value::Null);
+        assert_eq!(pasted["lines"][0]["text"], json!("Biscuit de Savoie"));
+
+        let split = |read: &Value, from: usize| {
+            let lines = read["lines"].as_array().unwrap().clone();
+            let boundary = read["boundary"].as_u64().unwrap() as usize;
+            (lines[from..boundary].to_vec(), lines[boundary..].to_vec())
+        };
+        let (printed_above, printed_below) = split(printed, 0);
+        let (pasted_above, pasted_below) = split(pasted, 1);
+
+        // The same ingredients and headings, bullets off, in the same place.
+        assert_eq!(pasted_above, printed_above, "{pasted}");
+        let headings = |lines: &[Value]| {
+            texts(
+                &of_kind(lines, "section")
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+            .join("|")
+        };
+        assert_eq!(headings(&pasted_below), headings(&printed_below));
+
+        // The method holds the same words; only the line breaks the page made
+        // differ, since pasted text keeps the ones it came with.
+        let words = |lines: &[Value]| {
+            texts(lines)
+                .join(" ")
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(words(&pasted_below), words(&printed_below));
+        assert!(
+            of_kind(&pasted_below, "line").len() > 6,
+            "pasted lines are not joined"
+        );
+
+        // And the same note, but for the same line breaks.
+        let flat = |note: &Value| {
+            note.as_str()
+                .unwrap()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert_eq!(flat(&pasted["note"]), flat(&printed["note"]));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_pdf_with_no_text_is_refused_saying_why_and_writes_nothing() {
+        let app = support::spawn_app();
+        let key = a_reader(&app);
+        let upload_id = staged(&app, &key, SCANNED);
+        let (status, refused) = app.post_op(
+            "read_recipe_pdf",
+            Some(&key),
+            &json!({ "upload_id": upload_id }).to_string(),
+        );
+        assert_eq!(status, 400, "{refused}");
+        assert_eq!(
+            refused["error"]["reason"],
+            json!("pdf_has_no_text"),
+            "{refused}"
+        );
+        assert_eq!(
+            refused["error"]["message"],
+            json!(
+                "This PDF is a scan or a photo of a page, so it has no text to read. If it came \
+                 from a website, use From a link instead, or copy the recipe's text and use From \
+                 pasted text."
+            )
+        );
+        let (_, imports) = app.post_op("list_imports", Some(&key), "{}");
+        assert_eq!(imports["result"]["imports"], json!([]), "{imports}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_mcp_door_reads_a_pdf_and_refuses_a_scan_in_the_same_words() {
+        let app = support::spawn_app();
+        let key = a_reader(&app);
+        use base64::Engine;
+        let call = |bytes: &[u8]| {
+            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+            let payload = json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": "read_recipe_pdf", "arguments": { "data": data } },
+            });
+            let (status, body) = app.post_mcp(&payload.to_string(), Some(&key));
+            assert_eq!(status, 200, "{body}");
+            body["result"].clone()
+        };
+
+        let read = call(BISCUIT);
+        assert_eq!(read["isError"], json!(false), "{read}");
+        assert_eq!(
+            read["structuredContent"]["title"],
+            json!("Biscuit de Savoie")
+        );
+
+        let refused = call(SCANNED);
+        assert_eq!(refused["isError"], json!(true), "{refused}");
+        assert!(
+            refused
+                .to_string()
+                .contains("This PDF is a scan or a photo of a page"),
+            "{refused}"
+        );
+    }
+}

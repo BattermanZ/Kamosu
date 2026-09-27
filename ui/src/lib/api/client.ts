@@ -40,7 +40,7 @@ export interface TransportOptions {
 interface Envelope {
 	ok: boolean;
 	result?: unknown;
-	error?: { kind?: string; message?: string; retry_after_seconds?: number };
+	error?: { kind?: string; message?: string; retry_after_seconds?: number; reason?: string };
 }
 
 const KINDS: readonly ErrorKind[] = [
@@ -109,7 +109,7 @@ export async function readEnvelope(operation: string, response: Response): Promi
 			operation,
 			asKind(envelope.error?.kind),
 			envelope.error?.message ?? `${operation} was refused.`,
-			{ retryAfterSeconds: envelope.error?.retry_after_seconds },
+			{ retryAfterSeconds: envelope.error?.retry_after_seconds, reason: envelope.error?.reason },
 		);
 	}
 	return envelope.result;

@@ -1847,6 +1847,7 @@ describe('the recipe screen', () => {
 	it('opens a recipe the + made from pasted text on its writing screen, filled and unsaved', async () => {
 		holdPaste('mine', {
 			title: 'Korean Fried Chicken',
+			note: 'Best eaten the day it is fried.',
 			ingredients: [
 				{ kind: 'section', text: 'Brine' },
 				{ kind: 'ingredient', text: '1 lemon' },
@@ -1858,6 +1859,8 @@ describe('the recipe screen', () => {
 		expect(await screen.findByDisplayValue('1 lemon')).toBeInTheDocument();
 		expect(screen.getByDisplayValue('Brine')).toBeInTheDocument();
 		expect(screen.getByDisplayValue('Squeeze it over.')).toBeInTheDocument();
+		// What the paste said about the recipe waits in its note (#176).
+		expect(screen.getByDisplayValue('Best eaten the day it is fried.')).toBeInTheDocument();
 		expect(kamosu.calls.some((call) => call.operation === 'save_recipe_version')).toBe(false);
 		// Held once: nothing is waiting for this recipe any more.
 		expect(takePaste('mine')).toBeUndefined();
@@ -1866,6 +1869,7 @@ describe('the recipe screen', () => {
 	it('leaves a paste held for another recipe where it is', async () => {
 		const draft = {
 			title: 'Not this one',
+			note: null,
 			ingredients: [{ kind: 'ingredient' as const, text: 'a stray line' }],
 			steps: [],
 		};
