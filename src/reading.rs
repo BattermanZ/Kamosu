@@ -133,7 +133,12 @@ const OPEN_UNITS: &[&str] = &[
     "sheets",
     "block",
     "blocks",
-    // French
+    "cube",
+    "cubes",
+    "bundle",
+    "bundles",
+    // French. `cube` and `cubes` are spelt the same, so the English pair above
+    // covers both (#161).
     "gousse",
     "gousses",
     "boite",
@@ -192,6 +197,10 @@ const OPEN_UNITS: &[&str] = &[
     "ramitas",
     "chorrito",
     "chorritos",
+    "pastilla",
+    "pastillas",
+    "cubito",
+    "cubitos",
 ];
 
 /// Words that stand exactly where a Unit stands and are not one: they describe
@@ -681,6 +690,56 @@ mod tests {
             read("cloves, roughly chopped garlic"),
             parts(None, Some("cloves"), Some("roughly chopped garlic"))
         );
+    }
+
+    #[test]
+    fn a_stock_cube_or_a_bundle_is_counted_not_named() {
+        // Both Beef Bourguignons, doubled word and all (#161).
+        assert_eq!(
+            read("3 cubes beef broth cubes"),
+            parts(Some("3"), Some("cubes"), Some("beef broth cubes"))
+        );
+        assert_eq!(
+            read("1 cube de bouillon"),
+            parts(Some("1"), Some("cube"), Some("bouillon"))
+        );
+        assert_eq!(
+            read("2 pastillas de caldo"),
+            parts(Some("2"), Some("pastillas"), Some("caldo"))
+        );
+        assert_eq!(
+            read("1 cubito de caldo de pollo"),
+            parts(Some("1"), Some("cubito"), Some("caldo de pollo"))
+        );
+        // The Dan Dan Noodles, typed in by hand rather than imported.
+        assert_eq!(
+            read("2 bundles fresh wheat noodles"),
+            parts(Some("2"), Some("bundles"), Some("fresh wheat noodles"))
+        );
+        // Still the Food it names when there is nothing to count.
+        assert_eq!(read("cubes"), parts(None, None, Some("cubes")));
+    }
+
+    #[test]
+    fn the_short_french_spoons_are_spoons() {
+        // Seen translating recipes into French (#161).
+        for (line, unit) in [
+            ("1 c. à café de cassonade", "c. à café"),
+            ("1 c. a cafe de cassonade", "c. a cafe"),
+            ("1 cuil. à café de cassonade", "cuil. à café"),
+            ("1 cuill. à café de cassonade", "cuill. à café"),
+        ] {
+            assert_eq!(read(line), parts(Some("1"), Some(unit), Some("cassonade")));
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some("teaspoon"));
+        }
+        for (line, unit) in [
+            ("2 c. à soupe d'huile", "c. à soupe"),
+            ("2 cuil. à soupe d'huile", "cuil. à soupe"),
+            ("2 cuill. a soupe d'huile", "cuill. a soupe"),
+        ] {
+            assert_eq!(read(line), parts(Some("2"), Some(unit), Some("huile")));
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some("tablespoon"));
+        }
     }
 
     #[test]
