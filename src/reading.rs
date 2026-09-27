@@ -174,6 +174,19 @@ const OPEN_UNITS: &[&str] = &[
     "verres",
     "paquet",
     "paquets",
+    // What a shop sells a thing in, seen translating recipes into French
+    // (#181). `filet` above stays a Unit too: `un filet d'huile d'olive` is a
+    // drizzle, and `2 filets de saumon` is two fillets of salmon.
+    "bloc",
+    "blocs",
+    "bouteille",
+    "bouteilles",
+    "barquette",
+    "barquettes",
+    "brique",
+    "briques",
+    "tablette",
+    "tablettes",
     // Spanish
     "diente",
     "dientes",
@@ -201,6 +214,10 @@ const OPEN_UNITS: &[&str] = &[
     "pastillas",
     "cubito",
     "cubitos",
+    "botella",
+    "botellas",
+    "tableta",
+    "tabletas",
 ];
 
 /// Words that stand exactly where a Unit stands and are not one: they describe
@@ -226,6 +243,16 @@ const SIZES: &[&str] = &[
 const GLUE: &[&str] = &[
     "of", "de", "du", "des", "la", "le", "les", "un", "une", "el", "los", "las", "al", "the", "a",
 ];
+
+/// Words that open a line to say *a few* or *about*. Kamosu can do no
+/// arithmetic on *a few*, so one is never the amount; left standing it hid the
+/// Unit behind it, and `quelques feuilles de menthe` named a Food after the
+/// leaves (#181).
+///
+/// Dropped only at the start of the line and **before** the amount is read,
+/// never as [`GLUE`]: `unos 200 g de harina` is Spanish for *about* 200 g, and
+/// the 200 has to reach the amount rather than the Food.
+const A_FEW: &[&str] = &["quelques", "unos", "unas"];
 
 /// The elided articles French and Spanish write against the next word. Split
 /// off so [`GLUE`] can see them, and glued back wherever one survives inside a
@@ -274,7 +301,9 @@ pub fn read_line(line: &str) -> Option<Reading> {
     let line = without_brackets(line);
     let mut clauses = split_clauses(&line).into_iter();
     let head = split_elisions(clauses.next().unwrap_or_default());
-    let tokens: Vec<&str> = head.split_whitespace().collect();
+    let mut tokens: Vec<&str> = head.split_whitespace().collect();
+    let a_few = tokens.iter().take_while(|word| listed(A_FEW, word)).count();
+    tokens.drain(..a_few);
     if tokens.is_empty() {
         return None;
     }
@@ -770,6 +799,103 @@ mod tests {
         );
         // Still the Food it names when there is nothing to count.
         assert_eq!(read("cubes"), parts(None, None, Some("cubes")));
+    }
+
+    #[test]
+    fn the_french_count_words_are_counted_not_named() {
+        // Seen translating recipes into French (#181).
+        assert_eq!(
+            read("1 bloc de feta"),
+            parts(Some("1"), Some("bloc"), Some("feta"))
+        );
+        assert_eq!(
+            read("1 bouteille de vin rouge"),
+            parts(Some("1"), Some("bouteille"), Some("vin rouge"))
+        );
+        assert_eq!(
+            read("1 bouteille de vin rouge sec"),
+            parts(Some("1"), Some("bouteille"), Some("vin rouge sec"))
+        );
+        for (line, amount, unit, food) in [
+            ("1 barquette de fraises", "1", "barquette", "fraises"),
+            ("1 brique de crème", "1", "brique", "crème"),
+            ("1 tablette de chocolat", "1", "tablette", "chocolat"),
+            ("2 blocs de feta", "2", "blocs", "feta"),
+            ("2 bouteilles de vin", "2", "bouteilles", "vin"),
+            ("2 barquettes de fraises", "2", "barquettes", "fraises"),
+            ("2 briques de crème", "2", "briques", "crème"),
+            ("2 tablettes de chocolat", "2", "tablettes", "chocolat"),
+            ("1 botella de vino tinto", "1", "botella", "vino tinto"),
+            ("2 botellas de vino", "2", "botellas", "vino"),
+            ("1 tableta de chocolate", "1", "tableta", "chocolate"),
+            ("2 tabletas de chocolate", "2", "tabletas", "chocolate"),
+        ] {
+            assert_eq!(
+                read(line),
+                parts(Some(amount), Some(unit), Some(food)),
+                "{line}"
+            );
+        }
+        // Still the Food it names when there is nothing to count.
+        assert_eq!(read("bouteille"), parts(None, None, Some("bouteille")));
+    }
+
+    #[test]
+    fn a_few_is_no_amount_and_hides_no_unit() {
+        // `quelques` counts nothing Kamosu can do arithmetic on, so it is
+        // never the amount; it only stood in front of the Unit (#181).
+        assert_eq!(
+            read("quelques feuilles de menthe"),
+            parts(None, Some("feuilles"), Some("menthe"))
+        );
+        assert_eq!(
+            read("unas hojas de menta"),
+            parts(None, Some("hojas"), Some("menta"))
+        );
+        assert_eq!(
+            read("unos dientes de ajo"),
+            parts(None, Some("dientes"), Some("ajo"))
+        );
+        // Before a number, `unos` is *about*, and the number is still the
+        // amount rather than part of the Food.
+        assert_eq!(
+            read("unos 200 g de harina"),
+            parts(Some("200"), Some("g"), Some("harina"))
+        );
+        assert_eq!(
+            read("unas 3 hojas de laurel"),
+            parts(Some("3"), Some("hojas"), Some("laurel"))
+        );
+    }
+
+    #[test]
+    fn the_count_words_that_already_read_still_do() {
+        // What #181 must leave alone. `filet` stays a Unit: `un filet
+        // d'huile d'olive` is a drizzle and reads right only that way.
+        assert_eq!(
+            read("2 filets de saumon"),
+            parts(Some("2"), Some("filets"), Some("saumon"))
+        );
+        assert_eq!(
+            read("1 filet d'huile d'olive"),
+            parts(Some("1"), Some("filet"), Some("huile d'olive"))
+        );
+        assert_eq!(
+            read("des feuilles de basilic"),
+            parts(None, Some("feuilles"), Some("basilic"))
+        );
+        assert_eq!(
+            read("1 cube de bouillon"),
+            parts(Some("1"), Some("cube"), Some("bouillon"))
+        );
+        assert_eq!(
+            read("2 c. à café de sel"),
+            parts(Some("2"), Some("c. à café"), Some("sel"))
+        );
+        assert_eq!(
+            read("1 boîte de tomates"),
+            parts(Some("1"), Some("boîte"), Some("tomates"))
+        );
     }
 
     #[test]
