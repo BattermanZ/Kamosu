@@ -1,9 +1,10 @@
 /**
- * One Food's page (#107).
+ * One Food's page (#107), with several names in one Language (#179).
  *
- * The two states the ticket names are the two this file is built around: a Food
- * with a single name, where the last name may not be taken off, and a Food
- * named in two Languages, where it may.
+ * The states the tickets name are the ones this file is built around: a Food
+ * with a single name, where the last name may not be taken off; a Food named
+ * in two Languages, where either may; and a Food answering to two words in
+ * one Language, "œufs" and "œuf", shown on one row and edited together.
  *
  * What these guard above everything: **nothing here is recipe content** (ADR
  * 0002). No Version is minted and no written line moves, which is asserted
@@ -35,6 +36,18 @@ const food = (over: Partial<GetFoodOutput> = {}): GetFoodOutput => ({
 
 /** The Food the ticket asks to be shown: one name, nine Readings, no Cup Weight. */
 const CASTER = food();
+
+/** A Food answering to the plural and the singular in French (#179). */
+const EGGS = food({
+	id: 'f_eggs',
+	name: 'eggs',
+	names: [
+		{ language: 'en', name: 'eggs' },
+		{ language: 'fr', name: 'œufs' },
+		{ language: 'fr', name: 'œuf' },
+	],
+	reading_count: 12,
+});
 
 /** A Food somebody has taught both its words, which is what ADR 0006 is for. */
 const SALT = food({
@@ -78,50 +91,117 @@ describe('a Food’s page', () => {
 				{ language: 'fr', name: 'sucre en poudre' },
 			],
 		});
-		const kamosu = draw({ get_food: CASTER, set_food_name: named });
+		const kamosu = draw({ get_food: CASTER, set_food_names: named });
 
 		expect(await screen.findByText('Not named in French yet')).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Add a name in French' }));
-		await fireEvent.input(screen.getByLabelText('French'), {
+		await fireEvent.input(screen.getByPlaceholderText('Another name in French'), {
 			target: { value: 'sucre en poudre' },
 		});
-		await fireEvent.click(screen.getByRole('button', { name: 'Save this name' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		await waitFor(() => expect(screen.getByText('sucre en poudre')).toBeInTheDocument());
-		const asked = kamosu.calls.find((call) => call.operation === 'set_food_name');
+		const asked = kamosu.calls.find((call) => call.operation === 'set_food_names');
 		expect(asked?.input).toEqual({
 			food_id: 'f_caster',
 			language: 'fr',
-			name: 'sucre en poudre',
+			names: ['sucre en poudre'],
 		});
+	});
+
+	it('shows every name a Language has on its one row', async () => {
+		draw({ get_food: EGGS }, 'f_eggs');
+
+		expect(await screen.findByText('œufs · œuf')).toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Change the names in French' })).toBeInTheDocument();
+	});
+
+	it('adds a second name in a Language that already has one', async () => {
+		const kamosu = draw({ get_food: SALT, set_food_names: EGGS }, 'f_salt');
+
+		await screen.findByText('sel');
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in French' }));
+		expect(screen.getByRole('textbox', { name: 'French name 1' })).toHaveValue('sel');
+		await fireEvent.input(screen.getByPlaceholderText('Another name in French'), {
+			target: { value: 'gros sel' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'set_food_names')?.input).toEqual({
+				food_id: 'f_salt',
+				language: 'fr',
+				names: ['sel', 'gros sel'],
+			}),
+		);
+	});
+
+	it('takes one of two names off a Language, keeping the other', async () => {
+		const kamosu = draw({ get_food: EGGS, set_food_names: EGGS }, 'f_eggs');
+
+		await screen.findByText('œufs · œuf');
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in French' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Take off œuf' }));
+		expect(screen.queryByRole('textbox', { name: 'French name 2' })).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'set_food_names')?.input).toEqual({
+				food_id: 'f_eggs',
+				language: 'fr',
+				names: ['œufs'],
+			}),
+		);
+	});
+
+	it('takes a whole Language off a Food another Language still names', async () => {
+		const kamosu = draw({ get_food: SALT, set_food_names: food({ id: 'f_salt' }) }, 'f_salt');
+
+		await screen.findByText('sel');
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in French' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Take off sel' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'set_food_names')?.input).toEqual({
+				food_id: 'f_salt',
+				language: 'fr',
+				names: [],
+			}),
+		);
 	});
 
 	it('offers no way to take off the only name a Food has, and says why', async () => {
 		draw({ get_food: CASTER });
 
 		expect(await screen.findByRole('heading', { name: 'caster sugar' })).toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /^Take off the name in/ })).not.toBeInTheDocument();
 		expect(
 			screen.getByText('A Food needs at least one name, so the last one stays.'),
 		).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in English' }));
+		expect(screen.getByRole('textbox', { name: 'English name 1' })).toHaveValue('caster sugar');
+		expect(screen.queryByRole('button', { name: /^Take off/ })).not.toBeInTheDocument();
 	});
 
-	it('takes a name off a Food that has two, and stops offering it once one is left', async () => {
-		const kamosu = draw({ get_food: SALT, remove_food_name: CASTER }, 'f_salt');
+	it('lets the only name go once a replacement is typed in the empty box', async () => {
+		const kamosu = draw({ get_food: CASTER, set_food_names: CASTER });
 
-		expect(await screen.findByText('sel')).toBeInTheDocument();
-		// Either name may go while two remain, so the button is named by the
-		// Language it belongs to rather than picked out by where it sits.
-		expect(screen.getAllByRole('button', { name: /^Take off the name in/ })).toHaveLength(2);
-		await fireEvent.click(screen.getByRole('button', { name: 'Take off the name in French' }));
+		await screen.findByRole('heading', { name: 'caster sugar' });
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in English' }));
+		expect(screen.queryByRole('button', { name: /^Take off/ })).not.toBeInTheDocument();
+		await fireEvent.input(screen.getByPlaceholderText('Another name in English'), {
+			target: { value: 'caster' },
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Take off caster sugar' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		await waitFor(() =>
-			expect(kamosu.calls.some((call) => call.operation === 'remove_food_name')).toBe(true),
+			expect(kamosu.calls.find((call) => call.operation === 'set_food_names')?.input).toEqual({
+				food_id: 'f_caster',
+				language: 'en',
+				names: ['caster'],
+			}),
 		);
-		expect(kamosu.calls.find((call) => call.operation === 'remove_food_name')?.input).toEqual({
-			food_id: 'f_salt',
-			language: 'fr',
-		});
 	});
 
 	it('says the Core’s refusal as the sentence it arrived as, not as a code', async () => {
@@ -130,7 +210,7 @@ describe('a Food’s page', () => {
 		draw(
 			{
 				get_food: SALT,
-				remove_food_name: {
+				set_food_names: {
 					refuse: 'bad_request',
 					message: 'a Food must keep at least one name',
 				},
@@ -139,7 +219,9 @@ describe('a Food’s page', () => {
 		);
 
 		expect(await screen.findByText('sel')).toBeInTheDocument();
-		await fireEvent.click(screen.getByRole('button', { name: 'Take off the name in French' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Change the names in French' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Take off sel' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'a Food must keep at least one name',

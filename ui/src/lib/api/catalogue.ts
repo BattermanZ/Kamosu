@@ -4263,33 +4263,14 @@ export type GetFoodOutput = {
 	reading_count: number;
 };
 
-/** Give a Food its name in one Language, or correct the one it has there. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
-export type SetFoodNameInput = {
+/** Say every name a Food answers to in one Language, in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
+export type SetFoodNamesInput = {
 	food_id: string;
 	language: "en" | "fr" | "es";
-	name: string;
+	names: string[];
 };
-/** What set_food_name answers. */
-export type SetFoodNameOutput = {
-	cup_weight_grams: number | null;
-	id: string;
-	language: string | null;
-	name: string | null;
-	names: {
-		language: string;
-		name: string;
-	}[];
-	nutrition: null;
-	reading_count: number;
-};
-
-/** Take a Food's name in one Language back off. A Food's last remaining name may not be removed this way. */
-export type RemoveFoodNameInput = {
-	food_id: string;
-	language: "en" | "fr" | "es";
-};
-/** What remove_food_name answers. */
-export type RemoveFoodNameOutput = {
+/** What set_food_names answers. */
+export type SetFoodNamesOutput = {
 	cup_weight_grams: number | null;
 	id: string;
 	language: string | null;
@@ -4383,7 +4364,7 @@ export type PreviewFoodMergeOutput = {
 	};
 };
 
-/** Join two Foods into one. A Food has one name per Language, so the survivor keeps its own and takes the other's only in a Language it has no name for, and the other's remaining names are dropped. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
+/** Join two Foods into one. The survivor keeps its own names and answers to every one of the other's as well, after its own in each Language. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
 export type MergeFoodInput = {
 	absorbed_food_id: string;
 	cup_weight_grams?: number | null;
@@ -5125,15 +5106,9 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
-	set_food_name: {
-		input: SetFoodNameInput;
-		output: SetFoodNameOutput;
-		kind: 'immediate';
-		permission: 'person';
-	};
-	remove_food_name: {
-		input: RemoveFoodNameInput;
-		output: RemoveFoodNameOutput;
+	set_food_names: {
+		input: SetFoodNamesInput;
+		output: SetFoodNamesOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -26746,8 +26721,8 @@ export const CATALOGUE = [
 		}
 	},
 	{
-		"name": "set_food_name",
-		"summary": "Give a Food its name in one Language, or correct the one it has there. Any Person may — a Food is instance-wide, not a Kitchen's to guard.",
+		"name": "set_food_names",
+		"summary": "Say every name a Food answers to in one Language, in order: the list replaces the names it had there. A line naming any of them reads as this Food, so \"œufs\" and \"œuf\" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26761,104 +26736,19 @@ export const CATALOGUE = [
 						"en",
 						"fr",
 						"es"
-					]
-				},
-				"name": {
-					"type": "string"
-				}
-			},
-			"required": [
-				"food_id",
-				"language",
-				"name"
-			],
-			"type": "object"
-		},
-		"output_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"cup_weight_grams": {
-					"type": [
-						"number",
-						"null"
-					]
-				},
-				"id": {
-					"type": "string"
-				},
-				"language": {
-					"type": [
-						"string",
-						"null"
-					]
-				},
-				"name": {
-					"type": [
-						"string",
-						"null"
 					]
 				},
 				"names": {
 					"items": {
-						"additionalProperties": false,
-						"properties": {
-							"language": {
-								"type": "string"
-							},
-							"name": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"language",
-							"name"
-						],
-						"type": "object"
+						"type": "string"
 					},
 					"type": "array"
-				},
-				"nutrition": {
-					"type": "null"
-				},
-				"reading_count": {
-					"minimum": 0,
-					"type": "integer"
-				}
-			},
-			"required": [
-				"id",
-				"name",
-				"language",
-				"names",
-				"cup_weight_grams",
-				"nutrition",
-				"reading_count"
-			],
-			"type": "object"
-		}
-	},
-	{
-		"name": "remove_food_name",
-		"summary": "Take a Food's name in one Language back off. A Food's last remaining name may not be removed this way.",
-		"permission": "person",
-		"kind": "immediate",
-		"input_schema": {
-			"additionalProperties": false,
-			"properties": {
-				"food_id": {
-					"type": "string"
-				},
-				"language": {
-					"enum": [
-						"en",
-						"fr",
-						"es"
-					]
 				}
 			},
 			"required": [
 				"food_id",
-				"language"
+				"language",
+				"names"
 			],
 			"type": "object"
 		},
@@ -27315,7 +27205,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "merge_food",
-		"summary": "Join two Foods into one. A Food has one name per Language, so the survivor keeps its own and takes the other's only in a Language it has no name for, and the other's remaining names are dropped. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1.",
+		"summary": "Join two Foods into one. The survivor keeps its own names and answers to every one of the other's as well, after its own in each Language. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -27793,8 +27683,7 @@ export const METHOD_NAMES = {
 	remove_loose_item: 'removeLooseItem',
 	list_foods: 'listFoods',
 	get_food: 'getFood',
-	set_food_name: 'setFoodName',
-	remove_food_name: 'removeFoodName',
+	set_food_names: 'setFoodNames',
 	set_food_cup_weight: 'setFoodCupWeight',
 	list_merge_suggestions: 'listMergeSuggestions',
 	preview_food_merge: 'previewFoodMerge',
@@ -28027,17 +27916,15 @@ export interface KamosuClient {
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
 	/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */
 	getFood(input: GetFoodInput): Promise<Answer<'get_food'>>;
-	/** Give a Food its name in one Language, or correct the one it has there. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
-	setFoodName(input: SetFoodNameInput): Promise<Answer<'set_food_name'>>;
-	/** Take a Food's name in one Language back off. A Food's last remaining name may not be removed this way. */
-	removeFoodName(input: RemoveFoodNameInput): Promise<Answer<'remove_food_name'>>;
+	/** Say every name a Food answers to in one Language, in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
+	setFoodNames(input: SetFoodNamesInput): Promise<Answer<'set_food_names'>>;
 	/** Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it. */
 	setFoodCupWeight(input: SetFoodCupWeightInput): Promise<Answer<'set_food_cup_weight'>>;
 	/** The Operator's worklist: every note that two Foods are probably one thing, with the words that said so. Evidence, never an instruction — nothing merges itself. */
 	listMergeSuggestions(input?: ListMergeSuggestionsInput): Promise<Answer<'list_merge_suggestions'>>;
 	/** Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
 	previewFoodMerge(input: PreviewFoodMergeInput): Promise<Answer<'preview_food_merge'>>;
-	/** Join two Foods into one. A Food has one name per Language, so the survivor keeps its own and takes the other's only in a Language it has no name for, and the other's remaining names are dropped. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
+	/** Join two Foods into one. The survivor keeps its own names and answers to every one of the other's as well, after its own in each Language. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
 	mergeFood(input: MergeFoodInput): Promise<Answer<'merge_food'>>;
 	/** Delete a Food nothing points at. One a Reading on some recipe still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. Readings only a deleted recipe held count for nothing and go with the Food. */
 	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;

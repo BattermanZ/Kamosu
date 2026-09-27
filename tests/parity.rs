@@ -72,8 +72,7 @@ fn arguments_for(name: &str) -> Value {
         "forget_import" => json!({ "import_id": "i_parity" }),
         "set_reading" => json!({ "branch_id": "b_parity", "line_index": 0 }),
         "get_food" => json!({ "food_id": "f_parity" }),
-        "set_food_name" => json!({ "food_id": "f_parity", "language": "en", "name": "parity" }),
-        "remove_food_name" => json!({ "food_id": "f_parity", "language": "en" }),
+        "set_food_names" => json!({ "food_id": "f_parity", "language": "en", "names": ["parity"] }),
         "set_food_cup_weight" => json!({ "food_id": "f_parity", "cup_weight_grams": 100 }),
         "create_tag" => json!({ "language": "en", "name": "parity" }),
         "list_tags" => json!({}),
@@ -187,8 +186,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "upload_photograph"
             | "list_foods"
             | "get_food"
-            | "set_food_name"
-            | "remove_food_name"
+            | "set_food_names"
             | "set_food_cup_weight"
             | "list_merge_suggestions"
             | "preview_food_merge"
@@ -381,8 +379,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "upload_photograph"
                 | "list_foods"
                 | "get_food"
-                | "set_food_name"
-                | "remove_food_name"
+                | "set_food_names"
                 | "set_food_cup_weight"
                 | "list_merge_suggestions"
                 | "preview_food_merge"

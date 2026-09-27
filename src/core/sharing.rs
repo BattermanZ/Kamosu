@@ -1865,11 +1865,38 @@ fn bundle_branch(conn: &Connection, branch_id: &str) -> Result<Value, OpError> {
     }))
 }
 
+/// A Food as a Bundle carries it: its words and nothing else (ADR 0021).
+/// `names` holds the one name per Language it always held, the one shown, so
+/// an instance written before a Food could hold several reads it exactly as
+/// it did; `other_names` carries the rest, in order, and is absent when there
+/// are none (#179). `held` comes ordered by Language, then by position.
+fn food_names_carried(held: Vec<(String, String)>) -> Value {
+    let mut names = serde_json::Map::new();
+    let mut other_names = serde_json::Map::new();
+    for (language, name) in held {
+        if names.contains_key(&language) {
+            other_names
+                .entry(language)
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+                .expect("other_names holds lists")
+                .push(json!(name));
+        } else {
+            names.insert(language, json!(name));
+        }
+    }
+    if other_names.is_empty() {
+        json!({ "names": names })
+    } else {
+        json!({ "names": names, "other_names": other_names })
+    }
+}
+
 /// A Version's Readings as they travel: one slot per Ingredient Line, null
 /// where there is none, each carried as stored and never recomputed (ADR 0021).
 ///
-/// Where a Reading points at a **Food**, the Food travels as its names in
-/// every Language it has one in, and nothing else: no id, since two instances
+/// Where a Reading points at a **Food**, the Food travels as every name it
+/// has, in every Language, and nothing else: no id, since two instances
 /// mint their *farine* separately, and no Cup Weight or nutrition, since what
 /// this instance learned stays this instance's (ADR 0016, ADR 0021).
 fn bundle_readings(
@@ -1907,19 +1934,20 @@ fn bundle_readings(
         .collect::<Result<_, _>>()
         .map_err(|e| OpError::internal(format!("cannot read Readings: {e}")))?;
     let mut names_of = conn
-        .prepare("SELECT language, name FROM food_names WHERE food_id = ?1 ORDER BY language")
+        .prepare(
+            "SELECT language, name FROM food_names WHERE food_id = ?1 \
+             ORDER BY language, position",
+        )
         .map_err(|e| OpError::internal(format!("cannot read a Food's names: {e}")))?;
     for (line_index, amount, unit, target, lineage_id, food_id) in rows {
         let food = match food_id {
             Some(food_id) => {
-                let names: serde_json::Map<String, Value> = names_of
-                    .query_map(params![food_id], |row| {
-                        Ok((row.get::<_, String>(0)?, json!(row.get::<_, String>(1)?)))
-                    })
+                let held: Vec<(String, String)> = names_of
+                    .query_map(params![food_id], |row| Ok((row.get(0)?, row.get(1)?)))
                     .map_err(|e| OpError::internal(format!("cannot read a Food's names: {e}")))?
                     .collect::<Result<_, _>>()
                     .map_err(|e| OpError::internal(format!("cannot read a Food's names: {e}")))?;
-                json!({ "names": names })
+                food_names_carried(held)
             }
             None => Value::Null,
         };
@@ -2217,10 +2245,25 @@ fn write_carried_readings(
             Some(lineage_id) => (None, Some(lineage_id)),
             None => (text("target"), None),
         };
+        // A Food's shown name per Language, then the others it answers to
+        // there (#179). A Bundle written before a Food could hold several
+        // carries no `other_names`, and reads exactly as it did.
+        let others = slot["food"]["other_names"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .flat_map(|(language, names)| {
+                names
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(move |name| (language, name))
+            });
         let names: Vec<(&str, &str)> = slot["food"]["names"]
             .as_object()
             .into_iter()
             .flatten()
+            .chain(others)
             .filter_map(|(language, name)| {
                 Some((
                     language.as_str(),

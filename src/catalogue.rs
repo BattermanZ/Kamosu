@@ -2934,31 +2934,32 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::get_food,
         },
         Operation {
-            name: "set_food_name",
-            summary: "Give a Food its name in one Language, or correct the \
-                      one it has there. Any Person may — a Food is \
-                      instance-wide, not a Kitchen's to guard.",
+            name: "set_food_names",
+            summary: "Say every name a Food answers to in one Language, in \
+                      order: the list replaces the names it had there. A \
+                      line naming any of them reads as this Food, so \
+                      \"œufs\" and \"œuf\" can both be the eggs. The first \
+                      is the one a reader is shown. An empty list takes the \
+                      Language off, but a Food's last name may not go. Any \
+                      Person may — a Food is instance-wide, not a Kitchen's \
+                      to guard.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
             session_only: false,
             job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] }, "name": { "type": "string" } }, "required": ["food_id", "language", "name"], "additionalProperties": false }),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "food_id": { "type": "string" },
+                    "language": { "enum": ["en", "fr", "es"] },
+                    "names": { "type": "array", "items": { "type": "string" } },
+                },
+                "required": ["food_id", "language", "names"],
+                "additionalProperties": false,
+            }),
             output_schema: food_schema(),
-            handler: crate::operations::set_food_name,
-        },
-        Operation {
-            name: "remove_food_name",
-            summary: "Take a Food's name in one Language back off. A Food's \
-                      last remaining name may not be removed this way.",
-            permission: Permission::Person,
-            kind: Kind::Immediate,
-            write: true,
-            session_only: false,
-            job_lane: JobLane::ByCaller,
-            input_schema: json!({ "type": "object", "properties": { "food_id": { "type": "string" }, "language": { "enum": ["en", "fr", "es"] } }, "required": ["food_id", "language"], "additionalProperties": false }),
-            output_schema: food_schema(),
-            handler: crate::operations::remove_food_name,
+            handler: crate::operations::set_food_names,
         },
         Operation {
             name: "set_food_cup_weight",
@@ -3029,10 +3030,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "merge_food",
-            summary: "Join two Foods into one. A Food has one name per \
-                      Language, so the survivor keeps its own and takes the \
-                      other's only in a Language it has no name for, and the \
-                      other's remaining names are dropped. Every Reading \
+            summary: "Join two Foods into one. The survivor keeps its own \
+                      names and answers to every one of the other's as well, \
+                      after its own in each Language. Every Reading \
                       pointing at the other points at it instead, and every \
                       Merge Suggestion naming either is cleared. ingredient_lines is the figure \
                       preview_food_merge announced, said back — a Merge that \

@@ -25,9 +25,16 @@
 	says so, because "add French" on a screen full of English otherwise reads as
 	an offer to translate a recipe.
 
+	**SEVERAL NAMES IN ONE LANGUAGE ARE ONE ROW** (#179, option B, chosen by
+	Aurélien on 27 September 2026 over a row per name). A Food may answer to
+	"œufs" and "œuf", and a line naming either reads as it. The row shows them
+	joined "œufs · œuf", as the Foods list already does, and Change opens a box
+	per name with Take off beside it, an empty box for another, and one Save for
+	the Language. The first name is the one lists show, and the editor says so.
+
 	**THE LAST NAME CANNOT BE TAKEN OFF.** A Food is known by its words alone, so
-	the Core refuses `remove_food_name` on the only one left. The refusal is
-	worded here as a sentence and the control is simply absent on a Food with one
+	the Core refuses `set_food_names` when it would leave none. The refusal is
+	worded here as a sentence and Take off is simply absent on a Food's only
 	name — a button that exists to explain why it does not work is worse than no
 	button. The Core's refusal is still shown verbatim if it ever arrives, since
 	it is written to be read.
@@ -48,7 +55,7 @@
 		cupWeightBox,
 		linesPointingAt,
 		NAME_LANGUAGES,
-		nameIn,
+		namesIn,
 		type Food,
 		type NameLanguage,
 	} from '$lib/foods';
@@ -68,9 +75,13 @@
 	let said = $state<string | undefined>(undefined);
 	let working = $state(false);
 
-	/** Which Language's name is being typed, and what has been typed into it. */
+	/**
+	 * Which Language's names are open, the names it had as they are being
+	 * edited, and the empty box for one more.
+	 */
 	let editing = $state<NameLanguage | null>(null);
-	let draft = $state('');
+	let drafts = $state<string[]>([]);
+	let another = $state('');
 
 	/** The Cup Weight box. Seeded from the Food each time one is loaded. */
 	let grams = $state('');
@@ -113,11 +124,16 @@
 		}
 	}
 
-	const saveName = (language: NameLanguage) =>
-		act(() => kamosu.setFoodName({ food_id: foodId, language, name: draft.trim() }));
+	/** What Save would send: every box that holds something, in order. */
+	const wanted = $derived(
+		[...drafts, another].map((name) => name.trim()).filter((name) => name !== ''),
+	);
 
-	const takeNameOff = (language: NameLanguage) =>
-		act(() => kamosu.removeFoodName({ food_id: foodId, language }));
+	/** Whether some other Language still names the Food while this one is open. */
+	const namedElsewhere = $derived(food?.names.some((named) => named.language !== editing) ?? false);
+
+	const saveNames = (language: NameLanguage) =>
+		act(() => kamosu.setFoodNames({ food_id: foodId, language, names: wanted }));
 
 	/**
 	 * An empty box clears the Cup Weight back to "offers millilitres instead of
@@ -142,8 +158,13 @@
 	const nameCount = $derived(food?.names.length ?? 0);
 
 	function startEditing(language: NameLanguage) {
-		draft = (food && nameIn(food, language)) ?? '';
+		drafts = food ? namesIn(food, language) : [];
+		another = '';
 		editing = language;
+	}
+
+	function takeOff(index: number) {
+		drafts = drafts.filter((_, at) => at !== index);
 	}
 </script>
 
@@ -159,23 +180,50 @@
 
 		<Section heading={m.food_called()}>
 			{#each NAME_LANGUAGES as language (language)}
-				{@const named = nameIn(food, language)}
+				{@const named = namesIn(food, language)}
 				<div class="border-b border-rule py-3">
 					{#if editing === language}
-						<label class="block">
-							<span class="block text-label text-ink-2 uppercase">
-								{languageName(language)}
-							</span>
-							<input
-								bind:value={draft}
-								class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
-							/>
-						</label>
+						<span class="block text-label text-ink-2 uppercase">{languageName(language)}</span>
+						{#each drafts, index}
+							{@const label = m.food_name_numbered({
+								language: languageName(language),
+								number: index + 1,
+							})}
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									bind:value={drafts[index]}
+									aria-label={label}
+									class="w-full min-w-0 rounded-sm border border-rule bg-ground p-2 text-body"
+								/>
+								<!--
+									Absent on a Food's only name: the Core refuses it, and the
+									sentence below the names says why. Typing a replacement into
+									the empty box makes it a name that may go.
+								-->
+								{#if wanted.length > 1 || namedElsewhere}
+									<button
+										type="button"
+										onclick={() => takeOff(index)}
+										aria-label={m.food_name_remove_named({ name: drafts[index].trim() || label })}
+										class="shrink-0 rounded-sm border border-rule px-2 py-2 text-read whitespace-nowrap text-ink-2"
+									>
+										{m.food_name_remove()}
+									</button>
+								{/if}
+							</div>
+						{/each}
+						<input
+							bind:value={another}
+							aria-label={m.food_name_another({ language: languageName(language) })}
+							placeholder={m.food_name_another({ language: languageName(language) })}
+							class="mt-2 w-full rounded-sm border border-rule bg-ground p-2 text-body"
+						/>
+						<p class="mt-2 text-read text-ink-2">{m.food_names_first_shown()}</p>
 						<div class="mt-2 flex gap-2">
 							<button
 								type="button"
-								disabled={working || draft.trim() === ''}
-								onclick={() => saveName(language)}
+								disabled={working || (wanted.length === 0 && !namedElsewhere)}
+								onclick={() => saveNames(language)}
 								class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
 							>
 								{m.food_name_save()}
@@ -191,51 +239,33 @@
 					{:else}
 						<div class="flex items-center justify-between gap-3">
 							<span class="min-w-0">
-								{#if named === null}
+								{#if named.length === 0}
 									<span class="block text-body text-ink-2">
 										{m.food_not_named({ language: languageName(language) })}
 									</span>
 								{:else}
-									<span class="block text-body text-ink">{named}</span>
+									<span class="block text-body text-ink">{named.join(' · ')}</span>
 								{/if}
 								<span class="text-read text-ink-2">{languageName(language)}</span>
 							</span>
 							<!--
-								The buttons say `Add` and `Take off`, which is all the room a
-								phone has and all a reader needs beside the Language they sit
-								next to. Anybody listening to the page instead gets the whole
-								sentence, because three identical `Take off`s read aloud in a
-								row name nothing at all.
+								The button says `Add` or `Change`, which is all the room a phone
+								has and all a reader needs beside the Language it sits next to.
+								Anybody listening to the page instead gets the whole sentence,
+								because three identical `Change`s read aloud in a row name
+								nothing at all.
 							-->
-							<span class="flex shrink-0 gap-2">
-								<button
-									type="button"
-									disabled={working}
-									onclick={() => startEditing(language)}
-									aria-label={named === null
-										? m.food_name_add_in({ language: languageName(language) })
-										: m.food_name_change_in({ language: languageName(language) })}
-									class="rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
-								>
-									{named === null ? m.food_name_add() : m.food_name_change()}
-								</button>
-								<!--
-									Absent, not disabled, on the last remaining name. The Core
-									refuses it and the sentence below says why; a control that
-									exists only to explain its own refusal is worse than none.
-								-->
-								{#if named !== null && nameCount > 1}
-									<button
-										type="button"
-										disabled={working}
-										onclick={() => takeNameOff(language)}
-										aria-label={m.food_name_remove_in({ language: languageName(language) })}
-										class="rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
-									>
-										{m.food_name_remove()}
-									</button>
-								{/if}
-							</span>
+							<button
+								type="button"
+								disabled={working}
+								onclick={() => startEditing(language)}
+								aria-label={named.length === 0
+									? m.food_name_add_in({ language: languageName(language) })
+									: m.food_name_change_in({ language: languageName(language) })}
+								class="shrink-0 rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
+							>
+								{named.length === 0 ? m.food_name_add() : m.food_name_change()}
+							</button>
 						</div>
 					{/if}
 				</div>

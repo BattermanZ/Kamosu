@@ -1835,30 +1835,12 @@ pub fn get_food(core: &Core, invocation: &Invocation, input: Value) -> Result<Va
     core.get_food(&caller.person_id, food_id)
 }
 
-pub fn set_food_name(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
-    let takes = "set_food_name takes { food_id, language, name }";
-    let food_id = input
-        .get("food_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request(takes))?;
-    let language = input
-        .get("language")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request(takes))?;
-    let name = input
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| OpError::bad_request(takes))?;
-    let caller = caller_of(invocation)?;
-    core.set_food_name(&caller.person_id, food_id, language, name)
-}
-
-pub fn remove_food_name(
+pub fn set_food_names(
     core: &Core,
     invocation: &Invocation,
     input: Value,
 ) -> Result<Value, OpError> {
-    let takes = "remove_food_name takes { food_id, language }";
+    let takes = "set_food_names takes { food_id, language, names }";
     let food_id = input
         .get("food_id")
         .and_then(Value::as_str)
@@ -1867,8 +1849,15 @@ pub fn remove_food_name(
         .get("language")
         .and_then(Value::as_str)
         .ok_or_else(|| OpError::bad_request(takes))?;
+    let names = input
+        .get("names")
+        .and_then(Value::as_array)
+        .ok_or_else(|| OpError::bad_request(takes))?
+        .iter()
+        .map(|name| name.as_str().ok_or_else(|| OpError::bad_request(takes)))
+        .collect::<Result<Vec<_>, _>>()?;
     let caller = caller_of(invocation)?;
-    core.remove_food_name(&caller.person_id, food_id, language)
+    core.set_food_names(&caller.person_id, food_id, language, &names)
 }
 
 pub fn set_food_cup_weight(

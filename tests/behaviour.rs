@@ -3082,9 +3082,9 @@ async fn an_ambiguous_lone_word_resolves_to_the_food_the_most_readings_already_u
     // make a duplicate name (ADR 0022's Consequences) — both Foods now
     // answer to "farine" in French.
     let (status, named) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&key),
-        &json!({ "food_id": food_b_id, "language": "fr", "name": "farine" }).to_string(),
+        &json!({ "food_id": food_b_id, "language": "fr", "names": ["farine"] }).to_string(),
     );
     assert_eq!(status, 200, "{named}");
 
@@ -3162,9 +3162,9 @@ async fn correcting_an_already_read_lines_ambiguous_target_does_not_count_its_ow
 
     // Typing "farine" onto Food B makes it a duplicate of Food A's own name.
     let (status, named) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&key),
-        &json!({ "food_id": food_b_id, "language": "fr", "name": "farine" }).to_string(),
+        &json!({ "food_id": food_b_id, "language": "fr", "names": ["farine"] }).to_string(),
     );
     assert_eq!(status, 200, "{named}");
 
@@ -3308,9 +3308,9 @@ async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken(
         .unwrap()
         .secret;
     let (status, named) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&stranger_key),
-        &json!({ "food_id": food_id, "language": "en", "name": "flour" }).to_string(),
+        &json!({ "food_id": food_id, "language": "en", "names": ["flour"] }).to_string(),
     );
     assert_eq!(status, 200, "{named}");
     assert_eq!(
@@ -3321,11 +3321,12 @@ async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken(
         ])
     );
 
-    // Removing one of its two names is fine...
+    // Taking a Language's names off is an empty list, and fine while another
+    // Language still names the Food...
     let (status, removed) = app.post_op(
-        "remove_food_name",
+        "set_food_names",
         Some(&owner_key),
-        &json!({ "food_id": food_id, "language": "en" }).to_string(),
+        &json!({ "food_id": food_id, "language": "en", "names": [] }).to_string(),
     );
     assert_eq!(status, 200, "{removed}");
     assert_eq!(
@@ -3336,11 +3337,88 @@ async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken(
     // ...but its last remaining name may not be, too — a Food is known by
     // its words alone (CONTEXT.md).
     let (status, response) = app.post_op(
-        "remove_food_name",
+        "set_food_names",
         Some(&owner_key),
-        &json!({ "food_id": food_id, "language": "fr" }).to_string(),
+        &json!({ "food_id": food_id, "language": "fr", "names": [] }).to_string(),
     );
     assert_eq!(status, 400, "{response}");
+
+    // A blank name is no name, and is refused rather than stored.
+    let (status, response) = app.post_op(
+        "set_food_names",
+        Some(&owner_key),
+        &json!({ "food_id": food_id, "language": "fr", "names": ["farine", "  "] }).to_string(),
+    );
+    assert_eq!(status, 400, "{response}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_food_may_answer_to_several_names_in_one_language_the_first_shown() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    read_a_word(&app, &key, "fr", "œufs");
+    let food_id = food_named(&app, &key, "fr", "œufs");
+
+    // Two spellings of the same word folding to one are one name: the first
+    // as typed is kept (#179).
+    let (status, named) = app.post_op(
+        "set_food_names",
+        Some(&key),
+        &json!({ "food_id": food_id, "language": "fr", "names": ["œufs", "œuf", "Œuf"] })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    assert_eq!(
+        named["result"]["names"],
+        json!([
+            { "language": "fr", "name": "œufs" },
+            { "language": "fr", "name": "œuf" },
+        ]),
+        "every name, in the order given"
+    );
+    assert_eq!(
+        named["result"]["name"],
+        json!("œufs"),
+        "the first is the one shown"
+    );
+
+    // The order is the person's to choose: putting the singular first shows it.
+    let (_, reordered) = app.post_op(
+        "set_food_names",
+        Some(&key),
+        &json!({ "food_id": food_id, "language": "fr", "names": ["œuf", "œufs"] }).to_string(),
+    );
+    assert_eq!(reordered["result"]["name"], json!("œuf"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_naming_either_of_a_foods_names_in_a_language_reads_as_that_food() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    read_a_word(&app, &key, "fr", "œufs");
+    let food_id = food_named(&app, &key, "fr", "œufs");
+    let (status, named) = app.post_op(
+        "set_food_names",
+        Some(&key),
+        &json!({ "food_id": food_id, "language": "fr", "names": ["œufs", "œuf"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+
+    // "1 œuf" beside a Food named "œufs" and "œuf" is that Food, matched
+    // exactly on its second name, and mints nothing (#179).
+    read_a_word(&app, &key, "fr", "œuf");
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(
+        listed["result"]["foods"].as_array().unwrap().len(),
+        1,
+        "no new Food: {listed}"
+    );
+    assert_eq!(listed["result"]["foods"][0]["reading_count"], json!(2));
+
+    // Still exact and still per Language: an English "œuf" is another word.
+    read_a_word(&app, &key, "en", "œuf");
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(listed["result"]["foods"].as_array().unwrap().len(), 2);
 }
 
 // --- Merge Suggestions and Merge (issue #48) ---------------------------------
@@ -3408,9 +3486,9 @@ async fn typing_a_name_another_food_answers_to_records_a_suggestion_and_merges_n
     // The one remaining way to make a duplicate name (ADR 0022): typing
     // "farine" onto Food B, which Food A already answers to.
     let (status, named) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&key),
-        &json!({ "food_id": food_b, "language": "fr", "name": "farine" }).to_string(),
+        &json!({ "food_id": food_b, "language": "fr", "names": ["farine"] }).to_string(),
     );
     assert_eq!(status, 200, "{named}");
 
@@ -3448,9 +3526,9 @@ async fn typing_a_name_another_food_answers_to_records_a_suggestion_and_merges_n
 
     // Recording the same evidence again does not pile up a second note.
     let (_, again) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&key),
-        &json!({ "food_id": food_b, "language": "fr", "name": "Farine" }).to_string(),
+        &json!({ "food_id": food_b, "language": "fr", "names": ["Farine"] }).to_string(),
     );
     assert_eq!(again["result"]["names"].as_array().unwrap().len(), 2);
     let (_, listed_again) = app.post_op("list_merge_suggestions", Some(&key), "{}");
@@ -3655,6 +3733,50 @@ async fn merging_is_the_operators_and_says_what_it_will_move_before_it_moves_it(
     );
 }
 
+/// The repair for a singular/plural miss is a merge, and it has to stick
+/// (#179): the survivor keeps the absorbed Food's word even in a Language it
+/// already has a name in, so the next line using that word finds it rather
+/// than minting the same stray again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_merge_keeps_both_words_in_one_language_so_the_stray_does_not_come_back() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+    read_a_word(&app, &key, "fr", "œufs");
+    read_a_word(&app, &key, "fr", "œuf");
+    let survivor = food_named(&app, &key, "fr", "œufs");
+    let stray = food_named(&app, &key, "fr", "œuf");
+
+    let (status, merged) = app.post_op(
+        "merge_food",
+        Some(&key),
+        &json!({
+            "survivor_food_id": survivor,
+            "absorbed_food_id": stray,
+            "ingredient_lines": 1,
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{merged}");
+    assert_eq!(
+        merged["result"]["food"]["names"],
+        json!([
+            { "language": "fr", "name": "œufs" },
+            { "language": "fr", "name": "œuf" },
+        ]),
+        "the survivor's own name first, the absorbed word after it"
+    );
+    assert_eq!(merged["result"]["food"]["name"], json!("œufs"));
+
+    read_a_word(&app, &key, "fr", "œuf");
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(
+        listed["result"]["foods"].as_array().unwrap().len(),
+        1,
+        "the stray is not minted again: {listed}"
+    );
+    assert_eq!(listed["result"]["foods"][0]["reading_count"], json!(3));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_merge_asks_which_cup_weight_survives_only_when_the_two_disagree() {
     let app = support::spawn_app();
@@ -3775,9 +3897,9 @@ async fn a_merge_clears_every_suggestion_naming_either_food() {
     let food_a = food_named(&app, &key, "fr", "farine");
     let food_b = food_named(&app, &key, "en", "rye flour");
     let (status, named) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&key),
-        &json!({ "food_id": food_b, "language": "fr", "name": "farine" }).to_string(),
+        &json!({ "food_id": food_b, "language": "fr", "names": ["farine"] }).to_string(),
     );
     assert_eq!(status, 200, "{named}");
     let (_, listed) = app.post_op("list_merge_suggestions", Some(&key), "{}");
@@ -3836,9 +3958,9 @@ async fn a_name_a_merge_adopts_leaves_the_same_trail_a_typed_one_would() {
     let food_b = food_named(&app, &key, "en", "flour");
     let food_c = food_named(&app, &key, "es", "harina");
     let (status, named) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&key),
-        &json!({ "food_id": food_c, "language": "en", "name": "flour" }).to_string(),
+        &json!({ "food_id": food_c, "language": "en", "names": ["flour"] }).to_string(),
     );
     assert_eq!(status, 200, "{named}");
 
@@ -17301,8 +17423,8 @@ async fn a_row_names_its_food_in_the_readers_own_language_and_measures() {
                 )
                 .expect("the English Food");
             conn.execute(
-                "INSERT OR REPLACE INTO food_names (food_id, language, name, name_folded) \
-                 VALUES (?1, 'fr', 'farine', 'farine')",
+                "INSERT OR REPLACE INTO food_names (food_id, language, name, name_folded, position) \
+                 VALUES (?1, 'fr', 'farine', 'farine', 0)",
                 rusqlite::params![food],
             )
             .expect("name it in French");
@@ -20636,9 +20758,10 @@ fn a_pizza_worth_sending(
     assert_eq!(status, 200, "{read}");
     let food = food_named(app, &key, "en", "mozzarella");
     let (status, named) = app.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&key),
-        &json!({ "food_id": food, "language": "fr", "name": "mozzarella di bufala" }).to_string(),
+        &json!({ "food_id": food, "language": "fr", "names": ["mozzarella di bufala"] })
+            .to_string(),
     );
     assert_eq!(status, 200, "{named}");
     let (status, weighed) = app.post_op(
@@ -22375,9 +22498,9 @@ async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggesti
     let bread = read_a_word(&there, &marc_key, "fr", "farine");
     let farine = food_named(&there, &marc_key, "fr", "farine");
     let (status, named) = there.post_op(
-        "set_food_name",
+        "set_food_names",
         Some(&marc_key),
-        &json!({ "food_id": farine, "language": "en", "name": "flour" }).to_string(),
+        &json!({ "food_id": farine, "language": "en", "names": ["flour"] }).to_string(),
     );
     assert_eq!(status, 200, "{named}");
     let bytes = bundle_of(&there, &marc_key, &bread);
@@ -22438,6 +22561,67 @@ async fn a_food_whose_names_hit_two_foods_here_arrives_as_a_third_and_a_suggesti
         food_of_line.as_deref(),
         Some(third_id),
         "the Reading points at the third"
+    );
+}
+
+/// Every name a Food has in a Language travels (#179). `names` keeps the one
+/// name per Language it always held, so an instance that predates several
+/// names reads the Bundle as before; `other_names` carries the rest.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_bundle_carries_every_name_a_food_has_in_a_language() {
+    let there = support::spawn_app();
+    let (_marc, marc_key, _) = person_with_kitchen(&there, "Marc");
+    let omelette = read_a_word(&there, &marc_key, "fr", "œufs");
+    let eggs = food_named(&there, &marc_key, "fr", "œufs");
+    let (status, named) = there.post_op(
+        "set_food_names",
+        Some(&marc_key),
+        &json!({ "food_id": eggs, "language": "fr", "names": ["œufs", "œuf"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    let bytes = bundle_of(&there, &marc_key, &omelette);
+
+    let files = unzip(&bytes);
+    let sidecar: Value = serde_json::from_slice(&files[".kamosu/bundle.json"]).unwrap();
+    let food = &sidecar["branches"][0]["versions"][0]["readings"][0]["food"];
+    assert_eq!(food["names"], json!({ "fr": "œufs" }), "{sidecar}");
+    assert_eq!(food["other_names"], json!({ "fr": ["œuf"] }), "{sidecar}");
+
+    // Here already knows "œufs" alone. The arriving Food hits it cleanly and
+    // it learns "œuf", a word nothing here answered to.
+    let here = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&here);
+    read_a_word(&here, &key, "fr", "œufs");
+    let ours = food_named(&here, &key, "fr", "œufs");
+    receive(&here, &key, &bytes);
+    let (_, held) = here.post_op(
+        "get_food",
+        Some(&key),
+        &json!({ "food_id": ours }).to_string(),
+    );
+    assert_eq!(
+        held["result"]["names"],
+        json!([
+            { "language": "fr", "name": "œufs" },
+            { "language": "fr", "name": "œuf" },
+        ]),
+        "{held}"
+    );
+    let (_, listed) = here.post_op("list_foods", Some(&key), "{}");
+    assert_eq!(listed["result"]["foods"].as_array().unwrap().len(), 1);
+
+    // A fresh instance mints one Food carrying both.
+    let fresh = support::spawn_app();
+    let (fresh_key, _) = operator_with_kitchen(&fresh);
+    receive(&fresh, &fresh_key, &bytes);
+    let (_, listed) = fresh.post_op("list_foods", Some(&fresh_key), "{}");
+    assert_eq!(
+        listed["result"]["foods"][0]["names"],
+        json!([
+            { "language": "fr", "name": "œufs" },
+            { "language": "fr", "name": "œuf" },
+        ]),
+        "{listed}"
     );
 }
 

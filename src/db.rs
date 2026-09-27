@@ -1602,6 +1602,34 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 40,
+        description: "a Food answers to several names in one Language (#179)",
+        sql: r#"
+        -- A Food's names, now any number per Language (#179): "œufs" and
+        -- "œuf" are both the eggs, and a line naming either reads as them.
+        -- Matching stays exact (ADR 0022); what changed is that a Food may
+        -- hold both words instead of one. The key is the folded word, so a
+        -- Food never holds the same name twice. `position` orders a Food's
+        -- names: within a Language, the lowest is the one shown to a reader.
+        -- Every name already held is the only one in its Language, so it
+        -- starts at 0 and keeps being the one shown.
+        CREATE TABLE food_names_new (
+            food_id     TEXT NOT NULL REFERENCES foods(id),
+            language    TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            name_folded TEXT NOT NULL,
+            position    INTEGER NOT NULL,
+            PRIMARY KEY (food_id, language, name_folded)
+        );
+        INSERT INTO food_names_new (food_id, language, name, name_folded, position)
+            SELECT food_id, language, name, name_folded, 0 FROM food_names;
+        DROP TABLE food_names;
+        ALTER TABLE food_names_new RENAME TO food_names;
+        CREATE INDEX food_names_by_word ON food_names(language, name_folded);
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

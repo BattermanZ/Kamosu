@@ -8,7 +8,7 @@
  */
 
 import { m } from '$lib/paraglide/messages';
-import type { GetFoodOutput, ListFoodsOutput, SetFoodNameInput } from '$lib/api/catalogue';
+import type { GetFoodOutput, ListFoodsOutput, SetFoodNamesInput } from '$lib/api/catalogue';
 
 /** A Food as every Operation that answers with one serves it. */
 export type FoodRow = ListFoodsOutput['foods'][number];
@@ -26,7 +26,7 @@ export type Food = GetFoodOutput;
  * where a hand-written copy would have gone quietly stale with nothing going
  * red.
  */
-export type NameLanguage = SetFoodNameInput['language'];
+export type NameLanguage = SetFoodNamesInput['language'];
 export const NAME_LANGUAGES: NameLanguage[] = ['en', 'fr', 'es'] satisfies NameLanguage[];
 
 /**
@@ -53,15 +53,16 @@ export function foldWord(word: string): string {
 }
 
 /**
- * The name a Food carries in one Language, or nothing.
+ * Every name a Food answers to in one Language, the one shown first — or
+ * none. A Food may hold several there, "œufs" and "œuf" (#179).
  *
  * A Food's `names` is the whole truth about what it is called; `name` and
  * `language` are only the Core's pick for this reader. Editing works from
- * `names`, so that changing the French name of a Food shown in English does
+ * `names`, so that changing the French names of a Food shown in English does
  * not first have to work out which one is on screen.
  */
-export function nameIn(food: Food, language: NameLanguage): string | null {
-	return food.names.find((named) => named.language === language)?.name ?? null;
+export function namesIn(food: Food, language: NameLanguage): string[] {
+	return food.names.filter((named) => named.language === language).map((named) => named.name);
 }
 
 /**

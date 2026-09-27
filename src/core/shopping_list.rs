@@ -821,7 +821,8 @@ fn food_names_of(
         .join(", ");
     let mut statement = conn
         .prepare(&format!(
-            "SELECT food_id, language, name FROM food_names WHERE food_id IN ({placeholders})"
+            "SELECT food_id, language, name FROM food_names WHERE food_id IN ({placeholders}) \
+             ORDER BY position"
         ))
         .map_err(|e| OpError::internal(format!("cannot read Food names: {e}")))?;
     let rows = statement
