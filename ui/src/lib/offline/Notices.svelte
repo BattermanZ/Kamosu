@@ -17,7 +17,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import Notice from './Notice.svelte';
 	import InstallSteps from './InstallSteps.svelte';
-	import { Online, onNetworkChange, thisDevice, type Device } from './device.svelte';
+	import { Online, install, onNetworkChange, thisDevice, type Device } from './device.svelte';
 	import { readableSize, sessions, useLibrary } from './library.svelte';
 	import { standing } from './standing.svelte';
 	import { putAway, wasPutAway } from './put-away';
@@ -53,7 +53,7 @@
 		if (!device.secure) return insecureAway ? undefined : 'insecure';
 		if (library.phase === 'filling') return 'filling';
 		if (library.phase === 'absent' && !libraryLater) return 'library';
-		if (!device.installed && !installAway) return 'install';
+		if (!device.installed && !install.accepted && !installAway) return 'install';
 		return undefined;
 	});
 

@@ -21,8 +21,9 @@ import {
 import NoticesTestHarness from './NoticesTestHarness.svelte';
 import type { Device } from './device.svelte';
 import { sessionBegan } from './library.svelte';
-import { reached } from './device.svelte';
+import { holdTheInstallOffer, reached } from './device.svelte';
 import { standing } from './standing.svelte';
+import { anInstallOffer, offerToInstall } from '../../testing/install';
 
 const entry = (branch_id: string, main_photo: string | null = null) => ({
 	lineage_id: `l_${branch_id}`,
@@ -372,10 +373,16 @@ describe('in a browser tab', () => {
 		expect(JSON.parse(localStorage.getItem('kamosu.put-away')!)).toEqual({ install: true });
 	});
 
-	it('explains it the way other browsers do it elsewhere', async () => {
+	it('writes the steps out elsewhere while no browser offers to install', async () => {
 		filled(['b_1']);
 		show(library(), device({ apple: false }));
-		expect(await screen.findByText(/choose Install, or Add to Home screen/)).toBeInTheDocument();
+		expect(
+			await screen.findByText('Choose Install app, or Add to Home screen'),
+		).toBeInTheDocument();
+		expect(screen.getByText('Open the browser menu')).toBeInTheDocument();
+		// Safari's 7 days are an iPhone's problem, not Android's.
+		expect(screen.queryByText(/7 days/)).not.toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument();
 	});
 
 	it('says nothing at all once installed, filled and online', async () => {
@@ -383,5 +390,85 @@ describe('in a browser tab', () => {
 		show(library(), device({ installed: true }));
 		await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
 		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
+});
+
+describe('when the browser offers to install Kamosu (#173)', () => {
+	let stop: () => void;
+	beforeEach(() => {
+		stop = holdTheInstallOffer();
+	});
+	afterEach(() => stop());
+
+	it('takes the offer app.html caught before the app started', async () => {
+		stop();
+		window.kamosuInstallOffer = anInstallOffer('accepted').event;
+		stop = holdTheInstallOffer();
+		expect(window.kamosuInstallOffer).toBeUndefined();
+		filled(['b_1']);
+		show(library(), device({ apple: false }));
+		expect(await screen.findByRole('button', { name: 'Install Kamosu' })).toBeInTheDocument();
+	});
+
+	it("holds an offer sent before the card is drawn, and keeps Chrome's own bar away", async () => {
+		filled(['b_1']);
+		const { event } = offerToInstall('accepted');
+		expect(event.defaultPrevented).toBe(true);
+		show(library(), device({ apple: false }));
+		expect(await screen.findByRole('button', { name: 'Install Kamosu' })).toBeInTheDocument();
+		// The button stands in for the steps, and Not now stays.
+		expect(screen.queryByText('Open the browser menu')).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: 'Not now' })).toBeInTheDocument();
+	});
+
+	it("opens the browser's dialog, and puts the card away once accepted", async () => {
+		filled(['b_1']);
+		show(library(), device({ apple: false }));
+		await screen.findByText('Keep Kamosu on your phone');
+		const { prompt } = offerToInstall('accepted');
+		await fireEvent.click(await screen.findByRole('button', { name: 'Install Kamosu' }));
+		expect(prompt).toHaveBeenCalledOnce();
+		await waitFor(() =>
+			expect(screen.queryByText('Keep Kamosu on your phone')).not.toBeInTheDocument(),
+		);
+		expect(JSON.parse(localStorage.getItem('kamosu.put-away')!)).toEqual({ install: true });
+	});
+
+	it('falls back to the written steps when the dialog is turned down', async () => {
+		filled(['b_1']);
+		offerToInstall('dismissed');
+		show(library(), device({ apple: false }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Install Kamosu' }));
+		expect(await screen.findByText('Open the browser menu')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument();
+		expect(screen.getByText('Keep Kamosu on your phone')).toBeInTheDocument();
+		expect(localStorage.getItem('kamosu.put-away')).toBeNull();
+
+		// Chrome offers again straight after a Cancel, as seen live in desktop
+		// Chrome. The person just said no: the steps stay, and so does the bar away.
+		const { event } = offerToInstall('accepted');
+		expect(event.defaultPrevented).toBe(true);
+		await Promise.resolve();
+		expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument();
+		expect(screen.getByText('Open the browser menu')).toBeInTheDocument();
+	});
+
+	it('drops the offer and the card once Kamosu is installed some other way', async () => {
+		filled(['b_1']);
+		offerToInstall('accepted');
+		show(library(), device({ apple: false }));
+		await screen.findByRole('button', { name: 'Install Kamosu' });
+		dispatchEvent(new Event('appinstalled'));
+		await waitFor(() =>
+			expect(screen.queryByText('Keep Kamosu on your phone')).not.toBeInTheDocument(),
+		);
+	});
+
+	it('leaves the iPhone card as it was, offer or none', async () => {
+		filled(['b_1']);
+		offerToInstall('accepted');
+		show(library(), device({ apple: true }));
+		expect(await screen.findByText('Choose Add to Home Screen')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument();
 	});
 });

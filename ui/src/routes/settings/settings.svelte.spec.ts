@@ -8,7 +8,7 @@
  * longer serves.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen, fireEvent, within, waitFor } from '@testing-library/svelte';
 import Settings from './+page.svelte';
 import { renderScreen } from '../../testing/render';
@@ -16,6 +16,8 @@ import type { Answers } from '$lib/api/stand-in';
 import { went } from '../../testing/navigation';
 import type { GetCookbookOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
 import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
+import { holdTheInstallOffer } from '$lib/offline/device.svelte';
+import { offerToInstall } from '../../testing/install';
 
 /**
  * Paraglide's `setLocale` reloads the page, which jsdom cannot do. What a test
@@ -651,6 +653,53 @@ describe('the settings screen', () => {
 		// The test browser is not a secure page, so this phone can keep nothing.
 		expect(await screen.findByText('This phone')).toBeInTheDocument();
 		expect(screen.getByText(/Kamosu is on http:\/\//)).toBeInTheDocument();
+	});
+
+	describe('on a phone a browser may offer to install Kamosu on (#173)', () => {
+		let stop: () => void;
+		beforeEach(() => {
+			vi.stubGlobal('isSecureContext', true);
+			stop = holdTheInstallOffer();
+		});
+		afterEach(() => {
+			stop();
+			vi.unstubAllGlobals();
+			localStorage.removeItem('kamosu.put-away');
+		});
+		const showSettings = () =>
+			renderScreen(Settings, {
+				instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
+				...anonymous,
+			});
+
+		it("offers the browser's install dialog while one is held, and puts the card away once accepted", async () => {
+			const { prompt } = offerToInstall('accepted');
+			showSettings();
+			await fireEvent.click(await screen.findByRole('button', { name: 'Install Kamosu' }));
+			expect(prompt).toHaveBeenCalledOnce();
+			// This tab is still not the app: the reason stays, with nothing left to do.
+			await waitFor(() =>
+				expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument(),
+			);
+			expect(screen.queryByText('Open the browser menu')).not.toBeInTheDocument();
+			expect(screen.getByText(/Kamosu opens like an app/)).toBeInTheDocument();
+			// Accepted here, the Home card stays away too, as it does from the card.
+			expect(JSON.parse(localStorage.getItem('kamosu.put-away')!)).toEqual({ install: true });
+		});
+
+		it('falls back to the written steps when the dialog is turned down', async () => {
+			offerToInstall('dismissed');
+			showSettings();
+			await fireEvent.click(await screen.findByRole('button', { name: 'Install Kamosu' }));
+			expect(await screen.findByText('Open the browser menu')).toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument();
+		});
+
+		it('writes the steps out while no install is on offer', async () => {
+			showSettings();
+			expect(await screen.findByText('Open the browser menu')).toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: 'Install Kamosu' })).not.toBeInTheDocument();
+		});
 	});
 
 	// --- Tags (#104) --------------------------------------------------------

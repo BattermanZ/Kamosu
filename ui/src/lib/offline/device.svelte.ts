@@ -8,6 +8,7 @@
 import { untrack } from 'svelte';
 import { SvelteMap } from 'svelte/reactivity';
 import type { KamosuClient } from '$lib/api/catalogue';
+import { putAway } from './put-away';
 import { serverAnswered } from './reads';
 import type { WorkerMessage } from './worker';
 
@@ -56,6 +57,87 @@ export function thisDevice(): Device {
 			return type === undefined ? undefined : type === 'wifi' || type === 'ethernet';
 		},
 	};
+}
+
+/**
+ * A Chromium browser's offer to install Kamosu (#173): Chrome, Edge and
+ * Samsung Internet send one when the page could be installed. No iPhone
+ * browser does, and neither does Firefox.
+ */
+export interface InstallOffer extends Event {
+	/** Opens the browser's own install dialog. Works once per offer. */
+	prompt(): Promise<unknown>;
+	userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+/**
+ * The offer being held, and whether Kamosu was installed from this page. The
+ * offer is gone once it has been used, since its dialog opens only once, and
+ * once Kamosu is installed.
+ */
+export const install: { offer: InstallOffer | undefined; accepted: boolean } = $state({
+	offer: undefined,
+	accepted: false,
+});
+
+/**
+ * Hold the browser's install offer from the moment the app starts. The
+ * browser sends it once, usually before the app has even started, so
+ * `app.html` catches it first and this takes it from there; a card listening
+ * for itself would miss it. Keeping it also stops Chrome's own install bar,
+ * which would compete with the card. Returns what stops listening and forgets
+ * the offer; the app never stops, so only the tests call it, to start each one
+ * clean.
+ */
+export function holdTheInstallOffer(): () => void {
+	const offered = (event: Event) => {
+		event.preventDefault();
+		// Chrome offers again the moment its dialog is turned down. The person
+		// has just said no, so they keep the written steps, not the button.
+		if (!turnedDown) install.offer = event as InstallOffer;
+	};
+	if (window.kamosuInstallOffer) offered(window.kamosuInstallOffer);
+	delete window.kamosuInstallOffer;
+	addEventListener('beforeinstallprompt', offered);
+	addEventListener('appinstalled', installed);
+	return () => {
+		removeEventListener('beforeinstallprompt', offered);
+		removeEventListener('appinstalled', installed);
+		install.offer = undefined;
+		install.accepted = false;
+		turnedDown = false;
+	};
+}
+
+/** The browser's install dialog was turned down on this page. */
+let turnedDown = false;
+
+/**
+ * Kamosu was installed, from the card, from Settings or from the browser's own
+ * menu. The card is put away as "Not now" puts it away, so it stays away in
+ * this tab after a reload too, and Settings still says how to do it again.
+ */
+function installed(): void {
+	install.offer = undefined;
+	install.accepted = true;
+	putAway('install');
+}
+
+/**
+ * Open the browser's install dialog, from a tap. Either way the offer is used
+ * up, so a person who turns it down is left with the written steps.
+ */
+export async function installKamosu(): Promise<void> {
+	const offer = install.offer;
+	install.offer = undefined;
+	if (!offer) return;
+	try {
+		await offer.prompt();
+		if ((await offer.userChoice).outcome === 'accepted') installed();
+		else turnedDown = true;
+	} catch {
+		// Already used, or the browser changed its mind: the steps are still there.
+	}
 }
 
 /** Call `then` whenever the phone moves between networks, where it says so. */
