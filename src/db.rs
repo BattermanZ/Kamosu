@@ -1630,7 +1630,92 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 41,
+        description: "a Reading remembers whether a person set it (#166)",
+        sql: r#"
+        -- Whether a person set this Reading rather than the reader (#166).
+        -- A re-read of the library replaces only the reader's own work, so a
+        -- correction has to be told apart from it. Nothing recorded that
+        -- before now, so what is already here is guessed (Aurélien's choice
+        -- of 27 September 2026). A Component is always a person's: the
+        -- reader never names a Lineage. Otherwise, a Reading changed more
+        -- than a second after its Version was written is the trace
+        -- `set_reading` leaves; the reader writes inside the save itself, and
+        -- on production every one of its rows landed within a quarter of a
+        -- second. The Rust half follows a correction a later save carried
+        -- forward, whose timestamp is the save's.
+        ALTER TABLE readings ADD COLUMN by_hand INTEGER NOT NULL DEFAULT 0;
+        UPDATE readings SET by_hand = 1
+         WHERE lineage_id IS NOT NULL
+            OR (julianday(updated_at)
+                - julianday((SELECT created_at FROM versions WHERE versions.id = readings.version_id)))
+               * 86400 > 1;
+        "#,
+        then: Some(carry_hand_readings_forward),
+        ..Migration::SQL_ONLY
+    },
 ];
+
+/// Migration 41's Rust half: a correction carried forward by a later save.
+///
+/// `carry_forward_readings` copies a Reading onto the next Version when the
+/// line did not change, and the copy's timestamp is the save's, so the SQL
+/// half cannot see it was a correction. Walking each Branch's Versions in
+/// order and doing what the carry did, a Reading identical to a by-hand
+/// Reading on the same unchanged line of the Version before is marked too.
+fn carry_hand_readings_forward(conn: &Connection) -> Result<(), String> {
+    let fail = |e: rusqlite::Error| format!("cannot mark carried corrections: {e}");
+    let history: Vec<(String, String)> = conn
+        .prepare("SELECT branch_id, version_id FROM branch_versions ORDER BY branch_id, sequence")
+        .map_err(fail)?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(fail)?
+        .collect::<Result<_, _>>()
+        .map_err(fail)?;
+    let lines = |version_id: &str| -> Result<Vec<serde_json::Value>, String> {
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM versions WHERE id = ?1",
+                [version_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        let content: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+        Ok(content["ingredients"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default())
+    };
+    for pair in history.windows(2) {
+        let [(branch, before), (same_branch, after)] = pair else {
+            continue;
+        };
+        if branch != same_branch || before == after {
+            continue;
+        }
+        let (old_lines, new_lines) = (lines(before)?, lines(after)?);
+        for (index, (old, new)) in old_lines.iter().zip(new_lines.iter()).enumerate() {
+            if old != new {
+                continue;
+            }
+            conn.execute(
+                "UPDATE readings SET by_hand = 1 \
+                  WHERE version_id = ?2 AND line_index = ?3 AND by_hand = 0 \
+                    AND EXISTS (SELECT 1 FROM readings AS earlier \
+                                 WHERE earlier.version_id = ?1 AND earlier.line_index = ?3 \
+                                   AND earlier.by_hand = 1 \
+                                   AND earlier.amount IS readings.amount \
+                                   AND earlier.unit IS readings.unit \
+                                   AND earlier.target IS readings.target \
+                                   AND earlier.lineage_id IS readings.lineage_id)",
+                rusqlite::params![before, after, index as i64],
+            )
+            .map_err(fail)?;
+        }
+    }
+    Ok(())
+}
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.
 pub const LATEST_SCHEMA_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].version;
@@ -1892,6 +1977,75 @@ fn write_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Migration 41 guesses which Readings a person set** (#166): a
+    /// Component, a Reading changed more than a second after its Version, and
+    /// such a correction carried onto the next Version of an unchanged line.
+    /// The reader's own rows, written inside the save, stay the reader's.
+    #[test]
+    fn migration_41_marks_the_readings_a_person_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let before_41 = MIGRATIONS
+            .iter()
+            .position(|m| m.version == 41)
+            .expect("migration 41");
+        {
+            let old = Db::open_with_migrations(dir.path(), &MIGRATIONS[..before_41]).unwrap();
+            old.with_conn(|conn| {
+                conn.execute_batch(
+                    r#"
+                    PRAGMA foreign_keys = OFF;
+                    INSERT INTO versions (id, content, created_at) VALUES
+                      ('v_1', '{"ingredients":[{"kind":"ingredient","text":"1 lb boneless chicken thighs"},{"kind":"ingredient","text":"2 tbsp honey"},{"kind":"ingredient","text":"1 pizza dough"}]}', '2026-09-24T10:00:00.000Z'),
+                      ('v_2', '{"title":"new","ingredients":[{"kind":"ingredient","text":"1 lb boneless chicken thighs"},{"kind":"ingredient","text":"2 tbsp honey"},{"kind":"ingredient","text":"1 pizza dough"}]}', '2026-09-25T10:00:00.000Z'),
+                      ('v_3', '{"ingredients":[{"kind":"ingredient","text":"2 tbsp honey"}]}', '2026-09-26T10:00:00.000Z');
+                    INSERT INTO branch_versions (branch_id, sequence, version_id, hand_id) VALUES
+                      ('b_1', 1, 'v_1', 'h'), ('b_1', 2, 'v_2', 'h'), ('b_2', 1, 'v_3', 'h');
+                    INSERT INTO readings (version_id, line_index, amount, unit, target, lineage_id, updated_at) VALUES
+                      ('v_1', 0, '1', 'lb', 'boneless', NULL, '2026-09-24T10:00:00.200Z'),
+                      ('v_1', 1, '2', 'tbsp', 'runny honey', NULL, '2026-09-24T10:05:00.000Z'),
+                      ('v_1', 2, '1', NULL, NULL, 'l_dough', '2026-09-24T10:00:00.010Z'),
+                      ('v_2', 0, '1', 'lb', 'boneless', NULL, '2026-09-25T10:00:00.010Z'),
+                      ('v_2', 1, '2', 'tbsp', 'runny honey', NULL, '2026-09-25T10:00:00.010Z'),
+                      ('v_2', 2, '1', NULL, NULL, 'l_dough', '2026-09-25T10:00:00.010Z'),
+                      ('v_3', 0, '2', 'tbsp', 'honey', NULL, '2026-09-26T10:00:00.050Z');
+                    "#,
+                )
+                .map_err(|e| OpError::internal(e.to_string()))
+            })
+            .unwrap();
+        }
+        let db = Db::open(dir.path()).unwrap();
+        let marked: Vec<(String, i64, bool)> = db
+            .with_conn(|conn| {
+                let mut statement = conn
+                    .prepare(
+                        "SELECT version_id, line_index, by_hand FROM readings \
+                          ORDER BY version_id, line_index",
+                    )
+                    .unwrap();
+                Ok(statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                    .unwrap()
+                    .collect::<Result<_, _>>()
+                    .unwrap())
+            })
+            .unwrap();
+        let v = |id: &str, line: i64, by_hand: bool| (id.to_string(), line, by_hand);
+        assert_eq!(
+            marked,
+            [
+                v("v_1", 0, false),
+                v("v_1", 1, true),
+                v("v_1", 2, true),
+                v("v_2", 0, false),
+                v("v_2", 1, true),
+                v("v_2", 2, true),
+                v("v_3", 0, false),
+            ],
+            "the reader's rows stay its own; a correction and a Component are a person's, carried ones too"
+        );
+    }
 
     /// A step run with foreign keys off is still held to them before it
     /// commits: one that leaves a row pointing at nothing fails whole, and

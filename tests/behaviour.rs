@@ -3194,6 +3194,262 @@ async fn reading_the_library_is_the_operators_alone() {
     assert_eq!(refused["error"]["kind"], "unauthorized");
 }
 
+// --- Reading the library again (issue #166) ---------------------------------
+
+/// Turn a Reading into the reader's own work, as one an older reader wrote:
+/// `set_reading` marks what it writes as a person's, and a misreading the
+/// reader has since stopped making cannot be produced any other way.
+fn as_if_the_reader_wrote(app: &support::TestApp, branch_id: &str, line_index: i64) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            conn.execute(
+                "UPDATE readings SET by_hand = 0 \
+                  WHERE line_index = ?2 \
+                    AND version_id = (SELECT head_version_id FROM branches WHERE id = ?1)",
+                rusqlite::params![branch_id, line_index],
+            )
+            .map_err(|e| kamosu::core::OpError::internal(e.to_string()))?;
+            Ok(())
+        })
+        .expect("the reader's Reading");
+}
+
+/// Every Version id on the instance, and how many do not match their content.
+fn version_ids_and_mismatches(app: &support::TestApp) -> (Vec<String>, i64) {
+    app.core
+        .db()
+        .with_conn(|conn| {
+            let ids = conn
+                .prepare("SELECT id FROM versions ORDER BY id")
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<String>, _>>()
+                .unwrap();
+            let mismatched = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM versions WHERE id <> version_fingerprint(content)",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            Ok((ids, mismatched))
+        })
+        .unwrap()
+}
+
+/// **Reading the library again corrects what an older reader misread**
+/// (#166): the Char Siu Chicken line read as *boneless* reads as the chicken
+/// thighs (as today's reader names them), on the head and on the older
+/// Version a save carried it onto; the report says so; *boneless* is left with nothing pointing at it and can be
+/// deleted. A Reading a person set is left exactly as it was, no Version is
+/// minted, and no Version id moves.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_again_corrects_a_misreading_and_keeps_a_correction() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Air Fryer Char Siu Chicken",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1½ lb boneless, skinless chicken thighs, cut into 1-inch pieces" },
+                { "kind": "ingredient", "text": "2 tbsp honey" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // What an older reader made of line 0, and a person's correction of line 1.
+    let (status, misread) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 0,
+            "amount": "1½", "unit": "lb", "target": "boneless",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{misread}");
+    as_if_the_reader_wrote(&app, &branch_id, 0);
+    let (status, corrected) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 1,
+            "amount": "2", "unit": "tbsp", "target": "runny honey",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{corrected}");
+
+    // A save that touches no line carries both Readings onto a new Version,
+    // so the misreading now sits in the history as well as on the head.
+    backdate_branch_head(&app, &branch_id);
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Char Siu Chicken" }).to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+    let (ids_before, _) = version_ids_and_mismatches(&app);
+
+    let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = support::wait_terminal(&app, Some(&key), job_id);
+    assert_eq!(finished["status"], "completed", "{finished}");
+    let report = &finished["result"];
+    assert_eq!(
+        report["changed"],
+        json!([{
+            "branch_id": branch_id,
+            "title": "Char Siu Chicken",
+            "line_index": 0,
+            "line": "1½ lb boneless, skinless chicken thighs, cut into 1-inch pieces",
+            "before": { "amount": "1½", "unit": "lb", "target": "boneless" },
+            "after": { "amount": "1½", "unit": "lb", "target": "boneless, skinless chicken thighs" },
+            "on_head": true,
+            "older_versions": 1,
+        }]),
+        "{report}"
+    );
+    assert_eq!(report["older_versions_changed"], 1, "{report}");
+    assert_eq!(
+        report["kept_by_hand"], 1,
+        "the honey line was set by hand: {report}"
+    );
+    let emptied = report["emptied_foods"].as_array().unwrap();
+    assert_eq!(emptied.len(), 1, "{report}");
+    assert_eq!(emptied[0]["name"], "boneless", "{report}");
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let versions = fetched["result"]["versions"].as_array().unwrap();
+    assert_eq!(versions.len(), 2, "a re-read mints no Version (ADR 0021)");
+    for version in versions {
+        assert_eq!(
+            version["readings"][0]["target"], "boneless, skinless chicken thighs",
+            "{version}"
+        );
+        assert_eq!(
+            version["readings"][1],
+            json!({ "amount": "2", "unit": "tbsp", "target": "runny honey", "lineage_id": null }),
+            "the correction survived on every Version: {version}"
+        );
+    }
+    let (ids_after, mismatched) = version_ids_and_mismatches(&app);
+    assert_eq!(ids_after, ids_before, "no Version id moved");
+    assert_eq!(mismatched, 0);
+
+    let (status, deleted) = app.post_op(
+        "delete_food",
+        Some(&key),
+        &json!({ "food_id": emptied[0]["food_id"] }).to_string(),
+    );
+    assert_eq!(status, 200, "the emptied Food can go: {deleted}");
+
+    // Run again, nothing is left to change.
+    let (_, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    let again = support::wait_terminal(
+        &app,
+        Some(&key),
+        asked["result"]["job_id"].as_str().unwrap(),
+    );
+    assert_eq!(again["result"]["changed"], json!([]), "{again}");
+    assert_eq!(again["result"]["older_versions_changed"], 0, "{again}");
+}
+
+/// **A change made only in an older Version is listed too** (#166). The line
+/// was reworded since, so the head read it fresh; the misreading lives on in
+/// the history alone, and the report must still say what it changed there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_again_lists_a_change_made_only_in_the_history() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Garlic Bread",
+            "ingredients": [{ "kind": "ingredient", "text": "2 garlic cloves" }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    let (status, misread) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id, "line_index": 0,
+            "amount": "2", "unit": null, "target": "cloves",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{misread}");
+    as_if_the_reader_wrote(&app, &branch_id, 0);
+
+    backdate_branch_head(&app, &branch_id);
+    let (status, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "ingredients": [{ "kind": "ingredient", "text": "3 garlic cloves" }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{edited}");
+
+    let (_, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    let finished = support::wait_terminal(
+        &app,
+        Some(&key),
+        asked["result"]["job_id"].as_str().unwrap(),
+    );
+    assert_eq!(finished["status"], "completed", "{finished}");
+    let report = &finished["result"];
+    assert_eq!(report["older_versions_changed"], 1, "{report}");
+    let changed = report["changed"].as_array().unwrap();
+    assert_eq!(changed.len(), 1, "{report}");
+    assert_eq!(changed[0]["line"], "2 garlic cloves", "{report}");
+    assert_eq!(changed[0]["on_head"], false, "{report}");
+    assert_eq!(changed[0]["older_versions"], 1, "{report}");
+    assert_eq!(changed[0]["before"]["target"], "cloves", "{report}");
+    assert_eq!(changed[0]["branch_id"], json!(branch_id), "{report}");
+}
+
+/// Reading the library again is the Operator's, like reading it the first
+/// time: it walks every recipe on the instance, and a Reading is shared by
+/// every Cookbook holding its Version.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_again_is_the_operators_alone() {
+    let app = support::spawn_app();
+    let (operator_key, _kitchen) = operator_with_kitchen(&app);
+    let (_person, key, _kitchen_id) = person_with_kitchen(&app, "Someone else");
+
+    let (status, refused) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 401, "{refused}");
+    assert_eq!(refused["error"]["kind"], "unauthorized");
+
+    let (status, asked) = app.post_op("reread_ingredient_lines", Some(&operator_key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let finished = support::wait_terminal(
+        &app,
+        Some(&operator_key),
+        asked["result"]["job_id"].as_str().unwrap(),
+    );
+    assert_eq!(finished["status"], "completed", "{finished}");
+}
+
 // --- Foods (issue #47) --------------------------------------------------------
 
 /// Create a one-line Recipe in the given Language and set that line's

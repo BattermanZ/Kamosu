@@ -1108,8 +1108,10 @@ fn carry_forward_readings(
             // on a line nobody touched. Found building #87, which is the first
             // thing to make a Component from the interface and so the first
             // thing that could notice.
-            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id) \
-             SELECT ?1, line_index, amount, unit, target, food_id, lineage_id FROM readings \
+            // So does `by_hand`: a correction carried onto the next Version
+            // is still a correction, and a re-read must still leave it (#166).
+            "INSERT OR IGNORE INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id, by_hand) \
+             SELECT ?1, line_index, amount, unit, target, food_id, lineage_id, by_hand FROM readings \
               WHERE version_id = ?2 AND line_index = ?3",
             params![new_version_id, old_version_id, index as i64],
         )

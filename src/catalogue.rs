@@ -2338,6 +2338,72 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::read_ingredient_lines,
         },
         Operation {
+            name: "reread_ingredient_lines",
+            summary: "Read every Ingredient Line in the library again with \
+                      the reader as it stands today, as a Job, so a fix to the \
+                      reader reaches lines it already misread. Covers every \
+                      Version a recipe holds, its history too, and makes no \
+                      Version. A Reading a person set, and every Component, is \
+                      left exactly as it is; a line the reader can no longer \
+                      read loses the reader's old guess. Reports each line \
+                      whose Reading changed, before and after, once per recipe \
+                      as it reads on the head, with how many older Versions \
+                      changed the same way, and each line changed only in \
+                      older Versions; the Foods now left with nothing \
+                      pointing at them, which delete_food will take; and how \
+                      many lines it left alone because a person set them.",
+            permission: Permission::Operator,
+            kind: Kind::Job,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: empty_input(),
+            output_schema: json!({
+                "type": "object",
+                "properties": {
+                    "changed": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "branch_id": { "type": "string" },
+                                "title": { "type": ["string", "null"] },
+                                "line_index": { "type": "integer" },
+                                "line": { "type": "string" },
+                                "before": reread_reading_schema(),
+                                "after": reread_reading_schema(),
+                                "on_head": {
+                                    "type": "boolean",
+                                    "description": "Whether the line changed on the recipe as it \
+                                                     stands, rather than only in older Versions.",
+                                },
+                                "older_versions": { "type": "integer" },
+                            },
+                            "required": ["branch_id", "title", "line_index", "line", "before", "after", "on_head", "older_versions"],
+                            "additionalProperties": false,
+                        },
+                    },
+                    "older_versions_changed": { "type": "integer" },
+                    "emptied_foods": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "food_id": { "type": "string" },
+                                "name": { "type": ["string", "null"] },
+                            },
+                            "required": ["food_id", "name"],
+                            "additionalProperties": false,
+                        },
+                    },
+                    "kept_by_hand": { "type": "integer" },
+                },
+                "required": ["changed", "older_versions_changed", "emptied_foods", "kept_by_hand"],
+                "additionalProperties": false,
+            }),
+            handler: crate::operations::reread_ingredient_lines,
+        },
+        Operation {
             name: "start_attempt",
             summary: "Start cooking a Recipe: creates the Attempt, or hands \
                       back the one already In Progress for this Lineage — \
@@ -5545,6 +5611,21 @@ fn written_at_schema() -> Value {
     json!({
         "type": "string",
         "description": "When this was really written, for a write a phone held while it had no network and sent later (#77): an ISO 8601 time such as 2026-09-19T14:05:00.000Z. Absent means now. Where the cook has since moved on, or the Shopping List has since been written, on another device, a write older than that changes nothing and the answer is how things stand. On a cooking already finished, a move changes nothing and a finish keeps the first finish's time (its rating, note and Photographs still land), whenever either was written: a finished cooking is final.",
+    })
+}
+
+/// A Reading as `reread_ingredient_lines` reports one side of a change: the
+/// reader's three fields, or null where the line had or now has none (#166).
+fn reread_reading_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "amount": { "type": ["string", "null"] },
+            "unit": { "type": ["string", "null"] },
+            "target": { "type": ["string", "null"] },
+        },
+        "required": ["amount", "unit", "target"],
+        "additionalProperties": false,
     })
 }
 

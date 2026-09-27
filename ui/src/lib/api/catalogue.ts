@@ -3085,6 +3085,36 @@ export type ReadIngredientLinesOutput = {
 	read: number;
 };
 
+/** Read every Ingredient Line in the library again with the reader as it stands today, as a Job, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them. */
+export type RereadIngredientLinesInput = Record<string, never>;
+/** What reread_ingredient_lines eventually produces, read back through `get_job`. */
+export type RereadIngredientLinesOutput = {
+	changed: {
+		after: {
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null;
+		before: {
+			amount: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null;
+		branch_id: string;
+		line: string;
+		line_index: number;
+		older_versions: number;
+		on_head: boolean;
+		title: string | null;
+	}[];
+	emptied_foods: {
+		food_id: string;
+		name: string | null;
+	}[];
+	kept_by_hand: number;
+	older_versions_changed: number;
+};
+
 /** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 export type StartAttemptInput = {
 	attempt_id?: string;
@@ -4971,6 +5001,12 @@ export interface Operations {
 	read_ingredient_lines: {
 		input: ReadIngredientLinesInput;
 		output: ReadIngredientLinesOutput;
+		kind: 'job';
+		permission: 'operator';
+	};
+	reread_ingredient_lines: {
+		input: RereadIngredientLinesInput;
+		output: RereadIngredientLinesOutput;
 		kind: 'job';
 		permission: 'operator';
 	};
@@ -20645,6 +20681,162 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "reread_ingredient_lines",
+		"summary": "Read every Ingredient Line in the library again with the reader as it stands today, as a Job, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them.",
+		"permission": "operator",
+		"kind": "job",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {},
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"changed": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"after": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"before": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"branch_id": {
+								"type": "string"
+							},
+							"line": {
+								"type": "string"
+							},
+							"line_index": {
+								"type": "integer"
+							},
+							"older_versions": {
+								"type": "integer"
+							},
+							"on_head": {
+								"description": "Whether the line changed on the recipe as it stands, rather than only in older Versions.",
+								"type": "boolean"
+							},
+							"title": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"branch_id",
+							"title",
+							"line_index",
+							"line",
+							"before",
+							"after",
+							"on_head",
+							"older_versions"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"emptied_foods": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"food_id": {
+								"type": "string"
+							},
+							"name": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"food_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kept_by_hand": {
+					"type": "integer"
+				},
+				"older_versions_changed": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"changed",
+				"older_versions_changed",
+				"emptied_foods",
+				"kept_by_hand"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "start_attempt",
 		"summary": "Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may.",
 		"permission": "person",
@@ -27661,6 +27853,7 @@ export const METHOD_NAMES = {
 	divergence: 'divergence',
 	set_reading: 'setReading',
 	read_ingredient_lines: 'readIngredientLines',
+	reread_ingredient_lines: 'rereadIngredientLines',
 	start_attempt: 'startAttempt',
 	advance_attempt: 'advanceAttempt',
 	finish_attempt: 'finishAttempt',
@@ -27872,6 +28065,8 @@ export interface KamosuClient {
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
 	/** Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
 	readIngredientLines(input?: ReadIngredientLinesInput): Promise<Answer<'read_ingredient_lines'>>;
+	/** Read every Ingredient Line in the library again with the reader as it stands today, as a Job, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them. */
+	rereadIngredientLines(input?: RereadIngredientLinesInput): Promise<Answer<'reread_ingredient_lines'>>;
 	/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 	startAttempt(input: StartAttemptInput): Promise<Answer<'start_attempt'>>;
 	/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */

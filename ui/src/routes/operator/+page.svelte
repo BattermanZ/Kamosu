@@ -40,6 +40,7 @@
 		ListMergeSuggestionsOutput,
 		ListFoodsOutput,
 		PreviewFoodMergeOutput,
+		RereadIngredientLinesOutput,
 		SweepPhotographsOutput,
 	} from '$lib/api/catalogue';
 
@@ -278,8 +279,9 @@
 	// ── Photographs, and reading the library's lines ──────────────────────────
 
 	let swept = $state<SweepPhotographsOutput | undefined>(undefined);
-	let linesRead = $state<number | undefined>(undefined);
+	let reread = $state<RereadIngredientLinesOutput | undefined>(undefined);
 	let readingLines = $state(false);
+	let allChanges = $state(false);
 
 	const sweep = () =>
 		act(
@@ -289,14 +291,21 @@
 			async () => close(),
 		);
 
+	/**
+	 * Read every line in the library again (#166). It replaced the button that
+	 * read only the unread lines, since it reads those too. The Foods it leaves
+	 * with nothing pointing at them join the list above, so that is asked again.
+	 */
 	async function readLines() {
 		readingLines = true;
 		said = undefined;
 		try {
-			const done = await waitForJob(kamosu, (await kamosu.readIngredientLines({})).job_id, {
+			const done = await waitForJob(kamosu, (await kamosu.rereadIngredientLines({})).job_id, {
 				giveUpAfter: LONG_ENOUGH,
 			});
-			linesRead = (done.result as { read?: number } | null)?.read ?? 0;
+			reread = done.result as RereadIngredientLinesOutput;
+			allChanges = false;
+			foods = (await kamosu.listFoods({})).foods;
 		} catch (error) {
 			if (!(error instanceof Error)) throw error;
 			said = error.message;
@@ -304,6 +313,15 @@
 			readingLines = false;
 		}
 	}
+
+	/** How many changes a report shows before "Show all". */
+	const CHANGES_SHOWN = 6;
+
+	type Reading = RereadIngredientLinesOutput['changed'][number]['before'];
+
+	/** A Reading as one short phrase: "1½ lb · chicken thighs". */
+	const measure = (reading: Reading) =>
+		[reading?.amount, reading?.unit].filter((part) => part).join(' ');
 
 	// ── Foods ─────────────────────────────────────────────────────────────────
 
@@ -431,6 +449,81 @@
 	</div>
 {/snippet}
 
+<!--
+	What reading every line again did (#166), chosen 27 September 2026 from two
+	designs: the counts first, then the lines themselves, a few at a time. A
+	change names its recipe, the line as written, and the Reading before and
+	after, so an Operator can see a line the reader now reads worse.
+-->
+{#snippet reading(reading: Reading)}
+	{#if measure(reading)}{`${measure(reading)} · `}{/if}
+	{#if reading?.target}
+		<span class="font-semibold">{reading.target}</span>
+	{:else}
+		<span class="text-ink-2 italic">{m.operator_lines_no_food()}</span>
+	{/if}
+{/snippet}
+
+{#snippet report(done: RereadIngredientLinesOutput)}
+	{@const recipes = new Set(done.changed.map((change) => change.branch_id)).size}
+	<div class="mt-3" role="status">
+		<p class="text-body text-ink">
+			{done.changed.length === 0 && done.older_versions_changed === 0
+				? m.operator_lines_unchanged({ kept: done.kept_by_hand })
+				: m.operator_lines_changed({
+						count: done.changed.filter((change) => change.on_head).length,
+						recipes,
+						older: done.older_versions_changed,
+						kept: done.kept_by_hand,
+					})}
+		</p>
+		{#if done.emptied_foods.length > 0}
+			<p class="mt-2 text-read text-ink-2">
+				{done.emptied_foods.length === 1
+					? m.operator_lines_emptied_one({ heading: m.operator_unused_heading() })
+					: m.operator_lines_emptied({
+							count: done.emptied_foods.length,
+							heading: m.operator_unused_heading(),
+						})}
+			</p>
+		{/if}
+		{#if done.changed.length > 0}
+			<ul class="mt-2">
+				{#each allChanges ? done.changed : done.changed.slice(0, CHANGES_SHOWN) as change, i (i)}
+					<li class="border-b border-rule py-2 last:border-b-0">
+						<span class="block text-read text-ink-2">{change.title}</span>
+						<span class="block text-body break-words text-ink">{change.line}</span>
+						<span class="block text-read text-ink"
+							>{@render reading(change.before)} <span class="text-ink-2">→</span>
+							{@render reading(change.after)}</span
+						>
+						{#if !change.on_head}
+							<span class="block text-read text-ink-2"
+								>{m.operator_lines_older_only({ count: change.older_versions })}</span
+							>
+						{:else if change.older_versions > 0}
+							<span class="block text-read text-ink-2"
+								>{change.older_versions === 1
+									? m.operator_lines_older_one()
+									: m.operator_lines_older({ count: change.older_versions })}</span
+							>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			{#if !allChanges && done.changed.length > CHANGES_SHOWN}
+				<button
+					type="button"
+					onclick={() => (allChanges = true)}
+					class="min-h-12 text-read text-accent underline"
+				>
+					{m.operator_lines_show_all({ count: done.changed.length })}
+				</button>
+			{/if}
+		{/if}
+	</div>
+{/snippet}
+
 <Screen title={m.operator_title()} blurb={m.operator_blurb()}>
 	{#if mayAdminister === undefined}
 		<p class="text-body text-ink-2">{m.loading()}</p>
@@ -555,13 +648,7 @@
 
 				<Section heading={m.operator_lines_heading()}>
 					<div class="rounded-sm border border-rule bg-card p-3">
-						<p class="text-body text-ink-2">
-							{#if linesRead !== undefined}
-								{m.operator_lines_read({ count: linesRead })}
-							{:else}
-								{m.operator_lines_blurb()}
-							{/if}
-						</p>
+						<p class="text-body text-ink-2">{m.operator_lines_blurb()}</p>
 						<button
 							type="button"
 							disabled={readingLines}
@@ -571,6 +658,9 @@
 						>
 							{readingLines ? m.operator_working() : m.operator_lines_run()}
 						</button>
+						{#if reread}
+							{@render report(reread)}
+						{/if}
 					</div>
 				</Section>
 			{:else}

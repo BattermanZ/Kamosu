@@ -2278,6 +2278,9 @@ fn write_carried_readings(
         if amount.is_none() && unit.is_none() && target.is_none() && lineage_id.is_none() {
             continue;
         }
+        // Left as the reader's (`by_hand` 0), so a re-read may improve it:
+        // the Bundle does not say which Readings the sender corrected, and
+        // the re-read reports every change it makes (#166, Aurélien's choice).
         conn.execute(
             "INSERT OR IGNORE INTO readings \
              (version_id, line_index, amount, unit, target, lineage_id, food_id) \

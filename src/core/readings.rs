@@ -104,6 +104,186 @@ impl Core {
         Ok(json!({ "read": read }))
     }
 
+    /// **Read every Ingredient Line in the library again** with the reader
+    /// as it stands today, as a Job (#166).
+    ///
+    /// A save carries each unchanged line's Reading onto the new Version, so a
+    /// fix to the reader never reaches a line it already misread. This is the
+    /// Operator asking for it to: ADR 0021's Readings are never *silently*
+    /// recomputed, and a re-read somebody starts, which reports every change
+    /// it made, is not silent.
+    ///
+    /// It covers every Version some Branch holds, head and history alike. A
+    /// Food counts as used while any of them points at it (#162), so leaving
+    /// the history out would leave a misread Food alive and undeletable.
+    ///
+    /// **A Reading a person set is left exactly as it is** (`by_hand`), and so
+    /// is a Component, which only a person makes. A line with no Reading is
+    /// read like any other, a deliberately cleared one included: clearing
+    /// leaves no trace (see [`Self::read_ingredient_lines`]). A line the
+    /// reader can no longer make sense of loses the Reading it had, since that
+    /// Reading was the reader's own guess.
+    ///
+    /// The report names each changed line once per recipe, as it stands on
+    /// the recipe's head, with how many older Versions changed the same way; a
+    /// line changed only in older Versions is named too, marked so. It also
+    /// names the Foods the re-read left with nothing pointing at them, which
+    /// `delete_food` will now take.
+    pub fn reread_ingredient_lines(
+        &self,
+        person_id: &str,
+        progress: Option<&crate::jobs::JobProgress>,
+    ) -> Result<Value, OpError> {
+        // Read what to walk first and let go of the lock, for the reason
+        // `read_ingredient_lines` gives: progress reports take it too.
+        let held = self.db().with_conn(|conn| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT branch_versions.version_id, branch_versions.branch_id, \
+                            COALESCE(branch_versions.language, branches.language), \
+                            branches.head_version_id = branch_versions.version_id \
+                       FROM branch_versions JOIN branches ON branches.id = branch_versions.branch_id \
+                      ORDER BY branch_versions.version_id, branch_versions.branch_id",
+                )
+                .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, bool>(3)?,
+                    ))
+                })
+                .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| OpError::internal(format!("cannot read the library: {e}")))?;
+            Ok(rows)
+        })?;
+        // One entry per Version, however many Branches hold it: its Readings
+        // are shared, so it is read once.
+        let mut versions: Vec<HeldVersion> = Vec::new();
+        for (version_id, branch_id, language, is_head) in held {
+            if versions
+                .last()
+                .is_none_or(|last| last.version_id != version_id)
+            {
+                versions.push(HeldVersion {
+                    version_id,
+                    language,
+                    held_by: Vec::new(),
+                    head_of: Vec::new(),
+                });
+            }
+            let version = versions.last_mut().expect("just pushed");
+            if is_head {
+                version.head_of.push(branch_id.clone());
+            }
+            version.held_by.push(branch_id);
+        }
+
+        let total = versions.len();
+        // Every change, once per recipe: a line changed the same way on a
+        // Branch's head and in its history is one entry, counting the older
+        // Versions, and one changed only in the history is an entry of its
+        // own, so no change goes unlisted (#166). A Version two Branches hold
+        // counts for both.
+        let mut changed: Vec<Value> = Vec::new();
+        let mut older_versions_changed = 0u64;
+        let mut kept_by_hand = 0u64;
+        let mut let_go: HashSet<String> = HashSet::new();
+        for (done, version) in versions.iter().enumerate() {
+            if let Some(progress) = progress {
+                progress.report(
+                    done as u64,
+                    Some(total as u64),
+                    format!("reading again the lines of {done} of {total} versions"),
+                );
+            }
+            let reread = self.db().with_conn(|conn| reread_version(conn, version))?;
+            if !version.head_of.is_empty() {
+                kept_by_hand += reread.kept_by_hand;
+            }
+            if version.head_of.len() < version.held_by.len() {
+                older_versions_changed += reread.changes.len() as u64;
+            }
+            let_go.extend(reread.let_go);
+            for change in reread.changes {
+                for branch_id in &version.held_by {
+                    let on_head = version.head_of.contains(branch_id);
+                    let entry = match changed.iter_mut().find(|entry| {
+                        entry["branch_id"] == json!(branch_id)
+                            && entry["line"] == change["line"]
+                            && entry["before"] == change["before"]
+                            && entry["after"] == change["after"]
+                    }) {
+                        Some(entry) => entry,
+                        None => {
+                            let mut entry = change.clone();
+                            entry["branch_id"] = json!(branch_id);
+                            entry["on_head"] = json!(false);
+                            entry["older_versions"] = json!(0);
+                            changed.push(entry);
+                            changed.last_mut().expect("just pushed")
+                        }
+                    };
+                    if on_head {
+                        // The head's own title and position are what a cook
+                        // sees, whichever Version was read first.
+                        entry["on_head"] = json!(true);
+                        entry["title"] = change["title"].clone();
+                        entry["line_index"] = change["line_index"].clone();
+                    } else {
+                        let older = entry["older_versions"].as_u64().unwrap_or(0);
+                        entry["older_versions"] = json!(older + 1);
+                    }
+                }
+            }
+        }
+        changed.sort_by(|a, b| {
+            let key = |v: &Value| {
+                (
+                    v["title"].as_str().unwrap_or_default().to_lowercase(),
+                    v["branch_id"].as_str().unwrap_or_default().to_string(),
+                    !v["on_head"].as_bool().unwrap_or(false),
+                    v["line_index"].as_u64(),
+                )
+            };
+            key(a).cmp(&key(b))
+        });
+
+        let emptied_foods = self.db().with_conn(|conn| {
+            let reading_language = reading_language_of(conn, person_id)?;
+            let mut emptied = Vec::new();
+            for food_id in let_go {
+                let exists = conn
+                    .query_row(
+                        "SELECT 1 FROM foods WHERE id = ?1",
+                        params![food_id],
+                        |_| Ok(()),
+                    )
+                    .optional()
+                    .map_err(|e| OpError::internal(format!("cannot read Food: {e}")))?
+                    .is_some();
+                if !exists || reachable_reading_count(conn, &food_id)? > 0 {
+                    continue;
+                }
+                let named = food_names_in_order(conn, &food_id)?;
+                let name = shown_name(&named, &reading_language).map(|(_, name)| name.clone());
+                emptied.push(json!({ "food_id": food_id, "name": name }));
+            }
+            emptied.sort_by_key(|food| food["name"].as_str().map(str::to_lowercase));
+            Ok(emptied)
+        })?;
+
+        Ok(json!({
+            "changed": changed,
+            "older_versions_changed": older_versions_changed,
+            "emptied_foods": emptied_foods,
+            "kept_by_hand": kept_by_hand,
+        }))
+    }
+
     /// Correct a Reading on the Branch's current head Version: Kamosu's
     /// interpretation of one Ingredient Line, addressed by its position in
     /// that line's list. This never mints a Version and appears in no
@@ -216,11 +396,12 @@ impl Core {
             // — so there is nothing to check here, and checking would refuse
             // the very pointer the decision exists to keep.
             conn.execute(
-                "INSERT INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+                // Marked as a person's, so a re-read leaves it (#166).
+                "INSERT INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id, by_hand) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1) \
                  ON CONFLICT (version_id, line_index) DO UPDATE SET \
                     amount = excluded.amount, unit = excluded.unit, target = excluded.target, \
-                    food_id = excluded.food_id, lineage_id = excluded.lineage_id, \
+                    food_id = excluded.food_id, lineage_id = excluded.lineage_id, by_hand = 1, \
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
                 params![head_version_id, line_index, amount, unit, target, food_id, lineage_id],
             )
@@ -836,6 +1017,156 @@ fn record_merge_suggestion(
     )
     .map_err(|e| OpError::internal(format!("cannot record a Merge Suggestion: {e}")))?;
     Ok(())
+}
+
+/// One Version a re-read walks, and the Branches that hold it (#166).
+struct HeldVersion {
+    version_id: String,
+    language: String,
+    held_by: Vec<String>,
+    head_of: Vec<String>,
+}
+
+/// What reading one Version's lines again did.
+struct Reread {
+    /// One entry per line whose Reading changed: its title, line and the
+    /// Reading before and after, either of which may be none.
+    changes: Vec<Value>,
+    /// Lines left alone because a person set their Reading.
+    kept_by_hand: u64,
+    /// Every Food a changed line pointed at before, which may now be empty.
+    let_go: Vec<String>,
+}
+
+/// Read one Version's Ingredient Lines again, all under one hold of the lock
+/// so a correction cannot land between reading a row and replacing it.
+fn reread_version(conn: &Connection, version: &HeldVersion) -> Result<Reread, OpError> {
+    let fail = |e: rusqlite::Error| OpError::internal(format!("cannot read a line again: {e}"));
+    let mut reread = Reread {
+        changes: Vec::new(),
+        kept_by_hand: 0,
+        let_go: Vec::new(),
+    };
+    let content: Option<String> = conn
+        .query_row(
+            "SELECT content FROM versions WHERE id = ?1",
+            params![version.version_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(fail)?;
+    // One recipe whose content will not parse is one recipe left as it was,
+    // never a failed Job (#71).
+    let Some(content) = content.and_then(|c| serde_json::from_str::<Value>(&c).ok()) else {
+        return Ok(reread);
+    };
+    let no_lines = Vec::new();
+    for (index, line) in content["ingredients"]
+        .as_array()
+        .unwrap_or(&no_lines)
+        .iter()
+        .enumerate()
+    {
+        if line["kind"] != "ingredient" {
+            continue;
+        }
+        let Some(text) = line["text"].as_str() else {
+            continue;
+        };
+        type Row = (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            bool,
+        );
+        let held: Option<Row> = conn
+            .query_row(
+                "SELECT amount, unit, target, lineage_id, food_id, by_hand FROM readings \
+                  WHERE version_id = ?1 AND line_index = ?2",
+                params![version.version_id, index as i64],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(fail)?;
+        if let Some((_, _, _, lineage_id, _, by_hand)) = &held
+            && (*by_hand || lineage_id.is_some())
+        {
+            reread.kept_by_hand += 1;
+            continue;
+        }
+        let now = crate::reading::read_line(text);
+        let before = held
+            .as_ref()
+            .map(|(amount, unit, target, ..)| (amount.clone(), unit.clone(), target.clone()));
+        let after = now
+            .as_ref()
+            .map(|r| (r.amount.clone(), r.unit.clone(), r.target.clone()));
+        if before == after {
+            continue;
+        }
+        match &now {
+            None => {
+                conn.execute(
+                    "DELETE FROM readings WHERE version_id = ?1 AND line_index = ?2",
+                    params![version.version_id, index as i64],
+                )
+                .map_err(fail)?;
+            }
+            Some(now) => {
+                // The word is resolved only for a line that changed: resolving
+                // can create a Food (#178).
+                let food_id = now
+                    .target
+                    .as_deref()
+                    .map(|word| resolve_food_for_word(conn, &version.language, word, None))
+                    .transpose()?;
+                conn.execute(
+                    "INSERT INTO readings (version_id, line_index, amount, unit, target, food_id, lineage_id, by_hand) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 0) \
+                     ON CONFLICT (version_id, line_index) DO UPDATE SET \
+                        amount = excluded.amount, unit = excluded.unit, target = excluded.target, \
+                        food_id = excluded.food_id, lineage_id = NULL, by_hand = 0, \
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
+                    params![
+                        version.version_id,
+                        index as i64,
+                        now.amount,
+                        now.unit,
+                        now.target,
+                        food_id
+                    ],
+                )
+                .map_err(fail)?;
+            }
+        }
+        if let Some((.., Some(food_id), _)) = held {
+            reread.let_go.push(food_id);
+        }
+        let shown = |reading: Option<(Option<String>, Option<String>, Option<String>)>| {
+            reading.map(|(amount, unit, target)| {
+                json!({ "amount": amount, "unit": unit, "target": target })
+            })
+        };
+        reread.changes.push(json!({
+            "title": content["title"],
+            "line_index": index,
+            "line": text,
+            "before": shown(before),
+            "after": shown(after),
+        }));
+    }
+    Ok(reread)
 }
 
 /// **Read the Ingredient Lines of a Version that nothing has read yet** (#71),

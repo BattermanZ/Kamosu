@@ -15,7 +15,7 @@ import { screen, fireEvent, within } from '@testing-library/svelte';
 import Operator from './+page.svelte';
 import { renderScreen } from '../../testing/render';
 import type { Answers } from '$lib/api/stand-in';
-import type { ListFoodsOutput } from '$lib/api/catalogue';
+import type { ListFoodsOutput, RereadIngredientLinesOutput } from '$lib/api/catalogue';
 
 type Food = ListFoodsOutput['foods'][number];
 
@@ -420,6 +420,111 @@ describe("the Operator's screen", () => {
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Sweep now' }));
 		expect(kamosu.calls.map((call) => call.operation)).toContain('sweep_photographs');
 		expect(await screen.findByText(/Swept 2\. 65 are still in use\./)).toBeInTheDocument();
+	});
+
+	it('reads every line again and says what it changed (#166)', async () => {
+		const line = (index: number): RereadIngredientLinesOutput['changed'][number] => ({
+			branch_id: 'b_char_siu',
+			title: 'Air Fryer Char Siu Chicken',
+			line_index: index,
+			line: `${index + 1} lb boneless, skinless chicken thighs`,
+			before: { amount: `${index + 1}`, unit: 'lb', target: 'boneless' },
+			after: { amount: `${index + 1}`, unit: 'lb', target: 'boneless, skinless chicken thighs' },
+			on_head: true,
+			older_versions: index === 0 ? 1 : 0,
+		});
+		const changed = [...Array(7).keys()].map(line);
+		changed.push({
+			...line(7),
+			branch_id: 'b_dan_dan',
+			title: 'Dan dan noodles',
+			line: '1/2 lb ground pork or beef',
+			before: { amount: '1/2', unit: 'lb', target: 'ground pork or beef' },
+			after: { amount: '1/2', unit: 'lb', target: null },
+		});
+		changed.push({
+			...line(8),
+			branch_id: 'b_dan_dan',
+			title: 'Dan dan noodles',
+			line: '1/4 cup yacai or preserved mustard greens',
+			before: { amount: '1/4', unit: 'cup', target: 'yacai or preserved mustard greens' },
+			after: { amount: '1/4', unit: 'cup', target: null },
+			on_head: false,
+			older_versions: 2,
+		});
+		const { kamosu } = renderScreen(Operator, {
+			...quiet,
+			reread_ingredient_lines: { job_id: 'j_reread' },
+			get_job: {
+				id: 'j_reread',
+				operation: 'reread_ingredient_lines',
+				status: 'completed',
+				progress: {},
+				error: null,
+				errorCode: null,
+				created_at: '2026-09-27T20:00:00.000Z',
+				updated_at: '2026-09-27T20:00:01.000Z',
+				result: {
+					changed,
+					older_versions_changed: 3,
+					emptied_foods: [{ food_id: 'f_boneless', name: 'boneless' }],
+					kept_by_hand: 3,
+				},
+			},
+		});
+
+		expect(await screen.findByText(/keeps the ones you set by hand/)).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Read the unread lines' })).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Read every line again' }));
+
+		expect(
+			await screen.findByText(
+				'Changed 8 lines in 2 recipes, and 3 in their older versions. Left alone 3 lines you set by hand.',
+			),
+		).toBeInTheDocument();
+		expect(screen.getByText(/1 Food now has nothing pointing at it/)).toBeInTheDocument();
+		expect(kamosu.calls.map((call) => call.operation)).toContain('reread_ingredient_lines');
+		expect(
+			kamosu.calls.filter((call) => call.operation === 'list_foods'),
+			'the Foods it emptied join the list above',
+		).toHaveLength(2);
+
+		// Six changes at first, the rest behind "Show all".
+		expect(screen.getAllByText('Air Fryer Char Siu Chicken')).toHaveLength(6);
+		expect(screen.getByText('and 1 older version')).toBeInTheDocument();
+		expect(screen.queryByText('Dan dan noodles')).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Show all 9 changes' }));
+		const [danDan, danDanOlder] = screen
+			.getAllByText('Dan dan noodles')
+			.map((title) => title.closest('li')!);
+		expect(danDanOlder.textContent, 'a change only in older versions is listed too').toContain(
+			'Only in older versions: 2',
+		);
+		expect(danDan.textContent).toMatch(/1\/2 lb ·\s+ground pork or beef\s*→\s*1\/2 lb ·\s+no Food/);
+	});
+
+	it('says so when reading every line again changed nothing', async () => {
+		renderScreen(Operator, {
+			...quiet,
+			reread_ingredient_lines: { job_id: 'j_reread' },
+			get_job: {
+				id: 'j_reread',
+				operation: 'reread_ingredient_lines',
+				status: 'completed',
+				progress: {},
+				error: null,
+				errorCode: null,
+				created_at: '2026-09-27T20:00:00.000Z',
+				updated_at: '2026-09-27T20:00:01.000Z',
+				result: { changed: [], older_versions_changed: 0, emptied_foods: [], kept_by_hand: 4 },
+			},
+		});
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Read every line again' }));
+		expect(
+			await screen.findByText(/Nothing changed\. 4 lines you set by hand/),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/nothing pointing at them/)).not.toBeInTheDocument();
 	});
 
 	it('does not mistake a broken Kamosu for a room that is not yours', async () => {
