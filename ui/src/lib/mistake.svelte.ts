@@ -67,7 +67,8 @@ export function wentWrong(thrown: unknown): void {
  * `createClient` covers every Operation, which is nearly everything a screen
  * asks Kamosu. The exceptions are the asks that cannot be Operations: the four
  * authentication routes, the two uploads that carry a file too large for an
- * envelope (ADR 0001), and the Sheet fetched to be shared (#149). They come
+ * envelope (ADR 0001), and the Sheet and the recipe file fetched to be shared
+ * (#149, #156). They come
  * through here so that *anywhere* a screen asks Kamosu something means
  * anywhere, and not anywhere-but-those.
  */

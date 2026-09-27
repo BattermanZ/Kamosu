@@ -9,7 +9,7 @@
 	import { provideKamosu } from '$lib/kamosu';
 	import { provideAuth, type AuthClient } from '$lib/auth';
 	import { providePhotograph, provideUpload, type Uploader } from '$lib/api/upload';
-	import { provideSheets, type SheetFetcher } from '$lib/api/sheet';
+	import { provideFiles, type FileFetcher } from '$lib/api/files';
 	import { Library, provideLibrary } from '$lib/offline/library.svelte';
 	import { provideKeeping, type Keeping } from '$lib/offline/outbox';
 
@@ -19,8 +19,8 @@
 		upload?: Uploader;
 		/** A picture that must reach the server now, and answer its real name. */
 		photograph?: Uploader;
-		/** A finished Sheet, fetched as a file to share (#149). */
-		sheets?: SheetFetcher;
+		/** A Sheet or a recipe file, fetched as a file to share (#149, #156). */
+		files?: FileFetcher;
 		/** What is on the phone (#76). One per app; a test may bring its own. */
 		library?: Library;
 		/** What the phone holds for the server (#77). A test may bring its own. */
@@ -37,8 +37,8 @@
 		photograph = async () => {
 			throw new Error('this test sent a picture without giving a photograph uploader');
 		},
-		sheets = async () => {
-			throw new Error('this test fetched a sheet without giving a sheet fetcher');
+		files = async () => {
+			throw new Error('this test fetched a file without giving a file fetcher');
 		},
 		library,
 		keeping = {
@@ -59,7 +59,7 @@
 	provideAuth(() => auth);
 	provideUpload(() => upload);
 	providePhotograph(() => photograph);
-	provideSheets(() => sheets);
+	provideFiles(() => files);
 	provideLibrary(() => theLibrary);
 	provideKeeping(() => keeping);
 </script>

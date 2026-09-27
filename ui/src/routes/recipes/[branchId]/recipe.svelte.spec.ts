@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
-import { realSheets } from '$lib/api/sheet';
+import { realFiles } from '$lib/api/files';
 import { OperationError } from '$lib/api/client';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
@@ -357,7 +357,7 @@ function renderRecipe(
 	answers: Answers = forked(),
 	branchId = 'mine',
 	/** The phone it is on, and how it fetches a Sheet to share (#149). */
-	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'sheets'> = {},
+	on: Pick<ComponentProps<typeof RecipeTestHarness>, 'device' | 'files'> = {},
 ) {
 	// Your own cookings, read for their pictures (#110). Nobody here has
 	// cooked anything unless a test says so.
@@ -2324,7 +2324,7 @@ describe('a Sheet (#75)', () => {
 						},
 					}),
 			);
-			return { fetch, sheets: realSheets(fetch as unknown as typeof globalThis.fetch) };
+			return { fetch, files: realFiles(fetch as unknown as typeof globalThis.fetch) };
 		}
 
 		afterEach(() => {
@@ -2342,7 +2342,7 @@ describe('a Sheet (#75)', () => {
 			const route = theSheetRoute();
 			const rendered = renderRecipe(answers, 'mine', {
 				device: installedApple,
-				sheets: route.sheets,
+				files: route.files,
 			});
 			await screen.findByText('This recipe, 2 versions');
 			await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
@@ -2450,7 +2450,7 @@ describe('a Sheet (#75)', () => {
 						),
 					},
 					'mine',
-					{ device: installedApple, sheets: theSheetRoute().sheets },
+					{ device: installedApple, files: theSheetRoute().files },
 				);
 				await screen.findByText('This recipe, 2 versions');
 				await fireEvent.click(await screen.findByRole('button', { name: /Print a sheet/i }));
@@ -2472,7 +2472,7 @@ describe('a Sheet (#75)', () => {
 			const route = theSheetRoute();
 			renderRecipe({ ...forked(), make_sheet: { job_id: 'j_sheet' }, get_job: sheetJob }, 'mine', {
 				device,
-				sheets: route.sheets,
+				files: route.files,
 			});
 			await screen.findByText('This recipe, 2 versions');
 
@@ -2492,7 +2492,7 @@ describe('a Sheet (#75)', () => {
 			);
 			renderRecipe({ ...forked(), make_sheet: { job_id: 'j_sheet' }, get_job: sheetJob }, 'mine', {
 				device: installedApple,
-				sheets: theSheetRoute().sheets,
+				files: theSheetRoute().files,
 			});
 			await screen.findByText('This recipe, 2 versions');
 

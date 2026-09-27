@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
 	import type { KamosuClient } from '$lib/api/catalogue';
-	import type { SheetFetcher } from '$lib/api/sheet';
+	import type { FileFetcher } from '$lib/api/files';
 	import type { Device } from '$lib/offline/device.svelte';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 	import Recipe from './Recipe.svelte';
@@ -14,12 +14,12 @@
 		client: KamosuClient;
 		branchId: string;
 		device?: Pick<Device, 'installed' | 'apple'>;
-		sheets?: SheetFetcher;
+		files?: FileFetcher;
 	}
 
-	let { client, branchId, device, sheets }: Props = $props();
+	let { client, branchId, device, files }: Props = $props();
 </script>
 
-<Kamosu {client} {sheets}>
+<Kamosu {client} {files}>
 	<Recipe {branchId} {device} />
 </Kamosu>

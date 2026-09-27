@@ -1177,5 +1177,8 @@
   "plus_pdf_no_text": "This PDF is a scan or a photo of a page, so it has no text to read. If it came from a website, use From a link instead, or copy the recipe's text and use From pasted text.",
   "plus_write": "Write it yourself",
   "plus_write_why": "Start from a title",
-  "plus_cancel": "Cancel"
+  "plus_cancel": "Cancel",
+  "share_file_failed": "The file could not be saved. Try again in a moment.",
+  "share_file_getting": "Getting the file…",
+  "share_file_share": "Share the file"
 }

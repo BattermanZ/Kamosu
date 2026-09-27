@@ -1177,5 +1177,8 @@
   "plus_pdf_no_text": "Este PDF es un escaneo o una foto de una página, así que no tiene texto que leer. Si viene de una web, usa Desde un enlace, o copia el texto de la receta y usa Desde un texto pegado.",
   "plus_write": "Escribirla desde cero",
   "plus_write_why": "Empezar por un título",
-  "plus_cancel": "Cancelar"
+  "plus_cancel": "Cancelar",
+  "share_file_failed": "No se pudo guardar el archivo. Inténtalo de nuevo en un momento.",
+  "share_file_getting": "Obteniendo el archivo…",
+  "share_file_share": "Compartir el archivo"
 }

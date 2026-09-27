@@ -34,16 +34,24 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { Online } from '$lib/offline/device.svelte';
+	import { Online, thisDevice, type Device } from '$lib/offline/device.svelte';
+	import { BUNDLE, shareFile, sharesFiles, useFiles } from '$lib/api/files';
 	import type { ExportBundleOutput, GetShareLinkOutput } from '$lib/api/catalogue';
 
 	interface Props {
 		branchId: string;
+		/**
+		 * Whether this is the app installed on an iPhone or iPad, where the
+		 * recipe file goes to the share sheet rather than to an address (#156).
+		 * A test hands in its own.
+		 */
+		device?: Pick<Device, 'installed' | 'apple'>;
 	}
 
-	let { branchId }: Props = $props();
+	let { branchId, device = thisDevice() }: Props = $props();
 
 	const kamosu = useKamosu();
+	const files = useFiles();
 	/** Whether the file can be described or handed over at all (#76). */
 	const online = new Online();
 
@@ -72,6 +80,15 @@
 	let working = $state(false);
 	let copied = $state(false);
 	let failed = $state<string | undefined>(undefined);
+	/** Where taking the recipe file has got to, in the installed app on Apple (#156). */
+	let saving = $state<'idle' | 'getting' | 'ready' | 'failed'>('idle');
+	/**
+	 * The recipe file fetched and waiting for the tap that shares it (#156).
+	 * Set only while `saving` is `ready`, and dropped with the screen.
+	 */
+	let prepared: File | undefined;
+	/** Which recipe the screen is on, so a file fetched for the last one is not kept. */
+	let visit = 0;
 
 	$effect(() => {
 		let current = true;
@@ -116,6 +133,10 @@
 	$effect(() => {
 		let current = true;
 		const asked = branchId;
+		// A file fetched or ready for the last recipe is that recipe's (#156).
+		visit += 1;
+		saving = 'idle';
+		prepared = undefined;
 		void (async () => {
 			try {
 				const described = await kamosu.exportBundle({ branch_id: asked });
@@ -192,9 +213,52 @@
 	 * Content-Disposition, the Session cookie travels with the request, and the
 	 * browser saves it without this screen going anywhere. Nothing is held in
 	 * memory, which matters for a recipe whose photographs run to megabytes.
+	 *
+	 * In the app installed on an iPhone or iPad that address would open in the
+	 * app's own window, which has no Share or Save to Files (#156). There the
+	 * file is fetched here, and this same button then shares it (`shareIt`;
+	 * option A, Aurélien, 27 September 2026), as a Sheet is (#149). Holding
+	 * the file until the second tap is the cost of that path.
 	 */
-	function save() {
-		if (file) window.location.assign(file.fetch_at);
+	async function save() {
+		if (!file) return;
+		if (!sharesFiles(device, BUNDLE)) {
+			window.location.assign(file.fetch_at);
+			return;
+		}
+		const forVisit = visit;
+		saving = 'getting';
+		const leftBehind = () => closed || visit !== forVisit;
+		try {
+			const fetched = await files(file.fetch_at, BUNDLE);
+			// Left while it was fetched: nothing is kept for a page not shown.
+			if (leftBehind()) return;
+			prepared = fetched;
+			saving = 'ready';
+		} catch {
+			if (!leftBehind()) saving = 'failed';
+		}
+	}
+
+	/** Set once this screen closes, so a file still being fetched is not kept. */
+	let closed = false;
+	$effect(() => () => {
+		closed = true;
+	});
+
+	/**
+	 * Hand the fetched file to the share sheet, straight from the tap with
+	 * nothing awaited first (#149). Closing the share sheet keeps the file for
+	 * another try; once it has gone somewhere, the next tap fetches afresh.
+	 */
+	function shareIt() {
+		const held = prepared;
+		if (!held) return;
+		void shareFile(held).then((outcome) => {
+			if (outcome === 'kept' || prepared !== held) return;
+			prepared = undefined;
+			saving = outcome === 'shared' ? 'idle' : 'failed';
+		});
 	}
 </script>
 
@@ -348,13 +412,30 @@
 				     where it is rather than vanishing from under the reader. -->
 				<p class="mt-2 text-read text-ink-2">{m.share_file_waiting()}</p>
 			{/if}
-			<NeedsServer
-				label={m.share_file_save()}
-				waiting={m.offline_waits_file()}
-				onclick={save}
-				shapeClass="mt-4 block w-full p-3 text-center font-display text-body"
-				lookClass="border border-rule text-accent"
-			/>
+			{#if saving === 'ready'}
+				<!-- The file is already on the phone, so sharing it waits for
+				     nothing (#156): the same button, no longer one that needs
+				     the server. -->
+				<button
+					type="button"
+					onclick={shareIt}
+					class="mt-4 block w-full border border-rule p-3 text-center font-display text-body text-accent"
+				>
+					{m.share_file_share()}
+				</button>
+			{:else}
+				<NeedsServer
+					label={saving === 'getting' ? m.share_file_getting() : m.share_file_save()}
+					waiting={m.offline_waits_file()}
+					onclick={save}
+					disabled={saving === 'getting'}
+					shapeClass="mt-4 block w-full p-3 text-center font-display text-body"
+					lookClass="border border-rule text-accent"
+				/>
+			{/if}
+			{#if saving === 'failed'}
+				<p class="mt-2 text-read text-support" role="alert">{m.share_file_failed()}</p>
+			{/if}
 		</div>
 	{/if}
 </Screen>

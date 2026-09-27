@@ -1177,5 +1177,8 @@
   "plus_pdf_no_text": "Ce PDF est un scan ou une photo de page : il ne contient aucun texte à lire. S'il vient d'un site, passez plutôt par Depuis un lien, ou copiez le texte de la recette et passez par Depuis un texte collé.",
   "plus_write": "L’écrire vous-même",
   "plus_write_why": "Commencer par un titre",
-  "plus_cancel": "Annuler"
+  "plus_cancel": "Annuler",
+  "share_file_failed": "Le fichier n’a pas pu être enregistré. Réessayez dans un instant.",
+  "share_file_getting": "Récupération du fichier…",
+  "share_file_share": "Partager le fichier"
 }

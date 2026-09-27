@@ -153,7 +153,7 @@
 	import PhotoToRecipe, { type Offered } from '$lib/PhotoToRecipe.svelte';
 	import StepPhoto from '$lib/StepPhoto.svelte';
 	import { Online, refreshed, thisDevice, type Device } from '$lib/offline/device.svelte';
-	import { useSheets } from '$lib/api/sheet';
+	import { SHEET, shareFile, sharesFiles, useFiles } from '$lib/api/files';
 	import HowMuch from '$lib/HowMuch.svelte';
 	import { said, same, toSearch, type Wanted } from '$lib/how-much';
 	import { useLibrary } from '$lib/offline/library.svelte';
@@ -184,7 +184,7 @@
 	let { branchId, device = thisDevice() }: Props = $props();
 
 	const kamosu = useKamosu();
-	const sheets = useSheets();
+	const files = useFiles();
 
 	let recipe = $state<GetRecipeOutput | undefined>(undefined);
 	let divergence = $state<DivergenceOutput | undefined>(undefined);
@@ -578,7 +578,7 @@
 	async function printSheet() {
 		const forVisit = visit;
 		const leftBehind = () => closed || visit !== forVisit;
-		const toShare = sharesSheets();
+		const toShare = sharesFiles(device, SHEET);
 		sharing = toShare;
 		printing = 'setting';
 		const tab = toShare ? null : window.open('', '_blank');
@@ -608,7 +608,7 @@
 			}
 			const at = (job.result as MakeSheetOutput).fetch_at;
 			if (toShare) {
-				const file = await sheets(at);
+				const file = await files(at, SHEET);
 				// Left while it was fetched: nothing is kept for a page not shown.
 				if (leftBehind()) return;
 				prepared = file;
@@ -625,20 +625,6 @@
 	}
 
 	/**
-	 * The installed app on an iPhone or iPad (#149). iOS keeps every address
-	 * inside the manifest's scope in the app's own window, which has no Share,
-	 * Save or Print, so a Sheet opened there can be looked at and nothing else.
-	 * Asked with a stand-in PDF before the real one exists, because the choice
-	 * of path is made at the first tap.
-	 */
-	function sharesSheets(): boolean {
-		if (!device.installed || !device.apple || typeof navigator.share !== 'function') return false;
-		// Not empty, so the answer is about a PDF rather than about nothing.
-		const probe = new File(['%PDF-'], 'Sheet.pdf', { type: 'application/pdf' });
-		return navigator.canShare?.({ files: [probe] }) === true;
-	}
-
-	/**
 	 * Hand the prepared Sheet to the share sheet: Save to Files, Print, AirDrop.
 	 * Called straight from the tap with nothing awaited first, since iOS only
 	 * opens the share sheet for a tap it can still see (#149). Closing the
@@ -650,19 +636,11 @@
 		if (!file) return;
 		const forVisit = visit;
 		const moved = () => closed || visit !== forVisit || prepared !== file;
-		navigator.share({ files: [file] }).then(
-			() => {
-				if (moved()) return;
-				prepared = undefined;
-				printing = 'idle';
-			},
-			(error: unknown) => {
-				if (error instanceof DOMException && error.name === 'AbortError') return;
-				if (moved()) return;
-				prepared = undefined;
-				printing = 'failed';
-			},
-		);
+		void shareFile(file).then((outcome) => {
+			if (outcome === 'kept' || moved()) return;
+			prepared = undefined;
+			printing = outcome === 'shared' ? 'idle' : 'failed';
+		});
 	}
 
 	/** Set once this screen closes, so a Sheet still being waited on stops being read. */

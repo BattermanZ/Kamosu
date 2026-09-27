@@ -9,7 +9,7 @@
 	import { realKamosu } from '$lib/kamosu';
 	import { realAuth } from '$lib/auth';
 	import { realPhotographUpload, realUpload } from '$lib/api/upload';
-	import { realSheets } from '$lib/api/sheet';
+	import { realFiles } from '$lib/api/files';
 	import { readToken } from '$lib/tokens';
 	import Notices from '$lib/offline/Notices.svelte';
 	import WentWrong from '$lib/WentWrong.svelte';
@@ -27,7 +27,7 @@
 	const auth = realAuth();
 	const upload = realUpload();
 	const photograph = realPhotographUpload();
-	const sheets = realSheets();
+	const files = realFiles();
 
 	// The document's language is the locale Paraglide resolved, which is what
 	// tells a screen reader — and Safari's translation offer — what it is reading.
@@ -120,7 +120,7 @@
 	});
 </script>
 
-<Kamosu {client} {auth} {upload} {photograph} {sheets} keeping={outbox}>
+<Kamosu {client} {auth} {upload} {photograph} {files} keeping={outbox}>
 	{#if !bare}
 		<Header {onSettings} />
 	{/if}

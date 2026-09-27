@@ -4,8 +4,10 @@
  * — a field renamed in `src/catalogue.rs` fails this test in the same commit.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
+import { tick, type ComponentProps } from 'svelte';
+import { realFiles } from '$lib/api/files';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import ShareTestHarness from './ShareTestHarness.svelte';
 
@@ -79,9 +81,13 @@ const FILE = {
 	missing_photographs: [],
 };
 
-function renderShare(answers: Answers) {
+function renderShare(
+	answers: Answers,
+	/** The phone it is on, and how it fetches the file to share (#156). */
+	on: Pick<ComponentProps<typeof ShareTestHarness>, 'device' | 'files'> = {},
+) {
 	const kamosu = standIn({ get_recipe: RECIPE, export_bundle: FILE, ...answers });
-	render(ShareTestHarness, { props: { client: kamosu.client, branchId: 'b_1' } });
+	render(ShareTestHarness, { props: { client: kamosu.client, branchId: 'b_1', ...on } });
 	return { kamosu };
 }
 
@@ -298,6 +304,197 @@ describe('the share screen', () => {
 			expect(screen.queryByText(/The link could not be changed/)).toBeNull();
 		} finally {
 			Reflect.deleteProperty(navigator, 'onLine');
+		}
+	});
+});
+
+describe('the recipe file in the app installed on an iPhone (#156)', () => {
+	const installedApple = { installed: true, apple: true };
+
+	/**
+	 * The share sheet, as iOS offers it to an installed app. `canShare` says
+	 * yes to one zip unless a test says otherwise; `share` answers what the
+	 * test says.
+	 */
+	function theShareSheet(answer: () => Promise<void> = async () => {}, takesZips = true) {
+		const share = vi.fn<(data: ShareData) => Promise<void>>(() => answer());
+		const canShare = vi.fn(
+			(data?: ShareData) =>
+				takesZips && data?.files?.length === 1 && data.files[0]?.type === 'application/zip',
+		);
+		Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+		Object.defineProperty(navigator, 'canShare', { value: canShare, configurable: true });
+		return share;
+	}
+
+	/** `/api/bundles/…` as the server answers it, headers and all. */
+	function theBundleRoute() {
+		const fetch = vi.fn(
+			async () =>
+				new Response('PK', {
+					headers: {
+						'content-type': 'application/zip',
+						'content-disposition':
+							'attachment; filename="Chicken Katsu Curry.zip"; filename*=UTF-8\'\'Chicken%20Katsu%20Curry.zip',
+					},
+				}),
+		);
+		return { fetch, files: realFiles(fetch as unknown as typeof globalThis.fetch) };
+	}
+
+	/** `window.location.assign`, caught, and put back afterwards. */
+	function catchNavigation() {
+		const assigned: string[] = [];
+		const real = Object.getOwnPropertyDescriptor(window, 'location');
+		Object.defineProperty(window, 'location', {
+			configurable: true,
+			value: { ...window.location, assign: (to: string) => assigned.push(to) },
+		});
+		return {
+			assigned,
+			restore: () => {
+				if (real) Object.defineProperty(window, 'location', real);
+			},
+		};
+	}
+
+	afterEach(() => {
+		Reflect.deleteProperty(navigator, 'share');
+		Reflect.deleteProperty(navigator, 'canShare');
+	});
+
+	/** Save it tapped and the file fetched: the button now shares it. */
+	async function readyToShare(share = theShareSheet()) {
+		const route = theBundleRoute();
+		renderShare({ get_share_link: NOT_SHARED }, { device: installedApple, files: route.files });
+		await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+		const button = await screen.findByRole('button', { name: 'Share the file' });
+		return { share, route, button };
+	}
+
+	it('fetches the file at the first tap, and shares it as one zip named as the server named it', async () => {
+		const navigation = catchNavigation();
+		try {
+			const { share, route, button } = await readyToShare();
+
+			expect(navigation.assigned).toEqual([]);
+			expect(route.fetch).toHaveBeenCalledWith('/api/bundles/b_1');
+			expect(share).not.toHaveBeenCalled();
+			await fireEvent.click(button);
+
+			expect(share).toHaveBeenCalledTimes(1);
+			const files = share.mock.calls[0]?.[0].files ?? [];
+			expect(files).toHaveLength(1);
+			expect(files[0]?.name).toBe('Chicken Katsu Curry.zip');
+			expect(files[0]?.type).toBe('application/zip');
+		} finally {
+			navigation.restore();
+		}
+	});
+
+	it('shares in the tap itself, with the file already fetched', async () => {
+		const { share, route, button } = await readyToShare();
+		const fetchedBefore = route.fetch.mock.calls.length;
+
+		// Not awaited: the share sheet must be asked for before the tap's
+		// handler gives the browser back, or iOS no longer counts the tap.
+		const tapped = fireEvent.click(button);
+		expect(share).toHaveBeenCalledTimes(1);
+		expect(route.fetch).toHaveBeenCalledTimes(fetchedBefore);
+		await tapped;
+	});
+
+	it('says it is getting the file while it downloads, and takes no second tap meanwhile', async () => {
+		let arrive: (response: Response) => void = () => {};
+		const fetch = vi.fn(() => new Promise<Response>((resolve) => (arrive = resolve)));
+		theShareSheet();
+		renderShare(
+			{ get_share_link: NOT_SHARED },
+			{ device: installedApple, files: realFiles(fetch as unknown as typeof globalThis.fetch) },
+		);
+
+		await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+
+		expect(await screen.findByRole('button', { name: 'Getting the file…' })).toBeDisabled();
+		arrive(new Response('PK', { headers: { 'content-type': 'application/zip' } }));
+		expect(await screen.findByRole('button', { name: 'Share the file' })).toBeEnabled();
+	});
+
+	it('keeps the file ready, and says nothing went wrong, when the share sheet is closed', async () => {
+		const share = theShareSheet(async () => {
+			throw new DOMException('Share canceled', 'AbortError');
+		});
+		const { button } = await readyToShare(share);
+
+		await fireEvent.click(button);
+		await tick();
+
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+		const again = screen.getByRole('button', { name: 'Share the file' });
+		expect(again).toBeEnabled();
+		await fireEvent.click(again);
+		expect(share).toHaveBeenCalledTimes(2);
+		expect(share.mock.calls[1]?.[0].files?.[0]).toBe(share.mock.calls[0]?.[0].files?.[0]);
+	});
+
+	it('says the file could not be saved when the share sheet refuses it', async () => {
+		const share = theShareSheet(async () => {
+			throw new DOMException('Not allowed', 'NotAllowedError');
+		});
+		const { button } = await readyToShare(share);
+
+		await fireEvent.click(button);
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be saved/);
+		expect(screen.getByRole('button', { name: /Save it/ })).toBeEnabled();
+	});
+
+	it('says the file could not be saved when the server does not hand it over', async () => {
+		theShareSheet();
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({ ok: false, error: { kind: 'not_found', message: 'no such recipe' } }),
+					{ status: 404, headers: { 'content-type': 'application/json' } },
+				),
+		);
+		renderShare(
+			{ get_share_link: NOT_SHARED },
+			{ device: installedApple, files: realFiles(fetch as unknown as typeof globalThis.fetch) },
+		);
+
+		await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(/could not be saved/);
+		expect(screen.getByRole('button', { name: /Save it/ })).toBeEnabled();
+	});
+
+	it('offers to save afresh once the file has been shared', async () => {
+		const { button } = await readyToShare();
+
+		await fireEvent.click(button);
+
+		expect(await screen.findByRole('button', { name: /Save it/ })).toBeEnabled();
+	});
+
+	it.each([
+		['a Safari tab on an iPhone', { installed: false, apple: true }, true],
+		['an installed app that is not on Apple', { installed: true, apple: false }, true],
+		['an installed iPhone app that will not share a zip', { installed: true, apple: true }, false],
+	])('still saves the file straight from the server in %s', async (_, device, takesZips) => {
+		const share = theShareSheet(async () => {}, takesZips);
+		const route = theBundleRoute();
+		const navigation = catchNavigation();
+		try {
+			renderShare({ get_share_link: NOT_SHARED }, { device, files: route.files });
+
+			await fireEvent.click(await screen.findByRole('button', { name: /Save it/ }));
+
+			expect(navigation.assigned).toEqual(['/api/bundles/b_1']);
+			expect(route.fetch).not.toHaveBeenCalled();
+			expect(share).not.toHaveBeenCalled();
+		} finally {
+			navigation.restore();
 		}
 	});
 });
