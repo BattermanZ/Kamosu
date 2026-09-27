@@ -863,11 +863,9 @@ fn record_merge_suggestion(
 /// nothing else. A signature that could fail would leave the promise resting
 /// on every caller remembering to ignore it.
 ///
-/// **What it does not reach**: `start_translation`, which mints a Branch
-/// holding the *source* recipe's words under the Language it is to be
-/// translated *into*. Reading those words would file English foods under
-/// French. The translated lines are read the moment they are written, by the
-/// ordinary save path, which is where they arrive.
+/// `start_translation` calls it too (#172). Its input is the translated
+/// recipe, never the source's words, so its lines are read in the
+/// Translation's own Language like any other first Version's.
 pub(super) fn read_unread_lines(
     conn: &Connection,
     version_id: &str,

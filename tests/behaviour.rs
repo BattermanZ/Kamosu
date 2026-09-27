@@ -11547,6 +11547,91 @@ async fn a_translation_is_an_ordinary_branch_of_the_same_lineage_in_another_lang
     );
 }
 
+/// **A Translation's lines are read the moment it is made** (#172), in its own
+/// Language, the way a new recipe's are. Nothing later repairs a line left
+/// unread here: a save carries an unchanged line's Reading forward, and an
+/// unread line's Reading is nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_translation_reads_its_own_lines_in_its_own_language() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Gochujang chicken",
+            "language": "en",
+            "ingredients": [
+                { "kind": "ingredient", "text": "500 g chicken thighs" },
+                { "kind": "ingredient", "text": "2 onions" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Brown the chicken thighs with the onions." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let english = created["result"]["branch_id"].as_str().unwrap();
+
+    let (status, translated) = app.post_op(
+        "start_translation",
+        Some(&key),
+        &json!({
+            "branch_id": english,
+            "language": "fr",
+            "title": "Poulet au gochujang",
+            "ingredients": [
+                { "kind": "ingredient", "text": "500 g de cuisses de poulet" },
+                { "kind": "ingredient", "text": "2 oignons" },
+                { "kind": "ingredient", "text": "———" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Faites dorer les cuisses de poulet avec les oignons." },
+            ],
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        status, 200,
+        "one unreadable line fails nothing: {translated}"
+    );
+    let version = &translated["result"]["versions"][0];
+    let readings = version["readings"].as_array().unwrap();
+    assert_eq!(readings.len(), 3, "{version}");
+    assert_eq!(readings[0]["amount"], json!("500"), "{version}");
+    assert_eq!(readings[0]["unit"], json!("g"), "{version}");
+    assert_eq!(
+        readings[0]["target"],
+        json!("cuisses de poulet"),
+        "{version}"
+    );
+    assert_eq!(readings[1]["amount"], json!("2"), "{version}");
+    assert_eq!(readings[1]["target"], json!("oignons"), "{version}");
+    assert_eq!(
+        readings[2],
+        json!(null),
+        "a line that does not read stays unread"
+    );
+    assert_eq!(
+        version["cooking"]["steps"][0]["uses"],
+        json!([0, 1]),
+        "cooking mode links the step to the lines it names: {version}"
+    );
+
+    // Filed under French, which is the Translation's Language, not the
+    // source's.
+    let (_, listed) = app.post_op("list_foods", Some(&key), "{}");
+    let poulet = listed["result"]["foods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|food| food["names"].as_array().unwrap())
+        .find(|n| n["name"] == "cuisses de poulet")
+        .unwrap_or_else(|| panic!("a Food was made for the French line: {listed}"));
+    assert_eq!(poulet["language"], json!("fr"), "{listed}");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn how_far_behind_a_translation_has_fallen_is_exact_and_moves_as_the_source_moves() {
     let app = support::spawn_app();
