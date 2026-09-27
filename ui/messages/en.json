@@ -28,7 +28,7 @@
   "account_recover_submit": "Set new password",
   "account_recover_title": "Choose a new password",
   "account_session_unknown_device": "A browser",
-  "account_setup_blurb": "The first person here becomes this kitchen's Operator.",
+  "account_setup_blurb": "The first person here becomes this Kamosu's Operator.",
   "account_setup_title": "Set up Kamosu",
   "account_try_again": "Try again",
   "account_wait": "Too many wrong passwords. Try again in {seconds} s.",

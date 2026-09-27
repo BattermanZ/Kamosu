@@ -28,7 +28,7 @@
   "account_recover_submit": "Définir le nouveau mot de passe",
   "account_recover_title": "Choisissez un nouveau mot de passe",
   "account_session_unknown_device": "Un navigateur",
-  "account_setup_blurb": "La première personne devient l’opérateur de cette cuisine.",
+  "account_setup_blurb": "La première personne devient l’Opérateur de ce Kamosu.",
   "account_setup_title": "Configurer Kamosu",
   "account_try_again": "Réessayer",
   "account_wait": "Trop de mots de passe erronés. Réessayez dans {seconds} s.",
