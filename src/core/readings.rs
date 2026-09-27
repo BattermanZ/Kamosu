@@ -627,8 +627,13 @@ impl Core {
                 } else {
                     format!("{reading_count} Readings still point")
                 };
+                // The way round is #162's: a deleted recipe leaves Readings no
+                // Door can reach, so only a Merge can move them. Said without
+                // an Operation's name, since the Operator's screen shows this
+                // too. The second sentence goes when that issue is fixed.
                 return Err(OpError::bad_request(format!(
-                    "{readings} at this Food: only one nothing points at may be deleted"
+                    "{readings} at this Food: only one nothing points at may be deleted. \
+                     If no recipe shows it any more, a Merge into another Food clears it"
                 )));
             }
             erase_food(conn, food_id)?;

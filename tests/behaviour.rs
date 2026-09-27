@@ -5197,6 +5197,57 @@ async fn the_mcp_door_answers_server_discover_with_what_it_serves() {
     );
 }
 
+/// The rules an agent needs before its first write travel with the server,
+/// not with one client's notes: `server/discover` carries them as the
+/// server's instructions (#168). The same text for every caller, since the
+/// answer is cached publicly.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_mcp_door_tells_an_agent_how_saving_works_before_its_first_write() {
+    let app = support::spawn_app();
+
+    let (status, body) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}}"#,
+        None,
+    );
+    assert_eq!(status, 200, "{body}");
+    let instructions = body["result"]["instructions"]
+        .as_str()
+        .unwrap_or_else(|| panic!("server/discover carries instructions: {body}"));
+
+    // A partial change goes through edit_recipe…
+    assert!(
+        instructions.contains("edit_recipe") && instructions.contains("partial"),
+        "{instructions}"
+    );
+    // …because save_recipe_version replaces every field it is not given.
+    assert!(
+        instructions.contains("save_recipe_version")
+            && instructions.contains("every field you leave out"),
+        "{instructions}"
+    );
+    // How long a save collapses into the Version being shaped, read off the
+    // Core's own window so the two cannot drift.
+    let window = format!("{} minutes", kamosu::core::COLLAPSE_WINDOW_SECONDS / 60);
+    assert!(instructions.contains(&window), "{window}: {instructions}");
+
+    // The same words with a Credential as without one.
+    let person = app.core.create_person("Aurélien").expect("person");
+    let secret = app
+        .core
+        .mint_access_key(&person, "agent", false)
+        .unwrap()
+        .secret;
+    let (_, signed_in) = app.post_mcp(
+        r#"{"jsonrpc":"2.0","id":2,"method":"server/discover","params":{}}"#,
+        Some(&secret),
+    );
+    assert_eq!(
+        signed_in["result"]["instructions"],
+        json!(instructions),
+        "{signed_in}"
+    );
+}
+
 /// The Streamable HTTP rules a modern client reads to tell a modern server
 /// from a legacy one: which HTTP status carries which JSON-RPC error.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

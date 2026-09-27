@@ -1561,7 +1561,7 @@ fn whole_word_at(haystack: &str, start: usize, needle: &str) -> bool {
 /// practice — there is no realistic pattern this window would wrongly merge,
 /// while it comfortably absorbs one meandering sitting, pauses included
 /// (decided with Aurélien on issue #42).
-const COLLAPSE_WINDOW_SECONDS: i64 = 3600;
+pub const COLLAPSE_WINDOW_SECONDS: i64 = 3600;
 
 /// How a save says the recipe's new content: whole, already parsed, or as
 /// only the fields that change (#164).

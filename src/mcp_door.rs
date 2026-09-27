@@ -349,10 +349,45 @@ fn server_discover() -> Value {
         "resultType": "complete",
         "supportedVersions": [MCP_PROTOCOL_VERSION],
         "capabilities": capabilities,
+        "instructions": server_instructions(),
         "ttlMs": LISTING_TTL_MS,
         // The same answer for every caller, Credential or none.
         "cacheScope": "public",
     })
+}
+
+/// What an agent needs to know before its first write, which no single tool
+/// description can say because it is about choosing between them (#168).
+/// Answered publicly, so it must never depend on who is asking. Each rule is
+/// also said on the tool it concerns; this is the part an agent reads first.
+fn server_instructions() -> String {
+    let window_minutes = crate::core::COLLAPSE_WINDOW_SECONDS / 60;
+    [
+        "Kamosu is a household recipe library. Before changing a recipe:".to_string(),
+        "- For a partial change, use edit_recipe and send only the fields that \
+         change. save_recipe_version replaces the whole recipe: every field you \
+         leave out is erased."
+            .to_string(),
+        format!(
+            "- A save by the same Hand on the same Branch within {window_minutes} \
+             minutes of the previous one collapses into the Version being shaped \
+             rather than starting a new one, unless another Branch or a \
+             Translation already holds that Version. Its answer says \
+             collapsed: true when it did."
+        ),
+        // #165: a collapse overwrites the Version's name and change note with
+        // whatever this save sends. Goes when that issue is fixed.
+        "- A collapsed save keeps only the name and change_note it sends, so \
+         send them again or the ones already there are erased."
+            .to_string(),
+        // #166: nothing re-reads an unchanged line. Goes when that issue is
+        // fixed.
+        "- A new Version keeps the Reading of each Ingredient Line left word \
+         for word as it was, in the same place, a misreading included; \
+         set_reading is how to correct one."
+            .to_string(),
+    ]
+    .join("\n")
 }
 
 /// The listing itself is not an Operation and carries no permission check, but

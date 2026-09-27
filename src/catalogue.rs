@@ -936,10 +936,19 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "save_recipe_version",
+            // The collapse window is COLLAPSE_WINDOW_SECONDS, which a test
+            // below holds this wording to. What a collapse keeps is #165:
+            // that sentence goes when the issue is fixed.
             summary: "Save a new state of a Recipe onto a Branch — the whole \
-                      recipe as written, replacing what was there. A rapid \
-                      re-save by the same Hand collapses into the Version \
-                      already being shaped rather than starting a new one. \
+                      recipe as written, replacing what was there: every field \
+                      left out is erased. For a partial change use edit_recipe \
+                      instead. A re-save by the same Hand within 60 minutes of \
+                      the last one collapses into the Version already being \
+                      shaped rather than starting a new one, unless another \
+                      Branch or a Translation already holds that Version. A \
+                      collapsed save \
+                      keeps only the name and change_note it sends, so send \
+                      them again or the ones already there are erased. \
                       Changing a recipe your Cookbook did not write — a \
                       Kitchen-mate's, or one that arrived — is a Copy: it \
                       starts a new Branch of the same Lineage in your own \
@@ -958,6 +967,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "edit_recipe",
+            // The collapse window is COLLAPSE_WINDOW_SECONDS, which a test
+            // below holds this wording to. What a collapse keeps is #165, and
+            // an unchanged line keeping its Reading is #166: each sentence
+            // goes when its issue is fixed.
             summary: "Change some fields of a Recipe and leave the rest as they \
                       are: send only the fields that change. A field left out \
                       keeps what the recipe has, and null clears it; the title \
@@ -965,9 +978,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       so changing one line means sending that whole list, \
                       but not the other one. Otherwise exactly \
                       save_recipe_version: the result is saved as the \
-                      recipe's new state, a rapid re-edit collapses into the \
-                      Version being shaped, and changing a recipe your \
-                      Cookbook did not write is a Copy.",
+                      recipe's new state, a re-edit by the same Hand within \
+                      60 minutes collapses into the Version being shaped \
+                      (unless another Branch or a Translation already holds \
+                      it), and changing a recipe your Cookbook did not write is \
+                      a Copy. A collapsed edit keeps only the name and \
+                      change_note it sends, so send them again or the ones \
+                      already there are erased. An Ingredient Line the edit \
+                      leaves word for word as it was, in the same place, keeps \
+                      its Reading as it was, a misreading included; correct \
+                      one with set_reading.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2222,6 +2242,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_reading",
+            // A save never re-reading an unchanged line is #166: the last
+            // sentence goes when that issue is fixed.
             summary: "Correct the Reading on one Ingredient Line of a Recipe's \
                       current state — an amount, a Unit and a target, sent \
                       together as the whole new Reading (never a per-field \
@@ -2234,7 +2256,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       makes the Ingredient a Component (ADR 0008); never \
                       both, and a Lineage this instance does not hold is \
                       accepted, because a Component goes on naming its recipe \
-                      when the recipe is gone.",
+                      when the recipe is gone. A save carries the Reading of \
+                      each line left word for word as it was, in the same \
+                      place, onto the new Version and never reads that line \
+                      again, so this is how to correct a misreading without \
+                      rewording the line.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2994,10 +3020,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "merge_food",
-            summary: "Join two Foods into one: the survivor takes every name \
-                      both had, every Reading pointing at the other points at \
-                      it instead, and every Merge Suggestion naming either is \
-                      cleared. ingredient_lines is the figure \
+            summary: "Join two Foods into one. A Food has one name per \
+                      Language, so the survivor keeps its own and takes the \
+                      other's only in a Language it has no name for, and the \
+                      other's remaining names are dropped. Every Reading \
+                      pointing at the other points at it instead, and every \
+                      Merge Suggestion naming either is cleared. ingredient_lines is the figure \
                       preview_food_merge announced, said back — a Merge that \
                       does not match it is refused. Where the two disagree \
                       about Cup Weight, cup_weight_grams says which of the two \
@@ -5538,6 +5566,19 @@ pub fn find(name: &str) -> Option<&'static Operation> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two saves say how long a re-save collapses as a figure written
+    /// into their summaries, which are literal text. This holds that figure
+    /// to the Core's window, so changing one fails the build until the other
+    /// follows (#168).
+    #[test]
+    fn the_save_summaries_say_the_collapse_window_the_core_uses() {
+        let window = format!("{} minutes", crate::core::COLLAPSE_WINDOW_SECONDS / 60);
+        for name in ["save_recipe_version", "edit_recipe"] {
+            let summary = find(name).expect("declared").summary;
+            assert!(summary.contains(&window), "{name} says {window}: {summary}");
+        }
+    }
 
     #[test]
     fn names_are_unique_and_rpc_shaped() {

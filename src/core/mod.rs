@@ -76,6 +76,8 @@ use keeping_photographs::*;
 use kitchens::*;
 pub use readings::*;
 use recipes::*;
+// What the MCP door's instructions and the save summaries say the window is.
+pub use recipes::COLLAPSE_WINDOW_SECONDS;
 pub use related::*;
 pub use search::*;
 pub(crate) use shared::*;

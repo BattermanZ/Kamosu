@@ -1142,7 +1142,7 @@ export type CreateRecipeOutput = {
 	writes: boolean;
 };
 
-/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
+/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps only the name and change_note it sends, so send them again or the ones already there are erased. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 export type SaveRecipeVersionInput = {
 	branch_id: string;
 	change_note?: string;
@@ -1189,7 +1189,7 @@ export type SaveRecipeVersionOutput = {
 	version_id: string;
 };
 
-/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a rapid re-edit collapses into the Version being shaped, and changing a recipe your Cookbook did not write is a Copy. */
+/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps only the name and change_note it sends, so send them again or the ones already there are erased. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
 export type EditRecipeInput = {
 	branch_id: string;
 	change_note?: string;
@@ -3040,7 +3040,7 @@ export type DivergenceOutput = {
 	};
 };
 
-/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. */
+/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 export type SetReadingInput = {
 	amount?: string | null;
 	branch_id: string;
@@ -4366,7 +4366,7 @@ export type PreviewFoodMergeOutput = {
 	};
 };
 
-/** Join two Foods into one: the survivor takes every name both had, every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
+/** Join two Foods into one. A Food has one name per Language, so the survivor keeps its own and takes the other's only in a Language it has no name for, and the other's remaining names are dropped. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
 export type MergeFoodInput = {
 	absorbed_food_id: string;
 	cup_weight_grams?: number | null;
@@ -10430,7 +10430,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see.",
+		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps only the name and change_note it sends, so send them again or the ones already there are erased. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -10665,7 +10665,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "edit_recipe",
-		"summary": "Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a rapid re-edit collapses into the Version being shaped, and changing a recipe your Cookbook did not write is a Copy.",
+		"summary": "Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps only the name and change_note it sends, so send them again or the ones already there are erased. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -20441,7 +20441,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_reading",
-		"summary": "Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone.",
+		"summary": "Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -27215,7 +27215,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "merge_food",
-		"summary": "Join two Foods into one: the survivor takes every name both had, every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1.",
+		"summary": "Join two Foods into one. A Food has one name per Language, so the survivor keeps its own and takes the other's only in a Language it has no name for, and the other's remaining names are dropped. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -27797,9 +27797,9 @@ export interface KamosuClient {
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
 	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there. A rapid re-save by the same Hand collapses into the Version already being shaped rather than starting a new one. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
+	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps only the name and change_note it sends, so send them again or the ones already there are erased. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
-	/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a rapid re-edit collapses into the Version being shaped, and changing a recipe your Cookbook did not write is a Copy. */
+	/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps only the name and change_note it sends, so send them again or the ones already there are erased. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
 	editRecipe(input: EditRecipeInput): Promise<Answer<'edit_recipe'>>;
 	/** Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it ("Vegetarian"). Changing one never changes the other. */
 	startVariation(input: StartVariationInput): Promise<Answer<'start_variation'>>;
@@ -27875,7 +27875,7 @@ export interface KamosuClient {
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
 	/** Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
-	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. */
+	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
 	/** Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
 	readIngredientLines(input?: ReadIngredientLinesInput): Promise<Answer<'read_ingredient_lines'>>;
@@ -27933,7 +27933,7 @@ export interface KamosuClient {
 	listMergeSuggestions(input?: ListMergeSuggestionsInput): Promise<Answer<'list_merge_suggestions'>>;
 	/** Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
 	previewFoodMerge(input: PreviewFoodMergeInput): Promise<Answer<'preview_food_merge'>>;
-	/** Join two Foods into one: the survivor takes every name both had, every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
+	/** Join two Foods into one. A Food has one name per Language, so the survivor keeps its own and takes the other's only in a Language it has no name for, and the other's remaining names are dropped. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
 	mergeFood(input: MergeFoodInput): Promise<Answer<'merge_food'>>;
 	/** Delete a Food nothing points at. One a Reading still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. */
 	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;
