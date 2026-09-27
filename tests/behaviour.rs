@@ -1812,6 +1812,220 @@ async fn rapid_re_saves_collapse_and_history_stays_append_only() {
     assert_eq!(versions[0]["content"]["title"], json!("Tarte"));
 }
 
+/// The newest Version a `get_recipe` answer lists, and how many there are.
+fn newest_version(app: &support::TestApp, key: &str, branch_id: &str) -> (Value, usize) {
+    let (_, read_back) = app.post_op(
+        "get_recipe",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let versions = read_back["result"]["versions"].as_array().unwrap().clone();
+    (versions.last().unwrap().clone(), versions.len())
+}
+
+/// **Issue #165.** A collapse folds a re-save into the Version already being
+/// shaped. It used to write the call's `name` and `change_note` over that
+/// Version's own, so a quick second save that sent neither erased both.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_collapsed_save_keeps_the_name_and_change_note_it_does_not_send() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+
+    for (operation, second_title) in [
+        ("edit_recipe", "Strata"),
+        ("save_recipe_version", "Strata!"),
+    ] {
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({ "title": "Basic Strata" }).to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        backdate_branch_head(&app, &branch_id);
+
+        let (status, first) = app.post_op(
+            operation,
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "title": "Basic strata",
+                "name": "Tidied",
+                "change_note": "Title tidied; mix-in list recovered."
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{first}");
+        assert_eq!(first["result"]["collapsed"], json!(false));
+
+        let (status, again) = app.post_op(
+            operation,
+            Some(&key),
+            &json!({ "branch_id": branch_id, "title": second_title }).to_string(),
+        );
+        assert_eq!(status, 200, "{again}");
+        assert_eq!(again["result"]["collapsed"], json!(true), "{operation}");
+
+        let (newest, count) = newest_version(&app, &key, &branch_id);
+        assert_eq!(count, 2, "{operation}");
+        assert_eq!(newest["content"]["title"], json!(second_title));
+        assert_eq!(newest["name"], json!("Tidied"), "{operation}");
+        assert_eq!(
+            newest["change_note"],
+            json!("Title tidied; mix-in list recovered."),
+            "{operation}"
+        );
+
+        // Sending them on a collapse still replaces them.
+        let (status, replaced) = app.post_op(
+            operation,
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "title": "Basic Strata, overnight",
+                "name": "Overnight",
+                "change_note": "It rests overnight now."
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{replaced}");
+        assert_eq!(replaced["result"]["collapsed"], json!(true));
+        let (newest, count) = newest_version(&app, &key, &branch_id);
+        assert_eq!(count, 2, "{operation}");
+        assert_eq!(newest["name"], json!("Overnight"), "{operation}");
+        assert_eq!(
+            newest["change_note"],
+            json!("It rests overnight now."),
+            "{operation}"
+        );
+    }
+}
+
+/// **Issue #165, the choice made on it.** An edit that changes nothing in the
+/// recipe but sends a change note or a name writes them onto the Version
+/// still being shaped: the same Version a content change would collapse into.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_note_only_edit_sets_the_note_on_the_version_being_shaped() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Basic Strata" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    backdate_branch_head(&app, &branch_id);
+    let (_, edited) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Basic strata" }).to_string(),
+    );
+    let version_id = edited["result"]["version_id"].clone();
+
+    let (status, noted) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "change_note": "Title tidied." }).to_string(),
+    );
+    assert_eq!(status, 200, "{noted}");
+    assert_eq!(noted["result"]["version_id"], version_id);
+    assert_eq!(noted["result"]["collapsed"], json!(true), "{noted}");
+
+    let (status, named) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Basic strata", "name": "Tidied" }).to_string(),
+    );
+    assert_eq!(status, 200, "{named}");
+    assert_eq!(named["result"]["version_id"], version_id);
+
+    let (newest, count) = newest_version(&app, &key, &branch_id);
+    assert_eq!(count, 2, "no Version was minted for a note");
+    assert_eq!(newest["version_id"], version_id);
+    assert_eq!(newest["change_note"], json!("Title tidied."));
+    assert_eq!(
+        newest["name"],
+        json!("Tidied"),
+        "a name-only save keeps the note"
+    );
+}
+
+/// **Issue #165, the other half of the choice.** Once the newest Version is
+/// no longer being shaped, a note has no change to describe. It is refused
+/// out loud rather than dropped, and sending what is already there is still
+/// the quiet no-op an identical save has always been.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_note_only_edit_is_refused_once_the_version_is_no_longer_being_shaped() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_mate, mate_key, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen_id, &mate_key);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({ "title": "Basic Strata" }).to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    // A Kitchen-mate sees the recipe but does not write it: a note alone
+    // starts no Copy and lands on nobody's Version, however recent it is.
+    let (status, refused) = app.post_op(
+        "edit_recipe",
+        Some(&mate_key),
+        &json!({ "branch_id": branch_id, "change_note": "Mine now." }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(message.contains("not yours to change"), "{message}");
+
+    let (_, noted) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "name": "First", "change_note": "Written down." })
+            .to_string(),
+    );
+    assert_eq!(noted["result"]["collapsed"], json!(true), "{noted}");
+    backdate_branch_head(&app, &branch_id);
+
+    // The same note and name again: nothing to say, nothing refused.
+    let (status, same) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "name": "First", "change_note": "Written down." })
+            .to_string(),
+    );
+    assert_eq!(status, 200, "{same}");
+    assert_eq!(same["result"]["collapsed"], json!(false));
+
+    for (operation, body) in [
+        (
+            "edit_recipe",
+            json!({ "branch_id": branch_id, "change_note": "Rewritten." }),
+        ),
+        (
+            "edit_recipe",
+            json!({ "branch_id": branch_id, "name": "Renamed" }),
+        ),
+        (
+            "save_recipe_version",
+            json!({ "branch_id": branch_id, "title": "Basic Strata", "change_note": "Rewritten." }),
+        ),
+    ] {
+        let (status, refused) = app.post_op(operation, Some(&key), &body.to_string());
+        assert_eq!(status, 400, "{refused}");
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("nothing in the recipe changed"),
+            "{message}"
+        );
+    }
+
+    let (newest, count) = newest_version(&app, &key, &branch_id);
+    assert_eq!(count, 1);
+    assert_eq!(newest["change_note"], json!("Written down."));
+    assert_eq!(newest["name"], json!("First"));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_is_read_only_by_its_cookbook_and_the_kitchens_it_is_in() {
     let app = support::spawn_app();

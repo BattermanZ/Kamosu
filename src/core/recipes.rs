@@ -148,7 +148,8 @@ impl Core {
             // where a Copy goes when it is not theirs to write.
             let own_cookbook_id = cookbook_of_person(conn, &caller.person_id)?;
 
-            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates): (
+            #[allow(clippy::type_complexity)]
+            let (head_sequence, head_version_id, head_hand_id, head_parent_id, within_window, head_content_text, head_translates, head_name, head_change_note): (
                 i64,
                 String,
                 String,
@@ -156,12 +157,15 @@ impl Core {
                 bool,
                 String,
                 Option<String>,
+                Option<String>,
+                Option<String>,
             ) = conn
                 .query_row(
                     "SELECT branch_versions.sequence, branch_versions.version_id, \
                             branch_versions.hand_id, branch_versions.parent_version_id, \
                             (julianday('now') - julianday(branch_versions.created_at)) * 86400.0 <= ?2, \
-                            versions.content, branch_versions.translates_version_id \
+                            versions.content, branch_versions.translates_version_id, \
+                            branch_versions.name, branch_versions.change_note \
                        FROM branch_versions JOIN versions ON versions.id = branch_versions.version_id \
                       WHERE branch_versions.branch_id = ?1 ORDER BY branch_versions.sequence DESC LIMIT 1",
                     params![branch_id, COLLAPSE_WINDOW_SECONDS as f64],
@@ -174,6 +178,8 @@ impl Core {
                             row.get(4)?,
                             row.get(5)?,
                             row.get(6)?,
+                            row.get(7)?,
+                            row.get(8)?,
                         ))
                     },
                 )
@@ -209,16 +215,57 @@ impl Core {
             // it: the offer is about the recipe, not about this save.
             let offer = language_offer(&language, &content);
 
+            // The half of "still being shaped" the head row answers by itself.
+            let callers_and_recent = within_window && head_hand_id == caller.person_id;
+
             if version_id == head_version_id {
                 // Identical content: the fingerprint already names this state,
                 // so there is nothing new to save — and merely reading a
                 // recipe you cannot change must never start a Copy.
+                //
+                // Unless the call brings a name or change note the head does
+                // not carry yet (#165). Those belong to the Version still
+                // being shaped, the one a content change would collapse into,
+                // and are written onto it. Past that point there is no change
+                // left for them to describe, and saying so beats dropping them.
+                let new_name = name.filter(|n| Some(*n) != head_name.as_deref());
+                let new_note = change_note.filter(|n| Some(*n) != head_change_note.as_deref());
+                let noted = new_name.is_some() || new_note.is_some();
+                if noted {
+                    if !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)? {
+                        return Err(OpError::bad_request(
+                            "nothing in the recipe changed, and it is not yours to change, \
+                             so there is no change of yours for this name or change note \
+                             to describe",
+                        ));
+                    }
+                    if !version_being_shaped(
+                        conn,
+                        &lineage_id,
+                        branch_id,
+                        &head_version_id,
+                        callers_and_recent,
+                    )? {
+                        return Err(OpError::bad_request(
+                            "nothing in the recipe changed, and its newest Version is no \
+                             longer being shaped, so there is no change for this name or \
+                             change note to describe",
+                        ));
+                    }
+                    conn.execute(
+                        "UPDATE branch_versions SET name = COALESCE(?1, name), \
+                                change_note = COALESCE(?2, change_note) \
+                         WHERE branch_id = ?3 AND sequence = ?4",
+                        params![new_name, new_note, branch_id, head_sequence],
+                    )
+                    .map_err(|e| OpError::internal(format!("cannot note Version: {e}")))?;
+                }
                 return Ok(json!({
                     "branch_id": branch_id,
                     "version_id": version_id,
                     "parent_version_id": head_parent_id,
                     "sequence": head_sequence,
-                    "collapsed": false,
+                    "collapsed": noted,
                     "copied": false,
                     "language": language,
                     "language_offer": offer,
@@ -322,19 +369,20 @@ impl Core {
             // shaped and become a shared fact. Appending costs one extra
             // Version, which is honest, because somebody else really is
             // holding the old one.
-            let collapse = within_window
-                && head_hand_id == caller.person_id
-                && !version_is_translated(conn, &lineage_id, branch_id, &head_version_id)?
-                && !version_is_held_by_another_branch(
-                    conn,
-                    &lineage_id,
-                    branch_id,
-                    &head_version_id,
-                )?;
+            let collapse = version_being_shaped(
+                conn,
+                &lineage_id,
+                branch_id,
+                &head_version_id,
+                callers_and_recent,
+            )?;
             if collapse {
+                // A name or change note the call leaves out is the one the
+                // Version already carries, not an erasure (#165).
                 conn.execute(
-                    "UPDATE branch_versions SET version_id = ?1, hand_id = ?2, name = ?3, \
-                            change_note = ?4, access_key_id = ?5, \
+                    "UPDATE branch_versions SET version_id = ?1, hand_id = ?2, \
+                            name = COALESCE(?3, name), \
+                            change_note = COALESCE(?4, change_note), access_key_id = ?5, \
                             translates_version_id = ?8, language = ?9, \
                             created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
                      WHERE branch_id = ?6 AND sequence = ?7",
@@ -2269,6 +2317,23 @@ fn version_is_translated(
         |row| row.get(0),
     )
     .map_err(|e| OpError::internal(format!("cannot look for Translations of this Version: {e}")))
+}
+
+/// Whether a Branch's head Version is still the one being shaped: the one a
+/// re-save collapses into, and the one a note-only edit writes onto (#165).
+/// `callers_and_recent` is the part the head row already answers, that the
+/// caller saved it within the collapse window. The rest is why the window
+/// closes early, spelled out where `save_onto_branch` collapses.
+fn version_being_shaped(
+    conn: &Connection,
+    lineage_id: &str,
+    branch_id: &str,
+    head_version_id: &str,
+    callers_and_recent: bool,
+) -> Result<bool, OpError> {
+    Ok(callers_and_recent
+        && !version_is_translated(conn, lineage_id, branch_id, head_version_id)?
+        && !version_is_held_by_another_branch(conn, lineage_id, branch_id, head_version_id)?)
 }
 
 /// Whether another Branch of this Lineage names this exact Version in its own

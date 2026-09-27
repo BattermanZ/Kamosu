@@ -918,6 +918,55 @@ describe('writing a recipe', () => {
 			expect.objectContaining({ branch_id: 'b_veg', varied: 'Vegetarian' }),
 		);
 	});
+
+	/** Start a variation called Vegetarian with a note, through the save sheet. */
+	async function startNotedVariation(save: Answers['save_recipe_version']) {
+		const rendered = renderWriting({
+			start_variation: recipeAnswer({ branch_id: 'b_veg' }),
+			save_recipe_version: save,
+		} as Answers);
+		await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.click((await screen.findAllByRole('button', { name: /Save onto mine/ }))[0]!);
+		const sheet = within(await screen.findByRole('dialog'));
+		await fireEvent.click(sheet.getByRole('radio', { name: /As a variation beside it/ }));
+		await fireEvent.input(sheet.getByRole('textbox', { name: /Call the variation/ }), {
+			target: { value: 'Vegetarian' },
+		});
+		await fireEvent.input(sheet.getByRole('textbox', { name: /What changed/ }), {
+			target: { value: 'No pork.' },
+		});
+		await fireEvent.click(sheet.getByRole('button', { name: 'Start the variation' }));
+		await waitFor(() => expect(rendered.onSaved).toHaveBeenCalled());
+		return rendered.kamosu.calls
+			.filter((call) => call.operation === 'save_recipe_version')
+			.map((call) => call.input as Record<string, unknown>);
+	}
+
+	it("puts a variation's note on the Version its change made (#165)", async () => {
+		// A new variation's head is the recipe's own Version, which the note
+		// does not describe; the Core refuses a note there. So the draft goes
+		// first, and the note follows onto the Version the draft made.
+		const saves = await startNotedVariation({
+			...SAVED.save_recipe_version!,
+			branch_id: 'b_veg',
+			version_id: 'v_2',
+		} as Answers['save_recipe_version']);
+		expect(saves).toHaveLength(2);
+		expect(saves[0]).not.toHaveProperty('change_note');
+		expect(saves[1]).toMatchObject({ branch_id: 'b_veg', change_note: 'No pork.' });
+	});
+
+	it('sends no note for a variation that changed nothing, rather than failing it (#165)', async () => {
+		const saves = await startNotedVariation({
+			...SAVED.save_recipe_version!,
+			branch_id: 'b_veg',
+			// The Version the variation started at: the draft minted nothing.
+			version_id: 'v_1',
+		} as Answers['save_recipe_version']);
+		expect(saves).toHaveLength(1);
+		expect(saves[0]).not.toHaveProperty('change_note');
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
 });
 
 /**

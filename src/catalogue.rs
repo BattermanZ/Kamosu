@@ -937,8 +937,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "save_recipe_version",
             // The collapse window is COLLAPSE_WINDOW_SECONDS, which a test
-            // below holds this wording to. What a collapse keeps is #165:
-            // that sentence goes when the issue is fixed.
+            // below holds this wording to.
             summary: "Save a new state of a Recipe onto a Branch — the whole \
                       recipe as written, replacing what was there: every field \
                       left out is erased. For a partial change use edit_recipe \
@@ -947,8 +946,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       shaped rather than starting a new one, unless another \
                       Branch or a Translation already holds that Version. A \
                       collapsed save \
-                      keeps only the name and change_note it sends, so send \
-                      them again or the ones already there are erased. \
+                      keeps the name and change_note the Version already has \
+                      unless it sends new ones. A save that changes nothing \
+                      but sends a new name or change_note writes them onto \
+                      the Version being shaped, and is refused once that \
+                      Version is no longer being shaped. \
                       Changing a recipe your Cookbook did not write — a \
                       Kitchen-mate's, or one that arrived — is a Copy: it \
                       starts a new Branch of the same Lineage in your own \
@@ -968,9 +970,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         Operation {
             name: "edit_recipe",
             // The collapse window is COLLAPSE_WINDOW_SECONDS, which a test
-            // below holds this wording to. What a collapse keeps is #165, and
-            // an unchanged line keeping its Reading is #166: each sentence
-            // goes when its issue is fixed.
+            // below holds this wording to. An unchanged line keeping its
+            // Reading is #166: that sentence goes when the issue is fixed.
             summary: "Change some fields of a Recipe and leave the rest as they \
                       are: send only the fields that change. A field left out \
                       keeps what the recipe has, and null clears it; the title \
@@ -982,9 +983,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       60 minutes collapses into the Version being shaped \
                       (unless another Branch or a Translation already holds \
                       it), and changing a recipe your Cookbook did not write is \
-                      a Copy. A collapsed edit keeps only the name and \
-                      change_note it sends, so send them again or the ones \
-                      already there are erased. An Ingredient Line the edit \
+                      a Copy. A collapsed edit keeps the name and change_note \
+                      the Version already has unless it sends new ones, and \
+                      an edit sending only a name or change_note writes them \
+                      onto the Version being shaped, or is refused once that \
+                      Version is no longer being shaped. An Ingredient Line the edit \
                       leaves word for word as it was, in the same place, keeps \
                       its Reading as it was, a misreading included; correct \
                       one with set_reading.",

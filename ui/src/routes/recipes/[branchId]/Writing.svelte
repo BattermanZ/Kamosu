@@ -931,11 +931,18 @@
 		const started = await kamosu.startVariation({ branch_id: branchId, name });
 		// Saved whether or not anything changed: the Core mints nothing for
 		// content its head already holds, so an unchanged draft costs nothing.
-		await kamosu.saveRecipeVersion({
-			...drafted(),
-			branch_id: started.branch_id,
-			...(changeNote.trim() === '' ? {} : { change_note: changeNote.trim() }),
-		});
+		const saved = await kamosu.saveRecipeVersion({ ...drafted(), branch_id: started.branch_id });
+		// The note follows only where the draft made a Version for it to
+		// describe (#165). The variation's head is the recipe's own Version,
+		// which the note does not describe and the Core would refuse it on; an
+		// unchanged variation is the recipe again, and its name says why.
+		if (changeNote.trim() !== '' && saved.version_id !== started.head_version_id) {
+			await kamosu.saveRecipeVersion({
+				...drafted(),
+				branch_id: started.branch_id,
+				change_note: changeNote.trim(),
+			});
+		}
 		let named = true;
 		try {
 			await attachNamedRecipes(started.branch_id);
