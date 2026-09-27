@@ -2037,6 +2037,17 @@ pub fn probe_job(_core: &Core, invocation: &Invocation, input: Value) -> Result<
         .unwrap_or(100)
         .clamp(1, 500);
     let fail = input.get("fail").and_then(Value::as_bool).unwrap_or(false);
+    // Where the ticks stop, if before the last step: a Job that ends without
+    // reporting its last step, as a Backup does (#155).
+    let stop_after = input
+        .get("stop_after")
+        .and_then(Value::as_u64)
+        .unwrap_or(steps)
+        .min(steps);
+    let without_total = input
+        .get("without_total")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let job = invocation
         .job
@@ -2045,7 +2056,14 @@ pub fn probe_job(_core: &Core, invocation: &Invocation, input: Value) -> Result<
 
     for done in 1..=steps {
         std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-        job.report(done, Some(steps), format!("tick {done} of {steps}"));
+        if done > stop_after {
+            continue;
+        }
+        if without_total {
+            job.report(done, None, format!("tick {done}"));
+        } else {
+            job.report(done, Some(steps), format!("tick {done} of {steps}"));
+        }
     }
 
     if fail {

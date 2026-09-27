@@ -29,6 +29,57 @@ fn the_behaviour_suite_needs_the_test_jobs_feature() {
     );
 }
 
+/// How a Job's count reads once it has ended (#155). A completed Job that
+/// declared a total reads all of it done, whether or not its own last report
+/// said so. A failed Job keeps its count, since how far it got is worth
+/// knowing. A Job that never knew its total is not handed one.
+#[cfg(feature = "test-jobs")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_job_that_ends_reads_its_count_as_it_honestly_stands() {
+    let app = support::spawn_app();
+    let person = app.core.create_person("Aurélien").expect("person");
+    let key = app
+        .core
+        .mint_access_key(&person, "browser session", false)
+        .unwrap()
+        .secret;
+    let run = |input: Value| {
+        let (status, ask) = app.post_op("probe_job", Some(&key), &input.to_string());
+        assert_eq!(status, 200, "{ask}");
+        let job_id = ask["result"]["job_id"].as_str().expect("a job id");
+        support::wait_terminal(&app, Some(&key), job_id)
+    };
+
+    // Stopped reporting at 2 of 5, then completed: the whole count is done.
+    let completed = run(json!({ "steps": 5, "delay_ms": 1, "stop_after": 2 }));
+    assert_eq!(completed["status"], json!("completed"), "{completed}");
+    assert_eq!(completed["progress"]["done"], json!(5), "{completed}");
+    assert_eq!(completed["progress"]["total"], json!(5), "{completed}");
+    assert_eq!(
+        completed["progress"]["message"],
+        json!("finished"),
+        "{completed}"
+    );
+
+    // Stopped at 2 of 5, then failed: 2 of 5 is what it says.
+    let failed = run(json!({ "steps": 5, "delay_ms": 1, "stop_after": 2, "fail": true }));
+    assert_eq!(failed["status"], json!("failed"), "{failed}");
+    assert_eq!(failed["progress"]["done"], json!(2), "{failed}");
+    assert_eq!(failed["progress"]["total"], json!(5), "{failed}");
+    assert_eq!(
+        failed["progress"]["message"],
+        json!("tick 2 of 5"),
+        "{failed}"
+    );
+
+    // Never knew its total: completing does not invent one.
+    let unknown = run(json!({ "steps": 3, "delay_ms": 1, "without_total": true }));
+    assert_eq!(unknown["status"], json!("completed"), "{unknown}");
+    assert_eq!(unknown["progress"]["total"], json!(null), "{unknown}");
+    assert_eq!(unknown["progress"]["done"], json!(3), "{unknown}");
+    assert_eq!(unknown["progress"]["message"], json!("tick 3"), "{unknown}");
+}
+
 /// Per-request capability declaration for the long-running-task extension.
 fn tasks_meta() -> Value {
     json!({
@@ -20338,6 +20389,32 @@ fn names_held(app: &support::TestApp, key: &str) -> Vec<String> {
         .iter()
         .map(|backup| backup["name"].as_str().expect("a name").to_string())
         .collect()
+}
+
+/// A finished Backup says it finished (#155). It reports `0 of 1` when it
+/// starts and never again, so the count read afterwards is the Job
+/// machinery's, not the Backup's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_finished_backup_reads_its_whole_count_done() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    let (status, asked) = app.post_op("take_backup", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let job_id = asked["result"]["job_id"].as_str().expect("a job id");
+    let finished = support::wait_terminal(&app, Some(&key), job_id);
+
+    assert_eq!(finished["status"], json!("completed"), "{finished}");
+    assert_eq!(finished["progress"]["total"], json!(1), "{finished}");
+    assert_eq!(
+        finished["progress"]["done"], finished["progress"]["total"],
+        "{finished}"
+    );
+    assert_eq!(
+        finished["progress"]["message"],
+        json!("finished"),
+        "{finished}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

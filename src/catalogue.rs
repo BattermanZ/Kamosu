@@ -3161,7 +3161,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         name: "probe_job",
         summary: "A demonstration Job (test builds only): walks a few progress \
                   ticks over about a second, then finishes — or fails on purpose \
-                  when asked to.",
+                  when asked to. It can stop reporting early, or report no total.",
         permission: Permission::Public,
         kind: Kind::Job,
         write: true,
@@ -3173,6 +3173,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "steps": { "type": "integer", "minimum": 1, "maximum": 60, "default": 3 },
                 "delay_ms": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 },
                 "fail": { "type": "boolean", "default": false },
+                "stop_after": { "type": "integer", "minimum": 0, "maximum": 60 },
+                "without_total": { "type": "boolean", "default": false },
             },
             "additionalProperties": false,
         }),

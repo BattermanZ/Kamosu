@@ -326,7 +326,7 @@ impl crate::core::Core {
             Ok(Ok(value)) => finish(
                 self,
                 job_id,
-                "completed",
+                JobStatus::Completed,
                 Some(value.to_string()),
                 None,
                 None,
@@ -334,7 +334,7 @@ impl crate::core::Core {
             Ok(Err(err)) => finish(
                 self,
                 job_id,
-                "failed",
+                JobStatus::Failed,
                 None,
                 Some(err.to_sentence()),
                 Some(rpc_code(err.kind)),
@@ -344,7 +344,7 @@ impl crate::core::Core {
             Err(_) => finish(
                 self,
                 job_id,
-                "failed",
+                JobStatus::Failed,
                 None,
                 Some("this Operation failed unexpectedly".to_string()),
                 Some(-32603),
@@ -527,11 +527,15 @@ fn set_running(core: &crate::core::Core, job_id: &str) {
     });
 }
 
-#[allow(clippy::too_many_arguments)]
+/// End a Job. A completed Job that declared a total reads all of it done,
+/// so no work has to remember to say so itself: a Backup did forget, and read
+/// `0 of 1` for ever after (#155). A failed Job keeps its count, since how far
+/// it got is worth knowing, and a Job that never knew its total is not handed
+/// one.
 fn finish(
     core: &crate::core::Core,
     job_id: &str,
-    status: &str,
+    status: JobStatus,
     result: Option<String>,
     error: Option<String>,
     error_code: Option<i64>,
@@ -539,9 +543,20 @@ fn finish(
     let _ = core.db().with_conn(|conn| {
         conn.execute(
             "UPDATE jobs SET status = ?2, result = ?3, error = ?4, error_code = ?5,
+             progress_done = CASE WHEN ?6 AND progress_total IS NOT NULL
+                             THEN progress_total ELSE progress_done END,
+             progress_message = CASE WHEN ?6 AND progress_total IS NOT NULL
+                                THEN 'finished' ELSE progress_message END,
              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
              WHERE id = ?1",
-            params![job_id, status, result, error, error_code],
+            params![
+                job_id,
+                status.as_str(),
+                result,
+                error,
+                error_code,
+                status == JobStatus::Completed
+            ],
         )
         .map_err(|e| OpError::internal(format!("cannot finish Job: {e}")))?;
         Ok(())
