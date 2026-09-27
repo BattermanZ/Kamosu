@@ -299,13 +299,25 @@ fn listed(list: &[&str], word: &str) -> bool {
 /// cannot place gets, and the line goes on working exactly as written.
 pub fn read_line(line: &str) -> Option<Reading> {
     let line = without_brackets(line);
-    let mut clauses = split_clauses(&line).into_iter();
+    // The slashes are stood apart only to find a restated measure. Where
+    // there is none, the line is read as written, so `salt/2 tsp pepper`
+    // names the Food the cook spelt and not a respaced copy of it (#182).
+    match read_split(&slashes_apart(&line)) {
+        (reading, true) => reading,
+        _ => read_split(&line).0,
+    }
+}
+
+/// [`read_line`]'s work on a line with its brackets gone, and whether a
+/// measure restated after a slash was left out of the Food.
+fn read_split(line: &str) -> (Option<Reading>, bool) {
+    let mut clauses = split_clauses(line).into_iter();
     let head = split_elisions(clauses.next().unwrap_or_default());
     let mut tokens: Vec<&str> = head.split_whitespace().collect();
     let a_few = tokens.iter().take_while(|word| listed(A_FEW, word)).count();
     tokens.drain(..a_few);
     if tokens.is_empty() {
-        return None;
+        return (None, false);
     }
     // What follows the first comma is ordinarily the cook's aside, never part
     // of the Reading: in `garlic, minced` the cook is talking *about* the
@@ -318,13 +330,9 @@ pub fn read_line(line: &str) -> Option<Reading> {
     // The amount: the longest leading run of words Kamosu can read as one
     // quantity, so `1 1/2` beats `1` and `2` beats nothing at all.
     let mut rest = tokens.as_slice();
-    for take in (1..=tokens.len().min(3)).rev() {
-        let candidate = tokens[..take].join(" ");
-        if units::parse_amount(&candidate).is_some() {
-            reading.amount = Some(candidate);
-            rest = &tokens[take..];
-            break;
-        }
+    if let Some(take) = amount_words(&tokens) {
+        reading.amount = Some(tokens[..take].join(" "));
+        rest = &tokens[take..];
     }
 
     rest = strip_glue(rest);
@@ -360,7 +368,15 @@ pub fn read_line(line: &str) -> Option<Reading> {
     // desired` is hamburger buns. Where there is nothing there either, the
     // Reading names no Food rather than promoting the Unit into one
     // (ADR 0002).
-    let named = strip_glue(&rest[unit_taken..]);
+    let mut named = &rest[unit_taken..];
+    let mut restating = false;
+    if reading.amount.is_some() && reading.unit.is_some() {
+        while let Some(taken) = restated(named) {
+            named = &named[taken..];
+            restating = true;
+        }
+    }
+    let named = strip_glue(named);
     reading.target = if !named.is_empty() {
         rejoin(named)
     } else if reading.amount.is_some() || reading.unit.is_some() {
@@ -373,7 +389,7 @@ pub fn read_line(line: &str) -> Option<Reading> {
     } else {
         None
     };
-    reading.is_something().then_some(reading)
+    (reading.is_something().then_some(reading), restating)
 }
 
 /// Whether a word is a measure: a Unit the closed set recognises, or one of
@@ -386,6 +402,69 @@ pub fn read_line(line: &str) -> Option<Reading> {
 /// the stricter question; a library that does hold one should not.
 pub fn is_a_unit_word(word: &str) -> bool {
     units::recognise(word).is_some() || listed(OPEN_UNITS, word)
+}
+
+/// How many words a measure restated after a slash takes: `/ 0.9 lb` in
+/// `400 g / 0.9 lb onion`, the metric-then-imperial line RecipeTin Eats
+/// writes (#182). It is the same amount said twice, so it is neither a second
+/// amount nor part of the Food.
+///
+/// **Both halves must be there**: an amount, then a Unit — `0.9 lb`, glued
+/// `0.6lb`, or one of the [`OPEN_UNITS`], `1 stick`. A slash before anything else is a Food
+/// joined to a Food, and `salt/pepper` stays one name.
+fn restated(words: &[&str]) -> Option<usize> {
+    if words.first() != Some(&"/") {
+        return None;
+    }
+    let words = &words[1..];
+    if let Some(first) = words.first() {
+        let digits = first.find(|c: char| c.is_alphabetic()).filter(|&at| at > 0);
+        if let Some(at) = digits {
+            let (amount, unit) = first.split_at(at);
+            if units::parse_amount(amount).is_some() && units::recognise(unit).is_some() {
+                return Some(2);
+            }
+        }
+    }
+    let amount = amount_words(words)?;
+    let after = &words[amount..];
+    (1..=after.len().min(3))
+        .rev()
+        .find(|&take| {
+            let candidate = after[..take].join(" ");
+            units::recognise(&candidate).is_some() || (take == 1 && listed(OPEN_UNITS, after[0]))
+        })
+        .map(|take| 1 + amount + take)
+}
+
+/// How many leading words read as one amount: the longest run of up to three,
+/// so `1 1/2` beats `1`.
+fn amount_words(words: &[&str]) -> Option<usize> {
+    (1..=words.len().min(3))
+        .rev()
+        .find(|&take| units::parse_amount(&words[..take].join(" ")).is_some())
+}
+
+/// Stand a slash that comes before a number apart as its own word, so
+/// `400 g/0.9 lb` is the Unit `g` and a restated measure [`restated`] can see.
+/// A slash with a digit on both sides is a fraction, `1/2`, and one before a
+/// word joins two Foods, `salt/pepper`: both are left exactly as written.
+fn slashes_apart(head: &str) -> String {
+    let mut out = String::with_capacity(head.len() + 4);
+    for (at, character) in head.char_indices() {
+        let before = head[..at].trim_end().chars().next_back();
+        let after = head[at + character.len_utf8()..]
+            .trim_start()
+            .chars()
+            .next();
+        let measure_follows = after.is_some_and(|c| c.is_ascii_digit());
+        if character == '/' && measure_follows && !before.is_some_and(|c| c.is_ascii_digit()) {
+            out.push_str(" / ");
+        } else {
+            out.push(character);
+        }
+    }
+    out
 }
 
 /// Glue and size words sit wherever they like — before the Unit as much as
@@ -946,6 +1025,102 @@ mod tests {
         assert_eq!(
             read("2 tbsp, (to taste)"),
             parts(Some("2"), Some("tbsp"), None)
+        );
+    }
+
+    #[test]
+    fn a_measure_restated_after_a_slash_is_no_part_of_the_food() {
+        // The Katsu curry, RecipeTin Eats style, and its French Translation
+        // (#182).
+        for (line, amount, unit, food) in [
+            ("400 g / 0.9 lb onion", "400", "g", "onion"),
+            ("250 g / 0.6lb potato (peeled)", "250", "g", "potato"),
+            (
+                "230 g / 0.5lb House Vermont Curry",
+                "230",
+                "g",
+                "House Vermont Curry",
+            ),
+            ("400 g/0.9 lb onion", "400", "g", "onion"),
+            ("400 g /0.9lb onion", "400", "g", "onion"),
+            (
+                "250 g / 0,6 lb de pommes de terre",
+                "250",
+                "g",
+                "pommes de terre",
+            ),
+            (
+                "230 g / 0,5 lb de roux de curry",
+                "230",
+                "g",
+                "roux de curry",
+            ),
+            ("1 cup / 250 ml milk", "1", "cup", "milk"),
+            ("1 1/2 cups / 375 ml stock", "1 1/2", "cups", "stock"),
+            (
+                "2 tbsp / 30 ml olive oil, divided",
+                "2",
+                "tbsp",
+                "olive oil",
+            ),
+            ("1 cup / 240 ml / 8 fl oz water", "1", "cup", "water"),
+            ("100 g / 1 stick butter", "100", "g", "butter"),
+            ("2 tbsp / 3 cloves garlic", "2", "tbsp", "garlic"),
+        ] {
+            assert_eq!(
+                read(line),
+                parts(Some(amount), Some(unit), Some(food)),
+                "{line}"
+            );
+        }
+        // A slash with no measure after it still joins two Foods.
+        assert_eq!(read("salt/pepper"), parts(None, None, Some("salt/pepper")));
+        assert_eq!(
+            read("salt / pepper"),
+            parts(None, None, Some("salt / pepper"))
+        );
+        assert_eq!(
+            read("1 tsp salt/pepper"),
+            parts(Some("1"), Some("tsp"), Some("salt/pepper"))
+        );
+        // Stood apart only where a restated measure is then left out, so a
+        // Food is never respaced.
+        assert_eq!(
+            read("1 tsp salt/2 tsp pepper"),
+            parts(Some("1"), Some("tsp"), Some("salt/2 tsp pepper"))
+        );
+        assert_eq!(read("Salt/1 tsp"), parts(None, None, Some("Salt/1 tsp")));
+        // A fraction is still a fraction.
+        assert_eq!(
+            read("1/2 cup sugar"),
+            parts(Some("1/2"), Some("cup"), Some("sugar"))
+        );
+    }
+
+    #[test]
+    fn the_us_quart_is_a_unit() {
+        // The Fusilli all'assassina and its French line (#182).
+        for (line, unit, food) in [
+            ("1 USqt Water", "USqt", "Water"),
+            ("1 USqt d'eau", "USqt", "eau"),
+            ("1 US qt water", "US qt", "water"),
+            ("2 qt chicken stock", "qt", "chicken stock"),
+            ("2 qts chicken stock", "qts", "chicken stock"),
+            ("1 US quart water", "US quart", "water"),
+        ] {
+            let amount = &line[..1];
+            assert_eq!(
+                read(line),
+                parts(Some(amount), Some(unit), Some(food)),
+                "{line}"
+            );
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some("quart"));
+        }
+        // In French a bare `quart` is a quarter, never a measure.
+        assert_eq!(written("Laisser reposer 1 quart d'heure."), vec![]);
+        assert_eq!(
+            written("Bring 2 qt water to a boil."),
+            vec![("2 qt", Some("water".into()))]
         );
     }
 

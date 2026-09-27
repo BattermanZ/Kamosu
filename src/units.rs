@@ -87,7 +87,9 @@ pub struct Unit {
 ///
 /// Centilitre and decilitre are here for one measured reason: French recipes
 /// write `20 cl` where English ones write `200 ml`, and Kamosu's corpus is
-/// French-heavy. They are ordinary metric members, not variants.
+/// French-heavy. They are ordinary metric members, not variants. The US quart
+/// is here for the same kind of reason: `1 USqt Water` was a real line, and
+/// four cups is arithmetic Kamosu already does (#182).
 ///
 /// `imperial tablespoon` and `Australian tablespoon` are ordinary members too,
 /// at the cost of one line each — a recipe that names one gets it right without
@@ -266,6 +268,24 @@ pub const UNITS: &[Unit] = &[
         system: System::Customary,
         base: 236.588_236_5,
         spellings: &["cup", "cups", "tasse", "tasses", "taza", "tazas"],
+    },
+    // The US liquid quart, four cups (#182). The bare word `quart` is left
+    // out on purpose: in French it is a quarter, and a Step reading *laisser
+    // reposer 1 quart d'heure* would be offered a conversion into litres.
+    Unit {
+        id: "quart",
+        family: Family::Volume,
+        system: System::Customary,
+        base: 236.588_236_5 * 4.0,
+        spellings: &[
+            "qt",
+            "qts",
+            "usqt",
+            "us qt",
+            "us qts",
+            "us quart",
+            "us quarts",
+        ],
     },
     Unit {
         id: "fluid ounce",
@@ -1127,6 +1147,7 @@ fn display(unit: &Unit, language: &str, plural: bool) -> String {
         ("ounce", _, _) => "oz",
         ("pound", _, _) => "lb",
         ("fluid ounce", _, _) => "fl oz",
+        ("quart", _, _) => "qt",
         ("teaspoon", "fr", _) => "c. à c.",
         ("teaspoon", "es", _) => "cdta",
         ("teaspoon", _, _) => "tsp",

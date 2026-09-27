@@ -12749,6 +12749,21 @@ async fn the_convertible_set_knows_three_languages_and_the_named_regional_spoons
         json!(["about 60 ml", "about 55 ml"]),
         "an author who named the spoon gets the spoon they named"
     );
+
+    // The US quart is four cups, however it is spelt (#182).
+    for spelling in ["USqt", "US qt", "qt", "qts"] {
+        let branch_id = recipe_with_readings(
+            &app,
+            &key,
+            &format!("Water in {spelling}"),
+            &[("1 USqt Water", "1", spelling, "Water")],
+        );
+        assert_eq!(
+            measured_ingredients(&app, &key, &branch_id),
+            json!(["about 950 ml"]),
+            "'{spelling}' is the US quart"
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
