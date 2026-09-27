@@ -186,10 +186,10 @@ impl Core {
             .optional()
             .map_err(|e| OpError::internal(format!("cannot read Person for login: {e}")))
         })?;
-        let verified = self
-            .passwords
-            .work
-            .verify(password, person.as_ref().map(|(_, hash)| hash.as_str()))?;
+        let verified = self.passwords.work.verify(
+            what_counts(password),
+            person.as_ref().map(|(_, hash)| hash.as_str()),
+        )?;
         let Some((person_id, _)) = person.filter(|_| verified) else {
             turn.missed(self.record_login_failure(name)?);
             return Err(OpError::unauthorized("that name and password do not match"));
@@ -1108,10 +1108,20 @@ fn argon2_hash(password: &str) -> Result<String, OpError> {
         .map_err(|e| OpError::internal(format!("cannot hash password: {e}")))
 }
 
+/// The part of a typed password that counts, the same whether it is being set
+/// or checked at login: a space at either end is no part of it (#140, ADR
+/// 0031). A passphrase chosen with a stray space, or pasted with one, then
+/// signs in whichever way it is typed. Every hash stored before #140 was
+/// already of trimmed text, so treating login the same way needed no
+/// migration. The sign-in screen counts the minimum on trimmed text too.
+fn what_counts(password: &str) -> &str {
+    password.trim()
+}
+
 /// A password being set, checked for its length first: that is free, and the
 /// hash is not.
 fn new_password(password: &str) -> Result<&str, OpError> {
-    let password = required_text(password, "password")?;
+    let password = required_text(what_counts(password), "password")?;
     if password.chars().count() < PASSWORD_MINIMUM {
         return Err(OpError::bad_request(format!(
             "a password needs at least {PASSWORD_MINIMUM} characters"
@@ -1231,6 +1241,36 @@ mod tests {
         let refused = core.log_in("cook", PASSWORD, "phone").unwrap_err();
         assert_eq!(refused.kind, ErrorKind::Unauthorized, "{refused}");
         assert_eq!(work(&core).1, 1);
+    }
+
+    /// A space at either end of a password is no part of it, on every path
+    /// that sets one and at login alike (#140). Typed as chosen or without the
+    /// spaces, it signs in.
+    #[test]
+    fn outer_spaces_are_no_part_of_a_password() {
+        let signs_in = |core: &Core, name: &str, chosen: &str| {
+            for typed in [chosen, chosen.trim()] {
+                core.log_in(name, typed, "phone")
+                    .unwrap_or_else(|e| panic!("{name} typing {typed:?}: {e}"));
+            }
+        };
+        for chosen in ["blue kettle soup ", " blue kettle soup"] {
+            let (_dir, core) = a_core();
+            core.create_first_person("cook", chosen, "laptop").unwrap();
+            signs_in(&core, "cook", chosen);
+
+            let invite = core.mint_invite(false).unwrap();
+            core.redeem_invite(&invite, "Marie", chosen, "x").unwrap();
+            signs_in(&core, "Marie", chosen);
+
+            // Paul joins with another password, so signing in with the one
+            // recovery sets proves recovery set it.
+            let invite = core.mint_invite(false).unwrap();
+            core.redeem_invite(&invite, "Paul", PASSWORD, "x").unwrap();
+            let recovery = core.mint_recovery_link("Paul").unwrap();
+            core.redeem_recovery(&recovery, chosen, "x").unwrap();
+            signs_in(&core, "Paul", chosen);
+        }
     }
 
     /// Never "try again in 0 s": a part of a second left is a whole one.
