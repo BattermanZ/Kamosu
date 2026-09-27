@@ -376,16 +376,22 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
             restating = true;
         }
     }
-    let named = strip_glue(named);
-    reading.target = if !named.is_empty() {
-        rejoin(named)
+    let food = strip_glue(named);
+    reading.target = if offers_a_choice(named) {
+        None
+    } else if !food.is_empty() {
+        rejoin(food)
     } else if reading.amount.is_some() || reading.unit.is_some() {
         let words: Vec<&str> = past_the_comma
             .as_deref()
             .unwrap_or_default()
             .split_whitespace()
             .collect();
-        rejoin(strip_glue(&words))
+        if offers_a_choice(&words) {
+            None
+        } else {
+            rejoin(strip_glue(&words))
+        }
     } else {
         None
     };
@@ -465,6 +471,30 @@ fn slashes_apart(head: &str) -> String {
         }
     }
     out
+}
+
+/// The word that offers the cook a choice, in each Language Kamosu reads.
+const CHOICE_WORDS: &[&str] = &["or", "ou", "o", "and/or", "et/ou", "y/o"];
+
+/// **Whether the words offer a choice of two things to buy**, `butter or oil`
+/// (#148). Such a line names no Food at any length. Taking the first
+/// alternative is wrong more often than right, because the two usually share
+/// their last word. `soft or silken tofu` is not a Food called *soft*. And
+/// the whole of it, `butter or oil`, is a Food nothing will ever match.
+///
+/// Something has to follow the word, since a choice needs a second option.
+/// It may open the words, as in `4 g or 1 rounded tsp instant yeast`, where
+/// the choice is between two measures. An `or` straight after an elided
+/// article is French for gold, so `poudre d'or` is one Food. `and/or` and its
+/// French and Spanish forms offer the same choice.
+fn offers_a_choice(words: &[&str]) -> bool {
+    (0..words.len().saturating_sub(1)).any(|at| {
+        listed(CHOICE_WORDS, words[at])
+            && !at.checked_sub(1).is_some_and(|before| {
+                let word = words[before].to_lowercase().replace('\u{2019}', "'");
+                ELISIONS.contains(&word.as_str())
+            })
+    })
 }
 
 /// Glue and size words sit wherever they like — before the Unit as much as
@@ -560,8 +590,14 @@ fn split_elisions(head: &str) -> String {
 /// match.
 ///
 /// Six is where the corpus separates: *Kosher salt and freshly ground black
-/// pepper* is six words and a real thing to buy, and everything longer in 863
-/// real lines is a paragraph.
+/// pepper* is six words and a real thing to buy. Nearly everything longer in
+/// 863 real lines is a paragraph. The exceptions are not prose, and none is a
+/// Food either. A choice between two things, `1 tsp. Diamond Crystal or ½ tsp.
+/// Morton kosher salt`, never gets this far, because [`offers_a_choice`]
+/// refuses it at any length. An aside with no comma before it, `Thick
+/// bellota steak burgers from the market`, is left unread by this limit on
+/// purpose, because the words alone cannot tell the aside from the name
+/// (#148).
 const LONGEST_FOOD_NAME: usize = 6;
 
 /// The Food's name, put back together: elisions re-glued to their own word,
@@ -821,6 +857,101 @@ mod tests {
             read("cloves, roughly chopped garlic"),
             parts(None, Some("cloves"), Some("roughly chopped garlic"))
         );
+    }
+
+    #[test]
+    fn a_line_offering_a_choice_names_no_food() {
+        // The lines #148 was filed from, as production read them on 2026-09-24.
+        assert_eq!(read("Juice of 1 lemon or 3 tbsp calamansi juice"), None);
+        assert_eq!(
+            read("1 tsp. Diamond Crystal or ½ tsp. Morton kosher salt"),
+            parts(Some("1"), Some("tsp."), None)
+        );
+        // Short enough to pass as one name before #148, which made it the
+        // Food "butter or oil". That is neither butter nor oil.
+        assert_eq!(
+            read("1 cup butter or oil"),
+            parts(Some("1"), Some("cup"), None)
+        );
+        // The two alternatives often share their last word, so the first
+        // alone is not the Food either. This is not a Food called "soft".
+        assert_eq!(
+            read("16 oz soft or silken tofu"),
+            parts(Some("16"), Some("oz"), None)
+        );
+        // Past a comma it is the same choice.
+        assert_eq!(
+            read("1 cup, butter or oil"),
+            parts(Some("1"), Some("cup"), None)
+        );
+        assert_eq!(read("Olive oil or butter for cooking"), None);
+        assert_eq!(
+            read("2 tiges ciboule ou ciboulette"),
+            parts(Some("2"), None, None)
+        );
+        assert_eq!(
+            read("1 taza de mantequilla o aceite"),
+            parts(Some("1"), Some("taza"), None)
+        );
+        assert_eq!(
+            read("1 cup butter OR oil"),
+            parts(Some("1"), Some("cup"), None)
+        );
+        assert_eq!(
+            read("1 cup butter and/or oil"),
+            parts(Some("1"), Some("cup"), None)
+        );
+        assert_eq!(
+            read("1 c. à s. beurre et/ou huile"),
+            parts(Some("1"), Some("c. à s."), None)
+        );
+        // Two measures of one Food is still a choice the cook makes.
+        assert_eq!(
+            read("4 g or 1 rounded tsp instant yeast"),
+            parts(Some("4"), Some("g"), None)
+        );
+    }
+
+    #[test]
+    fn a_word_that_only_contains_or_is_no_choice() {
+        // In French the "or" is gold, glued to its article, and it is the Food.
+        assert_eq!(
+            read("1 feuille d'or alimentaire"),
+            parts(Some("1"), Some("feuille"), Some("or alimentaire"))
+        );
+        assert_eq!(
+            read("1 g de poudre d'or"),
+            parts(Some("1"), Some("g"), Some("poudre d'or"))
+        );
+        assert_eq!(read("1 orange"), parts(Some("1"), None, Some("orange")));
+        assert_eq!(
+            read("2 tbsp soy sauce"),
+            parts(Some("2"), Some("tbsp"), Some("soy sauce"))
+        );
+        // Only an elided article makes the "or" part of a name. An apostrophe
+        // that closes a possessive does not.
+        assert_eq!(
+            read("1 cup farmers' or goat cheese"),
+            parts(Some("1"), Some("cup"), None)
+        );
+        // A choice said in the cook's aside is dropped with the aside, after
+        // brackets and after a comma alike.
+        assert_eq!(
+            read("1 cup potato starch (or corn starch)"),
+            parts(Some("1"), Some("cup"), Some("potato starch"))
+        );
+        assert_eq!(
+            read("4 oz dark chocolate chunk, or your preference"),
+            parts(Some("4"), Some("oz"), Some("dark chocolate chunk"))
+        );
+    }
+
+    #[test]
+    fn an_aside_with_no_comma_past_six_words_is_left_unread() {
+        // "from the market" is the cook's aside, but with no comma to mark it
+        // Kamosu cannot tell it from the name, and `from` can be part of what
+        // is bought. Left unread on purpose (#148).
+        assert_eq!(read("Thick bellota steak burgers from the market"), None);
     }
 
     #[test]

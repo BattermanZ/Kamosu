@@ -188,6 +188,39 @@ fn ground_truth_is_clean(line: &Line) -> bool {
         && !UNIT_WORDS.contains(&first.trim_matches(',').to_lowercase().as_str())
 }
 
+/// Whether a written line offers the cook a choice of two things (#148). It
+/// does when `or`, `ou` or `o` stands as a word of its own before the first
+/// comma and outside any brackets, where the cook's aside begins. Written here from the line
+/// itself rather than borrowed from the reader, so the two can disagree.
+fn written_offers_a_choice(written: &str) -> bool {
+    let mut depth = 0i32;
+    let outside: String = written
+        .chars()
+        .filter(|c| match c {
+            '(' | '[' | '{' => {
+                depth += 1;
+                false
+            }
+            ')' | ']' | '}' => {
+                depth = (depth - 1).max(0);
+                false
+            }
+            _ => depth == 0,
+        })
+        .collect();
+    outside
+        .split(',')
+        .next()
+        .unwrap_or_default()
+        .split_whitespace()
+        .any(|word| {
+            matches!(
+                word.to_lowercase().as_str(),
+                "or" | "ou" | "o" | "and/or" | "et/ou" | "y/o"
+            )
+        })
+}
+
 /// Two Unit spellings that mean one Unit. Kamosu keeps whatever the cook wrote
 /// (ADR 0016), so `tbsp` read off a line written `tbsp` is exactly right and
 /// the comparison folds spelling rather than demanding one.
@@ -232,6 +265,8 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
     let mut scored = 0usize;
     let mut missed_units = 0usize;
     let mut named = 0usize;
+    let mut choices = 0usize;
+    let mut choices_named_as_foods = Vec::new();
     let mut measures_named_as_foods = Vec::new();
 
     for (title, lines) in &recipes {
@@ -307,7 +342,21 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
                 // more precise of the two and are not counted against it.
                 missed_units += usize::from(line.unit.is_some() && read_unit.is_none());
             }
-            named += usize::from(reading["target"].as_str().is_some_and(|t| !t.is_empty()));
+            let names_a_food = reading["target"].as_str().is_some_and(|t| !t.is_empty());
+            // A line offering a choice names no Food by design (#148), so it
+            // is neither a success nor a failure of `named`. What it must not
+            // do is name one, which is what it did before.
+            if written_offers_a_choice(&line.written) {
+                choices += 1;
+                if names_a_food {
+                    choices_named_as_foods.push(format!(
+                        "{title}: {:?} read as {:?}",
+                        line.written, reading["target"]
+                    ));
+                }
+            } else {
+                named += usize::from(names_a_food);
+            }
             // A Food named by a bare Unit word is a Reading that invented an
             // answer, and it counted towards `named` above as a success. So it
             // is counted here by name instead, where no share can hide it
@@ -329,15 +378,16 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
         no_quantity_share * 100.0
     );
 
+    let offering_no_choice = total - choices;
     let amount_share = amount_right as f64 / total as f64;
     // Printed rather than only asserted: the floors below are deliberately
     // slack, and the day someone improves this module they want the number.
     eprintln!(
         "read {total} lines: amounts {:.1}%, Units {:.1}% of {scored} scored, \
-         a Food named on {:.1}%, no quantity on {:.1}%",
+         a Food named on {:.1}% of lines offering no choice, no quantity on {:.1}%",
         amount_share * 100.0,
         unit_right as f64 / scored as f64 * 100.0,
-        named as f64 / total as f64 * 100.0,
+        named as f64 / offering_no_choice as f64 * 100.0,
         no_quantity_share * 100.0,
     );
     assert!(
@@ -359,11 +409,16 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
     );
     // Every line that names something nameable names a Food, which is what
     // #47's rules are fed by and what a shopping list is built on.
-    let named_share = named as f64 / total as f64;
+    let named_share = named as f64 / offering_no_choice as f64;
     assert!(
         named_share >= 0.95,
         "a line names a Food even where it carries no quantity; got {:.1}%",
         named_share * 100.0
+    );
+
+    assert!(
+        choices_named_as_foods.is_empty(),
+        "no line offering a choice names a Food: {choices_named_as_foods:#?}"
     );
 
     assert!(
