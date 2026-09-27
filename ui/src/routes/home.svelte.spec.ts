@@ -18,7 +18,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { renderScreen } from '../testing/render';
-import type { HomeShelvesOutput } from '$lib/api/catalogue';
+import type { GetCookbookOutput, HomeShelvesOutput } from '$lib/api/catalogue';
 
 type Shelf = HomeShelvesOutput['shelves'][number];
 
@@ -37,14 +37,137 @@ const card = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
+/** The reader's Cookbook with no join waiting on them: Home asks for it (#135). */
+const ALONE: GetCookbookOutput = {
+	id: 'c_1',
+	name: null,
+	authors: [{ person_id: 'p_1', name: 'Tom' }],
+	recipe_count: 3,
+	kitchens: [],
+	invites: [],
+	joins: [],
+};
+
+type Join = GetCookbookOutput['joins'][number];
+
+/** Camille, who writes with Tom, said yes to Aurélien's Invite; Aurélien writes with Bob. */
+const joinOf = (over: Partial<Join> = {}): Join => ({
+	join_id: 'cj_1',
+	state: 'waiting',
+	accepted_by: { person_id: 'p_2', name: 'Camille' },
+	invited_by: { person_id: 'p_3', name: 'Aurélien' },
+	joining: {
+		id: 'c_1',
+		name: null,
+		authors: [
+			{ person_id: 'p_2', name: 'Camille' },
+			{ person_id: 'p_1', name: 'Tom' },
+		],
+	},
+	into: {
+		id: 'c_2',
+		name: null,
+		authors: [
+			{ person_id: 'p_3', name: 'Aurélien' },
+			{ person_id: 'p_4', name: 'Bob' },
+		],
+	},
+	together_recipes: 42,
+	waiting_on: [
+		{ person_id: 'p_1', name: 'Tom' },
+		{ person_id: 'p_4', name: 'Bob' },
+	],
+	you: 'asked',
+	refused_by: null,
+	refused_by_co_author: false,
+	...over,
+});
+
 const home = (shelves: Shelf[], minutes = 30): HomeShelvesOutput => ({
 	quick_tonight_minutes: minutes,
 	shelves,
 });
 
+describe('a Cookbook join waiting on you (#135)', () => {
+	const shelves = home([{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] }]);
+
+	it('is asked above the shelves, and a yes answers it by the Operation', async () => {
+		let answered = false;
+		const { kamosu } = renderScreen(Page, {
+			home_shelves: shelves,
+			get_cookbook: () => (answered ? ALONE : { ...ALONE, joins: [joinOf()] }),
+			answer_cookbook_join: () => {
+				answered = true;
+				return ALONE;
+			},
+		});
+
+		expect(
+			await screen.findByRole('heading', { name: 'Write one Cookbook with Aurélien and Bob?' }),
+		).toBeInTheDocument();
+		expect(screen.getByText('Aurélien invited Camille, who said yes.')).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'42 recipes in one Cookbook, which all of you can change. Nothing changes until everyone says yes.',
+			),
+		).toBeInTheDocument();
+		expect(screen.getByText('Katsu Curry')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Write together' }));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'answer_cookbook_join',
+			input: { join_id: 'cj_1', yes: true },
+		});
+		await vi.waitFor(() =>
+			expect(
+				screen.queryByRole('heading', { name: 'Write one Cookbook with Aurélien and Bob?' }),
+			).not.toBeInTheDocument(),
+		);
+	});
+
+	it('answers no by the Operation too', async () => {
+		const { kamosu } = renderScreen(Page, {
+			home_shelves: shelves,
+			get_cookbook: { ...ALONE, joins: [joinOf()] },
+			answer_cookbook_join: ALONE,
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'No' }));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'answer_cookbook_join',
+			input: { join_id: 'cj_1', yes: false },
+		});
+	});
+
+	it('shows only the question among joins that also wait on others', async () => {
+		renderScreen(Page, {
+			home_shelves: shelves,
+			get_cookbook: {
+				...ALONE,
+				joins: [joinOf(), joinOf({ join_id: 'cj_2', you: 'invited' })],
+			},
+		});
+		expect(
+			await screen.findByRole('heading', { name: 'Write one Cookbook with Aurélien and Bob?' }),
+		).toBeInTheDocument();
+		expect(screen.queryByText(/^Waiting for/)).not.toBeInTheDocument();
+	});
+
+	it('says nothing on Home about a join that is not waiting on you', async () => {
+		renderScreen(Page, {
+			home_shelves: shelves,
+			get_cookbook: { ...ALONE, joins: [joinOf({ you: 'answered' })] },
+		});
+		expect(await screen.findByText('Katsu Curry')).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(screen.queryByText(/Waiting for|Write one Cookbook/)).not.toBeInTheDocument(),
+		);
+	});
+});
+
 describe('Home', () => {
 	it('shows each shelf the Core sent, under its own heading', async () => {
 		renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: home([
 				{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] },
 				{
@@ -62,6 +185,7 @@ describe('Home', () => {
 
 	it('leaves no heading behind for a shelf the Core did not send', async () => {
 		renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: home([{ name: 'never_cooked', recipes: [card()] }]),
 		});
 
@@ -77,6 +201,7 @@ describe('Home', () => {
 
 	it('leads with what was recently added, newest first, in the order the Core sent', async () => {
 		renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: home([
 				{
 					name: 'recently_added',
@@ -107,6 +232,7 @@ describe('Home', () => {
 
 	it('takes the line quick tonight is drawn at from the Core, never from its own words', async () => {
 		renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: home([{ name: 'quick_tonight', recipes: [card()] }], 20),
 		});
 
@@ -118,6 +244,7 @@ describe('Home', () => {
 
 	it('counts what is on the rail, and does not offer a filtered library that does not exist', async () => {
 		renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: home([
 				{
 					name: 'cooked_most',
@@ -146,6 +273,7 @@ describe('Home', () => {
 
 	it('tells a brand-new instance what to do instead of showing four empty rows', async () => {
 		renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: home([]),
 		});
 
@@ -163,6 +291,7 @@ describe('Home', () => {
 
 	it('writes the recipe from the empty state rather than pointing at a screen to write it on', async () => {
 		const { kamosu } = renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: home([]),
 			create_recipe: {
 				branch_id: 'b_new',
@@ -200,6 +329,7 @@ describe('Home', () => {
 		// Refused for want of a Credential is not a failure — it is the answer,
 		// and the answer is the form. There is no cookie read anywhere here.
 		renderScreen(Page, {
+			get_cookbook: ALONE,
 			home_shelves: { refuse: 'unauthorized' },
 			instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 },
 		});
@@ -213,7 +343,10 @@ describe('Home', () => {
 		// A refusal that is not about a Credential must never be answered with
 		// the login form: telling a signed-in cook to sign in again is the worst
 		// possible reading of a server that is simply down.
-		renderScreen(Page, { home_shelves: { refuse: 'internal', message: 'boom' } });
+		renderScreen(Page, {
+			get_cookbook: ALONE,
+			home_shelves: { refuse: 'internal', message: 'boom' },
+		});
 
 		expect(
 			await screen.findByText('Kamosu could not work out your shelves just now.'),

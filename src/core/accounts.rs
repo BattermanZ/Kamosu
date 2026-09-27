@@ -596,6 +596,11 @@ impl Core {
                 conn.execute("UPDATE access_keys SET revoked = 1 WHERE person_id = ?1", params![person_id]).map_err(|e| OpError::internal(e.to_string()))?;
                 if deleted {
                     forget_cookbook_of(conn, &person_id)?;
+                } else {
+                    // A disabled account is no longer asked about a waiting
+                    // join, and may have been the last one it waited for (#135).
+                    let cookbook_id = cookbook_of_person(conn, &person_id)?;
+                    settle_joins_of(conn, &cookbook_id)?;
                 }
                 Ok(())
             })();
@@ -825,6 +830,9 @@ fn forget_cookbook_of(conn: &Connection, person_id: &str) -> Result<(), OpError>
         )
         .map_err(|e| OpError::internal(format!("cannot leave the Cookbook: {e}")))?;
     }
+    // A join waiting on them waits no longer, and one they accepted is off
+    // (#135).
+    settle_joins_of(conn, &cookbook_id)?;
     Ok(())
 }
 

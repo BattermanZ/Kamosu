@@ -49,6 +49,7 @@ fn arguments_for(name: &str) -> Value {
         "read_cookbook_invite" | "accept_cookbook_invite" => {
             json!({ "secret": "parity-no-such-invite" })
         }
+        "answer_cookbook_join" => json!({ "join_id": "cj_parity", "yes": true }),
         "remove_cookbook_author" => json!({ "person_id": "p_parity" }),
         "start_variation" => json!({ "branch_id": "b_parity", "name": "Parity" }),
         "rename_branch" => json!({ "branch_id": "b_parity", "name": "Parity" }),
@@ -135,6 +136,7 @@ async fn the_web_door_materialises_every_operation_in_the_catalogue() {
             | "cancel_cookbook_invite"
             | "read_cookbook_invite"
             | "accept_cookbook_invite"
+            | "answer_cookbook_join"
             | "leave_cookbook"
             | "remove_cookbook_author"
             | "start_variation"
@@ -327,6 +329,7 @@ async fn the_mcp_door_materialises_every_operation_in_the_catalogue() {
                 | "cancel_cookbook_invite"
                 | "read_cookbook_invite"
                 | "accept_cookbook_invite"
+                | "answer_cookbook_join"
                 | "leave_cookbook"
                 | "remove_cookbook_author"
                 | "start_variation"

@@ -30,6 +30,7 @@
 		kitchenName,
 	} from '$lib/cookbook';
 	import InstallSteps from '$lib/offline/InstallSteps.svelte';
+	import CookbookJoins from '$lib/CookbookJoins.svelte';
 	import { thisDevice } from '$lib/offline/device.svelte';
 	import { readableSize, useLibrary } from '$lib/offline/library.svelte';
 	import { languageName } from '$lib/language';
@@ -1046,6 +1047,19 @@
 			<Section heading={m.settings_cookbook()}>
 				{#if cookbookError}
 					<p class="mb-4 text-body text-accent" role="alert">{cookbookError}</p>
+				{/if}
+				{#if book.joins.length > 0}
+					<!-- A join waiting on answers, or one somebody said no to (#135). -->
+					<div class="mb-4 grid gap-3">
+						<CookbookJoins
+							cookbook={book}
+							onAnswered={(answered) => {
+								cookbook = answered;
+								// A join that went ahead is seen in more Kitchens now.
+								void loadKitchens();
+							}}
+						/>
+					</div>
 				{/if}
 				<div class="min-w-0 rounded-sm border border-t-4 border-rule border-t-accent bg-card p-3">
 					<!-- Blank until named: the placeholder is the name it goes by

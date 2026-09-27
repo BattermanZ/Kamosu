@@ -692,6 +692,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                 "type": "object",
                 "properties": {
                     "cookbook": cookbook_schema(),
+                    "invited_by": person_ref_schema(),
                     "their_recipes": { "type": "integer" },
                     "your_recipes": { "type": "integer" },
                     "together_recipes": {
@@ -699,8 +700,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                         "description": "How many recipes the one Cookbook holds once joined: fewer than the two counts added up wherever both already hold a version of the same recipe.",
                     },
                     "already_yours": { "type": "boolean" },
+                    "asks": {
+                        "type": "array",
+                        "items": person_ref_schema(),
+                        "description": "Who else must say yes before the two Cookbooks become one: everyone writing either, less you and the sender. Empty when accepting joins them at once.",
+                    },
+                    "waiting": {
+                        "type": "boolean",
+                        "description": "True when you already accepted this Invite and the join waits on `asks`.",
+                    },
                 },
-                "required": ["cookbook", "their_recipes", "your_recipes", "together_recipes", "already_yours"],
+                "required": ["cookbook", "invited_by", "their_recipes", "your_recipes", "together_recipes", "already_yours", "asks", "waiting"],
                 "additionalProperties": false,
             }),
             handler: crate::operations::read_cookbook_invite,
@@ -709,7 +719,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "accept_cookbook_invite",
             summary: "Open a Cookbook Invite: your Cookbook joins the one it \
                       names, and every recipe in either becomes one Cookbook \
-                      you both change. Spent on use.",
+                      you all change. Where either Cookbook has other writers, \
+                      the join waits until each of them says yes, and the \
+                      answer is your own Cookbook with the join in `joins`. \
+                      Spent on use.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -718,6 +731,22 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             input_schema: json!({ "type": "object", "properties": { "secret": { "type": "string" } }, "required": ["secret"], "additionalProperties": false }),
             output_schema: cookbook_schema(),
             handler: crate::operations::accept_cookbook_invite,
+        },
+        Operation {
+            name: "answer_cookbook_join",
+            summary: "Say yes or no to a Cookbook join that waits on you, as \
+                      your Cookbook's `joins` lists it. The last yes joins the \
+                      two Cookbooks. A no from anybody writing either calls it \
+                      off and opens its Invite again; from the one who \
+                      accepted it, that takes the acceptance back.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: true,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({ "type": "object", "properties": { "join_id": { "type": "string" }, "yes": { "type": "boolean" } }, "required": ["join_id", "yes"], "additionalProperties": false }),
+            output_schema: cookbook_schema(),
+            handler: crate::operations::answer_cookbook_join,
         },
         Operation {
             name: "leave_cookbook",
@@ -3195,18 +3224,7 @@ fn cookbook_label_schema() -> Value {
         "properties": {
             "id": { "type": "string" },
             "name": { "type": ["string", "null"] },
-            "authors": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "person_id": { "type": "string" },
-                        "name": { "type": "string" },
-                    },
-                    "required": ["person_id", "name"],
-                    "additionalProperties": false,
-                },
-            },
+            "authors": { "type": "array", "items": person_ref_schema() },
         },
         "required": ["id", "name", "authors"],
         "additionalProperties": false,
@@ -3214,7 +3232,8 @@ fn cookbook_label_schema() -> Value {
 }
 
 /// A Cookbook's settings card: its label, how many recipes it holds, the
-/// Kitchens that see it, and the Invites still waiting to be opened.
+/// Kitchens that see it, the Invites still waiting to be opened, and the
+/// joins waiting on answers (#135).
 fn cookbook_schema() -> Value {
     let mut schema = cookbook_label_schema();
     let properties = schema["properties"].as_object_mut().expect("object schema");
@@ -3246,15 +3265,83 @@ fn cookbook_schema() -> Value {
             },
         }),
     );
+    properties.insert(
+        "joins".to_string(),
+        json!({ "type": "array", "items": cookbook_join_schema() }),
+    );
     schema["required"] = json!([
         "id",
         "name",
         "authors",
         "recipe_count",
         "kitchens",
-        "invites"
+        "invites",
+        "joins"
     ]);
     schema
+}
+
+/// A Person as a join names them: who accepted, who sent, who is still asked.
+fn person_ref_schema() -> Value {
+    person_ref_schema_of(json!("object"))
+}
+
+/// The same shape, declared nullable: `refused_by` is null while nobody has
+/// said no. Written as a `type` array rather than an `anyOf`, for the reason
+/// `nullable_shared_version_schema` gives.
+fn nullable_person_ref_schema() -> Value {
+    person_ref_schema_of(json!(["object", "null"]))
+}
+
+fn person_ref_schema_of(type_: Value) -> Value {
+    json!({
+        "type": type_,
+        "properties": {
+            "person_id": { "type": "string" },
+            "name": { "type": "string" },
+        },
+        "required": ["person_id", "name"],
+        "additionalProperties": false,
+    })
+}
+
+/// A join a Cookbook's card shows one of its writers (#135): one waiting on
+/// answers, or, to the one who accepted it, one somebody said no to while its
+/// Invite is open to try again.
+fn cookbook_join_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "join_id": { "type": "string" },
+            "state": { "type": "string", "enum": ["waiting", "refused"] },
+            "accepted_by": person_ref_schema(),
+            "invited_by": person_ref_schema(),
+            "joining": cookbook_label_schema(),
+            "into": cookbook_label_schema(),
+            "together_recipes": { "type": "integer" },
+            "waiting_on": {
+                "type": "array",
+                "items": person_ref_schema(),
+                "description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+            },
+            "you": {
+                "type": "string",
+                "enum": ["accepted", "invited", "asked", "answered"],
+                "description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+            },
+            "refused_by": nullable_person_ref_schema(),
+            "refused_by_co_author": {
+                "type": "boolean",
+                "description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+            },
+        },
+        "required": [
+            "join_id", "state", "accepted_by", "invited_by", "joining", "into",
+            "together_recipes", "waiting_on", "you", "refused_by",
+            "refused_by_co_author"
+        ],
+        "additionalProperties": false,
+    })
 }
 
 /// The shape a Tag is served in: the word to show this reader, the Language

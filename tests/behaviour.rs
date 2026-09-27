@@ -25265,6 +25265,403 @@ async fn joining_cookbooks_makes_one_that_both_change() {
     assert_eq!(status, 401, "{refused}");
 }
 
+/// Aurélien's Invite, and the answer to Camille accepting it.
+fn accept_invite_of(app: &support::TestApp, host_key: &str, guest_key: &str) -> (Value, Value) {
+    let (status, invite) = app.post_op("invite_to_cookbook", Some(host_key), "{}");
+    assert_eq!(status, 200, "{invite}");
+    let secret = invite["result"]["secret"].clone();
+    let (status, accepted) = app.post_op(
+        "accept_cookbook_invite",
+        Some(guest_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{accepted}");
+    (secret, accepted["result"].clone())
+}
+
+fn cookbook_card(app: &support::TestApp, key: &str) -> Value {
+    let (status, card) = app.post_op("get_cookbook", Some(key), "{}");
+    assert_eq!(status, 200, "{card}");
+    card["result"].clone()
+}
+
+fn names_in(people: &Value) -> Vec<String> {
+    people
+        .as_array()
+        .expect("a list of people")
+        .iter()
+        .map(|person| person["name"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// **Nobody writes in a joined Cookbook without having said yes** (#135,
+/// choice C, both sides). Aurélien writes with Bob and Camille with Tom.
+/// Aurélien's sending the Invite is his yes and Camille's accepting it hers;
+/// the two Cookbooks become one only once Tom and Bob have each said yes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_join_waits_until_everyone_writing_either_cookbook_says_yes() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (bob_id, bob) = someone(&app, "Bob");
+    let (camille_id, camille) = someone(&app, "Camille");
+    let (tom_id, tom) = someone(&app, "Tom");
+    write_together(&app, &aurelien, &bob);
+    write_together(&app, &camille, &tom);
+    written(&app, &aurelien, "Tartiflette");
+    written(&app, &camille, "Quiche");
+
+    // Before she says yes, the Invite page can say who else will be asked:
+    // her own side first.
+    let (status, invite) = app.post_op("invite_to_cookbook", Some(&aurelien), "{}");
+    assert_eq!(status, 200, "{invite}");
+    let secret = invite["result"]["secret"].clone();
+    let (status, read) = app.post_op(
+        "read_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(names_in(&read["result"]["asks"]), ["Tom", "Bob"]);
+    assert_eq!(read["result"]["waiting"], json!(false));
+    // The page names the one who sent it, not everyone writing that Cookbook.
+    assert_eq!(read["result"]["invited_by"]["name"], json!("Aurélien"));
+
+    let (status, accepted) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{accepted}");
+    // Nothing joined yet: the answer is her own Cookbook, waiting.
+    let hers = &accepted["result"];
+    assert_eq!(names_in(&hers["authors"]), ["Camille", "Tom"]);
+    let join = &hers["joins"][0];
+    assert_eq!(join["state"], json!("waiting"), "{hers}");
+    assert_eq!(names_in(&join["waiting_on"]), ["Tom", "Bob"]);
+    assert_eq!(join["accepted_by"]["person_id"], json!(camille_id));
+    assert_eq!(join["invited_by"]["person_id"], json!(aurelien_id));
+    assert_eq!(join["you"], json!("accepted"));
+    assert_eq!(join["together_recipes"], json!(2));
+    let join_id = join["join_id"].clone();
+    assert_ne!(
+        cookbook_of(&app, &camille_id),
+        cookbook_of(&app, &aurelien_id)
+    );
+
+    // Opening the link again, she is told who is left; anybody else finds
+    // it spent.
+    let (status, again) = app.post_op(
+        "read_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["result"]["waiting"], json!(true));
+    assert_eq!(names_in(&again["result"]["asks"]), ["Tom", "Bob"]);
+    let (_, nadia) = someone(&app, "Nadia");
+    let (status, spent) = app.post_op(
+        "read_cookbook_invite",
+        Some(&nadia),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 401, "{spent}");
+
+    // Each side sees the same join; only the people asked have it to answer.
+    for (key, part) in [(&tom, "asked"), (&bob, "asked"), (&aurelien, "invited")] {
+        let card = cookbook_card(&app, key);
+        assert_eq!(card["joins"][0]["join_id"], join_id, "{card}");
+        assert_eq!(card["joins"][0]["you"], json!(part), "{card}");
+    }
+    // Her "yes" again, or his, changes nothing: theirs were given already.
+    for key in [&camille, &aurelien] {
+        let (status, answered) = app.post_op(
+            "answer_cookbook_join",
+            Some(key),
+            &json!({ "join_id": join_id, "yes": true }).to_string(),
+        );
+        assert_eq!(status, 200, "{answered}");
+    }
+
+    let (status, answered) = app.post_op(
+        "answer_cookbook_join",
+        Some(&tom),
+        &json!({ "join_id": join_id, "yes": true }).to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+    assert_eq!(
+        names_in(&answered["result"]["joins"][0]["waiting_on"]),
+        ["Bob"]
+    );
+    assert_eq!(answered["result"]["joins"][0]["you"], json!("answered"));
+    assert_ne!(cookbook_of(&app, &tom_id), cookbook_of(&app, &bob_id));
+
+    // The last yes joins them there and then.
+    let (status, joined) = app.post_op(
+        "answer_cookbook_join",
+        Some(&bob),
+        &json!({ "join_id": join_id, "yes": true }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    let together = &joined["result"];
+    assert_eq!(
+        names_in(&together["authors"]).len(),
+        4,
+        "all four write it: {together}"
+    );
+    assert_eq!(together["recipe_count"], json!(2));
+    assert_eq!(together["joins"], json!([]));
+    let one = cookbook_of(&app, &aurelien_id);
+    for person in [&bob_id, &camille_id, &tom_id] {
+        assert_eq!(cookbook_of(&app, person), one);
+    }
+    // Spent for good.
+    let (status, spent) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&nadia),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 401, "{spent}");
+}
+
+/// **A no calls the join off and opens the Invite again** (#135, answer 3).
+/// Tom says no; Camille is told so, and that leaving her Cookbook first would
+/// let her open the same link alone, which it then does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_no_calls_a_join_off_and_opens_its_invite_again() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (camille_id, camille) = someone(&app, "Camille");
+    let (tom_id, tom) = someone(&app, "Tom");
+    write_together(&app, &camille, &tom);
+
+    let (secret, accepted) = accept_invite_of(&app, &aurelien, &camille);
+    let join_id = accepted["joins"][0]["join_id"].clone();
+    assert_eq!(names_in(&accepted["joins"][0]["waiting_on"]), ["Tom"]);
+    // Sent from a Cookbook he writes alone, the join asks nobody on his side.
+    assert_eq!(cookbook_card(&app, &aurelien)["invites"], json!([]));
+
+    let (status, refused) = app.post_op(
+        "answer_cookbook_join",
+        Some(&tom),
+        &json!({ "join_id": join_id, "yes": false }).to_string(),
+    );
+    assert_eq!(status, 200, "{refused}");
+    assert_eq!(refused["result"]["joins"], json!([]), "gone from his card");
+    assert_eq!(cookbook_of(&app, &camille_id), cookbook_of(&app, &tom_id));
+
+    let card = cookbook_card(&app, &camille);
+    let told = &card["joins"][0];
+    assert_eq!(told["state"], json!("refused"), "{card}");
+    assert_eq!(told["refused_by"]["person_id"], json!(tom_id));
+    assert_eq!(told["refused_by_co_author"], json!(true));
+    // The Invite is open again on the side that sent it.
+    let his = cookbook_card(&app, &aurelien);
+    assert_eq!(his["invites"].as_array().unwrap().len(), 1, "{his}");
+    assert_eq!(his["joins"], json!([]));
+    // Answering a join that is over is answering nothing.
+    let (status, over) = app.post_op(
+        "answer_cookbook_join",
+        Some(&tom),
+        &json!({ "join_id": join_id, "yes": true }).to_string(),
+    );
+    assert_eq!(status, 404, "{over}");
+
+    // She leaves Tom, keeping a copy of everything, and the same link joins
+    // her to Aurélien with nobody left to ask.
+    let (status, left) = app.post_op("leave_cookbook", Some(&camille), "{}");
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(
+        left["result"]["joins"],
+        json!([]),
+        "the note has done its job"
+    );
+    let (status, read) = app.post_op(
+        "read_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+    assert_eq!(read["result"]["asks"], json!([]));
+    let (status, joined) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+    assert_eq!(
+        names_in(&joined["result"]["authors"]),
+        ["Aurélien", "Camille"]
+    );
+    assert_eq!(
+        cookbook_of(&app, &camille_id),
+        cookbook_of(&app, &aurelien_id)
+    );
+    assert_ne!(cookbook_of(&app, &tom_id), cookbook_of(&app, &aurelien_id));
+}
+
+/// **Who is asked is worked out afresh** (#135). The one who accepted can
+/// take it back, which is her no; somebody who leaves while it waits is no
+/// longer asked, and if they were the last, the join goes ahead then; and a
+/// Cookbook waits on one join of its own at a time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_waiting_join_follows_whoever_writes_either_cookbook_now() {
+    let app = support::spawn_app();
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (camille_id, camille) = someone(&app, "Camille");
+    let (tom_id, tom) = someone(&app, "Tom");
+    let (_, dora) = someone(&app, "Dora");
+    write_together(&app, &camille, &tom);
+
+    // Taking it back: her own no, with no note to herself about it.
+    let (secret, accepted) = accept_invite_of(&app, &aurelien, &camille);
+    let (status, taken_back) = app.post_op(
+        "answer_cookbook_join",
+        Some(&camille),
+        &json!({ "join_id": accepted["joins"][0]["join_id"], "yes": false }).to_string(),
+    );
+    assert_eq!(status, 200, "{taken_back}");
+    assert_eq!(taken_back["result"]["joins"], json!([]));
+
+    // Accepted again, the join waits on Tom. It holds her Cookbook, so a
+    // second Invite cannot join it elsewhere meanwhile.
+    let (status, waiting) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{waiting}");
+    let (status, dora_invite) = app.post_op("invite_to_cookbook", Some(&dora), "{}");
+    assert_eq!(status, 200, "{dora_invite}");
+    let (status, refused) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&tom),
+        &json!({ "secret": dora_invite["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("already waiting"),
+        "{refused}"
+    );
+
+    // Tom leaves instead of answering: nobody is left to ask, so Camille
+    // joins Aurélien at that moment, and Tom writes alone.
+    let (status, left) = app.post_op("leave_cookbook", Some(&tom), "{}");
+    assert_eq!(status, 200, "{left}");
+    assert_eq!(
+        cookbook_of(&app, &camille_id),
+        cookbook_of(&app, &aurelien_id)
+    );
+    assert_ne!(cookbook_of(&app, &tom_id), cookbook_of(&app, &aurelien_id));
+    assert_eq!(
+        names_in(&cookbook_card(&app, &aurelien)["authors"]),
+        ["Aurélien", "Camille"]
+    );
+}
+
+/// **The sender's no ends the Invite, and a join nobody can answer does not
+/// wait** (#135, found in review). Sending the Invite was the sender's yes,
+/// so calling the join off takes it back for good. Someone disabled can no
+/// longer sign in to answer and is not asked; a sender deleted while writing
+/// alone leaves nobody to join, and the join is called off.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_join_ends_with_the_senders_no_and_asks_nobody_who_cannot_answer() {
+    let app = support::spawn_app();
+    let create =
+        json!({ "name": "Olga", "password": "the right password", "session_name": "operator" });
+    let operator = app.post_auth_response("/auth/first-person", &create.to_string());
+    assert_eq!(operator.status, 200, "{}", operator.text());
+    let operator = support::session_cookie_secret(&operator);
+    let (aurelien_id, aurelien) = someone(&app, "Aurélien");
+    let (camille_id, camille) = someone(&app, "Camille");
+    let (_, tom) = someone(&app, "Tom");
+    write_together(&app, &camille, &tom);
+
+    // The sender calls it off: the link is ended, not opened again.
+    let (secret, accepted) = accept_invite_of(&app, &aurelien, &camille);
+    let (status, off) = app.post_op(
+        "answer_cookbook_join",
+        Some(&aurelien),
+        &json!({ "join_id": accepted["joins"][0]["join_id"], "yes": false }).to_string(),
+    );
+    assert_eq!(status, 200, "{off}");
+    assert_eq!(off["result"]["invites"], json!([]), "{off}");
+    assert_eq!(cookbook_card(&app, &camille)["joins"], json!([]));
+    let (status, ended) = app.post_op(
+        "read_cookbook_invite",
+        Some(&camille),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 401, "{ended}");
+
+    // Tom is disabled while the join waits on him alone: nobody is left who
+    // can answer, so it goes ahead.
+    accept_invite_of(&app, &aurelien, &camille);
+    let (status, disabled) = app.post_op("disable_account", Some(&operator), r#"{"name":"Tom"}"#);
+    assert_eq!(status, 200, "{disabled}");
+    assert_eq!(
+        cookbook_of(&app, &camille_id),
+        cookbook_of(&app, &aurelien_id)
+    );
+
+    // Dora writes with Bruno. Nadia sends her an Invite, and the join waits on
+    // Bruno; Nadia's account is deleted meanwhile, and the Cookbook it would
+    // join has nobody left, so the join is off.
+    let (_, dora) = someone(&app, "Dora");
+    let (_, bruno) = someone(&app, "Bruno");
+    let (_, nadia) = someone(&app, "Nadia");
+    write_together(&app, &dora, &bruno);
+    let (_, waiting) = accept_invite_of(&app, &nadia, &dora);
+    assert_eq!(names_in(&waiting["joins"][0]["waiting_on"]), ["Bruno"]);
+    let (status, deleted) = app.post_op("delete_account", Some(&operator), r#"{"name":"Nadia"}"#);
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(cookbook_card(&app, &bruno)["joins"], json!([]));
+    assert_eq!(
+        names_in(&cookbook_card(&app, &dora)["authors"]),
+        ["Dora", "Bruno"]
+    );
+}
+
+/// **A Cookbook waits on one join at a time, on the side joined into as well**
+/// (#135). Aurélien writes with Bob; while Camille's join waits on Bob, Dora
+/// opening another of Aurélien's Invites is refused in words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cookbook_joined_into_waits_on_one_join_at_a_time() {
+    let app = support::spawn_app();
+    let (_, aurelien) = someone(&app, "Aurélien");
+    let (_, bob) = someone(&app, "Bob");
+    let (_, camille) = someone(&app, "Camille");
+    let (_, dora) = someone(&app, "Dora");
+    write_together(&app, &aurelien, &bob);
+    let (_, waiting) = accept_invite_of(&app, &aurelien, &camille);
+    assert_eq!(names_in(&waiting["joins"][0]["waiting_on"]), ["Bob"]);
+
+    let (status, invite) = app.post_op("invite_to_cookbook", Some(&aurelien), "{}");
+    assert_eq!(status, 200, "{invite}");
+    let (status, refused) = app.post_op(
+        "accept_cookbook_invite",
+        Some(&dora),
+        &json!({ "secret": invite["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("already waiting"),
+        "{refused}"
+    );
+    // Refused before anything was spent: the link still opens for Dora.
+    let (status, read) = app.post_op(
+        "read_cookbook_invite",
+        Some(&dora),
+        &json!({ "secret": invite["result"]["secret"] }).to_string(),
+    );
+    assert_eq!(status, 200, "{read}");
+}
+
 /// **Leaving gives a joiner their own recipes back as their own** (#131,
 /// answers 6 and 7). Joining named her soupe after her, since his Cookbook
 /// already held one unnamed; leaving, the soupe she wrote is her unnamed one

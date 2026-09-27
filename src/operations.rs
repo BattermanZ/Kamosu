@@ -520,6 +520,24 @@ pub fn accept_cookbook_invite(
     core.accept_cookbook_invite(&caller.person_id, secret)
 }
 
+pub fn answer_cookbook_join(
+    core: &Core,
+    invocation: &Invocation,
+    input: Value,
+) -> Result<Value, OpError> {
+    let takes = "answer_cookbook_join takes { join_id, yes }";
+    let join_id = input
+        .get("join_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let yes = input
+        .get("yes")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.answer_cookbook_join(&caller.person_id, join_id, yes)
+}
+
 pub fn leave_cookbook(
     core: &Core,
     invocation: &Invocation,

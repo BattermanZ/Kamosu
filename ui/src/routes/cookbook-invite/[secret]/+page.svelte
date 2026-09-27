@@ -2,10 +2,15 @@
 	`/cookbook-invite/<secret>`: the page a Cookbook Invite link opens (#131,
 	Aurélien's screen choice 2 of 24 September 2026).
 
-	It says what saying yes does before anything happens: whose Cookbook it is,
+	It says what saying yes does before anything happens: who sent it (one
+	Person, where their Cookbook may have several writers),
 	how many recipes on each side become one, and that leaving is always
 	possible with a copy of everything. Opening the link changes nothing. Only
 	*Write together* does, and *Not now* leaves the link unspent for later.
+
+	Where either Cookbook already has other writers, it names them first:
+	each will be asked, and nothing joins until they all say yes (#135). Once
+	accepted, the same link says who it still waits for.
 
 	A Cookbook Invite is for somebody who already has an account; making one is
 	a Kitchen Invite's job. So a reader who is not signed in gets the ordinary
@@ -19,7 +24,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import { cookbookPlainName } from '$lib/cookbook';
+	import { joinedNames } from '$lib/cookbook';
 	import type { ReadCookbookInviteOutput } from '$lib/api/catalogue';
 	import Account from '../../Account.svelte';
 	import type { PageProps } from './$types';
@@ -77,7 +82,12 @@
 		busy = true;
 		failed = undefined;
 		try {
-			await kamosu.acceptCookbookInvite({ secret: params.secret });
+			const answer = await kamosu.acceptCookbookInvite({ secret: params.secret });
+			if (answer.joins.some((join) => join.state === 'waiting' && join.you === 'accepted')) {
+				// Waiting on the others: read it again, which says who.
+				asked += 1;
+				return;
+			}
 			// Settings, where the joined Cookbook's card now names you both.
 			await goto('/settings');
 		} catch (error) {
@@ -104,40 +114,56 @@
 				>{m.settings_title()}</a
 			>
 		{:else}
-			{@const names = cookbookPlainName(invite.cookbook)}
+			{@const names = invite.invited_by.name}
 			<p class="text-label text-ink-2 uppercase">{m.cookbook_invite_kicker()}</p>
 			<h1 class="mt-1 font-display text-title font-semibold text-ink">
 				{m.cookbook_invite_title({ names })}
 			</h1>
+			{@const counts = {
+				yours: invite.your_recipes,
+				theirs: invite.their_recipes,
+				total: invite.together_recipes,
+			}}
+			{@const others = joinedNames(invite.asks.map((person) => person.name))}
 			<p class="mt-3 text-body text-ink">
-				{m.cookbook_invite_join_said({
-					yours: invite.your_recipes,
-					theirs: invite.their_recipes,
-					total: invite.together_recipes,
-				})}
+				{invite.asks.length > 0
+					? m.cookbook_invite_join_said_all(counts)
+					: m.cookbook_invite_join_said(counts)}
 			</p>
-			<p class="mt-3 text-read text-ink-2">{m.cookbook_invite_leave_any_time()}</p>
-			{#if failed}
-				<p class="mt-3 text-body text-support" role="alert">{failed}</p>
-			{/if}
-			<div class="mt-6 flex flex-col gap-2">
-				<button
-					type="button"
-					onclick={accept}
-					disabled={busy}
-					class="min-h-12 rounded-sm bg-accent px-4 text-body font-semibold text-on-accent
+			{#if invite.waiting}
+				<p class="mt-3 text-body text-ink" role="status">
+					{m.cookbook_invite_waiting_on({ names: others })}
+				</p>
+				<a class="mt-4 inline-block text-label text-accent underline" href="/settings"
+					>{m.settings_title()}</a
+				>
+			{:else}
+				{#if invite.asks.length > 0}
+					<p class="mt-3 text-body text-ink">{m.cookbook_invite_asks({ names: others })}</p>
+				{/if}
+				<p class="mt-3 text-read text-ink-2">{m.cookbook_invite_leave_any_time()}</p>
+				{#if failed}
+					<p class="mt-3 text-body text-support" role="alert">{failed}</p>
+				{/if}
+				<div class="mt-6 flex flex-col gap-2">
+					<button
+						type="button"
+						onclick={accept}
+						disabled={busy}
+						class="min-h-12 rounded-sm bg-accent px-4 text-body font-semibold text-on-accent
 					disabled:opacity-60"
-				>
-					{m.cookbook_invite_accept()}
-				</button>
-				<a
-					href="/"
-					class="flex min-h-12 items-center justify-center rounded-sm border border-rule px-4 text-body
+					>
+						{m.cookbook_invite_accept()}
+					</button>
+					<a
+						href="/"
+						class="flex min-h-12 items-center justify-center rounded-sm border border-rule px-4 text-body
 					font-medium text-ink-2"
-				>
-					{m.cookbook_invite_not_now()}
-				</a>
-			</div>
+					>
+						{m.cookbook_invite_not_now()}
+					</a>
+				</div>
+			{/if}
 		{/if}
 	</div>
 {/if}

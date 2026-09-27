@@ -32,6 +32,7 @@
 	five times.
 -->
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import type { HomeShelvesOutput } from '$lib/api/catalogue';
 	import Tile from './recipes/Tile.svelte';
@@ -40,9 +41,11 @@
 	interface Props {
 		/** The answer `home_shelves` gave. Asked for by the route, so signing in and reading Home are one round trip. */
 		home: HomeShelvesOutput;
+		/** A question waiting on the reader, drawn above the shelves: a Cookbook join (#135). */
+		asking?: Snippet;
 	}
 
-	let { home }: Props = $props();
+	let { home, asking }: Props = $props();
 
 	type ShelfName = HomeShelvesOutput['shelves'][number]['name'];
 
@@ -87,6 +90,9 @@
 	<div class="mx-auto max-w-2xl px-gutter">
 		<h1 class="font-display text-title font-semibold">{m.home_title()}</h1>
 		<p class="mt-1 text-read text-ink-2">{m.home_blurb()}</p>
+		{#if asking}
+			<div class="mt-4 grid gap-3">{@render asking()}</div>
+		{/if}
 	</div>
 
 	{#if home.shelves.length === 0}

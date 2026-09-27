@@ -1564,6 +1564,44 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
         ..Migration::SQL_ONLY
     },
+    Migration {
+        version: 39,
+        description: "a Cookbook join waits for everyone it joins (#135)",
+        sql: r#"
+        -- A Cookbook Invite accepted by someone who already writes with others,
+        -- or sent from a Cookbook that already has several writers, joins
+        -- nothing yet (#135, choice C). It waits here until every Co-author of
+        -- both Cookbooks has said yes. Who still has to answer is never
+        -- stored: it is everyone writing either Cookbook now, less the sender,
+        -- the acceptor and whoever is in `cookbook_join_answers`, so someone
+        -- leaving meanwhile simply stops being asked.
+        --
+        -- `refused_by` is who said no, and `ended_at` when the join stopped
+        -- waiting for any reason. A join that went ahead leaves no row: the
+        -- Cookbook it came from is gone, and these rows with it.
+        CREATE TABLE cookbook_joins (
+            id            TEXT PRIMARY KEY,
+            invite_id     TEXT NOT NULL REFERENCES cookbook_invites(id),
+            from_cookbook TEXT NOT NULL REFERENCES cookbooks(id),
+            into_cookbook TEXT NOT NULL REFERENCES cookbooks(id),
+            accepted_by   TEXT NOT NULL REFERENCES people(id),
+            created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            refused_by    TEXT REFERENCES people(id),
+            ended_at      TEXT
+        );
+        CREATE INDEX cookbook_joins_from ON cookbook_joins(from_cookbook);
+        CREATE INDEX cookbook_joins_into ON cookbook_joins(into_cookbook);
+
+        -- Every yes a waiting join has had, beyond the two it started with.
+        CREATE TABLE cookbook_join_answers (
+            join_id     TEXT NOT NULL REFERENCES cookbook_joins(id) ON DELETE CASCADE,
+            person_id   TEXT NOT NULL REFERENCES people(id),
+            answered_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (join_id, person_id)
+        );
+        "#,
+        ..Migration::SQL_ONLY
+    },
 ];
 
 /// The newest step [`MIGRATIONS`] carries: what this binary understands.

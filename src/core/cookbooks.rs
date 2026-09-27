@@ -71,30 +71,46 @@ impl Core {
     }
 
     /// What opening a Cookbook Invite would do, before anybody says yes: whose
-    /// it is, and how many recipes on each side become one Cookbook.
+    /// it is, how many recipes on each side become one Cookbook, and who else
+    /// will be asked first (#135).
+    ///
+    /// The one who accepted it can read it again while it waits, and is told
+    /// who has still to answer. To anybody else a waiting Invite is spent.
     pub fn read_cookbook_invite(&self, person_id: &str, secret: &str) -> Result<Value, OpError> {
         self.db().with_conn(|conn| {
-            let (_, cookbook_id) = live_cookbook_invite(conn, secret)?;
             let own = cookbook_of_person(conn, person_id)?;
+            let (cookbook_id, waiting) = match waiting_join_accepted_with(conn, secret, person_id)?
+            {
+                Some(join) => (join.into.clone(), Some(join)),
+                None => (live_cookbook_invite(conn, secret)?.1, None),
+            };
+            let sender = invite_sender(conn, secret)?;
+            let asks = match &waiting {
+                Some(join) => still_to_answer(conn, join)?,
+                None if own == cookbook_id => Vec::new(),
+                None => people_to_ask(conn, &own, &cookbook_id, person_id, &sender)?,
+            };
             Ok(json!({
                 "cookbook": cookbook_summary(conn, &cookbook_id, None)?,
+                "invited_by": person_named(conn, &sender)?,
                 "their_recipes": recipe_count(conn, &cookbook_id)?,
                 "your_recipes": recipe_count(conn, &own)?,
-                "together_recipes": conn
-                    .query_row(
-                        "SELECT COUNT(DISTINCT lineage_id) FROM branches \
-                          WHERE cookbook_id IN (?1, ?2)",
-                        params![own, cookbook_id],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .map_err(|e| OpError::internal(format!("cannot count recipes: {e}")))?,
+                "together_recipes": together_count(conn, &own, &cookbook_id)?,
                 "already_yours": own == cookbook_id,
+                "asks": people_named(conn, &asks)?,
+                "waiting": waiting.is_some(),
             }))
         })
     }
 
     /// Open a Cookbook Invite: the caller's Cookbook joins the one it names,
     /// and from then on either may change any recipe in it (ADR 0041).
+    ///
+    /// Only once nobody else is left to ask (#135, choice C). Where either
+    /// Cookbook has other writers, accepting is the caller's yes and the
+    /// Invite's sending was the sender's, and the join waits for everyone
+    /// else writing either one. The answer is then the caller's own Cookbook,
+    /// saying who it waits for.
     ///
     /// Everything the caller's Cookbook held moves across: its Branches, its
     /// Tags, its Related Recipes and its import ledger. Two Branches of one
@@ -109,17 +125,68 @@ impl Core {
                 .unchecked_transaction()
                 .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
             let (invite_id, into) = live_cookbook_invite(conn, secret)?;
+            let from = cookbook_of_person(conn, person_id)?;
+            if from != into {
+                ensure_free_to_join(conn, &from, &into)?;
+            }
             conn.execute(
                 "UPDATE cookbook_invites SET used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), used_by = ?1 \
                   WHERE id = ?2",
                 params![person_id, invite_id],
             )
             .map_err(|e| OpError::internal(format!("cannot spend Cookbook Invite: {e}")))?;
-            let from = cookbook_of_person(conn, person_id)?;
             if from != into {
-                join_cookbooks(conn, &from, &into, person_id)?;
+                let join_id = format!("cj_{}", hex::encode(random_bytes(8)));
+                conn.execute(
+                    "INSERT INTO cookbook_joins (id, invite_id, from_cookbook, into_cookbook, accepted_by) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![join_id, invite_id, from, into, person_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot begin the join: {e}")))?;
+                settle_join(conn, &join_id)?;
             }
-            let summary = cookbook_summary(conn, &into, Some(person_id))?;
+            let own = cookbook_of_person(conn, person_id)?;
+            let summary = cookbook_summary(conn, &own, Some(person_id))?;
+            transaction
+                .commit()
+                .map_err(|e| OpError::internal(format!("cannot commit: {e}")))?;
+            Ok(summary)
+        })
+    }
+
+    /// Answer a join waiting on the caller (#135). A yes counts towards it,
+    /// and the last yes it waited for joins the two Cookbooks there and then.
+    /// A no from anybody writing either Cookbook calls it off and opens its
+    /// Invite again; from the one who accepted it, that is taking it back.
+    ///
+    /// A join the caller's Cookbook is not part of is answered as though it
+    /// were not here (ADR 0040).
+    pub fn answer_cookbook_join(
+        &self,
+        person_id: &str,
+        join_id: &str,
+        yes: bool,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|e| OpError::internal(format!("cannot begin: {e}")))?;
+            let own = cookbook_of_person(conn, person_id)?;
+            let join = waiting_join(conn, join_id)?
+                .filter(|join| join.from == own || join.into == own)
+                .ok_or_else(|| OpError::not_found("no join is waiting on that answer"))?;
+            if yes {
+                conn.execute(
+                    "INSERT OR IGNORE INTO cookbook_join_answers (join_id, person_id) VALUES (?1, ?2)",
+                    params![join.id, person_id],
+                )
+                .map_err(|e| OpError::internal(format!("cannot record the answer: {e}")))?;
+                settle_join(conn, &join.id)?;
+            } else {
+                end_join(conn, &join, Some(person_id))?;
+            }
+            let own = cookbook_of_person(conn, person_id)?;
+            let summary = cookbook_summary(conn, &own, Some(person_id))?;
             transaction
                 .commit()
                 .map_err(|e| OpError::internal(format!("cannot commit: {e}")))?;
@@ -175,7 +242,10 @@ impl Core {
                 ));
             }
             separate(conn, &cookbook_id, target_person_id)?;
-            let summary = cookbook_summary(conn, &cookbook_id, Some(person_id))?;
+            // Asked afresh: the removal may have let a waiting join go ahead
+            // (#135), and then the caller writes a different Cookbook.
+            let own = cookbook_of_person(conn, person_id)?;
+            let summary = cookbook_summary(conn, &own, Some(person_id))?;
             transaction
                 .commit()
                 .map_err(|e| OpError::internal(format!("cannot commit: {e}")))?;
@@ -475,7 +545,7 @@ pub(super) fn cookbook_label(conn: &Connection, cookbook_id: &str) -> Result<Val
 
 /// A Cookbook's settings card: its label, how many recipes it holds, which
 /// Kitchens see it, and — for one of its own Co-authors — the Invites still
-/// waiting.
+/// waiting and the joins waiting on answers (#135).
 fn cookbook_summary(
     conn: &Connection,
     cookbook_id: &str,
@@ -519,6 +589,12 @@ fn cookbook_summary(
         _ => Vec::new(),
     };
     summary["invites"] = json!(invites);
+    summary["joins"] = match viewer {
+        Some(viewer) if writes_in(conn, cookbook_id, viewer)? => {
+            json!(joins_seen_by(conn, cookbook_id, viewer)?)
+        }
+        _ => json!([]),
+    };
     Ok(summary)
 }
 
@@ -561,6 +637,331 @@ fn live_cookbook_invite(conn: &Connection, secret: &str) -> Result<(String, Stri
     .optional()
     .map_err(|e| OpError::internal(format!("cannot read Cookbook Invite: {e}")))?
     .ok_or_else(no_such_cookbook_invite)
+}
+
+// ── Joins waiting on answers (#135) ──────────────────────────────────────────
+
+/// A join an accepted Cookbook Invite started: waiting on answers, or ended.
+struct Join {
+    id: String,
+    invite_id: String,
+    from: String,
+    into: String,
+    accepted_by: String,
+    invited_by: String,
+    refused_by: Option<String>,
+}
+
+const JOIN_SQL: &str = "SELECT cookbook_joins.id, invite_id, from_cookbook, into_cookbook, \
+        accepted_by, cookbook_invites.created_by, refused_by \
+   FROM cookbook_joins JOIN cookbook_invites ON cookbook_invites.id = cookbook_joins.invite_id";
+
+fn join_row(row: &rusqlite::Row) -> rusqlite::Result<Join> {
+    Ok(Join {
+        id: row.get(0)?,
+        invite_id: row.get(1)?,
+        from: row.get(2)?,
+        into: row.get(3)?,
+        accepted_by: row.get(4)?,
+        invited_by: row.get(5)?,
+        refused_by: row.get(6)?,
+    })
+}
+
+fn waiting_join(conn: &Connection, join_id: &str) -> Result<Option<Join>, OpError> {
+    conn.query_row(
+        &format!("{JOIN_SQL} WHERE cookbook_joins.ended_at IS NULL AND cookbook_joins.id = ?1"),
+        params![join_id],
+        join_row,
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the waiting join: {e}")))
+}
+
+/// The join a Person started by accepting the Invite a Secret names, while
+/// it waits.
+fn waiting_join_accepted_with(
+    conn: &Connection,
+    secret: &str,
+    person_id: &str,
+) -> Result<Option<Join>, OpError> {
+    conn.query_row(
+        &format!(
+            "{JOIN_SQL} WHERE cookbook_joins.ended_at IS NULL \
+                          AND cookbook_invites.secret_hash = ?1 \
+                          AND cookbook_joins.accepted_by = ?2"
+        ),
+        params![hash_secret(secret), person_id],
+        join_row,
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read the waiting join: {e}")))
+}
+
+/// Every join waiting with this Cookbook on either side, oldest first.
+fn waiting_joins_of(conn: &Connection, cookbook_id: &str) -> Result<Vec<Join>, OpError> {
+    let mut statement = conn
+        .prepare(&format!(
+            "{JOIN_SQL} WHERE cookbook_joins.ended_at IS NULL \
+                          AND (from_cookbook = ?1 OR into_cookbook = ?1) \
+             ORDER BY cookbook_joins.created_at, cookbook_joins.id"
+        ))
+        .map_err(|e| OpError::internal(format!("cannot read waiting joins: {e}")))?;
+    statement
+        .query_map(params![cookbook_id], join_row)
+        .map_err(|e| OpError::internal(format!("cannot read waiting joins: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot read waiting joins: {e}")))
+}
+
+/// Who sent the Invite a Secret names, used or not.
+fn invite_sender(conn: &Connection, secret: &str) -> Result<String, OpError> {
+    conn.query_row(
+        "SELECT created_by FROM cookbook_invites WHERE secret_hash = ?1",
+        params![hash_secret(secret)],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Cookbook Invite: {e}")))
+}
+
+/// Who joining two Cookbooks has to ask: everyone writing either, less the
+/// one accepting and the one who sent the Invite, whose yes those were. An
+/// account that is disabled cannot sign in to answer, so it is not asked:
+/// otherwise it would hold the join open for good.
+fn people_to_ask(
+    conn: &Connection,
+    from: &str,
+    into: &str,
+    acceptor: &str,
+    sender: &str,
+) -> Result<Vec<String>, OpError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT person_id FROM cookbook_authors \
+               JOIN people ON people.id = cookbook_authors.person_id \
+              WHERE cookbook_id IN (?1, ?2) AND person_id NOT IN (?3, ?4) \
+                AND people.disabled = 0 \
+              ORDER BY cookbook_id <> ?1, joined_at, person_id",
+        )
+        .map_err(|e| OpError::internal(format!("cannot list Co-authors: {e}")))?;
+    statement
+        .query_map(params![from, into, acceptor, sender], |row| row.get(0))
+        .map_err(|e| OpError::internal(format!("cannot list Co-authors: {e}")))?
+        .collect::<Result<_, _>>()
+        .map_err(|e| OpError::internal(format!("cannot list Co-authors: {e}")))
+}
+
+/// Who a waiting join still waits for, worked out afresh each time, so that
+/// somebody who left meanwhile is no longer asked and somebody who joined
+/// either Cookbook is.
+fn still_to_answer(conn: &Connection, join: &Join) -> Result<Vec<String>, OpError> {
+    let answered: Vec<String> = {
+        let mut statement = conn
+            .prepare("SELECT person_id FROM cookbook_join_answers WHERE join_id = ?1")
+            .map_err(|e| OpError::internal(format!("cannot read answers: {e}")))?;
+        statement
+            .query_map(params![join.id], |row| row.get(0))
+            .map_err(|e| OpError::internal(format!("cannot read answers: {e}")))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OpError::internal(format!("cannot read answers: {e}")))?
+    };
+    Ok(people_to_ask(
+        conn,
+        &join.from,
+        &join.into,
+        &join.accepted_by,
+        &join.invited_by,
+    )?
+    .into_iter()
+    .filter(|person| !answered.contains(person))
+    .collect())
+}
+
+fn person_named(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
+    let name: String = conn
+        .query_row(
+            "SELECT name FROM people WHERE id = ?1",
+            params![person_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Person: {e}")))?;
+    Ok(json!({ "person_id": person_id, "name": name }))
+}
+
+fn people_named(conn: &Connection, people: &[String]) -> Result<Vec<Value>, OpError> {
+    people
+        .iter()
+        .map(|person| person_named(conn, person))
+        .collect()
+}
+
+/// How many recipes two Cookbooks hold between them: fewer than their two
+/// counts added up wherever both hold a version of the same recipe.
+fn together_count(conn: &Connection, a: &str, b: &str) -> Result<i64, OpError> {
+    conn.query_row(
+        "SELECT COUNT(DISTINCT lineage_id) FROM branches WHERE cookbook_id IN (?1, ?2)",
+        params![a, b],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot count recipes: {e}")))
+}
+
+/// A Cookbook waits on one join at a time, on either side (#135). Whoever
+/// accepts an Invite while either Cookbook waits is refused in words, and
+/// may accept once that join is settled.
+fn ensure_free_to_join(conn: &Connection, from: &str, into: &str) -> Result<(), OpError> {
+    if !waiting_joins_of(conn, from)?.is_empty() {
+        return Err(OpError::bad_request(
+            "your Cookbook is already waiting on answers to another join; accept this one once \
+             that is settled",
+        ));
+    }
+    if !waiting_joins_of(conn, into)?.is_empty() {
+        return Err(OpError::bad_request(
+            "that Cookbook is already waiting on answers to another join; accept this once that \
+             is settled",
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a Person can still sign in: neither disabled nor deleted.
+fn signs_in(conn: &Connection, person_id: &str) -> Result<bool, OpError> {
+    conn.query_row(
+        "SELECT disabled = 0 FROM people WHERE id = ?1",
+        params![person_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| OpError::internal(format!("cannot read Person: {e}")))
+}
+
+/// Bring a waiting join to where it now stands. It is called off once the
+/// one who accepted it can no longer sign in or no longer writes the
+/// Cookbook it would bring, or once nobody who can sign in writes the one it
+/// would join. It joins once nobody is left to ask, and otherwise waits.
+fn settle_join(conn: &Connection, join_id: &str) -> Result<(), OpError> {
+    let Some(join) = waiting_join(conn, join_id)? else {
+        return Ok(());
+    };
+    let anyone_left_into = authors_of(conn, &join.into)?
+        .iter()
+        .map(|person| signs_in(conn, person))
+        .collect::<Result<Vec<_>, _>>()?
+        .contains(&true);
+    if !signs_in(conn, &join.accepted_by)?
+        || !writes_in(conn, &join.from, &join.accepted_by)?
+        || !anyone_left_into
+    {
+        return end_join(conn, &join, None);
+    }
+    if still_to_answer(conn, &join)?.is_empty() {
+        join_cookbooks(conn, &join.from, &join.into, &join.accepted_by)?;
+    }
+    Ok(())
+}
+
+/// Settle every join waiting with this Cookbook, after its writers changed.
+pub(super) fn settle_joins_of(conn: &Connection, cookbook_id: &str) -> Result<(), OpError> {
+    for join in waiting_joins_of(conn, cookbook_id)? {
+        settle_join(conn, &join.id)?;
+    }
+    Ok(())
+}
+
+/// Call a waiting join off. Its Invite opens again, so the one who accepted
+/// it can open the same link once whatever stood in the way has gone (#135,
+/// answer 3). Where the no is the sender's own, the Invite ends instead:
+/// sending it was their yes, and they have taken it back.
+fn end_join(conn: &Connection, join: &Join, refused_by: Option<&str>) -> Result<(), OpError> {
+    conn.execute(
+        "UPDATE cookbook_joins SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), refused_by = ?2 \
+          WHERE id = ?1",
+        params![join.id, refused_by],
+    )
+    .map_err(|e| OpError::internal(format!("cannot call the join off: {e}")))?;
+    let invite = if refused_by == Some(join.invited_by.as_str()) {
+        "UPDATE cookbook_invites SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
+          WHERE id = ?1 AND ended_at IS NULL"
+    } else {
+        "UPDATE cookbook_invites SET used_at = NULL, used_by = NULL \
+          WHERE id = ?1 AND ended_at IS NULL"
+    };
+    conn.execute(invite, params![join.invite_id])
+        .map_err(|e| OpError::internal(format!("cannot settle the Invite: {e}")))?;
+    Ok(())
+}
+
+/// The joins a Cookbook's card shows one of its writers: every join it is
+/// waiting on, and, to the one who accepted it, a join somebody said no to,
+/// for as long as its Invite stays open for them to try again.
+fn joins_seen_by(
+    conn: &Connection,
+    cookbook_id: &str,
+    viewer: &str,
+) -> Result<Vec<Value>, OpError> {
+    let waiting = waiting_joins_of(conn, cookbook_id)?;
+    let mut seen = waiting
+        .iter()
+        .map(|join| join_as_seen(conn, join, viewer))
+        .collect::<Result<Vec<_>, _>>()?;
+    if waiting.iter().any(|join| join.from == cookbook_id) {
+        return Ok(seen);
+    }
+    let refused = conn
+        .query_row(
+            &format!(
+                "{JOIN_SQL} \
+                  WHERE cookbook_joins.from_cookbook = ?1 AND cookbook_joins.accepted_by = ?2 \
+                    AND cookbook_joins.refused_by IS NOT NULL AND cookbook_joins.refused_by <> ?2 \
+                    AND cookbook_invites.used_at IS NULL AND cookbook_invites.ended_at IS NULL \
+                    AND NOT EXISTS (SELECT 1 FROM cookbook_joins AS later \
+                                     WHERE later.invite_id = cookbook_joins.invite_id \
+                                       AND later.created_at > cookbook_joins.created_at) \
+                  ORDER BY cookbook_joins.ended_at DESC LIMIT 1"
+            ),
+            params![cookbook_id, viewer],
+            join_row,
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read refused joins: {e}")))?;
+    if let Some(join) = refused {
+        seen.push(join_as_seen(conn, &join, viewer)?);
+    }
+    Ok(seen)
+}
+
+/// One join as a writer of either Cookbook sees it: who is in it, whom it
+/// still waits for, and their own part in it.
+fn join_as_seen(conn: &Connection, join: &Join, viewer: &str) -> Result<Value, OpError> {
+    let waiting_on = match join.refused_by {
+        None => still_to_answer(conn, join)?,
+        Some(_) => Vec::new(),
+    };
+    let you = if viewer == join.accepted_by {
+        "accepted"
+    } else if viewer == join.invited_by {
+        "invited"
+    } else if waiting_on.iter().any(|person| person == viewer) {
+        "asked"
+    } else {
+        "answered"
+    };
+    Ok(json!({
+        "join_id": join.id,
+        "state": if join.refused_by.is_some() { "refused" } else { "waiting" },
+        "accepted_by": person_named(conn, &join.accepted_by)?,
+        "invited_by": person_named(conn, &join.invited_by)?,
+        "joining": cookbook_label(conn, &join.from)?,
+        "into": cookbook_label(conn, &join.into)?,
+        "together_recipes": together_count(conn, &join.from, &join.into)?,
+        "waiting_on": people_named(conn, &waiting_on)?,
+        "you": you,
+        "refused_by": join.refused_by.as_deref().map(|person| person_named(conn, person)).transpose()?,
+        "refused_by_co_author": match &join.refused_by {
+            Some(person) => writes_in(conn, &join.from, person)?,
+            None => false,
+        },
+    }))
 }
 
 /// A Person's own Cookbook, made the moment their account is. It starts with
@@ -1241,6 +1642,9 @@ fn join_cookbooks(conn: &Connection, from: &str, into: &str, joiner: &str) -> Re
     )
     .map_err(|e| OpError::internal(format!("cannot join Cookbooks: {e}")))?;
     for statement in [
+        // Every join the Cookbook that goes was part of, this one included:
+        // nothing is left for them to join or wait on (#135).
+        "DELETE FROM cookbook_joins WHERE from_cookbook = ?1 OR into_cookbook = ?1",
         "DELETE FROM cookbook_invites WHERE cookbook_id = ?1",
         "DELETE FROM cookbooks WHERE id = ?1",
     ] {
@@ -1618,6 +2022,9 @@ pub(super) fn separate(
     }
     copy_related(conn, cookbook_id, &own)?;
     give_back_own_names(conn, cookbook_id, leaver, &moved, &copies)?;
+    // Whoever left no longer has a say in a join this Cookbook waits on, and
+    // may have been the last one it waited for (#135).
+    settle_joins_of(conn, cookbook_id)?;
     Ok(own)
 }
 

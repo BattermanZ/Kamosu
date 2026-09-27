@@ -19,6 +19,7 @@ const ALREADY = {
 	recipe_count: 87,
 	kitchens: [],
 	invites: [],
+	joins: [],
 };
 
 function open(answers: Answers) {
@@ -43,10 +44,13 @@ describe('a Cookbook Invite link', () => {
 		const { kamosu } = open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
+				invited_by: { person_id: 'p_1', name: 'Aurélien' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
 				already_yours: false,
+				asks: [],
+				waiting: false,
 			},
 			accept_cookbook_invite: { ...ALREADY, recipe_count: 99 },
 		});
@@ -81,14 +85,80 @@ describe('a Cookbook Invite link', () => {
 		await waitFor(() => expect(went).toHaveBeenCalledWith('/settings'));
 	});
 
-	it('leaves the link unspent on Not now', async () => {
+	it('names who else will be asked, and once accepted says whom it waits for (#135)', async () => {
+		let accepted = false;
+		const asks = [
+			{ person_id: 'p_4', name: 'Tom' },
+			{ person_id: 'p_5', name: 'Bob' },
+		];
 		const { kamosu } = open({
-			read_cookbook_invite: {
+			read_cookbook_invite: () => ({
 				cookbook: ALREADY,
+				invited_by: { person_id: 'p_1', name: 'Aurélien' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
 				already_yours: false,
+				asks,
+				waiting: accepted,
+			}),
+			accept_cookbook_invite: () => {
+				accepted = true;
+				return {
+					...ALREADY,
+					id: 'c_camille',
+					joins: [
+						{
+							join_id: 'cj_1',
+							state: 'waiting',
+							accepted_by: { person_id: 'p_2', name: 'Camille' },
+							invited_by: { person_id: 'p_1', name: 'Aurélien' },
+							joining: { id: 'c_camille', name: null, authors: [] },
+							into: { id: 'c_aurelien', name: null, authors: ALREADY.authors },
+							together_recipes: 99,
+							waiting_on: asks,
+							you: 'accepted',
+							refused_by: null,
+							refused_by_co_author: false,
+						},
+					],
+				};
+			},
+		});
+
+		expect(
+			await screen.findByText(
+				'Tom and Bob will be asked too. Nothing changes until everyone says yes.',
+			),
+		).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				'Your 12 recipes join their 87. Any of you can then change all 99, and your Kitchens see them.',
+			),
+		).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Write together' }));
+		expect(
+			await screen.findByText('You said yes. Waiting for Tom and Bob to say yes too.'),
+		).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Write together' })).not.toBeInTheDocument();
+		expect(went).not.toHaveBeenCalledWith('/settings');
+		expect(kamosu.calls.filter((call) => call.operation === 'read_cookbook_invite')).toHaveLength(
+			2,
+		);
+	});
+
+	it('leaves the link unspent on Not now', async () => {
+		const { kamosu } = open({
+			read_cookbook_invite: {
+				cookbook: ALREADY,
+				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				their_recipes: 87,
+				your_recipes: 12,
+				together_recipes: 99,
+				already_yours: false,
+				asks: [],
+				waiting: false,
 			},
 		});
 		const later = await screen.findByRole('link', { name: 'Not now' });
@@ -110,10 +180,13 @@ describe('a Cookbook Invite link', () => {
 		open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
+				invited_by: { person_id: 'p_1', name: 'Aurélien' },
 				their_recipes: 87,
 				your_recipes: 87,
 				together_recipes: 87,
 				already_yours: true,
+				asks: [],
+				waiting: false,
 			},
 		});
 		expect(await screen.findByText('You already write this Cookbook.')).toBeInTheDocument();
@@ -127,10 +200,13 @@ describe('a Cookbook Invite link', () => {
 				signedIn
 					? {
 							cookbook: ALREADY,
+							invited_by: { person_id: 'p_1', name: 'Aurélien' },
 							their_recipes: 87,
 							your_recipes: 12,
 							together_recipes: 99,
 							already_yours: false,
+							asks: [],
+							waiting: false,
 						}
 					: { refuse: 'unauthorized' },
 			get_cookbook: () => (signedIn ? ALREADY : { refuse: 'unauthorized' }),

@@ -361,6 +361,45 @@ export type GetCookbookOutput = {
 		created_at: string;
 		invite_id: string;
 	}[];
+	joins: {
+		accepted_by: {
+			name: string;
+			person_id: string;
+		};
+		into: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		invited_by: {
+			name: string;
+			person_id: string;
+		};
+		join_id: string;
+		joining: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		refused_by: {
+			name: string;
+			person_id: string;
+		} | null;
+		refused_by_co_author: boolean;
+		state: "waiting" | "refused";
+		together_recipes: number;
+		waiting_on: {
+			name: string;
+			person_id: string;
+		}[];
+		you: "accepted" | "invited" | "asked" | "answered";
+	}[];
 	kitchens: {
 		id: string;
 		name: string;
@@ -383,6 +422,45 @@ export type RenameCookbookOutput = {
 	invites: {
 		created_at: string;
 		invite_id: string;
+	}[];
+	joins: {
+		accepted_by: {
+			name: string;
+			person_id: string;
+		};
+		into: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		invited_by: {
+			name: string;
+			person_id: string;
+		};
+		join_id: string;
+		joining: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		refused_by: {
+			name: string;
+			person_id: string;
+		} | null;
+		refused_by_co_author: boolean;
+		state: "waiting" | "refused";
+		together_recipes: number;
+		waiting_on: {
+			name: string;
+			person_id: string;
+		}[];
+		you: "accepted" | "invited" | "asked" | "answered";
 	}[];
 	kitchens: {
 		id: string;
@@ -416,6 +494,10 @@ export type ReadCookbookInviteInput = {
 /** What read_cookbook_invite answers. */
 export type ReadCookbookInviteOutput = {
 	already_yours: boolean;
+	asks: {
+		name: string;
+		person_id: string;
+	}[];
 	cookbook: {
 		authors: {
 			name: string;
@@ -426,6 +508,45 @@ export type ReadCookbookInviteOutput = {
 			created_at: string;
 			invite_id: string;
 		}[];
+		joins: {
+			accepted_by: {
+				name: string;
+				person_id: string;
+			};
+			into: {
+				authors: {
+					name: string;
+					person_id: string;
+				}[];
+				id: string;
+				name: string | null;
+			};
+			invited_by: {
+				name: string;
+				person_id: string;
+			};
+			join_id: string;
+			joining: {
+				authors: {
+					name: string;
+					person_id: string;
+				}[];
+				id: string;
+				name: string | null;
+			};
+			refused_by: {
+				name: string;
+				person_id: string;
+			} | null;
+			refused_by_co_author: boolean;
+			state: "waiting" | "refused";
+			together_recipes: number;
+			waiting_on: {
+				name: string;
+				person_id: string;
+			}[];
+			you: "accepted" | "invited" | "asked" | "answered";
+		}[];
 		kitchens: {
 			id: string;
 			name: string;
@@ -433,12 +554,17 @@ export type ReadCookbookInviteOutput = {
 		name: string | null;
 		recipe_count: number;
 	};
+	invited_by: {
+		name: string;
+		person_id: string;
+	};
 	their_recipes: number;
 	together_recipes: number;
+	waiting: boolean;
 	your_recipes: number;
 };
 
-/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you both change. Spent on use. */
+/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use. */
 export type AcceptCookbookInviteInput = {
 	secret: string;
 };
@@ -452,6 +578,108 @@ export type AcceptCookbookInviteOutput = {
 	invites: {
 		created_at: string;
 		invite_id: string;
+	}[];
+	joins: {
+		accepted_by: {
+			name: string;
+			person_id: string;
+		};
+		into: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		invited_by: {
+			name: string;
+			person_id: string;
+		};
+		join_id: string;
+		joining: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		refused_by: {
+			name: string;
+			person_id: string;
+		} | null;
+		refused_by_co_author: boolean;
+		state: "waiting" | "refused";
+		together_recipes: number;
+		waiting_on: {
+			name: string;
+			person_id: string;
+		}[];
+		you: "accepted" | "invited" | "asked" | "answered";
+	}[];
+	kitchens: {
+		id: string;
+		name: string;
+	}[];
+	name: string | null;
+	recipe_count: number;
+};
+
+/** Say yes or no to a Cookbook join that waits on you, as your Cookbook's `joins` lists it. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back. */
+export type AnswerCookbookJoinInput = {
+	join_id: string;
+	yes: boolean;
+};
+/** What answer_cookbook_join answers. */
+export type AnswerCookbookJoinOutput = {
+	authors: {
+		name: string;
+		person_id: string;
+	}[];
+	id: string;
+	invites: {
+		created_at: string;
+		invite_id: string;
+	}[];
+	joins: {
+		accepted_by: {
+			name: string;
+			person_id: string;
+		};
+		into: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		invited_by: {
+			name: string;
+			person_id: string;
+		};
+		join_id: string;
+		joining: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		refused_by: {
+			name: string;
+			person_id: string;
+		} | null;
+		refused_by_co_author: boolean;
+		state: "waiting" | "refused";
+		together_recipes: number;
+		waiting_on: {
+			name: string;
+			person_id: string;
+		}[];
+		you: "accepted" | "invited" | "asked" | "answered";
 	}[];
 	kitchens: {
 		id: string;
@@ -473,6 +701,45 @@ export type LeaveCookbookOutput = {
 	invites: {
 		created_at: string;
 		invite_id: string;
+	}[];
+	joins: {
+		accepted_by: {
+			name: string;
+			person_id: string;
+		};
+		into: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		invited_by: {
+			name: string;
+			person_id: string;
+		};
+		join_id: string;
+		joining: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		refused_by: {
+			name: string;
+			person_id: string;
+		} | null;
+		refused_by_co_author: boolean;
+		state: "waiting" | "refused";
+		together_recipes: number;
+		waiting_on: {
+			name: string;
+			person_id: string;
+		}[];
+		you: "accepted" | "invited" | "asked" | "answered";
 	}[];
 	kitchens: {
 		id: string;
@@ -496,6 +763,45 @@ export type RemoveCookbookAuthorOutput = {
 	invites: {
 		created_at: string;
 		invite_id: string;
+	}[];
+	joins: {
+		accepted_by: {
+			name: string;
+			person_id: string;
+		};
+		into: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		invited_by: {
+			name: string;
+			person_id: string;
+		};
+		join_id: string;
+		joining: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		refused_by: {
+			name: string;
+			person_id: string;
+		} | null;
+		refused_by_co_author: boolean;
+		state: "waiting" | "refused";
+		together_recipes: number;
+		waiting_on: {
+			name: string;
+			person_id: string;
+		}[];
+		you: "accepted" | "invited" | "asked" | "answered";
 	}[];
 	kitchens: {
 		id: string;
@@ -4352,6 +4658,12 @@ export interface Operations {
 		kind: 'immediate';
 		permission: 'person';
 	};
+	answer_cookbook_join: {
+		input: AnswerCookbookJoinInput;
+		output: AnswerCookbookJoinOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
 	leave_cookbook: {
 		input: LeaveCookbookInput;
 		output: LeaveCookbookOutput;
@@ -6239,6 +6551,204 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"joins": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"accepted_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"into": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"invited_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"join_id": {
+								"type": "string"
+							},
+							"joining": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"refused_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"refused_by_co_author": {
+								"description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+								"type": "boolean"
+							},
+							"state": {
+								"enum": [
+									"waiting",
+									"refused"
+								],
+								"type": "string"
+							},
+							"together_recipes": {
+								"type": "integer"
+							},
+							"waiting_on": {
+								"description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"you": {
+								"description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+								"enum": [
+									"accepted",
+									"invited",
+									"asked",
+									"answered"
+								],
+								"type": "string"
+							}
+						},
+						"required": [
+							"join_id",
+							"state",
+							"accepted_by",
+							"invited_by",
+							"joining",
+							"into",
+							"together_recipes",
+							"waiting_on",
+							"you",
+							"refused_by",
+							"refused_by_co_author"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"kitchens": {
 					"items": {
 						"additionalProperties": false,
@@ -6274,7 +6784,8 @@ export const CATALOGUE = [
 				"authors",
 				"recipe_count",
 				"kitchens",
-				"invites"
+				"invites",
+				"joins"
 			],
 			"type": "object"
 		}
@@ -6343,6 +6854,204 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"joins": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"accepted_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"into": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"invited_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"join_id": {
+								"type": "string"
+							},
+							"joining": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"refused_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"refused_by_co_author": {
+								"description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+								"type": "boolean"
+							},
+							"state": {
+								"enum": [
+									"waiting",
+									"refused"
+								],
+								"type": "string"
+							},
+							"together_recipes": {
+								"type": "integer"
+							},
+							"waiting_on": {
+								"description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"you": {
+								"description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+								"enum": [
+									"accepted",
+									"invited",
+									"asked",
+									"answered"
+								],
+								"type": "string"
+							}
+						},
+						"required": [
+							"join_id",
+							"state",
+							"accepted_by",
+							"invited_by",
+							"joining",
+							"into",
+							"together_recipes",
+							"waiting_on",
+							"you",
+							"refused_by",
+							"refused_by_co_author"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"kitchens": {
 					"items": {
 						"additionalProperties": false,
@@ -6378,7 +7087,8 @@ export const CATALOGUE = [
 				"authors",
 				"recipe_count",
 				"kitchens",
-				"invites"
+				"invites",
+				"joins"
 			],
 			"type": "object"
 		}
@@ -6463,6 +7173,26 @@ export const CATALOGUE = [
 				"already_yours": {
 					"type": "boolean"
 				},
+				"asks": {
+					"description": "Who else must say yes before the two Cookbooks become one: everyone writing either, less you and the sender. Empty when accepting joins them at once.",
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"cookbook": {
 					"additionalProperties": false,
 					"properties": {
@@ -6507,6 +7237,204 @@ export const CATALOGUE = [
 							},
 							"type": "array"
 						},
+						"joins": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"accepted_by": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"type": "string"
+											},
+											"person_id": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"person_id",
+											"name"
+										],
+										"type": "object"
+									},
+									"into": {
+										"additionalProperties": false,
+										"properties": {
+											"authors": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"name": {
+															"type": "string"
+														},
+														"person_id": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"person_id",
+														"name"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"id": {
+												"type": "string"
+											},
+											"name": {
+												"type": [
+													"string",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"id",
+											"name",
+											"authors"
+										],
+										"type": "object"
+									},
+									"invited_by": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"type": "string"
+											},
+											"person_id": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"person_id",
+											"name"
+										],
+										"type": "object"
+									},
+									"join_id": {
+										"type": "string"
+									},
+									"joining": {
+										"additionalProperties": false,
+										"properties": {
+											"authors": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"name": {
+															"type": "string"
+														},
+														"person_id": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"person_id",
+														"name"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"id": {
+												"type": "string"
+											},
+											"name": {
+												"type": [
+													"string",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"id",
+											"name",
+											"authors"
+										],
+										"type": "object"
+									},
+									"refused_by": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"type": "string"
+											},
+											"person_id": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"person_id",
+											"name"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"refused_by_co_author": {
+										"description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+										"type": "boolean"
+									},
+									"state": {
+										"enum": [
+											"waiting",
+											"refused"
+										],
+										"type": "string"
+									},
+									"together_recipes": {
+										"type": "integer"
+									},
+									"waiting_on": {
+										"description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"you": {
+										"description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+										"enum": [
+											"accepted",
+											"invited",
+											"asked",
+											"answered"
+										],
+										"type": "string"
+									}
+								},
+								"required": [
+									"join_id",
+									"state",
+									"accepted_by",
+									"invited_by",
+									"joining",
+									"into",
+									"together_recipes",
+									"waiting_on",
+									"you",
+									"refused_by",
+									"refused_by_co_author"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
 						"kitchens": {
 							"items": {
 								"additionalProperties": false,
@@ -6542,7 +7470,24 @@ export const CATALOGUE = [
 						"authors",
 						"recipe_count",
 						"kitchens",
-						"invites"
+						"invites",
+						"joins"
+					],
+					"type": "object"
+				},
+				"invited_by": {
+					"additionalProperties": false,
+					"properties": {
+						"name": {
+							"type": "string"
+						},
+						"person_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"person_id",
+						"name"
 					],
 					"type": "object"
 				},
@@ -6553,23 +7498,30 @@ export const CATALOGUE = [
 					"description": "How many recipes the one Cookbook holds once joined: fewer than the two counts added up wherever both already hold a version of the same recipe.",
 					"type": "integer"
 				},
+				"waiting": {
+					"description": "True when you already accepted this Invite and the join waits on `asks`.",
+					"type": "boolean"
+				},
 				"your_recipes": {
 					"type": "integer"
 				}
 			},
 			"required": [
 				"cookbook",
+				"invited_by",
 				"their_recipes",
 				"your_recipes",
 				"together_recipes",
-				"already_yours"
+				"already_yours",
+				"asks",
+				"waiting"
 			],
 			"type": "object"
 		}
 	},
 	{
 		"name": "accept_cookbook_invite",
-		"summary": "Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you both change. Spent on use.",
+		"summary": "Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6628,6 +7580,204 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"joins": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"accepted_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"into": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"invited_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"join_id": {
+								"type": "string"
+							},
+							"joining": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"refused_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"refused_by_co_author": {
+								"description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+								"type": "boolean"
+							},
+							"state": {
+								"enum": [
+									"waiting",
+									"refused"
+								],
+								"type": "string"
+							},
+							"together_recipes": {
+								"type": "integer"
+							},
+							"waiting_on": {
+								"description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"you": {
+								"description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+								"enum": [
+									"accepted",
+									"invited",
+									"asked",
+									"answered"
+								],
+								"type": "string"
+							}
+						},
+						"required": [
+							"join_id",
+							"state",
+							"accepted_by",
+							"invited_by",
+							"joining",
+							"into",
+							"together_recipes",
+							"waiting_on",
+							"you",
+							"refused_by",
+							"refused_by_co_author"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"kitchens": {
 					"items": {
 						"additionalProperties": false,
@@ -6663,7 +7813,312 @@ export const CATALOGUE = [
 				"authors",
 				"recipe_count",
 				"kitchens",
-				"invites"
+				"invites",
+				"joins"
+			],
+			"type": "object"
+		}
+	},
+	{
+		"name": "answer_cookbook_join",
+		"summary": "Say yes or no to a Cookbook join that waits on you, as your Cookbook's `joins` lists it. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"join_id": {
+					"type": "string"
+				},
+				"yes": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"join_id",
+				"yes"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"authors": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"person_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"person_id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"id": {
+					"type": "string"
+				},
+				"invites": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"created_at": {
+								"type": "string"
+							},
+							"invite_id": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"invite_id",
+							"created_at"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"joins": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"accepted_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"into": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"invited_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"join_id": {
+								"type": "string"
+							},
+							"joining": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"refused_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"refused_by_co_author": {
+								"description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+								"type": "boolean"
+							},
+							"state": {
+								"enum": [
+									"waiting",
+									"refused"
+								],
+								"type": "string"
+							},
+							"together_recipes": {
+								"type": "integer"
+							},
+							"waiting_on": {
+								"description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"you": {
+								"description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+								"enum": [
+									"accepted",
+									"invited",
+									"asked",
+									"answered"
+								],
+								"type": "string"
+							}
+						},
+						"required": [
+							"join_id",
+							"state",
+							"accepted_by",
+							"invited_by",
+							"joining",
+							"into",
+							"together_recipes",
+							"waiting_on",
+							"you",
+							"refused_by",
+							"refused_by_co_author"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"kitchens": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"name": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"id",
+							"name"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"name": {
+					"type": [
+						"string",
+						"null"
+					]
+				},
+				"recipe_count": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"id",
+				"name",
+				"authors",
+				"recipe_count",
+				"kitchens",
+				"invites",
+				"joins"
 			],
 			"type": "object"
 		}
@@ -6722,6 +8177,204 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"joins": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"accepted_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"into": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"invited_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"join_id": {
+								"type": "string"
+							},
+							"joining": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"refused_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"refused_by_co_author": {
+								"description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+								"type": "boolean"
+							},
+							"state": {
+								"enum": [
+									"waiting",
+									"refused"
+								],
+								"type": "string"
+							},
+							"together_recipes": {
+								"type": "integer"
+							},
+							"waiting_on": {
+								"description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"you": {
+								"description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+								"enum": [
+									"accepted",
+									"invited",
+									"asked",
+									"answered"
+								],
+								"type": "string"
+							}
+						},
+						"required": [
+							"join_id",
+							"state",
+							"accepted_by",
+							"invited_by",
+							"joining",
+							"into",
+							"together_recipes",
+							"waiting_on",
+							"you",
+							"refused_by",
+							"refused_by_co_author"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"kitchens": {
 					"items": {
 						"additionalProperties": false,
@@ -6757,7 +8410,8 @@ export const CATALOGUE = [
 				"authors",
 				"recipe_count",
 				"kitchens",
-				"invites"
+				"invites",
+				"joins"
 			],
 			"type": "object"
 		}
@@ -6823,6 +8477,204 @@ export const CATALOGUE = [
 					},
 					"type": "array"
 				},
+				"joins": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"accepted_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"into": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"invited_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": "object"
+							},
+							"join_id": {
+								"type": "string"
+							},
+							"joining": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
+							},
+							"refused_by": {
+								"additionalProperties": false,
+								"properties": {
+									"name": {
+										"type": "string"
+									},
+									"person_id": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"person_id",
+									"name"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"refused_by_co_author": {
+								"description": "Whether whoever said no still writes the accepting Cookbook, so leaving it first would let the Invite be opened alone.",
+								"type": "boolean"
+							},
+							"state": {
+								"enum": [
+									"waiting",
+									"refused"
+								],
+								"type": "string"
+							},
+							"together_recipes": {
+								"type": "integer"
+							},
+							"waiting_on": {
+								"description": "Who has still to say yes, worked out afresh: everyone writing either Cookbook, less the sender, the one who accepted and whoever already said yes.",
+								"items": {
+									"additionalProperties": false,
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"person_id": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"person_id",
+										"name"
+									],
+									"type": "object"
+								},
+								"type": "array"
+							},
+							"you": {
+								"description": "Your part in it: you accepted the Invite, sent it, have still to answer, or already said yes.",
+								"enum": [
+									"accepted",
+									"invited",
+									"asked",
+									"answered"
+								],
+								"type": "string"
+							}
+						},
+						"required": [
+							"join_id",
+							"state",
+							"accepted_by",
+							"invited_by",
+							"joining",
+							"into",
+							"together_recipes",
+							"waiting_on",
+							"you",
+							"refused_by",
+							"refused_by_co_author"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
 				"kitchens": {
 					"items": {
 						"additionalProperties": false,
@@ -6858,7 +8710,8 @@ export const CATALOGUE = [
 				"authors",
 				"recipe_count",
 				"kitchens",
-				"invites"
+				"invites",
+				"joins"
 			],
 			"type": "object"
 		}
@@ -25764,6 +27617,7 @@ export const METHOD_NAMES = {
 	cancel_cookbook_invite: 'cancelCookbookInvite',
 	read_cookbook_invite: 'readCookbookInvite',
 	accept_cookbook_invite: 'acceptCookbookInvite',
+	answer_cookbook_join: 'answerCookbookJoin',
 	leave_cookbook: 'leaveCookbook',
 	remove_cookbook_author: 'removeCookbookAuthor',
 	create_tag: 'createTag',
@@ -25919,8 +27773,10 @@ export interface KamosuClient {
 	cancelCookbookInvite(input: CancelCookbookInviteInput): Promise<Answer<'cancel_cookbook_invite'>>;
 	/** What accepting a Cookbook Invite would do, before you say yes: whose Cookbook it is, and how many recipes on each side become one. */
 	readCookbookInvite(input: ReadCookbookInviteInput): Promise<Answer<'read_cookbook_invite'>>;
-	/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you both change. Spent on use. */
+	/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use. */
 	acceptCookbookInvite(input: AcceptCookbookInviteInput): Promise<Answer<'accept_cookbook_invite'>>;
+	/** Say yes or no to a Cookbook join that waits on you, as your Cookbook's `joins` lists it. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back. */
+	answerCookbookJoin(input: AnswerCookbookJoinInput): Promise<Answer<'answer_cookbook_join'>>;
 	/** Leave the Cookbook you write with others, taking your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy. */
 	leaveCookbook(input?: LeaveCookbookInput): Promise<Answer<'leave_cookbook'>>;
 	/** Separate another Co-author from your Cookbook. They leave with a Branch of every recipe in it, as though they had left. */

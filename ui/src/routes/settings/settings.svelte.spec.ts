@@ -73,6 +73,7 @@ function cookbookOf(over: Partial<GetCookbookOutput> = {}): GetCookbookOutput {
 		recipe_count: 87,
 		kitchens: [],
 		invites: [],
+		joins: [],
 		...over,
 	};
 }
@@ -1576,6 +1577,137 @@ describe('your Cookbook (#131)', () => {
 				input: { person_id: 'p_2' },
 			}),
 		);
+	});
+
+	describe('a join waiting on answers (#135)', () => {
+		type Join = GetCookbookOutput['joins'][number];
+		/** Aurélien (you, p_1) said yes to Hélène's Invite; Hélène writes with Bob. */
+		const joinOf = (over: Partial<Join> = {}): Join => ({
+			join_id: 'cj_1',
+			state: 'waiting',
+			accepted_by: { person_id: 'p_1', name: 'Aurélien' },
+			invited_by: { person_id: 'p_3', name: 'Hélène' },
+			joining: { id: 'c_1', name: null, authors: TOGETHER.authors },
+			into: {
+				id: 'c_2',
+				name: null,
+				authors: [
+					{ person_id: 'p_3', name: 'Hélène' },
+					{ person_id: 'p_4', name: 'Bob' },
+				],
+			},
+			together_recipes: 120,
+			waiting_on: [
+				{ person_id: 'p_2', name: 'Camille' },
+				{ person_id: 'p_4', name: 'Bob' },
+			],
+			you: 'accepted',
+			refused_by: null,
+			refused_by_co_author: false,
+			...over,
+		});
+
+		it('says whom it waits for, and lets the one who accepted take the yes back', async () => {
+			const { kamosu } = renderScreen(
+				Settings,
+				signedIn({
+					get_cookbook: { ...TOGETHER, joins: [joinOf()] },
+					answer_cookbook_join: TOGETHER,
+				}),
+			);
+			const book = within(await card());
+			expect(book.getByText('One Cookbook with Hélène and Bob')).toBeInTheDocument();
+			expect(book.getByText('Waiting for Camille and Bob to say yes.')).toBeInTheDocument();
+			await fireEvent.click(book.getByRole('button', { name: 'Take my yes back' }));
+			await waitFor(() =>
+				expect(kamosu.calls).toContainEqual({
+					operation: 'answer_cookbook_join',
+					input: { join_id: 'cj_1', yes: false },
+				}),
+			);
+			await waitFor(() =>
+				expect(
+					screen.queryByText('Waiting for Camille and Bob to say yes.'),
+				).not.toBeInTheDocument(),
+			);
+		});
+
+		it('offers anyone else in it the same no, as calling it off', async () => {
+			renderScreen(
+				Settings,
+				signedIn({ get_cookbook: { ...TOGETHER, joins: [joinOf({ you: 'invited' })] } }),
+			);
+			const book = within(await card());
+			expect(book.getByRole('button', { name: 'Call it off' })).toBeInTheDocument();
+		});
+
+		it('asks the question here too, to someone it waits on', async () => {
+			const { kamosu } = renderScreen(
+				Settings,
+				signedIn({
+					get_cookbook: { ...TOGETHER, joins: [joinOf({ you: 'asked' })] },
+					answer_cookbook_join: TOGETHER,
+				}),
+			);
+			const book = within(await card());
+			expect(
+				book.getByRole('heading', { name: 'Write one Cookbook with Hélène and Bob?' }),
+			).toBeInTheDocument();
+			await fireEvent.click(book.getByRole('button', { name: 'Write together' }));
+			await waitFor(() =>
+				expect(kamosu.calls).toContainEqual({
+					operation: 'answer_cookbook_join',
+					input: { join_id: 'cj_1', yes: true },
+				}),
+			);
+		});
+
+		it('tells the one who accepted who said no, and how to join anyway', async () => {
+			renderScreen(
+				Settings,
+				signedIn({
+					get_cookbook: {
+						...TOGETHER,
+						joins: [
+							joinOf({
+								state: 'refused',
+								waiting_on: [],
+								refused_by: { person_id: 'p_2', name: 'Camille' },
+								refused_by_co_author: true,
+							}),
+						],
+					},
+				}),
+			);
+			const book = within(await card());
+			expect(book.getByText('Camille said no, so nothing changed.')).toBeInTheDocument();
+			expect(
+				book.getByText(
+					'To join anyway, leave this Cookbook first. You keep a copy of every recipe. Then open the same link again.',
+				),
+			).toBeInTheDocument();
+		});
+
+		it('gives no leaving advice where the no came from the other side', async () => {
+			renderScreen(
+				Settings,
+				signedIn({
+					get_cookbook: {
+						...TOGETHER,
+						joins: [
+							joinOf({
+								state: 'refused',
+								waiting_on: [],
+								refused_by: { person_id: 'p_4', name: 'Bob' },
+							}),
+						],
+					},
+				}),
+			);
+			const book = within(await card());
+			expect(book.getByText('Bob said no, so nothing changed.')).toBeInTheDocument();
+			expect(book.queryByText(/To join anyway/)).not.toBeInTheDocument();
+		});
 	});
 
 	it('heads the Tags with your Cookbook, the only one whose words you rename', async () => {

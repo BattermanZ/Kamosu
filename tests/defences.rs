@@ -1415,6 +1415,35 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             .expect("an Invite")
             .to_string()
     };
+    // A join into Marc's Cookbook waiting on Paul, who writes it with him
+    // (#135): answering it is for the people in it.
+    let his_waiting_join = {
+        let person = |name: &str| {
+            let id = app.core.create_person(name).expect("a Person");
+            app.core
+                .mint_access_key(&id, "browser", false)
+                .expect("an Access Key")
+                .secret
+        };
+        let (paul, lea) = (person("Paul"), person("Léa"));
+        let mut join_id = String::new();
+        for guest in [&paul, &lea] {
+            let (status, minted) = app.post_op("invite_to_cookbook", Some(&marc.key), "{}");
+            assert_eq!(status, 200, "{minted}");
+            let (status, accepted) = app.post_op(
+                "accept_cookbook_invite",
+                Some(guest),
+                &json!({ "secret": minted["result"]["secret"] }).to_string(),
+            );
+            assert_eq!(status, 200, "{accepted}");
+            join_id = accepted["result"]["joins"][0]["join_id"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+        }
+        assert!(join_id.starts_with("cj_"), "Léa's join waits on Paul");
+        join_id
+    };
     let no_recipe = "b_ffffffffffffffff";
     let no_tag = "t_ffffffffffffffff";
     let no_import = "imp_ffffffffffffffff";
@@ -1668,6 +1697,14 @@ async fn a_refusal_never_says_whether_another_household_here_holds_the_thing() {
             field: "invite_id",
             his: his_cookbook_invite.clone(),
             absent: "ci_ffffffffffffffff",
+        },
+        // A join waiting on Marc's Cookbook: a no would call it off.
+        Probe {
+            operation: "answer_cookbook_join",
+            rest: json!({ "yes": false }),
+            field: "join_id",
+            his: his_waiting_join.clone(),
+            absent: "cj_ffffffffffffffff",
         },
     ];
     for probe in &probes {

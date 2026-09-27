@@ -15,10 +15,11 @@
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import type { HomeShelvesOutput } from '$lib/api/catalogue';
+	import type { GetCookbookOutput, HomeShelvesOutput } from '$lib/api/catalogue';
 	import { refreshed } from '$lib/offline/device.svelte';
 	import Account from './Account.svelte';
 	import Home from './Home.svelte';
+	import CookbookJoins from '$lib/CookbookJoins.svelte';
 
 	const kamosu = useKamosu();
 
@@ -27,6 +28,13 @@
 	let failed = $state(false);
 	/** Bumped when the form reports a sign-in, which re-runs the ask below. */
 	let asked = $state(0);
+
+	/**
+	 * The reader's Cookbook, asked for after the shelves, for one thing only: a
+	 * join waiting on their answer is asked on Home, the screen they open every
+	 * time, since nothing else would tell them (#135, answer 2).
+	 */
+	let cookbook = $state<GetCookbookOutput | undefined>(undefined);
 
 	/** The form says it worked: forget the refusal and ask again. */
 	function signedIn() {
@@ -50,6 +58,16 @@
 					home = shelves;
 					failed = false;
 				}
+				// Only ever an addition to Home: a Cookbook that cannot be read
+				// just now, offline say, leaves the shelves standing without it.
+				return kamosu.getCookbook().then(
+					(answer) => {
+						if (current) cookbook = answer;
+					},
+					(refused: unknown) => {
+						if (!(refused instanceof OperationError)) throw refused;
+					},
+				);
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof OperationError)) throw error;
@@ -69,10 +87,24 @@
 	});
 </script>
 
+{#snippet asking()}
+	{#if cookbook}
+		<CookbookJoins
+			{cookbook}
+			onlyAsked
+			onAnswered={(answered) => {
+				cookbook = answered;
+				// A join that went ahead puts more recipes on the shelves.
+				asked += 1;
+			}}
+		/>
+	{/if}
+{/snippet}
+
 {#if home === null}
 	<Account onSignedIn={signedIn} />
 {:else if home}
-	<Home {home} />
+	<Home {home} asking={cookbook?.joins.some((join) => join.you === 'asked') ? asking : undefined} />
 {:else if failed}
 	<div class="mx-auto max-w-2xl px-gutter pt-6">
 		<p class="text-body text-support" role="alert">{m.home_failed()}</p>

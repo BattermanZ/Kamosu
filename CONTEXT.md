@@ -61,7 +61,7 @@ The unguessable address at which a recipe can be read by anyone holding it — t
 _Avoid_: Public URL, guest access, token link, published recipe
 
 **Invite**:
-A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, or joins another Person's Cookbook to yours — a **Cookbook Invite**, which only somebody who already has an account can open, and which says how many recipes on each side become one before anything happens. Kamosu has no signup: every account begins with an Invite, and the first is the Operator's own, minted when the instance first runs.
+A one-use link that turns a stranger into a Person, adds a Person to a Kitchen, or joins another Person's Cookbook to yours — a **Cookbook Invite**, which only somebody who already has an account can open, and which says how many recipes on each side become one before anything happens. Where either Cookbook has other Co-authors, accepting one joins nothing until each of them has said yes too (#135). Kamosu has no signup: every account begins with an Invite, and the first is the Operator's own, minted when the instance first runs.
 _Avoid_: Signup, registration, join code, magic link
 
 **Access Key**:
