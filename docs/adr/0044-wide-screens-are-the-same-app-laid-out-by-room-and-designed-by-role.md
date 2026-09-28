@@ -1,0 +1,33 @@
+# Wide screens are the same app, laid out by room and designed by role
+
+Kamosu on a tablet or a computer is the phone's app, the same installed PWA, laid out again when the window has room. There is no tablet app and no desktop app. Which layout a window gets depends on its size alone, and how much design a screen gets depends on what each device is for. Settled with Aurélien on 2026-09-28, in a grilling session held before any wide-screen code existed. Until then every screen was a 672px column centred in whatever window it was given.
+
+## What was decided
+
+- **One PWA everywhere.** Installed from Safari on an iPad, from Chrome on an Android tablet, and from Chrome on a computer (in a tab or as an installed app window). Native apps were never on the table once this was settled: they would bring packaging, signing and updates, and a second codebase to keep level with the Catalogue.
+- **The layout goes by room, not by device.** The wide layout needs about **700 wide and about 560 tall**. The height half is what keeps a phone turned sideways (about 850 by 390) on the phone layout. Every tablet clears both lines in either orientation, so turning a tablet on its stand never moves the navigation. A small 7–8" tablet in portrait (about 600 wide) gets the phone layout, which suits it. These figures are starting values, to be fitted against real devices the way #88 fitted the cooking screen. Nothing reads the user agent or asks what device it is on.
+- **Each device has a role, and the role decides which screens get real design.** The tablet is the kitchen device: cooking, and picking dinner from the couch. The computer is the desk device: importing, editing and tidying. The phone keeps shopping and quick look-ups. Every device keeps every feature. The role only decides which screens get designed properly for the wide layout and which get a sensible default.
+- **A sidebar replaces the tab bar** on the wide layout: Home, Recipes, Shopping, Cooked and Settings down the left edge, like Apple's Mail and Notes.
+- **Browsing screens open things as full pages; tidying screens keep the list beside what you opened.** Home, Recipes and Cooked stay full pages with wider photo grids, because dinner is picked by looking at photographs and a narrow list column would shrink them. Foods and Imports go side by side, because there you work down a list: open, fix, next.
+- **A recipe puts its Ingredients beside its Method** once there is room (landscape tablet and computer). The editor follows, since #83 made the page and the editor the same layout.
+- **A page you reach from another page carries a back arrow at its top left** on the wide layout: a recipe, a Food, an import report, a recipe's history, Share. The sidebar's own destinations carry none. The arrow does exactly what the device's back does, so it restores a search as [#191](https://github.com/BattermanZ/Kamosu/issues/191) makes back do. It exists for the iPad: an app installed from Safari shows no browser buttons (Apple, WWDC23 "What's new in web apps"), and developer reports say Safari's edge swipe does not carry over, so without it the iPad has no reliable way back. Chrome's installed window, a Chrome tab and Android's system back already cover the other devices.
+- **Every bottom sheet becomes a window in the middle of the screen** on the wide layout, the page dimmed behind it.
+- **The cooking screen keeps ADR 0011 and gets no sidebar.** ADR 0011 rejected the full ingredient list pinned beside the Step for having nine lines of which one matters, and a bigger screen doesn't change that. The screen is made for distance instead, since a tablet on the counter is read from further away than a phone in the hand. Whether it also shows the next Step small beside the current one is decided on prototypes.
+- **The keyboard is used where work repeats.** Hover feedback, Escape, Enter and Tab everywhere; up and down arrows through the side-by-side lists; `/` to the recipe search. No letter shortcuts. These work wherever a keyboard and pointer are attached, a Magic Keyboard on an iPad included. Button sizes stay at 48px on every device.
+- **Files can be dropped where they have one meaning.** A PDF, a Bundle or a web link onto Recipes; a Crouton export where its import lives; a photograph onto the photo it would set. Nowhere else accepts a drop, so a drop never has to guess.
+- **Everything else gets a default.** Shopping puts the chosen recipes on the left and the combined list on the right (ADR 0024 already treats the list as a choice of recipes). Settings, Operator, Thread, Share and the Divergence view become one column at reading width. Sign-in, invites, recovery and About stay centred with no sidebar.
+
+## Considered options
+
+- **Same jobs everywhere, every screen designed equally for the wide layout.** Rejected: twenty-odd screens designed with equal care, when four of them are where each device earns its place.
+- **Separate native apps.** Rejected before the rest was discussed, for the costs above.
+- **Width alone decides the layout.** Rejected on the sideways phone.
+- **Side by side on every list screen, Recipes included.** Rejected because the list column would shrink the photographs. It would suit fixing many recipes in a row at the computer, which is the use it gives up.
+- **Bottom tabs kept, or tabs across the top.** Rejected: the first looks like a phone on a 14" screen, and the second is at the edge of a propped-up tablet furthest from the hand.
+- **Panels sliding in from the right instead of centred windows.** Rejected so that every sheet behaves the same way. None of them needs the recipe readable while it is open.
+
+## Consequences
+
+- **Four things get prototypes before they are built:** the sidebar, the recipe page and editor in two columns, Foods side by side (the example for the tidying pattern), and the cooking screen with and without the next Step. What Aurélien chooses is added here.
+- **Live acceptance runs at fixed sizes:** iPad mini and 11" iPad in both orientations, a 10" Android tablet, a sideways phone, a 14" MacBook at 1512 × 982, and a large monitor. What only a real device shows is checked on Aurélien's iPad Pro 11" (Safari, installed) and MacBook Pro 14" (Chrome).
+- **Nothing stored changes.** This is layout over the same Operations. Under [ADR 0009](./0009-the-v1-cut-line-is-drawn-at-shape-not-at-features.md) it is computed on top and can be redesigned again without touching a recipe.

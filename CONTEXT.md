@@ -301,7 +301,7 @@ One person's record of one cooking — dated, pinned by fingerprint to the Versi
 _Avoid_: Cook, log entry, session, make, bake, journal entry
 
 **In Progress**:
-An Attempt between the start of cooking and its end. Held on the server, so one cooking follows its cook from phone to iPad, and it additionally holds where they have got to — which Step, which Ingredients are ticked, and the Yield being cooked to, which is a fact about that cooking and never a deviation. Visible to its cook alone, inheriting the recipe's visibility only once it ends. A Person may have one In Progress per Lineage; two devices are one Attempt, and the last one moved on is where the cook is. Ending is either finishing deliberately — where a rating or a note is added — or simply stopping, after which Kamosu offers to resume for three days from the last action and then stops asking.
+An Attempt between the start of cooking and its end. Held on the server, so one cooking follows its cook from phone to tablet, and it additionally holds where they have got to — which Step, which Ingredients are ticked, and the Yield being cooked to, which is a fact about that cooking and never a deviation. Visible to its cook alone, inheriting the recipe's visibility only once it ends. A Person may have one In Progress per Lineage; two devices are one Attempt, and the last one moved on is where the cook is. Ending is either finishing deliberately — where a rating or a note is added — or simply stopping, after which Kamosu offers to resume for three days from the last action and then stops asking.
 _Avoid_: Cooking session, active cook, live session, draft attempt
 
 **As Cooked**:
