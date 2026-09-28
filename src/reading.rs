@@ -893,12 +893,54 @@ fn restated(words: &[&str]) -> Option<usize> {
         .map(|take| 1 + amount + take)
 }
 
-/// How many leading words read as one amount: the longest run of up to three,
-/// so `1 1/2` beats `1`.
+/// How many leading words read as one amount: a range if one opens the line,
+/// and otherwise the longest run of up to three, so `1 1/2` beats `1`.
 fn amount_words(words: &[&str]) -> Option<usize> {
-    (1..=words.len().min(3))
-        .rev()
-        .find(|&take| units::parse_amount(&words[..take].join(" ")).is_some())
+    range_words(words).or_else(|| {
+        (1..=words.len().min(3))
+            .rev()
+            .find(|&take| units::parse_amount(&words[..take].join(" ")).is_some())
+    })
+}
+
+/// The words that join the two ends of a range written out, in each Language
+/// Kamosu reads: `2 to 3`, `2 ou 3`, `2 o 3`, and `2 a 3`, which [`listed`]
+/// folds so it is French `2 à 3` too. `or`, `ou` and `o` are
+/// [`CHOICE_WORDS`] as well: between two numbers they join a range, and
+/// anywhere else they offer a choice.
+const RANGE_WORDS: &[&str] = &["to", "or", "a", "ou", "o"];
+
+/// The most words a range takes: an amount of up to three either side of
+/// the word that joins them, `1 1/2 to 2 1/2`.
+const LONGEST_RANGE: usize = 7;
+
+/// **How many leading words are a range**, `2-3` or `1 1/2 to 2` (#167).
+///
+/// Both ends must be amounts [`units::parse_amount`] reads, joined by a
+/// hyphen, a dash or one of the [`RANGE_WORDS`], with nothing between
+/// them. `4 g or 1 tsp` is therefore two measures and no range, and `1-inch`
+/// is a number measuring a word.
+///
+/// The range is kept as written and is worth nothing: `parse_amount` answers
+/// nothing to it, so a range is never scaled, converted or added up on a
+/// shopping list (ADR 0016). What follows it is read as it is after any other
+/// amount, so `2-3 basil leaves` names basil leaves.
+fn range_words(words: &[&str]) -> Option<usize> {
+    (1..=words.len().min(LONGEST_RANGE)).rev().find(|&take| {
+        let words = &words[..take];
+        let joined = words
+            .iter()
+            .position(|word| listed(RANGE_WORDS, word))
+            .map(|at| (words[..at].join(" "), words[at + 1..].join(" ")));
+        let dashed = || {
+            let text = words.join(" ");
+            let (low, high) = text.split_once(['-', '\u{2013}', '\u{2014}'])?;
+            Some((low.to_string(), high.to_string()))
+        };
+        joined.or_else(dashed).is_some_and(|(low, high)| {
+            units::parse_amount(&low).is_some() && units::parse_amount(&high).is_some()
+        })
+    })
 }
 
 /// Stand a slash that comes before a number apart as its own word, so
@@ -1532,6 +1574,143 @@ mod tests {
         );
         assert_eq!(read("salt, 2 pinches"), parts(None, None, Some("salt")));
         assert_eq!(read("salt,2 pinches"), parts(None, None, Some("salt")));
+    }
+
+    #[test]
+    fn a_range_is_the_amount_as_written() {
+        // The lines #167 was filed from, as production read them on 2026-09-26.
+        assert_eq!(
+            read("2-3 basil leaves"),
+            parts(Some("2-3"), None, Some("basil leaves"))
+        );
+        assert_eq!(
+            read("225-250 g stale bread (about 1/2 loaf), torn"),
+            parts(Some("225-250"), Some("g"), Some("stale bread"))
+        );
+        assert_eq!(
+            read("½-1 cup cheese (shredded, goat cheese or feta)"),
+            parts(Some("½-1"), Some("cup"), Some("cheese"))
+        );
+        // A choice names no Food (#148), so this line names none. The range
+        // and the Unit are read all the same.
+        assert_eq!(
+            read("380-400 ml vegetable stock or water"),
+            parts(Some("380-400"), Some("ml"), None)
+        );
+        // An en dash, an em dash, a mixed number either side, and a spaced
+        // dash.
+        assert_eq!(
+            read("2—3 cloves garlic"),
+            parts(Some("2—3"), Some("cloves"), Some("garlic"))
+        );
+        assert_eq!(
+            read("2–3 cloves garlic"),
+            parts(Some("2–3"), Some("cloves"), Some("garlic"))
+        );
+        assert_eq!(
+            read("1–1½ cups flour"),
+            parts(Some("1–1½"), Some("cups"), Some("flour"))
+        );
+        assert_eq!(
+            read("1 1/2-2 cups sugar"),
+            parts(Some("1 1/2-2"), Some("cups"), Some("sugar"))
+        );
+        assert_eq!(
+            read("2 - 3 carrots"),
+            parts(Some("2 - 3"), None, Some("carrots"))
+        );
+        assert_eq!(
+            read("0.5-1 tsp chilli flakes"),
+            parts(Some("0.5-1"), Some("tsp"), Some("chilli flakes"))
+        );
+    }
+
+    #[test]
+    fn a_range_written_with_a_word_is_a_range_too() {
+        // Before #167 this read as two of a Food called `to 3 cloves garlic`.
+        assert_eq!(
+            read("2 to 3 cloves garlic"),
+            parts(Some("2 to 3"), Some("cloves"), Some("garlic"))
+        );
+        // #148 caught this as a choice and named no Food. It is a range of
+        // one Food, and the Food is onions.
+        assert_eq!(
+            read("1 or 2 onions"),
+            parts(Some("1 or 2"), None, Some("onions"))
+        );
+        for (range, single) in [
+            ("2 ou 3 gousses d'ail", "3 gousses d'ail"),
+            ("2 à 3 c. à s. d'huile d'olive", "3 c. à s. d'huile d'olive"),
+            ("2 a 3 dientes de ajo", "3 dientes de ajo"),
+            ("1 o 2 cebollas", "2 cebollas"),
+        ] {
+            let (amount, unit, target) = read(range).expect(range);
+            let (_, single_unit, single_target) = read(single).expect(single);
+            assert_eq!(
+                (unit, target),
+                (single_unit, single_target),
+                "{range} reads as {single} does"
+            );
+            let words: Vec<&str> = range.split(' ').take(3).collect();
+            assert_eq!(amount.as_deref(), Some(words.join(" ").as_str()));
+        }
+        // A choice between two measures is still a choice, not a range: a
+        // Unit stands between the numbers.
+        assert_eq!(
+            read("4 g or 1 rounded tsp instant yeast"),
+            parts(Some("4"), Some("g"), None)
+        );
+    }
+
+    #[test]
+    fn a_range_leaves_what_already_read_alone() {
+        assert_eq!(
+            read("1½ cups flour"),
+            parts(Some("1½"), Some("cups"), Some("flour"))
+        );
+        assert_eq!(
+            read("1 1/2 cups flour"),
+            parts(Some("1 1/2"), Some("cups"), Some("flour"))
+        );
+        // A hyphen with a word after it is no range: the number measures the
+        // word, and nothing here is an amount of two numbers. The line reads
+        // as it did before #167.
+        assert_eq!(
+            read("1-inch piece ginger"),
+            parts(None, None, Some("1-inch piece ginger"))
+        );
+    }
+
+    #[test]
+    fn a_range_is_worth_nothing() {
+        // No number, so no scaling, no conversion and no number on the
+        // shopping list (ADR 0016).
+        assert_eq!(units::parse_amount("2-3"), None);
+        for scale in [1.0, 2.0] {
+            assert_eq!(
+                units::measured_line(
+                    Some("½-1"),
+                    Some("cup"),
+                    scale,
+                    units::Measures::Metric,
+                    "en",
+                    None
+                ),
+                None
+            );
+        }
+        assert_eq!(
+            units::how_much_of(Some("2-3"), Some("cups"), Some("4"), Some("cups")),
+            None
+        );
+    }
+
+    #[test]
+    fn a_range_restated_after_a_slash_is_no_part_of_the_food() {
+        assert_eq!(
+            read("400-450 g / 0.9-1 lb onions"),
+            parts(Some("400-450"), Some("g"), Some("onions"))
+        );
     }
 
     #[test]

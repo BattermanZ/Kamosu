@@ -327,16 +327,9 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
             let read = kamosu::reading::read_line(text)
                 .and_then(|reading| reading.unit)
                 .and_then(|unit| kamosu::units::recognise(&unit).map(|u| u.id));
-            if read == Some(unit) {
-                imperial_read += 1;
-            } else {
-                // The reader does not read a range yet (reading.rs); the line
-                // itself is right, and says the range as Crouton stored it.
-                assert!(
-                    text.split_whitespace().next().unwrap().contains('-'),
-                    "{text}"
-                );
-            }
+            // Ranges included, since #167: `380-400 ml` reads as `ml`.
+            assert_eq!(read, Some(unit), "{text}");
+            imperial_read += 1;
         }
         for step in content["steps"].as_array().unwrap() {
             steps += 1;
@@ -356,8 +349,8 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
         "41% of 863 rows are imperial, and still say so"
     );
     assert_eq!(
-        imperial_read, 348,
-        "every imperial line but the 3 ranges reads back as the Unit it was rebuilt from"
+        imperial_read, 351,
+        "every imperial line, its 3 ranges too, reads back as the Unit it was rebuilt from"
     );
     assert_eq!(steps, 599);
     assert!(decoded, "Dan Dan Noodles' section arrived decoded");
