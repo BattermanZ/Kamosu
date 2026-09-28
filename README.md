@@ -34,7 +34,7 @@ port, and it sends your data nowhere.
 <table>
   <tr>
     <td width="50%" valign="top" align="center">
-      <img src="docs/readme/home.png" width="260" alt="Home: recipe shelves for recently added and most cooked">
+      <img src="docs/readme/home-shelves.png" width="260" alt="Home: recipe shelves for recently added and most cooked">
       <p align="center"><sub><b>Home</b>: shelves worked out from what you cook</sub></p>
     </td>
     <td width="50%" valign="top" align="center">
