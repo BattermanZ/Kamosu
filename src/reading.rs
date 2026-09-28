@@ -137,6 +137,9 @@ const OPEN_UNITS: &[&str] = &[
     "cubes",
     "bundle",
     "bundles",
+    // A pour of oil or wine, as #181 made `filet` one in French (#186).
+    "glug",
+    "glugs",
     // French. `cube` and `cubes` are spelt the same, so the English pair above
     // covers both (#161).
     "gousse",
@@ -253,6 +256,53 @@ const SIZES_AFTER: &[&str] = &[
     "petit", "petite", "petits", "petites", "moyen", "moyenne", "moyens", "moyennes", "grand",
     "grande", "grands", "grandes", "pequeno", "pequena", "pequenos", "pequenas", "mediano",
     "mediana", "medianos", "medianas",
+];
+
+/// Words of praise for a measure, or for how full it is: `1 good pinch salt`,
+/// `1 heaping tablespoon sugar`, `1 scant cup flour`, `1 bonne poignée de
+/// basilic`. Like a size, such a word says nothing about which Food to buy,
+/// but it is dropped only where a measure makes it one (#186): straight
+/// before a Unit, and at the start of a Food that follows an amount or a
+/// Unit. Anywhere else it stays in the name, which is Aurélien's choice on
+/// #186: *poulet à la bonne femme* is a dish, not a good woman's chicken.
+///
+/// Kept apart from [`SIZES`] for that reason, since a size is dropped from
+/// the front of any Food. Every form is listed, as for [`SIZES`]. Words that
+/// are as often part of a name are left out: *Nice* biscuits are a biscuit.
+const PRAISE: &[&str] = &[
+    // English
+    "good",
+    "good-quality",
+    "generous",
+    "heaping",
+    "heaped",
+    "rounded",
+    "level",
+    "scant",
+    // French
+    "bon",
+    "bonne",
+    "bons",
+    "bonnes",
+    "genereux",
+    "genereuse",
+    "genereuses",
+    "beau",
+    "belle",
+    "beaux",
+    "belles",
+    "copieux",
+    "copieuse",
+    "copieuses",
+    // Spanish
+    "buen",
+    "buena",
+    "buenos",
+    "buenas",
+    "generoso",
+    "generosa",
+    "generosos",
+    "generosas",
 ];
 
 /// The ways a recipe says how warm a food should be when it goes in, each
@@ -621,14 +671,20 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
     } else {
         rest.len().saturating_sub(1)
     };
-    let mut unit_taken = 0;
-    for take in (1..=longest.min(3)).rev() {
-        let candidate = rest[..take].join(" ");
-        if units::recognise(&candidate).is_some() || (take == 1 && listed(OPEN_UNITS, rest[0])) {
-            reading.unit = Some(candidate);
-            unit_taken = take;
-            break;
+    let mut unit_taken = unit_at(rest, longest);
+    // Failing that, a Unit behind a word that only praises it: `good pinch`
+    // is a pinch (#186). The praise is skipped only when a Unit follows, with
+    // or without an amount before it, so `bonne pincée de sel` is a pinch
+    // too, while a name that opens with such a word keeps it.
+    let praised = without_praise(rest);
+    if unit_taken == 0 && praised.len() < rest.len() {
+        unit_taken = unit_at(praised, longest.saturating_sub(rest.len() - praised.len()));
+        if unit_taken > 0 {
+            rest = praised;
         }
+    }
+    if unit_taken > 0 {
+        reading.unit = Some(rest[..unit_taken].join(" "));
     }
 
     // The Food is what the measure leaves. Where it leaves nothing, and
@@ -646,8 +702,14 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
             restating = true;
         }
     }
-    let food = without_warmth_or_size(strip_glue(named));
     let measured = reading.amount.is_some() || reading.unit.is_some();
+    let mut food = without_warmth_or_size(strip_glue(named));
+    // A word of praise opening the Food goes only after a measure (#186):
+    // `200 g good dark chocolate` is dark chocolate. The sizes are taken off
+    // again after it, since one can stand behind it: `1 good big onion`.
+    if measured {
+        food = without_warmth_or_size(without_praise(food));
+    }
     reading.target = if offers_a_choice(named) {
         None
     } else if !food.is_empty() && !only_describing(food) {
@@ -1112,14 +1174,16 @@ const NAMES_NOTHING_ALONE: &[&str] = &[
 ];
 
 /// **Whether a word says nothing a cook would call a food by, on its own**: an
-/// article or preposition, a size, a temperature, a way of preparing it, a
-/// measure, or one of [`NAMES_NOTHING_ALONE`]. A Step's `uses` lets a shorter
-/// part of an ingredient's name count, as *syrup* for *maple syrup*, and this
-/// is what keeps that part from being only *the*, *fresh* or *crispy* (#184).
+/// article or preposition, a size or a word of praise, a temperature, a way
+/// of preparing it, a measure, or one of [`NAMES_NOTHING_ALONE`]. A Step's
+/// `uses` lets a shorter part of an ingredient's name count, as *syrup* for
+/// *maple syrup*, and this is what keeps that part from being only *the*,
+/// *fresh* or *crispy* (#184).
 pub fn names_nothing_alone(word: &str) -> bool {
     let bare = word.trim_end_matches(['\'', '\u{2019}']);
     only_joins(bare)
         || listed(SIZES, bare)
+        || listed(PRAISE, bare)
         || listed(DESCRIBING, bare)
         || listed(VERY, bare)
         || listed(NAMES_NOTHING_ALONE, bare)
@@ -1282,6 +1346,31 @@ fn offers_a_choice(words: &[&str]) -> bool {
                 ELISIONS.contains(&word.as_str())
             })
     })
+}
+
+/// How many words at the start of `words` are a Unit, looking at no more than
+/// `longest` of them: the longest window the closed set recognises, and
+/// failing that one word from the [`OPEN_UNITS`]. Nothing is a Unit at 0.
+fn unit_at(words: &[&str], longest: usize) -> usize {
+    (1..=longest.min(3))
+        .rev()
+        .find(|&take| {
+            units::recognise(&words[..take].join(" ")).is_some()
+                || (take == 1 && listed(OPEN_UNITS, words[0]))
+        })
+        .unwrap_or(0)
+}
+
+/// The words with any [`PRAISE`] word at their start dropped, and the glue
+/// and sizes around it: `good big pinch of salt` is `pinch of salt`.
+fn without_praise<'a>(mut words: &'a [&'a str]) -> &'a [&'a str] {
+    loop {
+        words = strip_glue(words);
+        match words.first() {
+            Some(word) if listed(PRAISE, word) => words = &words[1..],
+            _ => return words,
+        }
+    }
 }
 
 /// Glue and size words sit wherever they like — before the Unit as much as
@@ -2130,6 +2219,92 @@ mod tests {
         assert_eq!(
             read("1 boîte de tomates"),
             parts(Some("1"), Some("boîte"), Some("tomates"))
+        );
+    }
+
+    #[test]
+    fn a_generous_measure_is_still_a_measure() {
+        // The lines #186 was filed from, and the ones its triage found.
+        for (line, amount, unit, food) in [
+            ("1 good pinch salt", "1", "pinch", "salt"),
+            ("1 good handful fresh basil", "1", "handful", "fresh basil"),
+            ("1 glug olive oil", "1", "glug", "olive oil"),
+            ("1 bonne pincée de sel", "1", "pincée", "sel"),
+            (
+                "1 bonne poignée de basilic frais",
+                "1",
+                "poignée",
+                "basilic frais",
+            ),
+            ("1 heaping tablespoon sugar", "1", "tablespoon", "sugar"),
+            ("2 heaped tsp cumin", "2", "tsp", "cumin"),
+            ("1 generous pinch salt", "1", "pinch", "salt"),
+            ("1 heaping handful spinach", "1", "handful", "spinach"),
+            ("1 buena pizca de sal", "1", "pizca", "sal"),
+            ("1 big glug olive oil", "1", "glug", "olive oil"),
+            ("2 glugs olive oil", "2", "glugs", "olive oil"),
+            ("200 g good dark chocolate", "200", "g", "dark chocolate"),
+            ("1 belle poignée d'épinards", "1", "poignée", "épinards"),
+            ("1 scant cup sugar", "1", "cup", "sugar"),
+            ("1 level tsp salt", "1", "tsp", "salt"),
+            // As the real library writes it.
+            (
+                "8 ounces good-quality chocolate, semi-sweet",
+                "8",
+                "ounces",
+                "chocolate",
+            ),
+        ] {
+            assert_eq!(
+                read(line),
+                parts(Some(amount), Some(unit), Some(food)),
+                "{line}"
+            );
+        }
+        // A size behind the praise goes too.
+        assert_eq!(
+            read("1 good big onion"),
+            parts(Some("1"), None, Some("onion"))
+        );
+        // Straight before a Unit the praise goes with or without an amount.
+        assert_eq!(
+            read("une bonne pincée de sel"),
+            parts(None, Some("pincée"), Some("sel"))
+        );
+        assert_eq!(
+            read("a good pinch of salt"),
+            parts(None, Some("pinch"), Some("salt"))
+        );
+        assert_eq!(
+            read("bonne pincée de sel"),
+            parts(None, Some("pincée"), Some("sel"))
+        );
+    }
+
+    #[test]
+    fn a_word_of_praise_stays_where_nothing_was_measured() {
+        // Aurélien's choice on #186: the word goes only after a measure, so
+        // a name that opens with one keeps it.
+        assert_eq!(
+            read("poulet à la bonne femme"),
+            parts(None, None, Some("poulet à la bonne femme"))
+        );
+        assert_eq!(
+            read("good olive oil"),
+            parts(None, None, Some("good olive oil"))
+        );
+        // And what #186 had to leave alone.
+        assert_eq!(
+            read("1 large handful cilantro"),
+            parts(Some("1"), Some("handful"), Some("cilantro"))
+        );
+        assert_eq!(
+            read("1 grosse poignée de coriandre"),
+            parts(Some("1"), Some("poignée"), Some("coriandre"))
+        );
+        assert_eq!(
+            read("1 filet d'huile d'olive"),
+            parts(Some("1"), Some("filet"), Some("huile d'olive"))
         );
     }
 
