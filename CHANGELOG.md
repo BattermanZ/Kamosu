@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.0 - unreleased
+## v0.1.0 - 2026-09-28
 
 The first release. Kamosu has been cooked from in one household since August
 2026. This is the first time anyone else can run it: it is now
