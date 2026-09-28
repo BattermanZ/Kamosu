@@ -16,5 +16,12 @@ services:
     # No environment variable is required. Four exist, all optional:
     # KAMOSU_ADDRESS, KAMOSU_PORT, KAMOSU_DATA_DIR and KAMOSU_LOG.
     restart: unless-stopped
-    # The image checks its own health with `kamosu health-check`; the
-    # distroless runtime has no shell or curl to do it any other way.
+    # Declared here as well as in the image, because a Podman-built image
+    # (the podman-* tags) carries no HEALTHCHECK. The distroless runtime has
+    # no shell or curl, so the binary checks its own health.
+    healthcheck:
+      test: ["CMD", "/app/kamosu", "health-check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
