@@ -469,6 +469,111 @@ fn follow_task(app: &support::TestApp, name: &str, task_id: serde_json::Value, e
     panic!("task for tool '{name}' never reached an end state");
 }
 
+/// Every `"description"` written anywhere inside a schema, found by a plain
+/// sweep rather than by following the keywords the Door follows, so a meaning
+/// the Door's walk misses is still counted here. Only a string counts: a field
+/// that happens to be called `description` holds a schema, not a meaning.
+fn meanings_in(schema: &Value, out: &mut Vec<String>) {
+    match schema {
+        Value::Object(map) => {
+            for (key, value) in map {
+                match (key.as_str(), value) {
+                    ("description", Value::String(meaning)) => {
+                        if !out.contains(meaning) {
+                            out.push(meaning.clone());
+                        }
+                    }
+                    _ => meanings_in(value, out),
+                }
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|item| meanings_in(item, out)),
+        _ => {}
+    }
+}
+
+/// #187: an agent over MCP is shown a tool's description and inputs, never an
+/// `outputSchema`, so what a Catalogue answer field means has to be in the
+/// description or it does not arrive at all. Claude Code cuts a description at
+/// 2,048 characters, so one that would pass it says how much it left out
+/// instead of being cut mid-sentence.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_answer_fields_meaning_reaches_the_mcp_listing() {
+    let app = support::spawn_app();
+    let (_, listing) = app.post_mcp(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#, None);
+    let tools = listing["result"]["tools"].as_array().expect("tools list");
+
+    let mut shortened = Vec::new();
+    for tool in tools {
+        let name = tool["name"].as_str().expect("tool name");
+        let described = tool["description"].as_str().expect("a description");
+        assert!(
+            described.encode_utf16().count() <= 2048,
+            "{name}'s description passes Claude Code's 2,048-character cap: {described}"
+        );
+        assert!(
+            tool.get("outputSchema").is_none(),
+            "{name} declares an outputSchema, which a Job's `{{ job_id }}` answer would contradict"
+        );
+
+        let op = catalogue::find(name).expect("a listed tool is in the Catalogue");
+        let mut meanings = Vec::new();
+        meanings_in(&op.output_schema, &mut meanings);
+        let missing = meanings
+            .iter()
+            .filter(|meaning| {
+                !described.contains(&format!(": {meaning}\n"))
+                    && !described.ends_with(&format!(": {meaning}"))
+            })
+            .count();
+        let left_out = described
+            .lines()
+            .last()
+            .and_then(|line| line.strip_prefix("- "))
+            .and_then(|line| {
+                line.strip_suffix(" more field meanings are left out for length.")
+                    .or_else(|| line.strip_suffix(" more field meaning is left out for length."))
+            })
+            .map(|count| count.parse::<usize>().expect("a count"));
+        assert_eq!(
+            left_out.unwrap_or(0),
+            missing,
+            "{name}: every meaning its answer declares is listed or counted as left out:\n{described}"
+        );
+        if missing > 0 {
+            shortened.push(name);
+        }
+    }
+    // Only the imports' answers are too long to carry whole. What each keeps
+    // is its alphabetically first fields, the order the Catalogue holds them in.
+    shortened.sort_unstable();
+    assert_eq!(
+        shortened,
+        [
+            "import",
+            "import_bundle",
+            "import_crouton",
+            "import_web_link"
+        ]
+    );
+
+    // The pair #177 added for exactly this reader: which recipes tagging will
+    // work on, told apart from the search filter of the same name.
+    for name in ["home_shelves", "search_recipes"] {
+        let described = tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .and_then(|tool| tool["description"].as_str())
+            .expect("listed");
+        assert!(
+            described.contains("recipes[].mine: Whether the reader's own Cookbook holds")
+                && described.contains("Not the same as the `mine` filter on search_recipes")
+                && described.contains("recipes[].writes: Whether an edit by the reader lands"),
+            "{name}: {described}"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
     let app = support::spawn_app();

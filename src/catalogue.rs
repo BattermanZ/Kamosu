@@ -118,6 +118,43 @@ impl Operation {
             }
         }
     }
+
+    /// What this Operation's answer fields mean, in the words the output schema
+    /// declares them with: each distinct meaning once, beside the shortest path
+    /// to a field that carries it, in the order a depth-first walk meets them
+    /// (#187). That walk takes an object's fields alphabetically, the order
+    /// serde_json holds them in and `kamosu catalogue` prints. A meaning shared by many fields, such as a recipe's cook time
+    /// inside every Version and Component, is written once. For a Job the paths
+    /// are inside the result `get_job` carries, as `output_schema` is.
+    pub fn answer_meanings(&self) -> Vec<(String, &str)> {
+        fn walk<'a>(schema: &'a Value, path: &str, found: &mut Vec<(String, &'a str)>) {
+            if !path.is_empty()
+                && let Some(meaning) = schema["description"].as_str()
+            {
+                match found.iter_mut().find(|(_, known)| *known == meaning) {
+                    Some((shortest, _)) if shortest.len() <= path.len() => {}
+                    Some((shortest, _)) => *shortest = path.to_string(),
+                    None => found.push((path.to_string(), meaning)),
+                }
+            }
+            if let Some(fields) = schema["properties"].as_object() {
+                for (name, field) in fields {
+                    let path = if path.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{path}.{name}")
+                    };
+                    walk(field, &path, found);
+                }
+            }
+            if schema["items"].is_object() {
+                walk(&schema["items"], &format!("{path}[]"), found);
+            }
+        }
+        let mut found = Vec::new();
+        walk(&self.output_schema, "", &mut found);
+        found
+    }
 }
 
 /// The Catalogue itself. Exactly one exists.

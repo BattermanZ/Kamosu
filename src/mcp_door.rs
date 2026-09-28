@@ -390,6 +390,62 @@ fn server_instructions() -> String {
     .join("\n")
 }
 
+/// Where Claude Code cuts a tool's description, counted as JavaScript counts a
+/// string's length. Its changelog: "MCP tool descriptions and server
+/// instructions are now capped at 2KB"; `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`
+/// moves it, on the client, for everything that client reads.
+const DESCRIPTION_CAP: usize = 2048;
+
+/// A tool's description, then what its answer fields mean (#187). The
+/// meanings go here rather than into an `outputSchema`: Claude Code shows a
+/// model a tool's name, description and inputs, and nothing of an
+/// `outputSchema`. Declaring none also means a Job's `{ job_id }` answer
+/// contradicts nothing. A meaning that would take the description past the
+/// cap is counted instead of written, so what is cut is whole lines and the
+/// agent is told it was.
+fn tool_description(op: &catalogue::Operation) -> String {
+    let meanings = op.answer_meanings();
+    let mut described = op.description();
+    if meanings.is_empty() {
+        return described;
+    }
+    let length = |text: &str| text.encode_utf16().count();
+    let heading = match op.kind {
+        catalogue::Kind::Immediate => "\n\nAnswer fields:",
+        catalogue::Kind::Job => "\n\nFields of the result get_job carries:",
+    };
+    // A heading with nothing under it is not worth the room it takes.
+    if length(&described) + length(heading) + length(&left_out_line(meanings.len()))
+        > DESCRIPTION_CAP
+    {
+        return described;
+    }
+    described.push_str(heading);
+    for (written, (path, meaning)) in meanings.iter().enumerate() {
+        let line = format!("\n- {path}: {meaning}");
+        let left_out = meanings.len() - written - 1;
+        // Room for this line, and for the count if any are still to come.
+        let tail = if left_out == 0 {
+            0
+        } else {
+            length(&left_out_line(left_out))
+        };
+        if length(&described) + length(&line) + tail > DESCRIPTION_CAP {
+            described.push_str(&left_out_line(meanings.len() - written));
+            return described;
+        }
+        described.push_str(&line);
+    }
+    described
+}
+
+fn left_out_line(count: usize) -> String {
+    match count {
+        1 => "\n- 1 more field meaning is left out for length.".to_string(),
+        _ => format!("\n- {count} more field meanings are left out for length."),
+    }
+}
+
 /// The listing itself is not an Operation and carries no permission check, but
 /// a read-only Access Key's writes are still absent from it (ADR 0031): the
 /// filter walks the Catalogue exactly as `Core::execute` refuses them, so the
@@ -409,7 +465,7 @@ fn tools_list(core: &Core, headers: &HeaderMap) -> Value {
             // arrives (#146).
             json!({
                 "name": op.name,
-                "description": op.description(),
+                "description": tool_description(op),
                 "inputSchema": op.input_schema,
             })
         })
