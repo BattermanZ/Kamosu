@@ -13,11 +13,12 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { cleanup, render, screen, fireEvent } from '@testing-library/svelte';
 import Recipes from './+page.svelte';
-import { standIn } from '$lib/api/stand-in';
+import { standIn, type StandIn } from '$lib/api/stand-in';
 import { renderScreen } from '../../testing/render';
 import ShelfTestHarness from './ShelfTestHarness.svelte';
+import RouteTestHarness from './RouteTestHarness.svelte';
 import type { MeaningSearchStatusOutput, ReadPastedRecipeOutput } from '$lib/api/catalogue';
 import {
 	cookbookLabel,
@@ -1358,5 +1359,199 @@ describe('the + for every new recipe (#174)', () => {
 		expect(
 			screen.getByRole('button', { name: 'Writing a recipe waits for the server' }),
 		).toBeDisabled();
+	});
+});
+
+describe('going back to the shelf (#191)', () => {
+	afterEach(() => {
+		// `scrollTo` is spied on below, and test files share one window.
+		vi.restoreAllMocks();
+	});
+
+	/**
+	 * A shelf that answers what it was asked: the search box's words find the
+	 * one recipe with them in its title, and the filters are read off the ask,
+	 * so a test can see which of them came back.
+	 */
+	const answering = (kitchens = [kitchen, marcsKitchen]) =>
+		standIn({
+			list_tags: { tags: [shelfTag('t_spicy', 'spicy', 1)] },
+			list_kitchens: { kitchens },
+			meaning_search_status: meaningOff(),
+			search_recipes: (input) => {
+				const everything = [
+					entry({ lineage_id: 'l_1', title: 'Chicken Katsu' }),
+					entry({ lineage_id: 'l_2', branch_id: 'b_2', title: 'Miso Soup' }),
+				];
+				const query = input.query ?? null;
+				return {
+					query,
+					closest: false,
+					recipes: query
+						? everything.filter((one) => one.title.toLowerCase().includes(query))
+						: everything,
+				};
+			},
+		});
+
+	type Route = ReturnType<typeof render<typeof RouteTestHarness>>;
+
+	/** Opening a recipe: SvelteKit keeps the shelf, then the screen is taken down. */
+	const leave = (route: Route) => {
+		const left = route.component.snapshot().capture();
+		cleanup();
+		return left;
+	};
+
+	/** Going back: a new screen, handed what was kept, as SvelteKit does on back. */
+	const goBack = (kamosu: StandIn, left: unknown) => {
+		const route = render(RouteTestHarness, { props: { client: kamosu.client } });
+		route.component.snapshot().restore(left);
+		return route;
+	};
+
+	const katsuAtMarcsSpicy = { query: 'katsu', kitchen_id: 'k_marc', tag_id: 't_spicy' };
+
+	it('comes back with the words, the filters, the results and the place in the list', async () => {
+		const scrolled = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+		const kamosu = answering();
+		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
+
+		await fireEvent.input(await screen.findByRole('searchbox'), { target: { value: 'katsu' } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Chez Marc' }));
+		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject(katsuAtMarcsSpicy));
+		await screen.findByText('1 found');
+		vi.stubGlobal('scrollY', 640);
+
+		const left = leave(first);
+		vi.unstubAllGlobals();
+		goBack(kamosu, left);
+
+		await vi.waitFor(() => expect(screen.getByRole('searchbox')).toHaveValue('katsu'));
+		expect(screen.getByRole('button', { name: 'Chez Marc' })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+		expect(await screen.findByRole('button', { name: /spicy/ })).toHaveAttribute(
+			'aria-pressed',
+			'true',
+		);
+		expect(await screen.findByText('Chicken Katsu')).toBeInTheDocument();
+		expect(screen.queryByText('Miso Soup')).not.toBeInTheDocument();
+		expect(searches(kamosu).at(-1)).toMatchObject(katsuAtMarcsSpicy);
+		// Where the list was, once the list is there to scroll.
+		await vi.waitFor(() => expect(scrolled).toHaveBeenCalledWith(0, 640));
+		expect(scrolled).toHaveBeenCalledTimes(1);
+	});
+
+	it('comes back to a Tag held with no words typed', async () => {
+		vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+		const kamosu = answering();
+		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
+
+		await fireEvent.click(await screen.findByRole('button', { name: /spicy/ }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ tag_id: 't_spicy' }));
+
+		goBack(kamosu, leave(first));
+
+		await vi.waitFor(() =>
+			expect(screen.getByRole('button', { name: /spicy/ })).toHaveAttribute('aria-pressed', 'true'),
+		);
+		expect(screen.getByRole('searchbox')).toHaveValue('');
+		expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+		await vi.waitFor(() =>
+			expect(searches(kamosu).at(-1)).toMatchObject({
+				query: null,
+				kitchen_id: null,
+				mine: false,
+				tag_id: 't_spicy',
+			}),
+		);
+	});
+
+	it('lets go of a Kitchen filter it can no longer offer a chip for', async () => {
+		vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+		const kamosu = answering();
+		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
+
+		await fireEvent.click(await screen.findByRole('button', { name: 'Chez Marc' }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ kitchen_id: 'k_marc' }));
+		const left = leave(first);
+
+		// Left Marc's Kitchen since: one Kitchen is no row of Kitchen chips,
+		// so a filter held on his would have nothing to turn it off.
+		const fewer = answering([kitchen]);
+		goBack(fewer, left);
+
+		await vi.waitFor(() =>
+			expect(searches(fewer).at(-1)).toMatchObject({ kitchen_id: null, mine: false }),
+		);
+		expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+		expect(screen.queryByRole('button', { name: 'Chez Marc' })).not.toBeInTheDocument();
+	});
+
+	it('forgets the place in the list when the search it came back to fails', async () => {
+		const scrolled = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+		const kamosu = answering();
+		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
+		await fireEvent.input(await screen.findByRole('searchbox'), { target: { value: 'katsu' } });
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ query: 'katsu' }));
+		vi.stubGlobal('scrollY', 640);
+		const left = leave(first);
+		vi.unstubAllGlobals();
+
+		// Back with the server gone quiet, then a new search once it answers.
+		let down = true;
+		const flaky = standIn({
+			list_tags: { tags: [] },
+			list_kitchens: { kitchens: [kitchen] },
+			meaning_search_status: meaningOff(),
+			search_recipes: () =>
+				down
+					? { refuse: 'busy' as const, message: 'the server is away' }
+					: { query: 'miso', closest: false, recipes: [entry()] },
+		});
+		goBack(flaky, left);
+		await screen.findByText(/shelf could not be read/);
+
+		down = false;
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'miso' } });
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+		// The reader is somewhere else now; jumping them to 640 would be a lurch.
+		expect(scrolled).not.toHaveBeenCalled();
+	});
+
+	it('starts a whole shelf from something kept that is not a shelf', async () => {
+		const kamosu = answering();
+		// Written by an older Kamosu into this tab's storage, say.
+		goBack(kamosu, { query: 'katsu', kitchen: 'k_marc' });
+
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+		expect(screen.getByRole('searchbox')).toHaveValue('');
+		expect(searches(kamosu).at(-1)).toMatchObject({ query: null, kitchen_id: null, tag_id: null });
+	});
+
+	it('starts a fresh shelf when Recipes is arrived at rather than gone back to', async () => {
+		const kamosu = answering();
+		const first = render(RouteTestHarness, { props: { client: kamosu.client } });
+
+		await fireEvent.input(await screen.findByRole('searchbox'), { target: { value: 'katsu' } });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Chez Marc' }));
+		await vi.waitFor(() => expect(searches(kamosu).at(-1)).toMatchObject({ query: 'katsu' }));
+
+		// The tab bar is a new visit: SvelteKit restores nothing into it.
+		leave(first);
+		render(RouteTestHarness, { props: { client: kamosu.client } });
+
+		expect(await screen.findByText('Miso Soup')).toBeInTheDocument();
+		expect(screen.getByRole('searchbox')).toHaveValue('');
+		expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+		expect(searches(kamosu).at(-1)).toMatchObject({
+			query: null,
+			kitchen_id: null,
+			mine: false,
+			tag_id: null,
+		});
 	});
 });

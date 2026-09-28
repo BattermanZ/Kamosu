@@ -2,6 +2,8 @@
 
 **Recipes** shows one shelf: everything the **Kitchen**s you cook in hold, merged, alphabetical by the title in your **Reading Language**, one card per **Lineage**. No Kitchen switcher, no modes. Where you cook in more than one Kitchen a filter names them; beside it stands ***My recipes*** — the recipes you created, branched or cooked — and neither filter sticks when you leave the screen.
 
+_(Amended by [#191](https://github.com/BattermanZ/Kamosu/issues/191), 2026-09-28: **going back is not leaving.** Open a result, go back, and the shelf is as it was left: the words, the filters and the place in the list. Arriving by the tab bar or a Tag chip still starts the whole shelf, so nothing greets you tomorrow, which is what "sticks" below rejects. A reload of the same page counts as going back.)_
+
 _(Amended by [ADR 0041](./0041-a-recipe-is-written-in-a-cookbook-and-seen-in-a-kitchen.md): the shelf is your own **Cookbook** and every Cookbook in a Kitchen you cook in. "A Kitchen is who may change a recipe" below is no longer true: a Cookbook is. The *My recipes* filter is unchanged, and the rejection of *recipes you personally wrote* argued from the rule ADR 0041 replaces.)_
 
 Search over that shelf matches **words and meaning together**, with an exact title match winning. It reaches your own **Attempt**s and nobody else's. Every result can say **what matched**, quoting the line — for a meaning-match as well as a word-match. Finding nothing shows the closest anyway, says so, and offers to add or import the recipe you were looking for.

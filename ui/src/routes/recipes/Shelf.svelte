@@ -10,12 +10,20 @@
 	how "no filter sticks" is built: leaving the screen destroys this component,
 	and coming back makes a new one on the whole shelf.
 
+	Going back is the one return that is not a fresh start (#191). Open a result,
+	find it is not the one, go back: the words, the filters, the answer and the
+	place in the list are all as they were. `capture` and `restore` below are
+	what the route hands SvelteKit for that, and SvelteKit restores only on back
+	and forward, never on the tab bar. So the filters still do not stick: a
+	visit by the tab is a new entry in the history, and nothing carries into it.
+
 	The tag filter (#104) is the third, and it is the one exception to "nothing
 	is written to the URL" — `?tag=` exists so that a chip on a recipe page can
 	say which tag it meant, and the route reads it into a prop this screen takes
 	once. It is a message from the other screen, not a place the filter lives:
-	nothing here ever writes it, so the back button cannot resurrect a filter and
-	arriving by the tab bar lands on the whole shelf as it always did.
+	nothing here ever writes it, so arriving by the tab bar lands on the whole
+	shelf as it always did. Going back to a shelf that arrived tagged restores
+	whatever tag was held when it was left, which may be none.
 
 	Searching is one Operation, the same one that answers the unsearched shelf.
 	Meaning Search arrived inside that Operation rather than beside it, so
@@ -23,6 +31,41 @@
 	simply gained two things: a match can say it was found by meaning, and an
 	answer can say that nothing was close enough and these are the nearest.
 -->
+<script lang="ts" module>
+	/**
+	 * The shelf as it was left, for going back to it (#191). SvelteKit keeps it
+	 * in `sessionStorage`, so it is plain JSON and deliberately small: what the
+	 * reader chose and where they had scrolled, never the answer. The answer is
+	 * asked again, from the phone's copy first, so it is as current as any.
+	 */
+	export interface LeftShelf {
+		typed: string;
+		filter: { kind: 'all' } | { kind: 'mine' } | { kind: 'kitchen'; id: string };
+		tag: string | null;
+		/** How far down the page was, in pixels. */
+		scrolled: number;
+	}
+
+	/**
+	 * Whether a kept shelf has the shape this screen restores. A snapshot lives
+	 * in `sessionStorage` for as long as the tab does, so one written by an
+	 * older Kamosu can be handed back after an update; one that no longer fits
+	 * is dropped, and the shelf starts whole instead of holding nonsense.
+	 */
+	function isLeftShelf(held: unknown): held is LeftShelf {
+		if (typeof held !== 'object' || held === null) return false;
+		const { typed, filter, tag, scrolled } = held as Record<string, unknown>;
+		if (typeof filter !== 'object' || filter === null) return false;
+		const { kind, id } = filter as Record<string, unknown>;
+		return (
+			typeof typed === 'string' &&
+			(tag === null || typeof tag === 'string') &&
+			typeof scrolled === 'number' &&
+			(kind === 'all' || kind === 'mine' || (kind === 'kitchen' && typeof id === 'string'))
+		);
+	}
+</script>
+
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -52,9 +95,7 @@
 	/** What is typed, moment to moment. The Operation is asked on a short delay. */
 	let typed = $state('');
 	/** Which filter is held right now: the whole shelf, this Person's own, or one Kitchen. */
-	let filter = $state<{ kind: 'all' } | { kind: 'mine' } | { kind: 'kitchen'; id: string }>({
-		kind: 'all',
-	});
+	let filter = $state<LeftShelf['filter']>({ kind: 'all' });
 	/**
 	 * The Tag this shelf is narrowed to, or nothing (#104). A third filter
 	 * beside the two above and held exactly as they are — here, and nowhere
@@ -101,6 +142,12 @@
 	 * does nothing teaches people that controls do nothing.
 	 */
 	const several = $derived(kitchens.length > 1);
+	/**
+	 * Whether the Kitchens and their words have been asked about, answered or
+	 * not. The rows of chips above the list are drawn from them, so the list
+	 * only stops moving down the page once this is true.
+	 */
+	let chipsSettled = $state(false);
 
 	$effect(() => {
 		let current = true;
@@ -133,10 +180,25 @@
 				// the Kitchens costs only the filters, so it is not an error
 				// the whole screen wears.
 				if (!(error instanceof OperationError)) throw error;
+			})
+			.finally(() => {
+				if (current) chipsSettled = true;
 			});
 		return () => {
 			current = false;
 		};
+	});
+
+	/**
+	 * A Kitchen filter with no chip to turn it off, which only going back can
+	 * produce (#191): the reader has left that Kitchen since, or is down to one
+	 * and the row is gone. It falls back to the whole shelf, as the Tag filter
+	 * below does for the same reason.
+	 */
+	$effect(() => {
+		const held = filter;
+		if (held.kind !== 'kitchen' || !chipsSettled) return;
+		if (!several || !kitchens.some((kitchen) => kitchen.id === held.id)) filter = { kind: 'all' };
 	});
 
 	/**
@@ -217,9 +279,58 @@
 	 */
 	const unmatched = $derived(query !== null && (entries.length === 0 || closest) ? query : null);
 
-	// The things nothing-found offers live in `AddOrImport`, because Home
-	// reaches the same dead end from the other direction (#64) and both must
-	// *do* the thing rather than point at a screen to do it on (ADR 0027).
+	/** The shelf as the reader is leaving it: the route hands this to SvelteKit (#191). */
+	export function capture(): LeftShelf {
+		return { typed, filter: $state.snapshot(filter), tag, scrolled: window.scrollY };
+	}
+
+	/**
+	 * Where to scroll once the list is back, and the answer that was showing
+	 * when the shelf was restored. Not `$state`: the effect below follows the
+	 * answer, and setting this must not set it off.
+	 */
+	let scrollBack: { to: number; over: typeof answer } | null = null;
+
+	/**
+	 * Going back to the shelf as it was left (#191). SvelteKit calls this just
+	 * after building the screen, which has already started asking for the whole
+	 * shelf; the held values change the ask, and the search drops the answer to
+	 * the old one. Anything that is not a kept shelf is ignored.
+	 */
+	export function restore(left: unknown): void {
+		if (!isLeftShelf(left)) return;
+		typed = left.typed;
+		filter = left.filter;
+		tag = left.tag;
+		scrollBack = { to: left.scrolled, over: answer };
+	}
+
+	/**
+	 * SvelteKit puts the page back where it was as soon as the screen is built,
+	 * but the list is not there yet: the page is one "Loading…" tall and the
+	 * browser clamps the scroll to the top. So the shelf scrolls itself, once,
+	 * when the first answer after the restore has drawn the list and the chip
+	 * rows above it have settled, since a row arriving later would push the
+	 * list down under the reader. A failed search cancels it: scrolling on some
+	 * later answer, to words typed a minute afterwards, would be a jump nobody
+	 * asked for.
+	 */
+	$effect(() => {
+		// All three read before anything returns: Svelte runs this again only
+		// for what it saw read, and `scrollBack` is set while this is waiting.
+		const arrived = answer;
+		const refused = failed;
+		const settled = chipsSettled;
+		if (scrollBack === null) return;
+		if (refused) {
+			scrollBack = null;
+			return;
+		}
+		if (!settled || arrived === undefined || arrived === scrollBack.over) return;
+		const to = scrollBack.to;
+		scrollBack = null;
+		window.scrollTo(0, to);
+	});
 </script>
 
 <Screen title={m.recipes_title()} blurb={m.recipes_blurb()}>
