@@ -5,7 +5,7 @@
 //! existed. They are the properties an Operator is promised, checked against
 //! the running instance through its real Doors.
 //!
-//! The companion to this file is prose: `README.md` says what Kamosu does
+//! The companion to this file is prose: `SECURITY.md` says what Kamosu does
 //! *not* defend, and that list is maintained alongside these tests. An entry
 //! there that stops being true is worse than one that never existed
 //! (ADR 0034).
@@ -1063,12 +1063,12 @@ async fn a_share_links_card_is_drawn_once_and_kept() {
 /// read standing up; what must not differ is what is on the list.
 #[test]
 fn the_honest_list_is_shipped_whole_in_both_places() {
-    let readme = std::fs::read_to_string("README.md").expect("README.md");
+    let security = std::fs::read_to_string("SECURITY.md").expect("SECURITY.md");
     let messages = std::fs::read_to_string("ui/messages/en.json").expect("the English messages");
 
-    let list = readme
+    let list = security
         .split_once("## What Kamosu does not defend")
-        .expect("the README ships the list")
+        .expect("SECURITY.md ships the list")
         .1
         .split("\n## ")
         .next()
@@ -1115,7 +1115,7 @@ fn the_honest_list_is_shipped_whole_in_both_places() {
     ] {
         assert!(
             list.contains(in_readme),
-            "the README stopped naming {what} ({in_readme:?})"
+            "SECURITY.md stopped naming {what} ({in_readme:?})"
         );
         assert!(
             messages.contains(&format!("\"{key}\"")),
