@@ -1,0 +1,201 @@
+[package]
+name = "kamosu"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+repository = "https://github.com/BattermanZ/Kamosu"
+
+[dependencies]
+argon2 = { version = "0.5.3", features = ["password-hash", "rand"] }
+axum = "0.8.9"
+base64 = "0.23.1"
+caseless = "0.2.2"
+clap = { version = "4.6.6", features = ["derive"] }
+# Meaning Search's engine: FastEmbed loads EmbeddingGemma through ONNX Runtime.
+# `default-features = false` is load-bearing here for the same reason it is on
+# `image` above — the defaults are native-TLS everywhere and an image-model
+# stack Kamosu never asks for. Both TLS paths are pointed at rustls, which
+# Kamosu already speaks through `reqwest`, so no OpenSSL enters the image.
+#
+# The weights themselves are NOT a dependency: ADR 0029 ships no model, and this
+# crate only knows how to load one an Operator chose to download.
+fastembed = { version = "6.0.2", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"] }
+hex = "0.4.3"
+# Held at the major FastEmbed itself depends on, deliberately — this is not a
+# version left behind. Kamosu downloads the model at a **pinned commit**, which
+# FastEmbed exposes no option for, and then points FastEmbed's ordinary `main`
+# lookup at that snapshot. Both halves write the same Hugging Face cache, so
+# they must agree about its layout; a newer major here would be two caches.
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
+# Every format `image` can decode, minus two — and `default-features = false` is
+# the load-bearing part. Without it the listed features are added to the default
+# set rather than replacing it, which is how this once compiled all fifteen
+# formats while naming five.
+#
+# What is deliberately absent:
+#   avif — `image`'s "avif" feature is the ENCODER only (the decoder lives
+#          behind "avif-native", which the defaults never enabled). Kamosu
+#          always encodes WebP, so it could never be reached. It brought in
+#          ravif and rav1e, an entire AV1 encoder.
+#   exr  — OpenEXR, a film HDR format. No kitchen photographs a recipe into one.
+#
+# Together they cost 44 crates and dragged in `paste`, unmaintained
+# (RUSTSEC-2024-0436). Dropping them is what removed that advisory.
+#
+# `rayon` is a default that IS wanted: it is the parallelism in decoding, and
+# this crate's own profile note is about how slow a camera-original photograph
+# is to re-encode. Adding a format here widens what `sniff` accepts, because it
+# asks `image::guess_format` what the compiled build understands (ADR 0017).
+image = { version = "0.25.10", default-features = false, features = [
+    "rayon",
+    "bmp",
+    "dds",
+    "ff",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "qoi",
+    "tga",
+    "tiff",
+    "webp",
+] }
+iso8601-duration = "0.2.0"
+rand = { version = "0.10.2", features = ["sys_rng"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
+reqwest-ssrf-guard = "0.1.0"
+rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
+rust-embed = "8.12.0"
+scraper = "0.27.0"
+# The title on a Share Card, turned from a font into an outline. `skrifa` is
+# the font parser Google Fonts maintains, and it hands out a glyph as the same
+# move/line/curve commands a Cover's shapes already arrive as — so `tiny-skia`
+# below fills the text and the shapes alike, and the card has one rasteriser
+# rather than two. It replaced `ab_glyph`, whose `ttf-parser` the RustSec
+# database marked unmaintained (RUSTSEC-2026-0192) with no fix upstream and
+# `skrifa` named as the successor. `default-features = false` drops the
+# autohinter: Kamosu draws at 40px and up, where hinting changes nothing.
+skrifa = { version = "0.46.2", default-features = false, features = ["std"] }
+serde = "1.0.229"
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+tiny-skia = "0.12.0"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time", "signal", "fs"] }
+# `io` alone, for `ReaderStream`: a Backup is served straight off the disk in
+# chunks rather than read whole into memory first (#78). A library big enough
+# to be worth backing up is a library too big to buffer.
+tokio-util = { version = "0.7.19", default-features = false, features = ["io"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+unicode-normalization = "0.1.25"
+url = "2.5.8"
+webp = "0.3.1"
+whatlang = "0.18.0"
+# A Backup is one zip (#78), and zip because an Operator restoring an instance
+# at four in the morning can open one anywhere without installing anything.
+# `deflate` alone is deliberate: it resolves to the pure-Rust zlib-rs encoder,
+# so no C compressor enters the image, and every other method this crate can
+# speak — bzip2, zstd, xz, ppmd, AES — is one Kamosu neither writes nor needs
+# to read. The database deflates well; the Photographs are stored uncompressed,
+# already being compressed pictures.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+# Streams a large upload to disk a chunk at a time (#69); already in the
+# tree through axum, so this adds no crate.
+futures-util = { version = "0.3.34", default-features = false }
+# The Sheet (#75, ADR 0023): a recipe set for paper by Typst embedded as a
+# library, rather than a headless browser (400 MB and a browser's attack
+# surface) or a hand-rolled PDF writer (pagination is the hard part, and it is
+# what Typst already does). `typst` compiles, `typst-layout` names the paged
+# document it compiles to, and `typst-pdf` writes it out. The template and the
+# fonts are compiled into the binary; nothing is fetched while a Sheet is set.
+typst = "0.15.1"
+typst-pdf = "0.15.1"
+typst-layout = "0.15.1"
+# Reads the text out of a recipe PDF (#176), and the behaviour suite reads a
+# Sheet's text back with it to assert what is on the page (#75). Chosen by
+# trying it, `lopdf` and `pdf_oxide` on the Biscuit de Savoie fixture and on
+# Chrome, LibreOffice and picture-only PDFs: lopdf put every bold run and every
+# bullet on a line of its own, and pdf_oxide ran a LibreOffice PDF's whole
+# ingredient list into one line. This one kept the lines, and wraps nothing it
+# is not asked to. It panics on some malformed files, which `src/pdf.rs`
+# contains.
+pdf-extract = "0.12.1"
+
+[features]
+# Adds `probe_job`, a demonstration Job Operation, so the behaviour suite can
+# drive the whole Job shape — ask, poll, fail, the two lanes — end-to-end through
+# real Doors. Production builds leave it out: no synthetic Operations ship; the
+# first Jobs arrive with Import, Sheet rendering and Meaning Search.
+test-jobs = []
+
+[dev-dependencies]
+tempfile = "3.27.0"
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "time"] }
+
+# The corpus checks are kept out of the default `cargo test` set. Every one of
+# their tests is `#[ignore]`d — they read `samples/crouton/`, which is personal
+# and gitignored — so building them during `just test` linked ten binaries that
+# then ran nothing. Each links the whole crate, and on this host that was most
+# of the suite's wall clock.
+#
+# `test = false` removes them from the default set only. Naming one still builds
+# and runs it, exactly as before:
+#
+#     cargo test --test reading_corpus -- --ignored
+[[test]]
+name = "cooking_corpus"
+test = false
+
+[[test]]
+name = "crouton_corpus"
+test = false
+
+[[test]]
+name = "home_corpus"
+test = false
+
+[[test]]
+name = "meaning_corpus"
+test = false
+
+[[test]]
+name = "pasting_corpus"
+test = false
+
+[[test]]
+name = "photographs_corpus"
+test = false
+
+[[test]]
+name = "reading_corpus"
+test = false
+
+[[test]]
+name = "shelf_corpus"
+test = false
+
+[[test]]
+name = "shopping_corpus"
+test = false
+
+[[test]]
+name = "translations_corpus"
+test = false
+
+# Dependencies are compiled optimised even in a debug build; Kamosu's own crate
+# is not. Re-encoding a camera-original photograph runs through `image` and
+# `webp`, and unoptimised those take twenty-two seconds for one 7 MB picture —
+# past the test client's read timeout, which is why the Photograph corpus check
+# could not pass on any machine. Optimising only the dependencies keeps our own
+# code fully debuggable and costs one slower build of libraries that then cache.
+#
+# They also carry no debug info. Kamosu's own crate keeps all of its, so a panic
+# in our code still names the file and line; what goes is the ability to step
+# through a dependency's internals in a debugger, which nothing here does. The
+# saving is in linking: every test binary statically links all 635 crates, and
+# their debug info was the bulk of what the linker had to copy.
+[profile.dev.package."*"]
+opt-level = 2
+debug = 0

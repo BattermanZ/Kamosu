@@ -1,0 +1,449 @@
+/* Kamosu's design tokens — the one source of truth for what Kamosu looks like.
+ *
+ * Written from the direction chosen on 26 August 2026 ("Noren · tight"), recorded
+ * in docs/design/2026-08-26-the-visual-identity.md — a dated record, never updated;
+ * this file is what is always current (issue #80).
+ *
+ * Two rules govern this block:
+ *   1. Tailwind's own palette, type scale, spacing and radii are REPLACED, not
+ *      extended: every namespace is reset with `initial` first, so reaching for a
+ *      Tailwind default colour or spacing step is not possible.
+ *   2. This file compiles, once, to assets/app.css — the generated stylesheet both
+ *      the web app and any server-rendered page draw from. Regenerate with
+ *      `just css`; `just check` fails if the committed copy has diverged.
+ */
+
+@import "tailwindcss" source(none);
+
+/* What Tailwind reads to decide which utilities to emit.
+
+   Named explicitly because the automatic detection it replaces sweeps every
+   non-gitignored file under ui/ — config files, and the prose in their
+   comments. That is not a hypothetical: the word "inline", written in a code
+   comment in eslint.config.js, put a real `.inline { display: inline }` rule
+   into this stylesheet. Only src/ holds markup, so only src/ is read.
+
+   paraglide is excluded because an explicit @source overrides .gitignore, and
+   that directory is every translated phrase in three languages compiled into
+   functions. A phrase is not a class name.
+
+   When the Share Link page arrives it is rendered from Rust strings (ADR 0013)
+   and wants `@source "../../src"` added here. Tailwind's classes are identical
+   everywhere, which is exactly why both renderings can draw from this one file.
+   Nothing in Rust emits a class today. */
+@source "./";
+@source not "./lib/paraglide";
+/* The story (#158) draws itself with a scoped style block of plain CSS, and
+   its words `ease-out`, `outline` or `table` would each emit a real utility
+   here. Its markup uses no utility but `sr-only`, which other screens emit. */
+@source not "./lib/story/Story.svelte";
+/* The Share Link page is rendered from Rust strings (#65, ADR 0012, ADR 0026),
+   so the classes it writes have to be emitted here too. Tailwind's classes are
+   identical in both renderings, which is exactly why one stylesheet serves a
+   Svelte screen and a server-rendered page without either knowing about the
+   other. Scoped to the two modules that hold markup rather than to `src/`
+   wholesale, so the prose in every other Rust comment stays out of it — the
+   same trap the `@source not` rules below already guard against. */
+@source "../../src/share_page.rs";
+@source "../../src/cover.rs";
+/* A screen test quotes the words a screen renders, so that it can assert them.
+   Those words are prose, not class names, and a stylesheet must not grow a rule
+   because an assertion contains the word "table" — which is exactly what
+   `On the table inside 30 minutes` did (#64), emitting `.table { display: table }`
+   into the file the binary ships. A `.spec.ts` file holds no markup, so nothing
+   is lost by not reading one. */
+@source not "./**/*.spec.ts";
+
+/* `static`: every token below is emitted into :root even when no utility uses
+   it yet — the tokens page reads them all back with getComputedStyle, and
+   screens adopt them one by one without the stylesheet quietly losing values in
+   between.
+
+   When the Share Link page arrives it is rendered from Rust strings (ADR 0013)
+   and an @source rule pointing at ../../src will be needed here. Tailwind's
+   classes are identical everywhere, which is exactly why both renderings can
+   draw from this one file. Nothing in Rust emits a class today. */
+@theme static {
+  /* ── Replace Tailwind wholesale ─────────────────────────────────────────── */
+  --color-*: initial;
+  --font-*: initial;
+  --text-*: initial;
+  --font-weight-*: initial;
+  --spacing-*: initial;
+  --spacing: initial; /* kills dynamic calc(var(--spacing) * n) utilities too */
+  --radius-*: initial;
+
+  /* ── Palette: indigo over unbleached paper ──────────────────────────────── */
+  --color-ground: #f4efe3;      /* kinari, unbleached paper — the app's ground */
+  --color-ground-2: #ece5d5;    /* recessed ground: empty tiles, hero backing */
+  --color-card: #fffdf8;        /* cards and fields, a shade above the ground */
+  --color-ink: #1a1a1c;         /* sumi — all primary text */
+  --color-ink-2: #5c5a55;       /* secondary text — readings, meta, blurbs */
+  --color-rule: #ded5c2;        /* hairlines */
+        --color-accent: #1d2b4c;      /* ai, indigo — the one thing you tap */
+  --color-on-accent: #f4efe3;   /* text on indigo */
+  --color-support: #b8474b;     /* beni, safflower — language badges, alerts */
+  --color-support-2: #7d8b5c;   /* matcha — a reading that points at a component */
+
+  /* The cooking screen turns indigo: standing at the stove is another room. */
+  --color-cook-ground: #131c33;
+  --color-cook-ink: #f4efe3;
+  --color-cook-ink-2: #9aa8c4;
+  --color-cook-rule: #2c3a5c;
+  /* Was the amounts panel's fill until #88 took the panel's box away. It is
+     still the one indigo that sits above the room's own ground, and it now
+     paints the Pause block and the false-start sheet. */
+  --color-cook-panel: #1d2b4c;
+  --color-cook-accent: #f4efe3;
+  --color-cook-on-accent: #131c33;
+
+  /* ── Typefaces ────────────────────────────────────────────────────────────
+     Self-hosted under the binary (see the @font-face rules below); Latin +
+     Latin-ext subsets only, ~70 KB total. Zen Kaku Gothic New ships no 600
+     weight: anywhere the design asks UI text for 600, use 700 — an aliased
+     face below resolves it rather than letting the browser synthesise. */
+  --font-sans: "Zen Kaku Gothic New", system-ui, sans-serif;
+  --font-display: "Zen Old Mincho", serif;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  /* The display face's weight. Named "semibold" rather than "display" so its
+     utility (`font-semibold`) cannot collide with the `font-display` family. */
+  --font-weight-semibold: 600; /* steps, titles, covers, panel figures */
+
+  /* ── Type scale — fitted to real content, not modular ────────────────────
+     Ranking is spec (ADR 0011): the Step is the largest type in the app, the
+     Ingredient Line sits at full size above body, its Reading subordinate. */
+  /* The Step, and the recipe title under it. Both moved by #88, together and
+     for one reason: the cooking screen ran out of vertical budget once Safari's
+     URL bar was counted, and the identity record of 26 August fitted 33px
+     against a 844px phone that does not exist. The real room on Aurélien's
+     phone is ~700px.
+
+     33 → 26 takes the share of the corpus's 579 Steps that fit without
+     scrolling from 53% to 92% on a step naming two amounts. The title follows
+     it down to 25 so that ADR 0011's ranking — the Step is the largest type in
+     the app, which that ADR records as spec — stays true rather than being
+     reopened. The record of 26 August says these sizes were fitted to content
+     rather than derived, and asked for them to be ratified; this is that. */
+  --text-step: 26px;            /* the Step — largest type in the app (#88) */
+  --text-step--line-height: 1.24; /* 1.34 before #88, tightened with the size */
+  --text-step--letter-spacing: -0.015em;
+  --text-title: 25px;           /* recipe title — under the Step, by #88 */
+  --text-title--line-height: 1.16;
+  --text-title--letter-spacing: -0.012em;
+  --text-line: 17px;            /* ingredient line — larger than body, deliberately */
+  --text-line--line-height: 1.4;
+  --text-list-title: 17px;      /* recipes list card title */
+  --text-list-title--line-height: 1.2;
+  /* These three finish tokenising sizes that the #36 record found still
+     hard-coded in the chosen direction's shape.css (branch
+     prototype/36-visual-identity): shelf headings (.k-shelf-h h2), tile titles
+     (.k-tile h3) and the amounts-panel figure (.k-need b). The record names
+     them as #80's to tokenise; the numbers are theirs, not invented here. */
+  --text-shelf-heading: 18px;   /* shelf headings on Home */
+  --text-shelf-heading--line-height: 1.2;
+  --text-tile-title: 15px;      /* tile titles beneath covers */
+  --text-tile-title--line-height: 1.22;
+  --text-panel-figure: 21px;    /* numerals in the cooking amounts panel */
+  --text-body: 16px;            /* interface body text */
+  --text-body--line-height: 1.55;
+  --text-read: 12.5px;          /* a reading, subordinate under its line */
+  --text-step-reading: 15px;    /* a reading inside the 26px Step at the stove (#150, option A) */
+  --text-step-reading--letter-spacing: 0em; /* undoes the Step's tightening around it */
+  --text-label: 10.5px;         /* uppercase labels */
+  --text-label--letter-spacing: 0.15em;
+
+  /* ── Spacing — seven steps and a gutter, nothing else exists ──────────────
+     Zero is here because it is the *absence* of a step rather than another one:
+     without it Tailwind generates no `inset-x-0`, `top-0` or `p-0` at all, since
+     killing `--spacing` above also killed the dynamic scale those come from. */
+  --spacing-0: 0px;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-12: 48px;
+  --spacing-gutter: 20px;       /* the screen gutter */
+  /* ── Shape ──────────────────────────────────────────────────────────────── */
+  --radius-sm: 2px;             /* near-square is the direction: everywhere, */
+  --radius-md: 2px;             /* including buttons and fields */
+  --radius-lg: 2px;
+  --radius-pill: 2px;
+
+  /* Layout constants from the identity record (no utility namespace). */
+  --tile-w: 168px;              /* shelf tile width */
+  /* The recipe hero. The identity record of 26 August fitted 282px against a
+     hero nothing sat on; #81 put the title ON it and Aurélien chose the taller,
+     nearer-square crop over the landscape band, which is what 320px is. The
+     record is dated and stays as written — this file is what is current. */
+  --hero-h: 320px;
+  --rule-w: 1px;                /* rule weight */
+  /* The noren over the cooking screen: one hanging strip per Step, the one you
+     are on lit. 3px is the identity record of 26 August's figure (.k-noren i),
+     tokenised here rather than written as an arbitrary utility, because the
+     spacing scale above is deliberately the whole of what exists (#61). */
+  --noren-h: 3px;
+  /* A cooking's photograph in the diary, square. 72px is Aurélien's choice on
+     #77 (option A, the diary's Photographs row): big enough to tell one plate
+     from another, small enough that a row of them is a glance. */
+  --photo-thumb: 72px;
+  /* A Step's photograph at the stove, square, at the top right of the Step's
+     words, which wrap around it. 96px is the size Aurélien saw and chose on
+     #110 (K3): larger than --photo-thumb because it sits in the largest type
+     in the app. The recipe page's Step photograph is --photo-thumb (R2). */
+  --step-photo: 96px;
+}
+
+/* ── Fonts, served by the binary at /assets/fonts/ ─────────────────────────── */
+
+@font-face {
+  font-family: "Zen Old Mincho";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/assets/fonts/zen-old-mincho-400-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Zen Old Mincho";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/assets/fonts/zen-old-mincho-400-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Zen Old Mincho";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/assets/fonts/zen-old-mincho-600-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Zen Old Mincho";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/assets/fonts/zen-old-mincho-600-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Zen Kaku Gothic New";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/assets/fonts/zen-kaku-gothic-new-400-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Zen Kaku Gothic New";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/assets/fonts/zen-kaku-gothic-new-400-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Zen Kaku Gothic New";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/assets/fonts/zen-kaku-gothic-new-500-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Zen Kaku Gothic New";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/assets/fonts/zen-kaku-gothic-new-500-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Zen Kaku Gothic New";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/assets/fonts/zen-kaku-gothic-new-700-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Zen Kaku Gothic New";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/assets/fonts/zen-kaku-gothic-new-700-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* The interface face has no 600: resolve it to the real 700 instead of
+   letting the browser synthesise a fake semibold. */
+@font-face {
+  font-family: "Zen Kaku Gothic New";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/assets/fonts/zen-kaku-gothic-new-700-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-ground);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ── The signature transition ──────────────────────────────────────────────
+   A card expanding into its page, rather than the screen swapping. This used
+   to need a framework's animation library; it is now the View Transitions API
+   and plain CSS (ADR 0012), which is why the choice of framework cost nothing
+   aesthetically. Safari 18+ supports it, and a browser that does not simply
+   navigates — the transition is the whole of the enhancement.
+
+   How the pair is made: a card sets `view-transition-name` to a name unique to
+   the thing it shows, and the page that opens sets the *same* name on the
+   element the card becomes. The browser then draws one from the other. */
+@layer base {
+  @view-transition {
+    navigation: auto;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 220ms;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  /* The expanding pair moves and resizes rather than cross-fading: the card is
+     understood to *become* the page, which a fade does not say. */
+  ::view-transition-group(.expanding) {
+    animation-duration: 320ms;
+    animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  ::view-transition-old(.expanding) {
+    animation: none;
+    opacity: 0;
+  }
+
+  ::view-transition-new(.expanding) {
+    animation: none;
+  }
+
+  /* Somebody who has asked their phone to stop moving things gets a plain cut. */
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-group(*),
+    ::view-transition-old(*),
+    ::view-transition-new(*) {
+      animation-duration: 1ms !important;
+    }
+  }
+}
+
+/* ── The safe area ─────────────────────────────────────────────────────────
+   iOS Safari is the platform this project targets (ADR 0012). The tab bar sits
+   on the home indicator unless it is told not to; `viewport-fit=cover` in
+   app.html is what makes these insets non-zero. */
+@utility pb-safe {
+  padding-bottom: max(var(--spacing-2), env(safe-area-inset-bottom));
+}
+
+@utility pt-safe {
+  padding-top: max(var(--spacing-2), env(safe-area-inset-top));
+}
+
+/* What stands in front of an Ingredient Line (#81). Drawn on the row rather
+   than typed into the line, so it sits on the first baseline however many
+   lines the line runs to, and a screen reader never reads it out beside the
+   words. Near-square, like everything else in this identity.
+
+   Shape only, no colour: an unmarked row's is indigo, and a marked row takes
+   the colour of the room it is in. Named here rather than written out in two
+   scoped blocks, because a marked line and an unmarked one sit in the same
+   list and the two must never drift apart. */
+@utility ingredient-marker {
+  width: 7px;
+  height: 7px;
+  margin-top: 8px;
+  border-radius: var(--radius-sm);
+}
+
+/* A control that must be tappable but must not spend a whole 48px row saying
+   one word: 32px of ink, 48px of touch, the difference grown with a
+   pseudo-element rather than with height (#88). The cooking screen is out of
+   vertical budget, and every row it does not need is a line of the Step.
+
+   Only for a control whose neighbours are far enough away that a 16px overhang
+   cannot swallow their taps — the overhang is invisible and will win a hit
+   test against anything it covers. */
+@utility tap-out {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+/* The last of a Step that has more below it, fading into the room's own ground
+   (#88). The identity record of 26 August measured that roughly a fifth of the
+   corpus's Steps would scroll at any size in its range and said the design must
+   make scrolling feel intended rather than pretend it will not happen; a line
+   sliced in half by the edge of its box is the pretending. Drawn over the text
+   rather than as a mask on it, so the words underneath stay selectable and stay
+   readable to a screen reader. */
+@utility step-fade {
+  height: 28px;
+  background: linear-gradient(to bottom, transparent, var(--color-cook-ground));
+}
+
+/* The room every screen leaves for the tab bar, which is fixed over it: the
+   bar's own height, its safe-area padding, and a step of air. Named once so a
+   screen never guesses a number, and so changing the bar changes every screen. */
+@utility pb-tabbar {
+  padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom));
+}
+
+/* Where anything fixed to the bottom of a screen has to sit to clear the tab
+   bar rather than be covered by it: the bar's own height and its safe-area
+   padding, without the step of air `pb-tabbar` adds. The unsaved tray on a
+   Divergence is the first of these, and it is the reason this exists — at
+   `bottom-0` the tab bar swallowed its Save button entirely. */
+@utility bottom-tabbar {
+  bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom));
+}
+
+/* The wash under a recipe's title, over its photograph. Indigo rather than a
+   neutral grey — the app's own colour — and near-solid at the hem so the title
+   is readable over a photograph whose colours nobody chose (#81).
+
+   Its height and stops are fitted, not chosen by eye: over the worst backdrop
+   a photograph can be — pure white — kinari must clear 3:1 at the title and
+   4.5:1 at the 10.5px Source line above it. A shorter wash left the Source at
+   3.5:1. The title was 27px when this was fitted and is 25px since #88; the
+   threshold did not move with it, because WCAG counts anything from 18.66px at
+   weight 600 as large text and the title is 600, so 3:1 still applies and the
+   fitting still holds. Starting it higher, rather than making it darker, buys the
+   contrast while keeping the fade as gentle at any given point as it was.
+
+   It lived in `Recipe.svelte`'s scoped style until #65, which gave the Share
+   Link page the same hero and the messaging-app card a picture of it. Three
+   renderings of one gradient is exactly the drift this file exists to prevent,
+   so it is named once here.
+
+   A COVER NEVER WEARS IT. Its dye was chosen and needs no wash (#46, #81); the
+   title stands on it bare. */
+@utility wash {
+  height: 200px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--color-accent) 0%, transparent) 0%,
+    color-mix(in srgb, var(--color-accent) 55%, transparent) 40%,
+    color-mix(in srgb, var(--color-accent) 95%, transparent) 100%
+  );
+}

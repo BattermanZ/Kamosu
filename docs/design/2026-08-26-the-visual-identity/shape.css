@@ -1,0 +1,159 @@
+/* THE SHAPE — written entirely against tokens. Not one colour, typeface or size
+   is named here; all four directions render through this same file. */
+
+.k{background:var(--ground);color:var(--ink);font:400 var(--s-body)/1.55 var(--f-ui);font-variant-numeric:tabular-nums}
+.k *{box-sizing:border-box}
+
+.k-sb{display:flex;justify-content:space-between;padding:12px 20px 2px;font-size:11.5px;font-weight:600;color:var(--ink-2);letter-spacing:.04em}
+
+/* ---- header ---- */
+.k-top{display:flex;align-items:center;gap:10px;padding:12px 20px 14px}
+.k-mark{display:flex;flex:none}
+.k-wordmark{font-family:var(--f-display);font-weight:var(--w-display);font-size:var(--s-title);letter-spacing:var(--ls-title);line-height:1}
+.k-kitchen{margin-left:auto;font:500 11px/1 var(--f-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);
+  background:none;border:0;cursor:pointer;text-align:right;max-width:130px}
+.k-kitchen-flat{text-transform:none;letter-spacing:.02em;font-size:12px}
+.k-top-plain{border-bottom:var(--rule-w) solid var(--rule);margin-bottom:14px}
+
+/* ---- resume (a cook in progress is an unfinished Attempt, ADR 0010) ---- */
+.k-resume{display:block;width:calc(100% - 40px);margin:0 20px 22px;text-align:left;cursor:pointer;
+  background:var(--accent);color:var(--on-accent);border:0;border-radius:var(--r-md);padding:13px 16px}
+.k-resume-k{display:block;font-size:10.5px;letter-spacing:var(--ls-label);text-transform:uppercase;opacity:.8}
+.k-resume-t{display:block;font-family:var(--f-display);font-weight:var(--w-display);font-size:18px;margin-top:4px;letter-spacing:var(--ls-title)}
+.k-resume-go{display:block;font-size:12.5px;margin-top:5px;opacity:.85}
+
+/* ---- shelves: they scroll sideways (ADR 0011) ---- */
+.k-shelf{margin-bottom:26px}
+.k-shelf-h{padding:0 20px;margin-bottom:11px}
+.k-shelf-h h2{margin:0;font-family:var(--f-display);font-weight:var(--w-display);font-size:18px;line-height:1.2;letter-spacing:var(--ls-title)}
+.k-shelf-h p{margin:3px 0 0;font-size:12.5px;color:var(--ink-2)}
+.k-scroller{display:flex;gap:12px;overflow-x:auto;padding:2px 0 6px 20px;scrollbar-width:none}
+.k-scroller::-webkit-scrollbar{display:none}
+.k-scroll-end{flex:none;width:8px}
+.k-tile{flex:none;width:var(--tile-w)}
+.k-tile-i{position:relative;width:100%;aspect-ratio:5/4;border-radius:var(--r-lg);overflow:hidden;background:var(--ground-2)}
+.k-tile-img{width:100%;height:100%;object-fit:cover;display:block}
+.k-tile h3{margin:9px 1px 2px;font-family:var(--f-display);font-weight:var(--w-display);font-size:15px;line-height:1.22;letter-spacing:var(--ls-title);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.k-tile p{margin:0 1px;font-size:11.5px;color:var(--ink-2)}
+.k-tag{position:absolute;top:8px;left:8px;background:var(--ground);color:var(--accent);font-size:9.5px;font-weight:700;
+  letter-spacing:.1em;padding:3px 6px;border-radius:var(--r-sm)}
+.k-allbtn{display:block;width:calc(100% - 40px);margin:4px 20px 96px;cursor:pointer;
+  background:none;color:var(--accent);border:var(--rule-w) solid var(--rule);border-radius:var(--r-md);
+  padding:15px;font:500 14px/1 var(--f-ui)}
+
+/* ---- recipes: search lives here, never on Home (ADR 0011) ---- */
+.k-searchwrap{padding:0 20px 12px}
+.k-search{background:var(--card);border:var(--rule-w) solid var(--rule);border-radius:var(--r-md);
+  padding:13px 15px;color:var(--ink-2);font-size:14.5px}
+.k-sortrow{display:flex;gap:16px;padding:0 20px 14px}
+.k-sort{font-size:12.5px;color:var(--ink-2)}
+.k-sort.on{color:var(--accent);font-weight:600;border-bottom:2px solid var(--accent);padding-bottom:2px}
+.k-list{padding:0 20px 96px;display:flex;flex-direction:column;gap:14px}
+.k-card{display:flex;gap:13px;align-items:flex-start}
+.k-card-i{flex:none;width:94px;aspect-ratio:5/4;border-radius:var(--r-md);overflow:hidden;background:var(--ground-2);position:relative}
+.k-card-img{width:100%;height:100%;object-fit:cover;display:block}
+.k-card-b h2{margin:1px 0 3px;font-family:var(--f-display);font-weight:var(--w-display);font-size:17px;line-height:1.2;letter-spacing:var(--ls-title)}
+.k-card-meta{margin:0;font-size:12.5px;color:var(--ink-2)}
+.k-badge{display:inline-block;margin-top:6px;font-size:9.5px;font-weight:700;letter-spacing:.1em;
+  color:var(--support);border:1px solid currentColor;border-radius:var(--r-sm);padding:2px 6px}
+
+/* ---- Cover: a coloured ground carrying the title, from the Lineage id ---- */
+.k-cov{width:100%;height:100%;display:flex;align-items:flex-end;padding:12px}
+.k-cov-t{font-family:var(--f-display);font-weight:var(--w-display);font-size:15px;line-height:1.16;letter-spacing:var(--ls-title)}
+.k-cov-hero{padding:22px}
+.k-cov-hero .k-cov-t,.k-hero .k-cov-t{font-size:30px;line-height:1.08;max-width:11ch}
+.k-card-i .k-cov-t{font-size:12px}
+
+/* ---- recipe page: led by its photograph ---- */
+.k-hero{position:relative;height:var(--hero-h);background:var(--ground-2)}
+.k-hero>img{width:100%;height:100%;object-fit:cover;display:block}
+.k-back{position:absolute;top:14px;left:14px;width:34px;height:34px;border-radius:var(--r-pill);
+  background:var(--ground);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:17px}
+.k-sheet{padding:20px 20px 104px}
+.k-eyebrow{margin:0 0 6px;font-size:var(--s-label);letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.k-title{margin:0 0 16px;font-family:var(--f-display);font-weight:var(--w-display);font-size:var(--s-title);
+  line-height:var(--lh-title);letter-spacing:var(--ls-title)}
+.k-meta{display:flex;gap:10px;margin-bottom:14px}
+.k-meta div{flex:1;background:var(--card);border:var(--rule-w) solid var(--rule);border-radius:var(--r-md);padding:10px 11px}
+.k-meta b{display:block;font-family:var(--f-display);font-weight:var(--w-display);font-size:20px;line-height:1;color:var(--accent)}
+.k-meta span{display:block;margin-top:4px;font-size:10.5px;line-height:1.3;color:var(--ink-2)}
+.k-scalerow{display:flex;align-items:center;gap:10px;margin-bottom:26px;padding:9px 13px;
+  border:var(--rule-w) solid var(--rule);border-radius:var(--r-md)}
+.k-scalerow>span{font-size:11px;letter-spacing:var(--ls-label);text-transform:uppercase;color:var(--ink-2);font-weight:600}
+.k-scalerow b{margin-left:auto;font-size:14px;font-weight:600}
+.k-scalerow button{width:30px;height:30px;border:var(--rule-w) solid var(--rule);border-radius:var(--r-sm);
+  background:var(--card);color:var(--ink);font-size:15px;cursor:pointer}
+.k-scalerow b+button{margin-left:0}
+.k-h{margin:0 0 12px;font-size:var(--s-label);letter-spacing:var(--ls-label);text-transform:uppercase;
+  color:var(--accent);font-weight:700;padding-bottom:8px;border-bottom:var(--rule-w) solid var(--rule)}
+
+/* the Ingredient Line is the truth; the Reading sits under it, quieter (ADR 0002) */
+.k-ings{list-style:none;margin:0 0 24px;padding:0}
+.k-ing{padding:11px 0;border-bottom:var(--rule-w) solid var(--rule)}
+.k-ing-line{display:block;font-size:var(--s-line);line-height:1.4}
+.k-ing-read{display:block;margin-top:3px;font-size:var(--s-read);color:var(--ink-2)}
+.k-ing-comp .k-ing-read{color:var(--support);font-weight:600}
+.k-note{background:var(--card);border:var(--rule-w) solid var(--rule);border-radius:var(--r-md);
+  padding:14px 16px;margin-bottom:28px;font-size:15px;line-height:1.55;color:var(--ink-2)}
+.k-steps{list-style:none;margin:0 0 26px;padding:0}
+.k-step{display:flex;gap:13px;padding:0 0 18px}
+.k-step-n{flex:none;width:24px;font-family:var(--f-display);font-weight:var(--w-display);font-size:14px;color:var(--accent);padding-top:2px}
+.k-step p{margin:0;font-size:var(--s-body);line-height:1.55}
+.k-sec{font-family:var(--f-display);font-weight:var(--w-display);font-size:17px;color:var(--accent);padding:4px 0 16px;letter-spacing:var(--ls-title)}
+.k-hist{margin:0;font-size:14px;color:var(--ink-2)}
+.k-cta{position:sticky;bottom:74px;padding:12px 20px;background:linear-gradient(to top,var(--ground) 62%,transparent)}
+.k-cta button{width:100%;background:var(--accent);color:var(--on-accent);border:0;border-radius:var(--r-md);
+  padding:17px 14px;font:600 16px/1.2 var(--f-ui);cursor:pointer}
+
+/* ---- cooking: one Step, with the amounts for that step above it (ADR 0011) ---- */
+.k-cook{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0;
+  background:var(--cook-ground);color:var(--cook-ink);padding:0 20px 18px}
+.k-noren{display:flex;gap:3px;padding:8px 0 10px;flex:none}
+.k-noren i{flex:1;height:3px;background:var(--cook-rule);border-radius:var(--r-pill)}
+.k-noren i.past{background:var(--cook-accent);opacity:.45}
+.k-noren i.now{background:var(--cook-accent)}
+.k-cook-top{display:flex;align-items:center;gap:10px;padding-bottom:16px;flex:none;
+  font-size:11.5px;color:var(--cook-ink-2)}
+.k-cook-title{flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.k-cook-count{font-family:var(--f-display);font-weight:var(--w-display);font-size:15px;color:var(--cook-ink)}
+.k-cook-count i{font-style:normal;opacity:.55;font-size:12px}
+.k-cook-sec{margin:0 0 10px;flex:none;font-family:var(--f-display);font-weight:var(--w-display);
+  font-size:16px;color:var(--cook-accent);letter-spacing:var(--ls-title)}
+.k-needbox{flex:none;background:var(--cook-panel);border-radius:var(--r-lg);padding:13px 16px;margin-bottom:22px}
+.k-need-h{margin:0 0 9px;font-size:10.5px;letter-spacing:var(--ls-label);text-transform:uppercase;
+  color:var(--cook-accent);font-weight:700;opacity:.9}
+.k-needs{display:flex;flex-direction:column;gap:7px}
+.k-need{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.k-need b{font-family:var(--f-display);font-weight:var(--w-display);font-size:21px;letter-spacing:var(--ls-title)}
+.k-need>span{font-size:16px}
+.k-need em{flex-basis:100%;font-style:normal;font-size:11.5px;font-weight:600;opacity:.75}
+.k-need-none{margin:0;font-size:15px;opacity:.7}
+.k-cook-body{flex:1;min-height:0;display:flex;flex-direction:column}
+.k-cook-step{margin:0;flex:1;min-height:0;overflow-y:auto;
+  font-family:var(--f-display);font-weight:var(--w-display);font-size:var(--s-step);
+  line-height:var(--lh-step);letter-spacing:var(--ls-step);
+  -webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 30px),transparent);
+  mask-image:linear-gradient(to bottom,#000 calc(100% - 30px),transparent)}
+.k-cook-step::-webkit-scrollbar{width:0}
+.k-timerstart{flex:none;align-self:flex-start;margin-top:16px;cursor:pointer;
+  background:none;color:var(--cook-accent);border:1.5px solid var(--cook-accent);border-radius:var(--r-pill);
+  padding:11px 16px;font:600 13.5px/1 var(--f-ui)}
+.k-cook-foot{flex:none;display:flex;gap:10px;margin-top:18px}
+.k-prevbtn{flex:none;width:104px;background:none;color:var(--cook-ink);border:1.5px solid var(--cook-rule);
+  border-radius:var(--r-md);padding:19px 8px;font:500 15px/1 var(--f-ui);cursor:pointer}
+.k-nextbtn{flex:1;background:var(--cook-accent);color:var(--cook-on-accent);border:0;border-radius:var(--r-md);
+  padding:19px 8px;font:600 17px/1 var(--f-ui);cursor:pointer}
+.k-awake{flex:none;margin:11px 0 0;text-align:center;font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--cook-ink-2)}
+
+/* ---- tab bar ---- */
+.k-tabs{position:sticky;bottom:0;display:flex;background:var(--ground);border-top:var(--rule-w) solid var(--rule);padding:9px 0 20px}
+.k-tabs a{flex:1;text-align:center;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);
+  display:flex;flex-direction:column;gap:4px;line-height:1.2}
+.k-tabs a.on{color:var(--accent)}
+.k-tg{font-size:15px;line-height:1}
+
+/* A Cover carries the title only where it leads the page. On a tile or a list card
+   the caption sits directly beneath it, so the ground alone identifies the recipe. */
+.k-tile-i .k-cov-t,.k-card-i .k-cov-t{display:none}

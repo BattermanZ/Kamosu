@@ -1,0 +1,13 @@
+# Commits that changed how the code is laid out and nothing about what it does.
+# `git blame` skips them and shows whoever actually wrote the line instead.
+#
+# This file is not picked up automatically. Each clone turns it on once:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Add a commit here only if it is purely mechanical — the unedited output of a
+# formatter, with no hand changes riding along. A commit in this list is a
+# commit nobody will ever be shown as the author of.
+
+# style: run Prettier over the interface for the first time
+adee539f11a60cae0a59ba4539d3381ee6c0e6bb

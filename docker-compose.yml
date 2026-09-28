@@ -1,0 +1,27 @@
+services:
+  kamosu:
+    # Pin a release (battermanz/kamosu:0.1.0) to choose when you upgrade. An
+    # upgrade migrates the database forward only, after taking a Snapshot of it.
+    image: battermanz/kamosu:latest
+    container_name: kamosu
+    ports:
+      - "5266:5266"
+    volumes:
+      # Everything Kamosu owns lives here: the database, the photographs, the
+      # Backups and, if an Operator turns Meaning Search on, the model. Back up
+      # this one folder and you have backed up the instance. Kamosu runs as
+      # user 65532, so the folder must belong to that user:
+      #   mkdir -p kamosu-data && sudo chown 65532:65532 kamosu-data
+      - ./kamosu-data:/data
+    # No environment variable is required. Four exist, all optional:
+    # KAMOSU_ADDRESS, KAMOSU_PORT, KAMOSU_DATA_DIR and KAMOSU_LOG.
+    restart: unless-stopped
+    # Declared here as well as in the image, because a Podman-built image
+    # (the podman-* tags) carries no HEALTHCHECK. The distroless runtime has
+    # no shell or curl, so the binary checks its own health.
+    healthcheck:
+      test: ["CMD", "/app/kamosu", "health-check"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

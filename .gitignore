@@ -1,0 +1,30 @@
+# Machine-local agent context — Aurélien's working preferences, not project convention
+AGENTS.local.md
+
+# OS noise
+.DS_Store
+
+# Real recipe exports — large, personal, not project source
+samples/
+
+# Screenshots from browser automation
+.playwright-mcp/
+
+
+# Added by cargo
+
+/target
+
+# Dev ritual state — pidfiles, logs, the dev instance's database, and the
+# ~220 MB Meaning Search model that tests/meaning_corpus.rs keeps between runs.
+# Kamosu ships no weights (ADR 0029), and none are ever committed either.
+.dev/
+
+# Data from running the container locally — the truth belongs inside the mount
+kamosu-data/
+
+# CodeGraph index — machine-local, rebuilt by `codegraph init/sync`
+.codegraph/
+
+# Machine-local secrets for the dev instance — never committed
+.env
