@@ -12969,6 +12969,212 @@ async fn a_rapid_re_save_never_collapses_away_the_version_a_translation_renders(
     assert_eq!(read["result"]["translation"]["versions_behind"], json!(1));
 }
 
+/// A French Translation one Version behind its English source (#183): the
+/// English gained a step whose French, as with a typo fix the French never
+/// had, needs no new words. Answers the two Branches and the source's first
+/// and second Versions.
+fn a_translation_one_behind(app: &support::TestApp, key: &str) -> (String, String, Value, Value) {
+    let english = shelve_recipe(app, key, english_mousse());
+    let mut input = french_mousse();
+    input["branch_id"] = json!(english);
+    input["language"] = json!("fr");
+    let (status, translated) = app.post_op("start_translation", Some(key), &input.to_string());
+    assert_eq!(status, 200, "{translated}");
+    let french = translated["result"]["branch_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let first = translated["result"]["translation"]["translates_version_id"].clone();
+
+    backdate_branch_head(app, &english);
+    let mut edit = english_mousse();
+    edit["branch_id"] = json!(english);
+    edit["steps"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "kind": "step", "text": "Serve it cold." }));
+    let (status, saved) = app.post_op("save_recipe_version", Some(key), &edit.to_string());
+    assert_eq!(status, 200, "{saved}");
+    let second = saved["result"]["version_id"].clone();
+    assert_eq!(behind_in_thread(app, key, &french), json!(1));
+    (english, french, first, second)
+}
+
+/// How far behind its source `get_thread` says a Translation has fallen.
+fn behind_in_thread(app: &support::TestApp, key: &str, branch_id: &str) -> Value {
+    let (status, thread) = app.post_op(
+        "get_thread",
+        Some(key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{thread}");
+    thread["result"]["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|branch| branch["branch_id"] == json!(branch_id))
+        .expect("the Branch is on its own Thread")["translation"]["versions_behind"]
+        .clone()
+}
+
+/// **Issue #183.** A fix to the source the Translation never needed (a typo
+/// the French never had) leaves the Translation's words exactly right. A save
+/// of those same words naming the new source Version moves the pointer on the
+/// newest Version: no Version is written, because no word changed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unchanged_translation_can_say_it_has_caught_up_with_its_source() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_camille, camille_key, _) = person_with_kitchen(&app, "Camille");
+    write_together(&app, &key, &camille_key);
+
+    // (who saves, the Operation, what it sends beyond the pointer, whether
+    // the French head is old). The last case is inside the collapse window
+    // but the head is another Hand's, so it is not being shaped by Camille.
+    let unchanged_french = french_mousse();
+    let cases = [
+        (&key, "save_recipe_version", unchanged_french.clone(), true),
+        (&key, "edit_recipe", json!({}), true),
+        (
+            &key,
+            "edit_recipe",
+            json!({ "title": "Mousse au chocolat" }),
+            true,
+        ),
+        (&key, "save_recipe_version", unchanged_french.clone(), false),
+        (&camille_key, "edit_recipe", json!({}), false),
+    ];
+    for (who, operation, sent, backdate) in cases {
+        let (_, french, _, second) = a_translation_one_behind(&app, &key);
+        if backdate {
+            backdate_branch_head(&app, &french);
+        }
+        let (head_before, count_before) = newest_version(&app, &key, &french);
+
+        let mut body = sent.clone();
+        body["branch_id"] = json!(french);
+        body["translates_version_id"] = second.clone();
+        let (status, saved) = app.post_op(operation, Some(who), &body.to_string());
+        assert_eq!(status, 200, "{operation}: {saved}");
+        assert_eq!(
+            saved["result"]["translates_version_id"], second,
+            "{operation}"
+        );
+        assert_eq!(saved["result"]["branch_id"], json!(french), "{operation}");
+        assert_eq!(saved["result"]["version_id"], head_before["version_id"]);
+        assert_eq!(saved["result"]["copied"], json!(false), "{operation}");
+        assert_eq!(
+            saved["result"]["collapsed"],
+            json!(false),
+            "{operation}: nothing was written onto the Version but the pointer"
+        );
+
+        assert_eq!(
+            behind_in_thread(&app, &key, &french),
+            json!(0),
+            "{operation}"
+        );
+        let (head_after, count_after) = newest_version(&app, &key, &french);
+        assert_eq!(
+            count_after, count_before,
+            "{operation}: no Version was written"
+        );
+        assert_eq!(head_after["translates_version_id"], second, "{operation}");
+        assert_eq!(head_after["hand_id"], head_before["hand_id"], "{operation}");
+    }
+}
+
+/// **Issue #183, what stays as it was.** Saving a Translation's words without
+/// naming a source Version never claims it has caught up, and naming the one
+/// it already renders changes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unchanged_translation_naming_no_new_source_stays_where_it_was() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Aurélien");
+    let (_, french, first, _) = a_translation_one_behind(&app, &key);
+    backdate_branch_head(&app, &french);
+
+    for body in [
+        json!({ "branch_id": french }),
+        json!({ "branch_id": french, "translates_version_id": first }),
+    ] {
+        let (status, saved) = app.post_op("edit_recipe", Some(&key), &body.to_string());
+        assert_eq!(status, 200, "{saved}");
+        assert_eq!(saved["result"]["translates_version_id"], first);
+        assert_eq!(saved["result"]["collapsed"], json!(false));
+        assert_eq!(behind_in_thread(&app, &key, &french), json!(1));
+    }
+    let mut whole = french_mousse();
+    whole["branch_id"] = json!(french);
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &whole.to_string());
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["translates_version_id"], first);
+    assert_eq!(behind_in_thread(&app, &key, &french), json!(1));
+}
+
+/// **Issue #183, who may say it.** Moving the pointer is a claim about a
+/// Branch's words, so only a Cookbook that writes the Branch may make it. A
+/// Kitchen-mate is refused, and nothing is copied for them either. And one
+/// call has one outcome: a name or change note that #165 refuses takes the
+/// pointer down with it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_unchanged_translation_is_caught_up_only_by_whoever_writes_it_and_in_one_piece() {
+    let app = support::spawn_app();
+    let (_person, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_mate, mate_key, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen_id, &mate_key);
+    let (_, french, first, second) = a_translation_one_behind(&app, &key);
+    backdate_branch_head(&app, &french);
+
+    let branches_on_thread = || {
+        let (_, thread) = app.post_op(
+            "get_thread",
+            Some(&key),
+            &json!({ "branch_id": french }).to_string(),
+        );
+        thread["result"]["branches"].as_array().unwrap().len()
+    };
+    let branches_before = branches_on_thread();
+
+    let mut whole = french_mousse();
+    whole["branch_id"] = json!(french);
+    whole["translates_version_id"] = second.clone();
+    for (operation, body) in [
+        ("save_recipe_version", whole.clone()),
+        (
+            "edit_recipe",
+            json!({ "branch_id": french, "translates_version_id": second }),
+        ),
+    ] {
+        let (status, refused) = app.post_op(operation, Some(&mate_key), &body.to_string());
+        assert_eq!(status, 400, "{operation}: {refused}");
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(message.contains("not yours to change"), "{message}");
+    }
+    assert_eq!(branches_on_thread(), branches_before, "no Copy was started");
+    assert_eq!(behind_in_thread(&app, &key, &french), json!(1));
+
+    // The French head is two hours old: no longer being shaped, so a note
+    // has nothing to describe, and the pointer riding with it stays put.
+    let (status, refused) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": french,
+            "translates_version_id": second,
+            "change_note": "Caught up with the English.",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+    let message = refused["error"]["message"].as_str().unwrap();
+    assert!(message.contains("no longer being shaped"), "{message}");
+    assert_eq!(behind_in_thread(&app, &key, &french), json!(1));
+    let (head, _) = newest_version(&app, &key, &french);
+    assert_eq!(head["translates_version_id"], first);
+    assert_eq!(head["change_note"], json!(null));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saying_what_language_a_recipe_is_in_does_not_make_its_translations_stale() {
     // Changing a Language appends the head content again, unchanged. That is a

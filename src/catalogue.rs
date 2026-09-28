@@ -987,7 +987,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       unless it sends new ones. A save that changes nothing \
                       but sends a new name or change_note writes them onto \
                       the Version being shaped, and is refused once that \
-                      Version is no longer being shaped. \
+                      Version is no longer being shaped. A save that \
+                      changes nothing but names a new translates_version_id \
+                      moves the newest Version's pointer to it, at any time, \
+                      and writes no Version. \
                       Changing a recipe your Cookbook did not write — a \
                       Kitchen-mate's, or one that arrived — is a Copy: it \
                       starts a new Branch of the same Lineage in your own \
@@ -1024,7 +1027,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       the Version already has unless it sends new ones, and \
                       an edit sending only a name or change_note writes them \
                       onto the Version being shaped, or is refused once that \
-                      Version is no longer being shaped. An Ingredient Line the edit \
+                      Version is no longer being shaped. An edit that \
+                      changes nothing but names a new translates_version_id \
+                      moves the newest Version's pointer to it, at any time, \
+                      and writes no Version. An Ingredient Line the edit \
                       leaves word for word as it was, in the same place, keeps \
                       its Reading as it was, a misreading included; correct \
                       one with set_reading.",

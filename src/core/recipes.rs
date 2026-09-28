@@ -72,7 +72,9 @@ impl Core {
     /// suggestion for the cook, never a change. And `translates_version_id`
     /// carries forward from the Version being replaced unless this save names
     /// a new one, so editing a Translation's wording never quietly claims it
-    /// has caught up with its source.
+    /// has caught up with its source. Naming one works even when no word
+    /// changes (#183): the newest Version's pointer moves, and no Version is
+    /// written.
     #[allow(clippy::too_many_arguments)]
     pub fn save_recipe_version(
         &self,
@@ -228,35 +230,59 @@ impl Core {
                 // being shaped, the one a content change would collapse into,
                 // and are written onto it. Past that point there is no change
                 // left for them to describe, and saying so beats dropping them.
+                //
+                // Or a source Version the head does not name yet (#183): the
+                // same words render a newer source as truly as the old one,
+                // when the source changed where the Translation needed no
+                // change. The pointer is a claim about the words as they
+                // stand, not a description of a change, so it moves at any
+                // time, being shaped or not. It still moves only on a Branch
+                // the caller's Cookbook writes.
                 let new_name = name.filter(|n| Some(*n) != head_name.as_deref());
                 let new_note = change_note.filter(|n| Some(*n) != head_change_note.as_deref());
                 let noted = new_name.is_some() || new_note.is_some();
-                if noted {
-                    if !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)? {
-                        return Err(OpError::bad_request(
-                            "nothing in the recipe changed, and it is not yours to change, \
-                             so there is no change of yours for this name or change note \
-                             to describe",
-                        ));
-                    }
-                    if !version_being_shaped(
+                let names_new_source = translates_version_id != head_translates;
+                // Every refusal before the one write: one call, one outcome.
+                if (noted || names_new_source)
+                    && !cookbook_writes_branch(conn, &own_cookbook_id, branch_id)?
+                {
+                    return Err(OpError::bad_request(if noted {
+                        "nothing in the recipe changed, and it is not yours to change, \
+                         so there is no change of yours for this name or change note \
+                         to describe"
+                    } else {
+                        "nothing in the recipe changed, and it is not yours to change, \
+                         so it is not yours to say which Version of its source it renders"
+                    }));
+                }
+                if noted
+                    && !version_being_shaped(
                         conn,
                         &lineage_id,
                         branch_id,
                         &head_version_id,
                         callers_and_recent,
-                    )? {
-                        return Err(OpError::bad_request(
-                            "nothing in the recipe changed, and its newest Version is no \
-                             longer being shaped, so there is no change for this name or \
-                             change note to describe",
-                        ));
-                    }
+                    )?
+                {
+                    return Err(OpError::bad_request(
+                        "nothing in the recipe changed, and its newest Version is no \
+                         longer being shaped, so there is no change for this name or \
+                         change note to describe",
+                    ));
+                }
+                if noted || names_new_source {
                     conn.execute(
                         "UPDATE branch_versions SET name = COALESCE(?1, name), \
-                                change_note = COALESCE(?2, change_note) \
-                         WHERE branch_id = ?3 AND sequence = ?4",
-                        params![new_name, new_note, branch_id, head_sequence],
+                                change_note = COALESCE(?2, change_note), \
+                                translates_version_id = ?3 \
+                         WHERE branch_id = ?4 AND sequence = ?5",
+                        params![
+                            new_name,
+                            new_note,
+                            translates_version_id,
+                            branch_id,
+                            head_sequence
+                        ],
                     )
                     .map_err(|e| OpError::internal(format!("cannot note Version: {e}")))?;
                 }
@@ -269,7 +295,7 @@ impl Core {
                     "copied": false,
                     "language": language,
                     "language_offer": offer,
-                    "translates_version_id": head_translates,
+                    "translates_version_id": translates_version_id,
                 }));
             }
 
