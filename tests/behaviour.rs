@@ -17302,7 +17302,7 @@ async fn a_nutrition_figure_that_does_not_say_what_it_counts_is_refused() {
 /// and spec item 159 require: where a Reading resolved to a Food, the sidecar
 /// puts that Food's names, in every Language it has one in, beside the Reading.
 /// It carries no Food id, no Cup Weight and no Food nutrition. It is gathered
-/// by `bundle_readings` in `src/core/sharing.rs` from the `readings` table, not from
+/// by `bundle_readings` in `src/core/carrying_bundles.rs` from the `readings` table, not from
 /// any shape this test reads, so nothing here moved: the Catalogue's Reading
 /// still names no Food.
 ///

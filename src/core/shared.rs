@@ -100,6 +100,25 @@ pub(super) fn required_text<'a>(value: &'a str, field: &str) -> Result<&'a str, 
     Ok(value)
 }
 
+/// A Person's name, looked up live (CONTEXT.md, "Hand").
+pub(super) fn person_name(conn: &Connection, person_id: &str) -> Result<String, OpError> {
+    // A Person here is named live. A Hand that arrived in a Bundle is named by
+    // what arrived with it, and nothing else ever will name it (#67).
+    conn.query_row(
+        "SELECT name FROM people WHERE id = ?1 \
+         UNION ALL SELECT name FROM arrived_hands WHERE hand_id = ?1 LIMIT 1",
+        params![person_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|e| OpError::internal(format!("cannot read a Person's name: {e}")))?
+    // An account deleted after minting a link leaves the link working — ending
+    // one is its own deliberate act (ADR 0018) and closing an account is not
+    // it. What is lost is the name, and saying so beats printing an id.
+    .ok_or(())
+    .or_else(|()| Ok("somebody who has since left".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::folded_word;

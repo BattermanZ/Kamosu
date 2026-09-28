@@ -216,7 +216,12 @@ src/core/           the Core, one file per area, all adding to one `Core`:
   keeping_photographs.rs
                     storing, reading and sweeping Photographs
   imports.rs        Crouton, staged uploads, the import ledger
-  sharing.rs        Share Links, Sheets, Bundles
+  share_links.rs    Share Links, the public address, and the page a
+                    stranger holding one sees (ADR 0018, ADR 0026)
+  sheets.rs         Sheets: a recipe set as a PDF (ADR 0023)
+  carrying_bundles.rs
+                    Bundles out and in: writing one, previewing and
+                    receiving one (ADR 0020)
   shopping_list.rs  the shopping list
   search.rs         word search and Meaning Search
   keeping_backups.rs

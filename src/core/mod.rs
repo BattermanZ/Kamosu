@@ -10,10 +10,11 @@
 //! resolving a Credential. The work behind each Operation lives beside it, one
 //! file per area, each adding its methods to `Core` in an `impl` of its own.
 //!
-//! Three areas are named for what they do rather than what they hold —
-//! `keeping_backups`, `keeping_photographs`, `shopping_list` — because
-//! `crate::backups`, `crate::photographs` and `crate::shopping` already exist
-//! and the code in those files names them by path.
+//! Four areas are named for what they do rather than what they hold —
+//! `carrying_bundles`, `keeping_backups`, `keeping_photographs`,
+//! `shopping_list` — because `crate::bundles`, `crate::backups`,
+//! `crate::photographs` and `crate::shopping` already exist and the code in
+//! those files names them by path.
 //!
 //! Every area's items are gathered back into this module, so the areas reach
 //! one another's helpers through `use super::*` and every `crate::core::X`
@@ -50,6 +51,7 @@ use crate::shopping;
 use crate::units;
 
 mod accounts;
+mod carrying_bundles;
 mod cookbooks;
 mod cooking;
 mod imports;
@@ -60,8 +62,9 @@ mod readings;
 mod recipes;
 mod related;
 mod search;
+mod share_links;
 mod shared;
-mod sharing;
+mod sheets;
 mod shelves;
 mod shopping_list;
 mod tags;
@@ -81,7 +84,7 @@ pub use recipes::COLLAPSE_WINDOW_SECONDS;
 pub use related::*;
 pub use search::*;
 pub(crate) use shared::*;
-pub use sharing::*;
+pub use sheets::*;
 use shelves::*;
 use tags::*;
 use translation::*;
