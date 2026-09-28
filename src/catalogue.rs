@@ -171,7 +171,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
     let mut operations = vec![
         Operation {
             name: "instance_status",
-            summary: "The version of this Kamosu, whether setup has happened, and the shortest password it accepts.",
+            summary: "Read this Kamosu's version and whether setup has \
+                      happened. Also the shortest password it accepts.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -227,10 +228,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_person",
-            summary: "Who this Credential names: the Person's permanent id, \
-                      which is also their Hand, and the name they currently \
-                      go by — the name every Version they wrote shows here, \
-                      and the one they sign in with.",
+            summary: "Read who this Credential names. The answer is the \
+                      Person's permanent id, which is also their Hand, and the \
+                      name they currently go by — the name every Version they \
+                      wrote shows here, and the one they sign in with.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -260,12 +261,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "list_accounts",
-            summary: "Who holds an account on this instance: their name, \
-                      whether they administer it, and whether the account is \
-                      disabled. Nothing about what they cook — the Operator \
-                      administers and does not read (ADR 0007), so no recipe, \
-                      Attempt, Cookbook or Kitchen of theirs is reachable \
-                      from here.",
+            summary: "List who holds an account on this instance. Each comes \
+                      with their name, whether they administer it, and whether \
+                      the account is disabled. Nothing about what they cook — \
+                      the Operator administers and does not read (ADR 0007), \
+                      so no recipe, Attempt, Cookbook or Kitchen of theirs is \
+                      reachable from here.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: false,
@@ -342,7 +343,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "mint_recovery_link",
-            summary: "Mint a one-use recovery link for a Person who forgot their password.",
+            summary: "Mint a recovery link for a Person who forgot their \
+                      password. The link is spent on its one use.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,
@@ -385,7 +387,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "sweep_photographs",
-            summary: "Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now.",
+            summary: "Take away Photographs nothing has pointed at for a week. \
+                      Their Display Copies go with them. Runs daily on its \
+                      own; this asks for it now.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,
@@ -397,7 +401,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "take_backup",
-            summary: "Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>.",
+            summary: "Take a Backup now, as a Job. A Backup is one archive \
+                      holding a consistent copy of the database and every \
+                      Photograph, written beside the database under /data. \
+                      Kamosu keeps three — one taken daily, one weekly, one \
+                      monthly — and takes them on its own; this asks for one \
+                      now. A Job because an archive is the size of the \
+                      library. It is never sent anywhere: fetch the bytes at \
+                      GET /api/backups/<name>.",
             permission: Permission::Operator,
             kind: Kind::Job,
             write: true,
@@ -461,7 +472,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "mint_access_key",
-            summary: "Mint an Access Key for an agent to act as you, optionally read-only.",
+            summary: "Mint an Access Key for an agent to act as you. You may \
+                      make it read-only.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -537,8 +549,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "create_kitchen",
-            summary: "Create a Kitchen: a group of People who see and cook from \
-                      each other's Cookbooks. Its creator is its first member.",
+            summary: "Create a Kitchen, with its creator as its first member. \
+                      A Kitchen is a group of People who see and cook from \
+                      each other's Cookbooks.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -579,8 +592,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_kitchen_nickname",
-            summary: "Set this member's own private Nickname for a Kitchen, \
-                      seen by nobody else. An absent or empty Nickname clears it.",
+            summary: "Set this member's own private Nickname for a Kitchen. \
+                      Nobody else sees it. An absent or empty Nickname clears \
+                      it.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -592,8 +606,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "invite_to_kitchen",
-            summary: "Mint a one-use Invite for another Person to join this \
-                      Kitchen. Any member may.",
+            summary: "Mint a one-use Invite for another Person to this \
+                      Kitchen. It lets them join it. Any member may.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -618,11 +632,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "remove_kitchen_member",
-            summary: "Remove a Person from a Kitchen — including yourself, to \
-                      leave. Their Cookbook leaves with them; each member who \
-                      stays keeps a Branch of every recipe of theirs they \
-                      cooked, and they keep one of every recipe they cooked \
-                      from the others.",
+            summary: "Remove a Person from a Kitchen, or yourself to leave it. \
+                      Their Cookbook leaves with them; each member who stays \
+                      keeps a Branch of every recipe of theirs they cooked, \
+                      and they keep one of every recipe they cooked from the \
+                      others.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -634,8 +648,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "delete_kitchen",
-            summary: "An Operator's power over a Kitchen: delete one nobody is \
-                      left in. Nothing else about a Kitchen.",
+            summary: "Delete a Kitchen nobody is left in. This is an \
+                      Operator's only power over a Kitchen: nothing else about \
+                      one.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -647,10 +662,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "preview_leaving_kitchen",
-            summary: "What removing a Person from a Kitchen would leave each \
-                      side, before anybody does it: how many recipes the \
-                      members who stay keep, and how many the one leaving \
-                      keeps. `person_id` defaults to you.",
+            summary: "Preview what removing a Person from a Kitchen would \
+                      leave. It answers for each side, before anybody does it: \
+                      how many recipes the members who stay keep, and how many \
+                      the one leaving keeps. `person_id` defaults to you.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -662,9 +677,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_cookbook",
-            summary: "Your own Cookbook: its name, who writes it, how many \
-                      recipes it holds, the Kitchens that see it and the \
-                      Invites still waiting.",
+            summary: "Read your own Cookbook. The answer is its name, who \
+                      writes it, how many recipes it holds, the Kitchens that \
+                      see it and the Invites still waiting.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -676,9 +691,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "rename_cookbook",
-            summary: "Give your Cookbook a name of its own, or clear it back to \
-                      its Co-authors' names with an empty or null one. Any \
-                      Co-author may.",
+            summary: "Give your Cookbook a name of its own, or clear it. An \
+                      empty or null name clears it back to its Co-authors' \
+                      names. Any Co-author may.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -690,9 +705,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "invite_to_cookbook",
-            summary: "Mint a one-use Invite for somebody to write your Cookbook \
-                      with you. When they accept, their recipes and yours become \
-                      one Cookbook either of you changes.",
+            summary: "Mint a one-use Invite for somebody to write your \
+                      Cookbook. They write it with you. When they accept, \
+                      their recipes and yours become one Cookbook either of \
+                      you changes.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -716,9 +732,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "read_cookbook_invite",
-            summary: "What accepting a Cookbook Invite would do, before you say \
-                      yes: whose Cookbook it is, and how many recipes on each \
-                      side become one.",
+            summary: "Preview what accepting a Cookbook Invite would do. It \
+                      answers before you say yes: whose Cookbook it is, and \
+                      how many recipes on each side become one.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -754,12 +770,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "accept_cookbook_invite",
-            summary: "Open a Cookbook Invite: your Cookbook joins the one it \
-                      names, and every recipe in either becomes one Cookbook \
-                      you all change. Where either Cookbook has other writers, \
-                      the join waits until each of them says yes, and the \
-                      answer is your own Cookbook with the join in `joins`. \
-                      Spent on use.",
+            summary: "Open a Cookbook Invite to join the Cookbook it names. \
+                      Your Cookbook joins that one, and every recipe in either \
+                      becomes one Cookbook you all change. Where either \
+                      Cookbook has other writers, the join waits until each of \
+                      them says yes, and the answer is your own Cookbook with \
+                      the join in `joins`. Spent on use.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -771,11 +787,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "answer_cookbook_join",
-            summary: "Say yes or no to a Cookbook join that waits on you, as \
-                      your Cookbook's `joins` lists it. The last yes joins the \
-                      two Cookbooks. A no from anybody writing either calls it \
-                      off and opens its Invite again; from the one who \
-                      accepted it, that takes the acceptance back.",
+            summary: "Say yes or no to a Cookbook join that waits on you. Your \
+                      Cookbook's `joins` lists each one. The last yes joins \
+                      the two Cookbooks. A no from anybody writing either \
+                      calls it off and opens its Invite again; from the one \
+                      who accepted it, that takes the acceptance back.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -787,8 +803,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "leave_cookbook",
-            summary: "Leave the Cookbook you write with others, taking your own \
-                      Branch of every recipe in it with its whole history. \
+            summary: "Leave the Cookbook you write with others. You take your \
+                      own Branch of every recipe in it with its whole history. \
                       Whoever started a recipe keeps the original; everyone \
                       else a copy.",
             permission: Permission::Person,
@@ -830,12 +846,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "list_tags",
-            summary: "List every Tag your own Cookbook files by, each shown in \
-                      the reader's Reading Language where it has a name there. \
-                      With `everywhere`, every word any Cookbook you may see \
-                      files by, one entry per word — what a shelf filters by. \
-                      With a `kitchen_id`, the same for the Cookbooks seen in \
-                      that one Kitchen of yours.",
+            summary: "List every Tag your own Cookbook files by. Each is shown \
+                      in the reader's Reading Language where it has a name \
+                      there. With `everywhere`, every word any Cookbook you \
+                      may see files by, one entry per word — what a shelf \
+                      filters by. With a `kitchen_id`, the same for the \
+                      Cookbooks seen in that one Kitchen of yours.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -866,7 +882,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "merge_tags",
-            summary: "Merge two of a Kitchen's Tags into one: every recipe \
+            summary: "Merge two of a Kitchen's Tags into one. Every recipe \
                       filed under the merged Tag is filed under the kept one \
                       instead. Mints no Version.",
             permission: Permission::Person,
@@ -880,8 +896,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "delete_tag",
-            summary: "Take a Tag out of a Kitchen's list and off every recipe \
-                      carrying it. No recipe changes.",
+            summary: "Delete a Tag from a Kitchen and every recipe carrying \
+                      it. It comes out of the Kitchen's list and off each of \
+                      those recipes. No recipe changes.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -893,9 +910,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_recipe_tag",
-            summary: "File a recipe under one of its Kitchen's Tags, or take \
-                      it back out. Mints no Version: filing is not what a \
-                      recipe is.",
+            summary: "File a recipe under a Tag, or take it back out. The Tag \
+                      is one of the recipe's Kitchen's Tags. Mints no Version: \
+                      filing is not what a recipe is.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -912,13 +929,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_related_recipe",
-            summary: "Relate one of your Cookbook's Recipes to any Recipe you \
-                      may see, or take that single two-way, untyped link back \
-                      off. Your Cookbook keeps the link. It never \
-                      changes either Recipe or travels in a Bundle or Share. \
-                      Name the far end with `related_branch_id`, or with \
-                      `related_lineage_id` where the Recipe there has since \
-                      been deleted — exactly one of the two.",
+            summary: "Relate two Recipes, or take that link back off. One is a \
+                      Recipe of your Cookbook, the other any Recipe you may \
+                      see, joined by a single two-way, untyped link. Your \
+                      Cookbook keeps the link. It never changes either Recipe \
+                      or travels in a Bundle or Share. Name the far end with \
+                      `related_branch_id`, or with `related_lineage_id` where \
+                      the Recipe there has since been deleted — exactly one of \
+                      the two.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -960,8 +978,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "create_recipe",
-            summary: "Create a Recipe: a Lineage, a Branch in this Kitchen, \
-                      and a first Version. A title is all it needs.",
+            summary: "Create a Recipe; a title is all it needs. It makes a \
+                      Lineage, a Branch in this Kitchen, and a first Version.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -975,22 +993,21 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "save_recipe_version",
             // The collapse window is COLLAPSE_WINDOW_SECONDS, which a test
             // below holds this wording to.
-            summary: "Save a new state of a Recipe onto a Branch — the whole \
-                      recipe as written, replacing what was there: every field \
-                      left out is erased. For a partial change use edit_recipe \
-                      instead. A re-save by the same Hand within 60 minutes of \
-                      the last one collapses into the Version already being \
-                      shaped rather than starting a new one, unless another \
-                      Branch or a Translation already holds that Version. A \
-                      collapsed save \
-                      keeps the name and change_note the Version already has \
-                      unless it sends new ones. A save that changes nothing \
-                      but sends a new name or change_note writes them onto \
-                      the Version being shaped, and is refused once that \
-                      Version is no longer being shaped. A save that \
-                      changes nothing but names a new translates_version_id \
-                      moves the newest Version's pointer to it, at any time, \
-                      and writes no Version. \
+            summary: "Save a whole new state of a Recipe onto a Branch. It is \
+                      the whole recipe as written, replacing what was there: \
+                      every field left out is erased. For a partial change use \
+                      edit_recipe instead. A re-save by the same Hand within \
+                      60 minutes of the last one collapses into the Version \
+                      already being shaped rather than starting a new one, \
+                      unless another Branch or a Translation already holds \
+                      that Version. A collapsed save keeps the name and \
+                      change_note the Version already has unless it sends new \
+                      ones. A save that changes nothing but sends a new name \
+                      or change_note writes them onto the Version being \
+                      shaped, and is refused once that Version is no longer \
+                      being shaped. A save that changes nothing but names a \
+                      new translates_version_id moves the newest Version's \
+                      pointer to it, at any time, and writes no Version. \
                       Changing a recipe your Cookbook did not write — a \
                       Kitchen-mate's, or one that arrived — is a Copy: it \
                       starts a new Branch of the same Lineage in your own \
@@ -1012,28 +1029,28 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             // The collapse window is COLLAPSE_WINDOW_SECONDS, which a test
             // below holds this wording to. An unchanged line keeping its
             // Reading is #166: that sentence goes when the issue is fixed.
-            summary: "Change some fields of a Recipe and leave the rest as they \
-                      are: send only the fields that change. A field left out \
-                      keeps what the recipe has, and null clears it; the title \
-                      alone can be changed but never cleared. Ingredients and steps are each replaced whole, \
-                      so changing one line means sending that whole list, \
-                      but not the other one. Otherwise exactly \
-                      save_recipe_version: the result is saved as the \
-                      recipe's new state, a re-edit by the same Hand within \
-                      60 minutes collapses into the Version being shaped \
-                      (unless another Branch or a Translation already holds \
-                      it), and changing a recipe your Cookbook did not write is \
-                      a Copy. A collapsed edit keeps the name and change_note \
-                      the Version already has unless it sends new ones, and \
-                      an edit sending only a name or change_note writes them \
-                      onto the Version being shaped, or is refused once that \
-                      Version is no longer being shaped. An edit that \
-                      changes nothing but names a new translates_version_id \
-                      moves the newest Version's pointer to it, at any time, \
-                      and writes no Version. An Ingredient Line the edit \
-                      leaves word for word as it was, in the same place, keeps \
-                      its Reading as it was, a misreading included; correct \
-                      one with set_reading.",
+            summary: "Change some fields of a Recipe, keeping the rest. Send \
+                      only the fields that change. A field left out keeps what \
+                      the recipe has, and null clears it; the title alone can \
+                      be changed but never cleared. Ingredients and steps are \
+                      each replaced whole, so changing one line means sending \
+                      that whole list, but not the other one. Otherwise \
+                      exactly save_recipe_version: the result is saved as the \
+                      recipe's new state, a re-edit by the same Hand within 60 \
+                      minutes collapses into the Version being shaped (unless \
+                      another Branch or a Translation already holds it), and \
+                      changing a recipe your Cookbook did not write is a Copy. \
+                      A collapsed edit keeps the name and change_note the \
+                      Version already has unless it sends new ones, and an \
+                      edit sending only a name or change_note writes them onto \
+                      the Version being shaped, or is refused once that \
+                      Version is no longer being shaped. An edit that changes \
+                      nothing but names a new translates_version_id moves the \
+                      newest Version's pointer to it, at any time, and writes \
+                      no Version. An Ingredient Line the edit leaves word for \
+                      word as it was, in the same place, keeps its Reading as \
+                      it was, a misreading included; correct one with \
+                      set_reading.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1045,9 +1062,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "start_variation",
-            summary: "Start a variation of a recipe: a Branch of it, unchanged, \
-                      in your own Cookbook, under a name you give it \
-                      (\"Vegetarian\"). Changing one never changes the other.",
+            summary: "Start a variation of a recipe in your own Cookbook. It \
+                      is a Branch of the recipe, unchanged, under a name you \
+                      give it (\"Vegetarian\"). Changing one never changes the \
+                      other.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1059,9 +1077,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "rename_branch",
-            summary: "Name one of your Cookbook's Branches of a recipe, or clear \
-                      its name. A Cookbook keeps one unnamed Branch of a recipe \
-                      in each Language, so a second one needs a name.",
+            summary: "Name a recipe's Branch in your Cookbook, or clear its \
+                      name. A Cookbook keeps one unnamed Branch of a recipe in \
+                      each Language, so a second one needs a name.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1108,21 +1126,20 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "read_pasted_recipe",
-            summary: "Read a whole recipe pasted as text into a title, an \
-                      ingredient list and a method. Decides only what each \
-                      line IS — an Ingredient Line, a Step, a Section — and \
-                      never \
-                      what it says: every line comes back exactly as pasted, \
-                      with no amount extracted, no rewording and no \
-                      reordering (ADR 0002). Nothing is guessed beyond the \
-                      split and the title: no Yield, no times, no Source, and \
-                      no Component (ADR 0008). It writes nothing anywhere — \
-                      what comes back is shown to whoever pasted it, who \
-                      moves the boundary if it landed wrong, and only then is \
-                      a recipe saved by an ordinary create_recipe or \
-                      save_recipe_version. The boundary is the index in \
-                      `lines` where the method starts, so moving it re-splits \
-                      the same answer without asking again.",
+            summary: "Read a pasted recipe into title, ingredients and method. \
+                      It takes a whole recipe pasted as text. It decides only \
+                      what each line IS — an Ingredient Line, a Step, a \
+                      Section — and never what it says: every line comes back \
+                      exactly as pasted, with no amount extracted, no \
+                      rewording and no reordering (ADR 0002). Nothing is \
+                      guessed beyond the split and the title: no Yield, no \
+                      times, no Source, and no Component (ADR 0008). It writes \
+                      nothing anywhere — what comes back is shown to whoever \
+                      pasted it, who moves the boundary if it landed wrong, \
+                      and only then is a recipe saved by an ordinary \
+                      create_recipe or save_recipe_version. The boundary is \
+                      the index in `lines` where the method starts, so moving \
+                      it re-splits the same answer without asking again.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1139,19 +1156,20 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "read_recipe_pdf",
-            summary: "Read a recipe PDF — one printed from a web page or a \
-                      word processor — the way read_pasted_recipe reads \
-                      pasted text, and answer the same shape. A printed line \
-                      that wrapped is joined back into one, and the first \
-                      line is taken as the title. It writes nothing anywhere: \
-                      what comes back is shown to whoever sent the PDF, who \
-                      moves the boundary if it landed wrong, and only then is \
-                      a recipe saved by an ordinary create_recipe. A scan or \
-                      a photograph of a page holds no text and is refused \
-                      with reason `pdf_has_no_text`; text is never read out \
-                      of a picture. Send the file to POST /api/uploads and \
-                      pass the `upload_id` it answers, or pass it \
-                      base64-encoded as `data`.",
+            summary: "Read a recipe PDF into title, ingredients and method. It \
+                      takes one printed from a web page or a word processor, \
+                      reads it the way read_pasted_recipe reads pasted text, \
+                      and answers the same shape. A printed line that wrapped \
+                      is joined back into one, and the first line is taken as \
+                      the title. It writes nothing anywhere: what comes back \
+                      is shown to whoever sent the PDF, who moves the boundary \
+                      if it landed wrong, and only then is a recipe saved by \
+                      an ordinary create_recipe. A scan or a photograph of a \
+                      page holds no text and is refused with reason \
+                      `pdf_has_no_text`; text is never read out of a picture. \
+                      Send the file to POST /api/uploads and pass the \
+                      `upload_id` it answers, or pass it base64-encoded as \
+                      `data`.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1178,16 +1196,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "start_translation",
-            summary: "Translate a recipe: start an ordinary Branch of the same \
-                      Lineage in another Language, whose first Version records \
-                      which Version of the source it renders. There is no \
-                      Translation object — what this makes is a Branch, and \
-                      every Operation from here on is the ordinary one. Its \
-                      chain starts fresh rather than carrying the source's, \
-                      which is what separates it from a Copy: different words \
-                      rendering the same dish, with a history of their own. An \
-                      agent translating calls this under the Person's own \
-                      Credential and is a scribe, not an author.",
+            summary: "Translate a recipe into another Language. It starts an \
+                      ordinary Branch of the same Lineage in that Language, \
+                      whose first Version records which Version of the source \
+                      it renders. There is no Translation object — what this \
+                      makes is a Branch, and every Operation from here on is \
+                      the ordinary one. Its chain starts fresh rather than \
+                      carrying the source's, which is what separates it from a \
+                      Copy: different words rendering the same dish, with a \
+                      history of their own. An agent translating calls this \
+                      under the Person's own Credential and is a scribe, not \
+                      an author.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1238,13 +1257,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "import",
-            summary: "Bring a batch of already-read recipes into your own \
-                      Cookbook, as a Job. Matched by foreign id against this \
-                      Cookbook's ledger for the source kind, so re-running \
-                      finds what it already made instead of doubling it; a \
-                      recipe found changed is offered for review, never \
-                      written over. Reading the outside source itself — a \
-                      file, a page, a Bundle — is each importer's own job.",
+            summary: "Bring already-read recipes into your own Cookbook, as a \
+                      Job. They come as one batch. Matched by foreign id \
+                      against this Cookbook's ledger for the source kind, so \
+                      re-running finds what it already made instead of \
+                      doubling it; a recipe found changed is offered for \
+                      review, never written over. Reading the outside source \
+                      itself — a file, a page, a Bundle — is each importer's \
+                      own job.",
             permission: Permission::Person,
             kind: Kind::Job,
             write: true,
@@ -1256,16 +1276,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "import_crouton",
-            summary: "Bring in a Crouton library, as a Job: the whole export \
-                      (a zip of .crumb files) or one .crumb. Each recipe lands \
-                      in your own Cookbook through the same ledger `import` \
-                      uses, keyed by its Crouton id, so running it again \
-                      matches instead of doubling the library. Ingredient \
-                      Lines are rebuilt from Crouton's split fields; the \
-                      site's favicon and Crouton's nutrition text are left \
-                      out. Send the file to POST /api/uploads and pass the \
-                      `upload_id` it answers, or pass it base64-encoded as \
-                      `data`.",
+            summary: "Bring in a Crouton library, as a Job. It takes the whole \
+                      export (a zip of .crumb files) or one .crumb. Each \
+                      recipe lands in your own Cookbook through the same \
+                      ledger `import` uses, keyed by its Crouton id, so \
+                      running it again matches instead of doubling the \
+                      library. Ingredient Lines are rebuilt from Crouton's \
+                      split fields; the site's favicon and Crouton's nutrition \
+                      text are left out. Send the file to POST /api/uploads \
+                      and pass the `upload_id` it answers, or pass it \
+                      base64-encoded as `data`.",
             permission: Permission::Person,
             kind: Kind::Job,
             write: true,
@@ -1292,16 +1312,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "list_imports",
-            summary: "What has been brought into your Kitchens from outside, \
-                      and what happened each time. One entry per source — a \
-                      Crouton library, recipe files, web pages — each holding \
-                      how many recipes its ledger remembers and every arrival \
-                      you asked for, newest first. An arrival names the Job \
-                      whose Report `get_job` serves, so what happened is read \
-                      back long after the screen that started it closed. \
-                      Listed is an event, never a mark on a recipe: an \
-                      imported recipe is an ordinary recipe and says nothing \
-                      about where it came from (ADR 0025).",
+            summary: "List every Import, and what happened each time. It \
+                      covers what has been brought into your Kitchens from \
+                      outside. One entry per source — a Crouton library, \
+                      recipe files, web pages — each holding how many recipes \
+                      its ledger remembers and every arrival you asked for, \
+                      newest first. An arrival names the Job whose Report \
+                      `get_job` serves, so what happened is read back long \
+                      after the screen that started it closed. Listed is an \
+                      event, never a mark on a recipe: an imported recipe is \
+                      an ordinary recipe and says nothing about where it came \
+                      from (ADR 0025).",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1378,11 +1399,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "forget_import",
-            summary: "Throw an Import's ledger away whole — the memory of \
-                      which outside recipe became which of yours. Every \
-                      recipe it made stays exactly as it is. Once forgotten, \
-                      importing the same file again brings everything in as \
-                      new, so do this when the place it came from is gone.",
+            summary: "Throw an Import's ledger away whole. The ledger is the \
+                      memory of which outside recipe became which of yours. \
+                      Every recipe it made stays exactly as it is. Once \
+                      forgotten, importing the same file again brings \
+                      everything in as new, so do this when the place it came \
+                      from is gone.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1449,19 +1471,19 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "preview_shared_recipe",
-            summary: "Say what importing a Kamosu Share Link would do, before \
-                      anything is written, as a Job (#170). Reaches the recipe \
-                      file exactly as `import_web_link` does — this \
-                      instance's own link locally, another Kamosu's at a \
-                      public address through the guarded client — and answers \
-                      the shared recipe's title, Source, writer, how many \
-                      Versions it carries and a small picture, and whether \
-                      your own Cookbook holds it already, with how many newer \
-                      Versions the file carries past yours. The file is \
-                      staged: pass `upload_id` to `import_bundle` to import \
-                      exactly what was previewed without fetching it again. \
-                      An ended link, or an address that is no Share Link, is \
-                      refused.",
+            summary: "Preview what importing a Kamosu Share Link would do. It \
+                      answers before anything is written, as a Job (#170). \
+                      Reaches the recipe file exactly as `import_web_link` \
+                      does — this instance's own link locally, another \
+                      Kamosu's at a public address through the guarded client \
+                      — and answers the shared recipe's title, Source, writer, \
+                      how many Versions it carries and a small picture, and \
+                      whether your own Cookbook holds it already, with how \
+                      many newer Versions the file carries past yours. The \
+                      file is staged: pass `upload_id` to `import_bundle` to \
+                      import exactly what was previewed without fetching it \
+                      again. An ended link, or an address that is no Share \
+                      Link, is refused.",
             permission: Permission::Person,
             kind: Kind::Job,
             // It writes nothing to the library, but it fetches another site
@@ -1556,12 +1578,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "rename_version",
-            summary: "Rename a Version — the one thing about it that can \
-                      change later. An absent or empty name clears it. \
-                      Targeted by the Branch's own sequence number, since \
-                      the same content can recur more than once on one \
-                      Branch, each occurrence named on its own. Only the \
-                      Person who saved that Version may rename it.",
+            summary: "Rename a Version. Its name is the one thing about it \
+                      that can change later. An absent or empty name clears \
+                      it. Targeted by the Branch's own sequence number, since \
+                      the same content can recur more than once on one Branch, \
+                      each occurrence named on its own. Only the Person who \
+                      saved that Version may rename it.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1587,10 +1609,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "upload_photograph",
-            summary: "Upload a Photograph, base64-encoded — the fallback for a \
-                      Door that cannot carry raw bytes (ADR 0001). A browser \
-                      uses the out-of-band `POST /api/photographs` instead. \
-                      Two uploads of the same picture answer the same id.",
+            summary: "Upload a Photograph, base64-encoded. It is the fallback \
+                      for a Door that cannot carry raw bytes (ADR 0001). A \
+                      browser uses the out-of-band `POST /api/photographs` \
+                      instead. Two uploads of the same picture answer the same \
+                      id.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -1662,20 +1685,19 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "home_shelves",
-            summary: "Home: the computed shelves that answer *show me \
-                      something* rather than handing back a search box — \
-                      recently added (newest first), cooked most, quick \
+            summary: "Read Home: the computed shelves of recipes. They answer \
+                      *show me something* rather than handing back a search \
+                      box: recently added (newest first), cooked most, quick \
                       tonight, never cooked (shuffled each time it is asked \
                       for, so it is not the newest again), recently opened. \
                       Each is one card per Lineage in the reader's Reading \
-                      Language, in the same shape the library's shelf \
-                      answers in. A shelf with nothing on it is left out \
-                      rather than sent empty, so an instance holding no \
-                      recipes answers with no shelves at all. All five are \
-                      counted from recipes and Attempts that already exist, \
-                      except *recently opened*, which reads what \
-                      `note_recipe_opened` remembered (ADR 0011, ADR 0027, \
-                      ADR 0042).",
+                      Language, in the same shape the library's shelf answers \
+                      in. A shelf with nothing on it is left out rather than \
+                      sent empty, so an instance holding no recipes answers \
+                      with no shelves at all. All five are counted from \
+                      recipes and Attempts that already exist, except \
+                      *recently opened*, which reads what `note_recipe_opened` \
+                      remembered (ADR 0011, ADR 0027, ADR 0042).",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1724,15 +1746,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "note_recipe_opened",
-            summary: "Remember that the caller opened this recipe, for Home's \
-                      *recently opened* shelf. One fact per Person per \
+            summary: "Remember that the caller opened this recipe. It feeds \
+                      Home's *recently opened* shelf. One fact per Person per \
                       Lineage — opening a recipe's French Branch and its \
                       English one is opening the same recipe — and opening it \
                       again moves the time rather than adding a row. It is \
                       private to the Person, never travels, and is in no \
                       fingerprint, Vault or Bundle: an instance that lost it \
-                      would lose the order of one shelf and nothing else \
-                      (ADR 0027).",
+                      would lose the order of one shelf and nothing else (ADR \
+                      0027).",
             permission: Permission::Person,
             kind: Kind::Immediate,
             // It writes, so a read-only Access Key cannot do it. That is the
@@ -1763,10 +1785,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "meaning_search_status",
-            summary: "Whether Meaning Search is on here, what model it would \
-                      use, who accepted that model's terms — and whether this \
-                      caller should be offered it. Answers on every instance, \
-                      including the many that will never turn it on.",
+            summary: "Read whether Meaning Search is on here. Also what model \
+                      it would use, who accepted that model's terms — and \
+                      whether this caller should be offered it. Answers on \
+                      every instance, including the many that will never turn \
+                      it on.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1853,13 +1876,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "build_meaning_index",
-            summary: "Read the library into the Meaning Search index, as a Job, \
-                      and turn Meaning Search on. Incremental: what is read is \
-                      what the index does not already hold, so the first run is \
-                      the whole library and every later one is whatever \
-                      changed. The index is derived from the recipes and can be \
-                      rebuilt at any time. Kamosu also does this by itself, \
-                      within the minute, whenever a recipe changes.",
+            summary: "Build the Meaning Search index, as a Job, and turn it \
+                      on. It reads the library into the index. Incremental: \
+                      what is read is what the index does not already hold, so \
+                      the first run is the whole library and every later one \
+                      is whatever changed. The index is derived from the \
+                      recipes and can be rebuilt at any time. Kamosu also does \
+                      this by itself, within the minute, whenever a recipe \
+                      changes.",
             permission: Permission::Operator,
             kind: Kind::Job,
             write: true,
@@ -1897,13 +1921,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_recipe",
-            summary: "Read a Recipe: the Branch as it stands and its whole \
-                      chain of Versions, oldest first. Each Version's \
-                      `measured` lines are scaled to `wanted_yield` where one \
-                      is given (null for the recipe as written), and otherwise \
-                      to the Yield the caller's own In Progress Attempt is \
-                      cooking to; `scaled_to` says which, or is null where the \
-                      amounts are as written. Nothing is stored.",
+            summary: "Read a Recipe: its Branch and every Version, oldest \
+                      first. The Branch comes as it stands, with its whole \
+                      chain of Versions. Each Version's `measured` lines are \
+                      scaled to `wanted_yield` where one is given (null for \
+                      the recipe as written), and otherwise to the Yield the \
+                      caller's own In Progress Attempt is cooking to; \
+                      `scaled_to` says which, or is null where the amounts are \
+                      as written. Nothing is stored.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -1923,11 +1948,12 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_thread",
-            summary: "Read the Thread: every Version of every Branch of \
-                      one Lineage this Person can see, oldest first per \
-                      Branch, with every Attempt hanging off it. \
-                      branch_id is only the entry point — any Branch of \
-                      the Lineage answers the same Thread.",
+            summary: "Read the Thread: every Branch of one Lineage you may \
+                      see. It holds every Version of every Branch of the \
+                      Lineage this Person can see, oldest first per Branch, \
+                      with every Attempt hanging off it. branch_id is only the \
+                      entry point — any Branch of the Lineage answers the same \
+                      Thread.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2026,10 +2052,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_public_address",
-            summary: "Where this instance currently says it is reachable from \
-                      outside, or nothing if it has never been asked. The \
-                      Operator's half of `set_public_address`: changing an \
-                      address you cannot see is a guess.",
+            summary: "Read this instance's public address, if it has one. That \
+                      is where it currently says it is reachable from outside, \
+                      or nothing if it has never been asked. The Operator's \
+                      half of `set_public_address`: changing an address you \
+                      cannot see is a guess.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: false,
@@ -2046,16 +2073,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_public_address",
-            summary: "Change where this instance says it is reachable from \
-                      outside. Kept in the database and never in an \
-                      environment variable, so moving an instance is one act \
-                      rather than a redeployment. It fixes the future, not the \
-                      past: Share Links minted after it carry the new address, \
-                      while a link already sent stays the text it was sent as. \
-                      A live link's `url`, as `get_share_link` answers it, is \
-                      built against the new address, so the owner can send the \
-                      one that opens now. A link minted before Kamosu kept its \
-                      address has none to show.",
+            summary: "Change this instance's public address. That is where it \
+                      says it is reachable from outside. Kept in the database \
+                      and never in an environment variable, so moving an \
+                      instance is one act rather than a redeployment. It fixes \
+                      the future, not the past: Share Links minted after it \
+                      carry the new address, while a link already sent stays \
+                      the text it was sent as. A live link's `url`, as \
+                      `get_share_link` answers it, is built against the new \
+                      address, so the owner can send the one that opens now. A \
+                      link minted before Kamosu kept its address has none to \
+                      show.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: true,
@@ -2077,13 +2105,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "export_bundle",
-            summary: "Write a Bundle of one recipe: a plain zip holding a readable Markdown note \
-                      per recipe with its Thread beneath it, its Photographs, and a hidden \
-                      .kamosu/ sidecar carrying every Version complete back to the first, the \
-                      Readings and the ids. It carries the Branch named, its Translations, and \
-                      every Component it needs as a Passenger. This answers what the Bundle \
-                      holds; fetch its bytes at GET /api/bundles/<branch_id> under the same \
-                      Credential. Nothing is sent anywhere and nothing is changed.",
+            summary: "Write a Bundle of one recipe. A Bundle is a plain zip \
+                      holding a readable Markdown note per recipe with its \
+                      Thread beneath it, its Photographs, and a hidden \
+                      .kamosu/ sidecar carrying every Version complete back to \
+                      the first, the Readings and the ids. It carries the \
+                      Branch named, its Translations, and every Component it \
+                      needs as a Passenger. This answers what the Bundle \
+                      holds; fetch its bytes at GET /api/bundles/<branch_id> \
+                      under the same Credential. Nothing is sent anywhere and \
+                      nothing is changed.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2120,16 +2151,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         // the PDF waits under the Job's id at GET /api/sheets/<job_id>.
         Operation {
             name: "make_sheet",
-            summary: "Set a Sheet of one recipe: the Branch as it stands on this Person's \
-                      screen, set for paper as a PDF. It carries the recipe and not the \
-                      library — no Tags, Attempts, Thread or past Versions. Written \
-                      Ingredient Lines are printed and Readings are not, except the amount \
-                      beneath a line when a cooking has scaled the recipe; Components \
-                      unfold after it, parent first, each already scaled. Letter for US \
-                      Reading Measures, A4 otherwise. `wanted_yield` is the Yield the \
-                      screen is scaled to, as `get_recipe` takes it. When the Job \
-                      completes, fetch the PDF at GET /api/sheets/<job_id> under the \
-                      same Credential. Nothing is changed.",
+            summary: "Set a Sheet of one recipe, as a PDF for paper. It is the \
+                      Branch as it stands on this Person's screen. It carries \
+                      the recipe and not the library — no Tags, Attempts, \
+                      Thread or past Versions. Written Ingredient Lines are \
+                      printed and Readings are not, except the amount beneath \
+                      a line when a cooking has scaled the recipe; Components \
+                      unfold after it, parent first, each already scaled. \
+                      Letter for US Reading Measures, A4 otherwise. \
+                      `wanted_yield` is the Yield the screen is scaled to, as \
+                      `get_recipe` takes it. When the Job completes, fetch the \
+                      PDF at GET /api/sheets/<job_id> under the same \
+                      Credential. Nothing is changed.",
             permission: Permission::Person,
             kind: Kind::Job,
             write: false,
@@ -2149,13 +2182,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "make_shared_sheet",
-            summary: "Set a Sheet of the recipe a Share Link shows, for anyone holding the \
-                      link — no account needed. The recipe is printed as written, with its \
-                      Components unfolded after it at the amount each line asks for. \
-                      `language` picks one of the link's Translations; `locale` is the \
-                      reader's locale (a US or Canadian one prints Letter, anything else A4) and decides \
-                      nothing but the paper. When the Job completes, fetch the PDF at \
-                      GET /api/sheets/<job_id>.",
+            summary: "Set a Sheet of the recipe a Share Link shows. Anyone \
+                      holding the link may, with no account needed. The recipe \
+                      is printed as written, with its Components unfolded \
+                      after it at the amount each line asks for. `language` \
+                      picks one of the link's Translations; `locale` is the \
+                      reader's locale (a US or Canadian one prints Letter, \
+                      anything else A4) and decides nothing but the paper. \
+                      When the Job completes, fetch the PDF at GET \
+                      /api/sheets/<job_id>.",
             permission: Permission::Public,
             kind: Kind::Job,
             write: false,
@@ -2217,14 +2252,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "read_shared_recipe",
-            summary: "Read a Recipe through its Share Link token: the Recipe \
-                      as it stands, its Translations, and its Thread complete \
-                      back to the first Version with every name and *what \
-                      changed* line. Never an Attempt, a rating or an Attempt \
-                      photograph. Public, because holding the token is the \
-                      whole of the permission — this is what the Share Link \
-                      page consumes, and the page is not an Operation, so \
-                      Parity is untouched.",
+            summary: "Read a Recipe through its Share Link token. The answer \
+                      is the Recipe as it stands, its Translations, and its \
+                      Thread complete back to the first Version with every \
+                      name and *what changed* line. Never an Attempt, a rating \
+                      or an Attempt photograph. Public, because holding the \
+                      token is the whole of the permission — this is what the \
+                      Share Link page consumes, and the page is not an \
+                      Operation, so Parity is untouched.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -2241,8 +2276,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "branch_point",
-            summary: "The last Version two Branches share, found by \
-                      walking both chains back until they meet — never \
+            summary: "Find the last Version two Branches share. It is found by \
+                      walking both chains back until they meet: never \
                       declared, always computed. A chain that does not \
                       converge on a shared first Version answers a \
                       damaged-Bundle error rather than a guess.",
@@ -2270,14 +2305,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "divergence",
-            summary: "Two Branches of one Lineage laid over each other, so a \
-                      screen can show two whole recipes with a switch between \
-                      them rather than a difference (ADR 0014). Every row \
-                      carries both sides' own words; a line only one side has \
-                      is a Ghost. Which line is which is read against the \
-                      Branch Point, never by an id stapled to a line \
-                      (ADR 0019), and an uncertain reading declines to pair \
-                      rather than claiming a connection.",
+            summary: "Lay two Branches of one Lineage over each other. That \
+                      lets a screen show two whole recipes with a switch \
+                      between them rather than a difference (ADR 0014). Every \
+                      row carries both sides' own words; a line only one side \
+                      has is a Ghost. Which line is which is read against the \
+                      Branch Point, never by an id stapled to a line (ADR \
+                      0019), and an uncertain reading declines to pair rather \
+                      than claiming a connection.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2303,23 +2338,23 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             name: "set_reading",
             // A save never re-reading an unchanged line is #166: the last
             // sentence goes when that issue is fixed.
-            summary: "Correct the Reading on one Ingredient Line of a Recipe's \
-                      current state — an amount, a Unit and a target, sent \
-                      together as the whole new Reading (never a per-field \
-                      patch, the same convention save_recipe_version uses \
-                      for the whole recipe). Mints no Version and appears in \
-                      no history (ADR 0021). All of them left out together \
-                      clears the Reading, taking the line back to fully \
-                      unread. The target is either a Food's written word or — \
-                      as `lineage_id` — the Recipe this line names, which \
-                      makes the Ingredient a Component (ADR 0008); never \
-                      both, and a Lineage this instance does not hold is \
-                      accepted, because a Component goes on naming its recipe \
-                      when the recipe is gone. A save carries the Reading of \
-                      each line left word for word as it was, in the same \
-                      place, onto the new Version and never reads that line \
-                      again, so this is how to correct a misreading without \
-                      rewording the line.",
+            summary: "Correct the Reading on one Ingredient Line. The line is \
+                      on a Recipe's current state; the Reading is an amount, a \
+                      Unit and a target, sent together as the whole new \
+                      Reading (never a per-field patch, the same convention \
+                      save_recipe_version uses for the whole recipe). Mints no \
+                      Version and appears in no history (ADR 0021). All of \
+                      them left out together clears the Reading, taking the \
+                      line back to fully unread. The target is either a Food's \
+                      written word or — as `lineage_id` — the Recipe this line \
+                      names, which makes the Ingredient a Component (ADR \
+                      0008); never both, and a Lineage this instance does not \
+                      hold is accepted, because a Component goes on naming its \
+                      recipe when the recipe is gone. A save carries the \
+                      Reading of each line left word for word as it was, in \
+                      the same place, onto the new Version and never reads \
+                      that line again, so this is how to correct a misreading \
+                      without rewording the line.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2361,15 +2396,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "read_ingredient_lines",
-            summary: "Read every Ingredient Line in the library that nothing \
-                      has read yet, as a Job, laying a Reading over each one \
-                      Kamosu can make sense of. Touches no written line and \
-                      makes no Version. A line already carrying a Reading is \
-                      left alone, so a correction is never overwritten, and a \
-                      line Kamosu cannot read is left unread, which is an \
-                      ordinary state for a line rather than a failure. Kamosu \
-                      also reads the lines of every recipe as it is written or \
-                      imported, so this is for a library that predates it.",
+            summary: "Read every Ingredient Line nothing has read yet, as a \
+                      Job. It covers every such line in the library, laying a \
+                      Reading over each one Kamosu can make sense of. Touches \
+                      no written line and makes no Version. A line already \
+                      carrying a Reading is left alone, so a correction is \
+                      never overwritten, and a line Kamosu cannot read is left \
+                      unread, which is an ordinary state for a line rather \
+                      than a failure. Kamosu also reads the lines of every \
+                      recipe as it is written or imported, so this is for a \
+                      library that predates it.",
             permission: Permission::Operator,
             kind: Kind::Job,
             write: true,
@@ -2386,19 +2422,20 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "reread_ingredient_lines",
-            summary: "Read every Ingredient Line in the library again with \
-                      the reader as it stands today, as a Job, so a fix to the \
-                      reader reaches lines it already misread. Covers every \
-                      Version a recipe holds, its history too, and makes no \
-                      Version. A Reading a person set, and every Component, is \
-                      left exactly as it is; a line the reader can no longer \
-                      read loses the reader's old guess. Reports each line \
-                      whose Reading changed, before and after, once per recipe \
-                      as it reads on the head, with how many older Versions \
-                      changed the same way, and each line changed only in \
-                      older Versions; the Foods now left with nothing \
-                      pointing at them, which delete_food will take; and how \
-                      many lines it left alone because a person set them.",
+            summary: "Read every Ingredient Line again, as a Job. It reads \
+                      every line in the library with the reader as it stands \
+                      today, so a fix to the reader reaches lines it already \
+                      misread. Covers every Version a recipe holds, its \
+                      history too, and makes no Version. A Reading a person \
+                      set, and every Component, is left exactly as it is; a \
+                      line the reader can no longer read loses the reader's \
+                      old guess. Reports each line whose Reading changed, \
+                      before and after, once per recipe as it reads on the \
+                      head, with how many older Versions changed the same way, \
+                      and each line changed only in older Versions; the Foods \
+                      now left with nothing pointing at them, which \
+                      delete_food will take; and how many lines it left alone \
+                      because a person set them.",
             permission: Permission::Operator,
             kind: Kind::Job,
             write: true,
@@ -2452,14 +2489,13 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "start_attempt",
-            summary: "Start cooking a Recipe: creates the Attempt, or hands \
-                      back the one already In Progress for this Lineage — \
-                      the cooking screen is that Attempt, never a second \
-                      thing beside it. Pinned by fingerprint to the \
-                      Branch's head Version at this moment, or to \
-                      version_id — an older Version read back from the \
-                      Thread — when one is given. Anyone who can see the \
-                      recipe may.",
+            summary: "Start cooking a Recipe. It creates the Attempt, or hands \
+                      back the one already In Progress for this Lineage — the \
+                      cooking screen is that Attempt, never a second thing \
+                      beside it. Pinned by fingerprint to the Branch's head \
+                      Version at this moment, or to version_id — an older \
+                      Version read back from the Thread — when one is given. \
+                      Anyone who can see the recipe may.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2487,11 +2523,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "advance_attempt",
-            summary: "Move an In Progress Attempt forward: which Step, \
-                      which Ingredients are ticked, and the Yield being \
-                      cooked to — a fact about this cooking, never a \
-                      deviation. Any of the three, each sent whole rather \
-                      than patched.",
+            summary: "Move an In Progress Attempt forward. It says which Step, \
+                      which Ingredients are ticked, and the Yield being cooked \
+                      to: a fact about this cooking, never a deviation. Any of \
+                      the three, each sent whole rather than patched.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2517,7 +2552,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "finish_attempt",
-            summary: "End an In Progress Attempt, taking the judgement that \
+            summary: "End an In Progress Attempt. It takes the judgement that \
                       lands with it: a rating, a note and Photographs, all \
                       optional. Ending is not what makes the cooking real — \
                       starting already did — only what stops it being In \
@@ -2552,10 +2587,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "edit_attempt",
-            summary: "Change an Attempt's free text, its rating or its \
-                      Photographs, whether it is still In Progress or long \
-                      finished — an Attempt is freely editable by its \
-                      cook, unlike the recipe it was cooked from.",
+            summary: "Change an Attempt's free text, rating or Photographs. It \
+                      may still be In Progress or long finished: an Attempt is \
+                      freely editable by its cook, unlike the recipe it was \
+                      cooked from.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2586,10 +2621,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "delete_attempt",
-            summary: "Delete an Attempt outright — the explicit way a \
-                      false start is undone, or any cooking record put \
-                      away. Never soft-deleted: this is the whole of how \
-                      an Attempt leaves.",
+            summary: "Delete an Attempt outright. It is the explicit way a \
+                      false start is undone, or any cooking record put away. \
+                      Never soft-deleted: this is the whole of how an Attempt \
+                      leaves.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2611,15 +2646,15 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "promote_attempt_photograph",
-            summary: "Make a picture taken while cooking the recipe's Main \
-                      Photo, or a Step's photo — so the picture you actually \
-                      took becomes the recipe's picture. This is an ordinary \
-                      edit making a Version, with everything that follows \
-                      from it: a rapid re-save folding into the Version \
-                      already being shaped, and a Copy in your own \
-                      Cookbook where you do not write the Branch's. The \
-                      Branch must be one you may see. The Attempt keeps the \
-                      picture too; promoting is not moving.",
+            summary: "Make an Attempt's Photograph the recipe's Main Photo. Or \
+                      a Step's photo: the picture you actually took while \
+                      cooking becomes the recipe's picture. This is an \
+                      ordinary edit making a Version, with everything that \
+                      follows from it: a rapid re-save folding into the \
+                      Version already being shaped, and a Copy in your own \
+                      Cookbook where you do not write the Branch's. The Branch \
+                      must be one you may see. The Attempt keeps the picture \
+                      too; promoting is not moving.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2653,15 +2688,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_as_cooked",
-            summary: "Write down what you actually cooked, where it differed \
-                      from the recipe: the whole recipe as you cooked it, in \
-                      ordinary Ingredient Lines and ordinary Step text — a \
-                      line reworded, one added, one dropped, a step grown. \
+            summary: "Write down what you actually cooked. It records where it \
+                      differed from the recipe: the whole recipe as you cooked \
+                      it, in ordinary Ingredient Lines and ordinary Step text \
+                      — a line reworded, one added, one dropped, a step grown. \
                       Not a record of differences; the same shape a Version \
                       takes. Sending back exactly what the recipe says, or \
-                      null, stores nothing at all, because cooking a recipe \
-                      as it is written changes nothing. Changes no recipe and makes no \
-                      Version: that is Promotion, and it is a separate act.",
+                      null, stores nothing at all, because cooking a recipe as \
+                      it is written changes nothing. Changes no recipe and \
+                      makes no Version: that is Promotion, and it is a \
+                      separate act.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2673,11 +2709,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "decline_promotion",
-            summary: "Say that the words a cooking used belong in the diary \
-                      and not in the recipe — or take that back. It answers \
-                      the offer and nothing else: what was cooked stays on \
-                      the cooking, whole. Remembered, because a question \
-                      already answered, asked twice, is a nag.",
+            summary: "Keep a cooking's words in the diary, not the recipe. Or \
+                      take that back. It answers the offer and nothing else: \
+                      what was cooked stays on the cooking, whole. Remembered, \
+                      because a question already answered, asked twice, is a \
+                      nag.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2697,17 +2733,17 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "promote_as_cooked",
-            summary: "Promotion: turn what you cooked into a real Version of \
-                      the recipe. Mechanical — the As Cooked is already a \
-                      whole recipe, so nothing is retyped and nothing is \
-                      reconciled. It is an ordinary edit and inherits all of \
-                      one: a rapid re-save folds into the Version being \
-                      shaped, and a Branch whose Cookbook you do not write \
-                      becomes a Copy in your own. The Branch must be one \
-                      you may see. Promoting a cooking of an older Version \
-                      appends onto wherever the Branch stands now — a \
-                      Version, never a merge. The Attempt is left exactly as \
-                      it was, still saying which Version it cooked.",
+            summary: "Promotion: turn a cooking into a real Version of its \
+                      recipe. Mechanical — the As Cooked is already a whole \
+                      recipe, so nothing is retyped and nothing is reconciled. \
+                      It is an ordinary edit and inherits all of one: a rapid \
+                      re-save folds into the Version being shaped, and a \
+                      Branch whose Cookbook you do not write becomes a Copy in \
+                      your own. The Branch must be one you may see. Promoting \
+                      a cooking of an older Version appends onto wherever the \
+                      Branch stands now — a Version, never a merge. The \
+                      Attempt is left exactly as it was, still saying which \
+                      Version it cooked.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2733,10 +2769,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_current_attempt",
-            summary: "Read the caller's own In Progress Attempt for a \
-                      Lineage, if any — how two devices cooking the same \
-                      dish stay in step, and whether resuming should \
-                      still be offered.",
+            summary: "Read your own In Progress Attempt for a Lineage, if any. \
+                      It is how two devices cooking the same dish stay in \
+                      step, and whether resuming should still be offered.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2758,14 +2793,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "list_attempts",
-            summary: "The cooking diary: every Attempt the caller has made, \
-                      newest first, across every recipe — sorted by date \
-                      rather than by recipe, which is what makes *what did \
-                      I cook that week* answerable. Unfinished and In \
-                      Progress cookings are in it too, because starting is \
-                      what makes a cooking real. Each entry names the \
-                      recipe it was cooked from, and still names it after \
-                      that recipe has left the caller's shelf.",
+            summary: "Read your cooking diary: every Attempt, newest first. It \
+                      holds every Attempt you have made, across every recipe, \
+                      sorted by date rather than by recipe, which is what \
+                      makes *what did I cook that week* answerable. Unfinished \
+                      and In Progress cookings are in it too, because starting \
+                      is what makes a cooking real. Each entry names the \
+                      recipe it was cooked from, and still names it after that \
+                      recipe has left the caller's shelf.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2791,15 +2826,16 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         // hold a row the Core has since worked out differently.
         Operation {
             name: "get_shopping_list",
-            summary: "Your Shopping List: the recipes you chose, and the rows \
-                      worked out from them. Everyone has exactly one; it has \
-                      no name and is never archived. The rows are computed on \
-                      every read and stored nowhere, so editing a chosen \
-                      recipe or correcting a Reading changes the list at once. \
-                      A row names a Food in your Reading Language and merges \
-                      every mention of it; amounts add where the Units \
-                      honestly convert, saying about, and ride side by side \
-                      where they do not. Nothing here is ticked off.",
+            summary: "Read your Shopping List: chosen recipes and their rows. \
+                      The rows are worked out from the recipes you chose. \
+                      Everyone has exactly one; it has no name and is never \
+                      archived. The rows are computed on every read and stored \
+                      nowhere, so editing a chosen recipe or correcting a \
+                      Reading changes the list at once. A row names a Food in \
+                      your Reading Language and merges every mention of it; \
+                      amounts add where the Units honestly convert, saying \
+                      about, and ride side by side where they do not. Nothing \
+                      here is ticked off.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2811,17 +2847,18 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "shopping_basis",
-            summary: "What one recipe puts on a Shopping List before anything \
-                      is added up: each Ingredient Line, the Food it was read \
-                      as and the name that Food goes by for you, how much it \
-                      said, its Unit, and what a cup of the Food weighs. Every \
-                      recipe this one includes is unfolded to the bottom and \
-                      its lines are here too, already carrying their share, so \
-                      a pizza's flour and its dough's flour add up to one \
-                      thing to buy. Always the Branch's latest Version. It is \
-                      how a phone with no network works out the list's rows \
-                      itself for the recipes it holds (#77); get_shopping_list \
-                      is the list itself.",
+            summary: "Read what one recipe puts on a Shopping List, line by \
+                      line. It answers before anything is added up: each \
+                      Ingredient Line, the Food it was read as and the name \
+                      that Food goes by for you, how much it said, its Unit, \
+                      and what a cup of the Food weighs. Every recipe this one \
+                      includes is unfolded to the bottom and its lines are \
+                      here too, already carrying their share, so a pizza's \
+                      flour and its dough's flour add up to one thing to buy. \
+                      Always the Branch's latest Version. It is how a phone \
+                      with no network works out the list's rows itself for the \
+                      recipes it holds (#77); get_shopping_list is the list \
+                      itself.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -2838,8 +2875,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "add_to_shopping_list",
-            summary: "Choose a recipe to shop for, at a Yield, a multiplier \
-                      (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, \
+            summary: "Choose a recipe to shop for. It is chosen at a Yield, a \
+                      multiplier (a Yield with an empty noun) or as it is \
+                      written. It holds the Branch at its latest Version, \
                       never a Lineage and never pinned, so a recipe edited \
                       between the planning and the shopping is right in the \
                       shop. Choosing one already on the list is not an error \
@@ -2894,11 +2932,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_shopping_yield",
-            summary: "Say how much of a chosen recipe you are shopping for — \
-                      an amount and its noun, a multiplier (an amount with an \
-                      empty noun: twice the recipe is `2`), or null for the \
-                      recipe as written. Every amount it contributes moves with \
-                      it. Answers the whole list.",
+            summary: "Say how much of a chosen recipe you are shopping for. \
+                      Send an amount and its noun, a multiplier (an amount \
+                      with an empty noun: twice the recipe is `2`), or null \
+                      for the recipe as written. Every amount it contributes \
+                      moves with it. Answers the whole list.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -2921,19 +2959,19 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "shopping_list_as_text",
-            summary: "Your Shopping List as plain text, ready to be carried \
-                      out of Kamosu. Nothing is ticked off here, because the \
-                      list leaves and something else holds the ticks — Apple \
-                      Notes, through a Shortcut. The text opens with a header \
-                      line, the date and the recipes it was built from (and \
-                      any that can no longer be read), because a note \
-                      accumulates and three trips appended with no divider are \
-                      a wall. Under it, one flat alphabetical list with one \
-                      Markdown checklist line (`- [ ] `) per thing to buy, so \
-                      each line becomes one checkbox; a row whose amounts \
-                      could not be added stays on its one line, naming the \
-                      dish behind each amount. This only reads: emptying the \
-                      list afterwards is a separate Operation, offered and \
+            summary: "Read your Shopping List as plain text. It is ready to be \
+                      carried out of Kamosu. Nothing is ticked off here, \
+                      because the list leaves and something else holds the \
+                      ticks — Apple Notes, through a Shortcut. The text opens \
+                      with a header line, the date and the recipes it was \
+                      built from (and any that can no longer be read), because \
+                      a note accumulates and three trips appended with no \
+                      divider are a wall. Under it, one flat alphabetical list \
+                      with one Markdown checklist line (`- [ ] `) per thing to \
+                      buy, so each line becomes one checkbox; a row whose \
+                      amounts could not be added stays on its one line, naming \
+                      the dish behind each amount. This only reads: emptying \
+                      the list afterwards is a separate Operation, offered and \
                       never done on the way out.",
             permission: Permission::Person,
             kind: Kind::Immediate,
@@ -2951,9 +2989,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "empty_shopping_list",
-            summary: "Empty your Shopping List — every recipe chosen and \
-                      every typed line at once. Offered after the list has \
-                      left as text and never done on the way out: a list that \
+            summary: "Empty your Shopping List. Every recipe chosen and every \
+                      typed line goes at once. Offered after the list has left \
+                      as text and never done on the way out: a list that \
                       emptied itself when it was sent would be silent and \
                       unrecoverable. Answers the whole list.",
             permission: Permission::Person,
@@ -2971,7 +3009,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "add_loose_item",
-            summary: "Type a line straight onto your Shopping List — bin \
+            summary: "Type a line straight onto your Shopping List. Think bin \
                       bags, coffee. Kept exactly as typed and never read, so \
                       it carries no amount and merges with nothing: typing \
                       flour beside a recipe that wants flour gives two lines. \
@@ -3020,8 +3058,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "list_foods",
-            summary: "List every Food this instance knows, each shown in the \
-                      reader's Reading Language where it has a name there.",
+            summary: "List every Food this instance knows. Each is shown in \
+                      the reader's Reading Language where it has a name there.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -3038,8 +3076,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "get_food",
-            summary: "Read one Food: its names, its Cup Weight, and how many \
-                      Readings currently point at it.",
+            summary: "Read one Food: its names and its Cup Weight. Also how \
+                      many Readings currently point at it.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -3051,14 +3089,14 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_food_names",
-            summary: "Say every name a Food answers to in one Language, in \
-                      order: the list replaces the names it had there. A \
-                      line naming any of them reads as this Food, so \
-                      \"œufs\" and \"œuf\" can both be the eggs. The first \
-                      is the one a reader is shown. An empty list takes the \
+            summary: "Say every name a Food answers to in one Language. Send \
+                      them in order: the list replaces the names it had there. \
+                      A line naming any of them reads as this Food, so \
+                      \"œufs\" and \"œuf\" can both be the eggs. The first is \
+                      the one a reader is shown. An empty list takes the \
                       Language off, but a Food's last name may not go. Any \
-                      Person may — a Food is instance-wide, not a Kitchen's \
-                      to guard.",
+                      Person may — a Food is instance-wide, not a Kitchen's to \
+                      guard.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: true,
@@ -3079,7 +3117,7 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "set_food_cup_weight",
-            summary: "Set or clear a Food's Cup Weight — the one figure \
+            summary: "Set or clear a Food's Cup Weight. It is the one figure \
                       that turns a volume of it into a weight. Anyone may \
                       correct it.",
             permission: Permission::Person,
@@ -3101,9 +3139,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "list_merge_suggestions",
-            summary: "The Operator's worklist: every note that two Foods are \
-                      probably one thing, with the words that said so. \
-                      Evidence, never an instruction — nothing merges itself.",
+            summary: "List the notes that two Foods are probably one thing. It \
+                      is the Operator's worklist: every such note, with the \
+                      words that said so. Evidence, never an instruction — \
+                      nothing merges itself.",
             permission: Permission::Operator,
             kind: Kind::Immediate,
             write: false,
@@ -3122,7 +3161,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "preview_food_merge",
-            summary: "Say how many Ingredient Lines a Merge would move, and \
+            summary: "Count what a Food Merge would move, moving nothing. It \
+                      says how many Ingredient Lines a Merge would move, and \
                       how many Reading rows, without moving any of them. A \
                       Merge cannot be undone and refuses to run until this \
                       figure is said back to it, so this saying is its safety \
@@ -3194,9 +3234,9 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         // import and an agent polling the same import use the identical shape.
         Operation {
             name: "get_job",
-            summary: "Read one Job: its state, its progress, and its result or \
-                      the reason it failed. Readable by the Person who asked, \
-                      or by anyone when no Person did.",
+            summary: "Read one Job's state, progress, and result or failure. A \
+                      failure carries the reason it failed. Readable by the \
+                      Person who asked, or by anyone when no Person did.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: false,
@@ -3213,8 +3253,8 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
         },
         Operation {
             name: "cancel_job",
-            summary: "Cancel a Job you asked for: acknowledged always, honoured \
-                      while it still waits in line.",
+            summary: "Cancel a Job you asked for. It is acknowledged always, \
+                      and honoured while it still waits in line.",
             permission: Permission::Public,
             kind: Kind::Immediate,
             write: true,
@@ -3275,9 +3315,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
     #[cfg(feature = "test-jobs")]
     operations.push(Operation {
         name: "probe_job",
-        summary: "A demonstration Job (test builds only): walks a few progress \
-                  ticks over about a second, then finishes — or fails on purpose \
-                  when asked to. It can stop reporting early, or report no total.",
+        summary: "A demonstration Job, in test builds only. It walks a few \
+                  progress ticks over about a second, then finishes — or fails \
+                  on purpose when asked to. It can stop reporting early, or \
+                  report no total.",
         permission: Permission::Public,
         kind: Kind::Job,
         write: true,

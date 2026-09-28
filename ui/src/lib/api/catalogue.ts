@@ -8,7 +8,7 @@
 
 import type { JobAsk } from './job';
 
-/** The version of this Kamosu, whether setup has happened, and the shortest password it accepts. */
+/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts. */
 export type InstanceStatusInput = Record<string, never>;
 /** What instance_status answers. */
 export type InstanceStatusOutput = {
@@ -36,7 +36,7 @@ export type GetReadingPreferencesOutput = {
 	reading_measures: "us" | "metric" | "as_written";
 };
 
-/** Who this Credential names: the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
 export type GetPersonInput = Record<string, never>;
 /** What get_person answers. */
 export type GetPersonOutput = {
@@ -53,7 +53,7 @@ export type RenamePersonOutput = {
 	name: string;
 };
 
-/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
+/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
 export type ListAccountsInput = Record<string, never>;
 /** What list_accounts answers. */
 export type ListAccountsOutput = {
@@ -93,7 +93,7 @@ export type DeleteAccountOutput = {
 	deleted: boolean;
 };
 
-/** Mint a one-use recovery link for a Person who forgot their password. */
+/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use. */
 export type MintRecoveryLinkInput = {
 	name: string;
 };
@@ -113,7 +113,7 @@ export type SetOperatorOutput = {
 	name: string;
 };
 
-/** Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now. */
+/** Take away Photographs nothing has pointed at for a week. Their Display Copies go with them. Runs daily on its own; this asks for it now. */
 export type SweepPhotographsInput = Record<string, never>;
 /** What sweep_photographs answers. */
 export type SweepPhotographsOutput = {
@@ -124,7 +124,7 @@ export type SweepPhotographsOutput = {
 	swept_photograph_ids: string[];
 };
 
-/** Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>. */
+/** Take a Backup now, as a Job. A Backup is one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>. */
 export type TakeBackupInput = Record<string, never>;
 /** What take_backup eventually produces, read back through `get_job`. */
 export type TakeBackupOutput = {
@@ -183,7 +183,7 @@ export type RevokeSessionOutput = {
 	revoked: boolean;
 };
 
-/** Mint an Access Key for an agent to act as you, optionally read-only. */
+/** Mint an Access Key for an agent to act as you. You may make it read-only. */
 export type MintAccessKeyInput = {
 	name: string;
 	read_only?: boolean;
@@ -219,7 +219,7 @@ export type RevokeAccessKeyOutput = {
 	revoked: boolean;
 };
 
-/** Create a Kitchen: a group of People who see and cook from each other's Cookbooks. Its creator is its first member. */
+/** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
 export type CreateKitchenInput = {
 	name: string;
 };
@@ -275,7 +275,7 @@ export type RenameKitchenOutput = {
 	name: string;
 };
 
-/** Set this member's own private Nickname for a Kitchen, seen by nobody else. An absent or empty Nickname clears it. */
+/** Set this member's own private Nickname for a Kitchen. Nobody else sees it. An absent or empty Nickname clears it. */
 export type SetKitchenNicknameInput = {
 	kitchen_id: string;
 	nickname: string | null;
@@ -285,7 +285,7 @@ export type SetKitchenNicknameOutput = {
 	nickname: string | null;
 };
 
-/** Mint a one-use Invite for another Person to join this Kitchen. Any member may. */
+/** Mint a one-use Invite for another Person to this Kitchen. It lets them join it. Any member may. */
 export type InviteToKitchenInput = {
 	kitchen_id: string;
 };
@@ -318,7 +318,7 @@ export type AcceptKitchenInviteOutput = {
 	nickname: string | null;
 };
 
-/** Remove a Person from a Kitchen — including yourself, to leave. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
+/** Remove a Person from a Kitchen, or yourself to leave it. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
 export type RemoveKitchenMemberInput = {
 	kitchen_id: string;
 	person_id: string;
@@ -328,7 +328,7 @@ export type RemoveKitchenMemberOutput = {
 	removed: boolean;
 };
 
-/** An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen. */
+/** Delete a Kitchen nobody is left in. This is an Operator's only power over a Kitchen: nothing else about one. */
 export type DeleteKitchenInput = {
 	kitchen_id: string;
 };
@@ -337,7 +337,7 @@ export type DeleteKitchenOutput = {
 	deleted: boolean;
 };
 
-/** What removing a Person from a Kitchen would leave each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you. */
+/** Preview what removing a Person from a Kitchen would leave. It answers for each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you. */
 export type PreviewLeavingKitchenInput = {
 	kitchen_id: string;
 	person_id?: string;
@@ -348,7 +348,7 @@ export type PreviewLeavingKitchenOutput = {
 	you_keep: number;
 };
 
-/** Your own Cookbook: its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
+/** Read your own Cookbook. The answer is its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
 export type GetCookbookInput = Record<string, never>;
 /** What get_cookbook answers. */
 export type GetCookbookOutput = {
@@ -408,7 +408,7 @@ export type GetCookbookOutput = {
 	recipe_count: number;
 };
 
-/** Give your Cookbook a name of its own, or clear it back to its Co-authors' names with an empty or null one. Any Co-author may. */
+/** Give your Cookbook a name of its own, or clear it. An empty or null name clears it back to its Co-authors' names. Any Co-author may. */
 export type RenameCookbookInput = {
 	name: string | null;
 };
@@ -470,7 +470,7 @@ export type RenameCookbookOutput = {
 	recipe_count: number;
 };
 
-/** Mint a one-use Invite for somebody to write your Cookbook with you. When they accept, their recipes and yours become one Cookbook either of you changes. */
+/** Mint a one-use Invite for somebody to write your Cookbook. They write it with you. When they accept, their recipes and yours become one Cookbook either of you changes. */
 export type InviteToCookbookInput = Record<string, never>;
 /** What invite_to_cookbook answers. */
 export type InviteToCookbookOutput = {
@@ -487,7 +487,7 @@ export type CancelCookbookInviteOutput = {
 	ended: boolean;
 };
 
-/** What accepting a Cookbook Invite would do, before you say yes: whose Cookbook it is, and how many recipes on each side become one. */
+/** Preview what accepting a Cookbook Invite would do. It answers before you say yes: whose Cookbook it is, and how many recipes on each side become one. */
 export type ReadCookbookInviteInput = {
 	secret: string;
 };
@@ -564,7 +564,7 @@ export type ReadCookbookInviteOutput = {
 	your_recipes: number;
 };
 
-/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use. */
+/** Open a Cookbook Invite to join the Cookbook it names. Your Cookbook joins that one, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use. */
 export type AcceptCookbookInviteInput = {
 	secret: string;
 };
@@ -626,7 +626,7 @@ export type AcceptCookbookInviteOutput = {
 	recipe_count: number;
 };
 
-/** Say yes or no to a Cookbook join that waits on you, as your Cookbook's `joins` lists it. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back. */
+/** Say yes or no to a Cookbook join that waits on you. Your Cookbook's `joins` lists each one. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back. */
 export type AnswerCookbookJoinInput = {
 	join_id: string;
 	yes: boolean;
@@ -689,7 +689,7 @@ export type AnswerCookbookJoinOutput = {
 	recipe_count: number;
 };
 
-/** Leave the Cookbook you write with others, taking your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy. */
+/** Leave the Cookbook you write with others. You take your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy. */
 export type LeaveCookbookInput = Record<string, never>;
 /** What leave_cookbook answers. */
 export type LeaveCookbookOutput = {
@@ -831,7 +831,7 @@ export type CreateTagOutput = {
 	recipes: number;
 };
 
-/** List every Tag your own Cookbook files by, each shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
+/** List every Tag your own Cookbook files by. Each is shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
 export type ListTagsInput = {
 	everywhere?: boolean;
 	kitchen_id?: string;
@@ -872,7 +872,7 @@ export type RenameTagOutput = {
 	recipes: number;
 };
 
-/** Merge two of a Kitchen's Tags into one: every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version. */
+/** Merge two of a Kitchen's Tags into one. Every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version. */
 export type MergeTagsInput = {
 	keep_tag_id: string;
 	merge_tag_id: string;
@@ -891,7 +891,7 @@ export type MergeTagsOutput = {
 	recipes: number;
 };
 
-/** Take a Tag out of a Kitchen's list and off every recipe carrying it. No recipe changes. */
+/** Delete a Tag from a Kitchen and every recipe carrying it. It comes out of the Kitchen's list and off each of those recipes. No recipe changes. */
 export type DeleteTagInput = {
 	tag_id: string;
 };
@@ -900,7 +900,7 @@ export type DeleteTagOutput = {
 	deleted: boolean;
 };
 
-/** File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is. */
+/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
 export type SetRecipeTagInput = {
 	branch_id: string;
 	carried: boolean;
@@ -922,7 +922,7 @@ export type SetRecipeTagOutput = {
 	}[];
 };
 
-/** Relate one of your Cookbook's Recipes to any Recipe you may see, or take that single two-way, untyped link back off. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
+/** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 export type SetRelatedRecipeInput = {
 	branch_id: string;
 	related: boolean;
@@ -941,7 +941,7 @@ export type SetRelatedRecipeOutput = {
 	}[];
 };
 
-/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
+/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. */
 export type CreateRecipeInput = {
 	cook_time_minutes?: number | null;
 	ingredients?: {
@@ -1142,7 +1142,7 @@ export type CreateRecipeOutput = {
 	writes: boolean;
 };
 
-/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
+/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 export type SaveRecipeVersionInput = {
 	branch_id: string;
 	change_note?: string;
@@ -1189,7 +1189,7 @@ export type SaveRecipeVersionOutput = {
 	version_id: string;
 };
 
-/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
+/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
 export type EditRecipeInput = {
 	branch_id: string;
 	change_note?: string;
@@ -1235,7 +1235,7 @@ export type EditRecipeOutput = {
 	version_id: string;
 };
 
-/** Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it ("Vegetarian"). Changing one never changes the other. */
+/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. */
 export type StartVariationInput = {
 	branch_id: string;
 	name: string;
@@ -1410,7 +1410,7 @@ export type StartVariationOutput = {
 	writes: boolean;
 };
 
-/** Name one of your Cookbook's Branches of a recipe, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
+/** Name a recipe's Branch in your Cookbook, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
 export type RenameBranchInput = {
 	branch_id: string;
 	name: string | null;
@@ -1430,7 +1430,7 @@ export type DeleteRecipeOutput = {
 	deleted: boolean;
 };
 
-/** Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
+/** Read a pasted recipe into title, ingredients and method. It takes a whole recipe pasted as text. It decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
 export type ReadPastedRecipeInput = {
 	text: string;
 };
@@ -1445,7 +1445,7 @@ export type ReadPastedRecipeOutput = {
 	title: string | null;
 };
 
-/** Read a recipe PDF — one printed from a web page or a word processor — the way read_pasted_recipe reads pasted text, and answer the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+/** Read a recipe PDF into title, ingredients and method. It takes one printed from a web page or a word processor, reads it the way read_pasted_recipe reads pasted text, and answers the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ReadRecipePdfInput = {
 	data?: string;
 	upload_id?: string;
@@ -1461,7 +1461,7 @@ export type ReadRecipePdfOutput = {
 	title: string | null;
 };
 
-/** Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
+/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 export type StartTranslationInput = {
 	branch_id: string;
 	change_note?: string;
@@ -1678,7 +1678,7 @@ export type SetRecipeLanguageOutput = {
 	sequence: number | null;
 };
 
-/** Bring a batch of already-read recipes into your own Cookbook, as a Job. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
+/** Bring already-read recipes into your own Cookbook, as a Job. They come as one batch. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 export type ImportInput = {
 	candidates: {
 		cook_time_minutes?: number | null;
@@ -1764,7 +1764,7 @@ export type ImportOutput = {
 	}[];
 };
 
-/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+/** Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 export type ImportCroutonInput = {
 	data?: string;
 	upload_id?: string;
@@ -1821,7 +1821,7 @@ export type ImportCroutonOutput = {
 	}[];
 };
 
-/** What has been brought into your Kitchens from outside, and what happened each time. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
+/** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 export type ListImportsInput = Record<string, never>;
 /** What list_imports answers. */
 export type ListImportsOutput = {
@@ -1842,7 +1842,7 @@ export type ListImportsOutput = {
 	}[];
 };
 
-/** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
+/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 export type ForgetImportInput = {
 	import_id: string;
 };
@@ -1908,7 +1908,7 @@ export type ImportWebLinkOutput = {
 	}[];
 };
 
-/** Say what importing a Kamosu Share Link would do, before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
+/** Preview what importing a Kamosu Share Link would do. It answers before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
 export type PreviewSharedRecipeInput = {
 	url: string;
 };
@@ -1933,7 +1933,7 @@ export type PreviewSharedRecipeOutput = {
 	written_by: string | null;
 };
 
-/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
+/** Rename a Version. Its name is the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 export type RenameVersionInput = {
 	branch_id: string;
 	name: string | null;
@@ -1944,7 +1944,7 @@ export type RenameVersionOutput = {
 	name: string | null;
 };
 
-/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
+/** Upload a Photograph, base64-encoded. It is the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
 export type UploadPhotographInput = {
 	data: string;
 };
@@ -1994,7 +1994,7 @@ export type SearchRecipesOutput = {
 	}[];
 };
 
-/** Home: the computed shelves that answer *show me something* rather than handing back a search box — recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042). */
+/** Read Home: the computed shelves of recipes. They answer *show me something* rather than handing back a search box: recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042). */
 export type HomeShelvesInput = Record<string, never>;
 /** What home_shelves answers. */
 export type HomeShelvesOutput = {
@@ -2032,7 +2032,7 @@ export type HomeShelvesOutput = {
 	}[];
 };
 
-/** Remember that the caller opened this recipe, for Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027). */
+/** Remember that the caller opened this recipe. It feeds Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027). */
 export type NoteRecipeOpenedInput = {
 	branch_id: string;
 };
@@ -2042,7 +2042,7 @@ export type NoteRecipeOpenedOutput = {
 	opened_at: string;
 };
 
-/** Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
+/** Read whether Meaning Search is on here. Also what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
 export type MeaningSearchStatusInput = Record<string, never>;
 /** What meaning_search_status answers. */
 export type MeaningSearchStatusOutput = {
@@ -2086,7 +2086,7 @@ export type DownloadMeaningModelOutput = {
 	revision: string;
 };
 
-/** Read the library into the Meaning Search index, as a Job, and turn Meaning Search on. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes. */
+/** Build the Meaning Search index, as a Job, and turn it on. It reads the library into the index. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes. */
 export type BuildMeaningIndexInput = Record<string, never>;
 /** What build_meaning_index eventually produces, read back through `get_job`. */
 export type BuildMeaningIndexOutput = {
@@ -2100,7 +2100,7 @@ export type TurnOffMeaningSearchOutput = {
 	state: "unasked" | "declined" | "accepted" | "on";
 };
 
-/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
+/** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
 export type GetRecipeInput = {
 	branch_id: string;
 	wanted_yield?: {
@@ -2278,7 +2278,7 @@ export type GetRecipeOutput = {
 	writes: boolean;
 };
 
-/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
+/** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 export type GetThreadInput = {
 	branch_id: string;
 };
@@ -2449,14 +2449,14 @@ export type GetShareLinkOutput = {
 	url: string | null;
 };
 
-/** Where this instance currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
 export type GetPublicAddressInput = Record<string, never>;
 /** What get_public_address answers. */
 export type GetPublicAddressOutput = {
 	public_address: string | null;
 };
 
-/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
+/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
 export type SetPublicAddressInput = {
 	public_address: string;
 };
@@ -2465,7 +2465,7 @@ export type SetPublicAddressOutput = {
 	public_address: string;
 };
 
-/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
+/** Write a Bundle of one recipe. A Bundle is a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 export type ExportBundleInput = {
 	branch_id: string;
 };
@@ -2486,7 +2486,7 @@ export type ExportBundleOutput = {
 	}[];
 };
 
-/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
+/** Set a Sheet of one recipe, as a PDF for paper. It is the Branch as it stands on this Person's screen. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
 export type MakeSheetInput = {
 	branch_id: string;
 	wanted_yield?: {
@@ -2503,7 +2503,7 @@ export type MakeSheetOutput = {
 	paper: "a4" | "us-letter";
 };
 
-/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
+/** Set a Sheet of the recipe a Share Link shows. Anyone holding the link may, with no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
 export type MakeSharedSheetInput = {
 	language?: string;
 	locale?: string;
@@ -2575,7 +2575,7 @@ export type ImportBundleOutput = {
 	}[];
 };
 
-/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
+/** Read a Recipe through its Share Link token. The answer is the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 export type ReadSharedRecipeInput = {
 	token: string;
 };
@@ -2764,7 +2764,7 @@ export type ReadSharedRecipeOutput = {
 	}[];
 };
 
-/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
 export type BranchPointInput = {
 	branch_a_id: string;
 	branch_b_id: string;
@@ -2774,7 +2774,7 @@ export type BranchPointOutput = {
 	version_id: string;
 };
 
-/** Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
 export type DivergenceInput = {
 	branch_id: string;
 	other_branch_id: string;
@@ -3077,7 +3077,7 @@ export type DivergenceOutput = {
 	};
 };
 
-/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
+/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 export type SetReadingInput = {
 	amount?: string | null;
 	branch_id: string;
@@ -3098,14 +3098,14 @@ export type SetReadingOutput = {
 	} | null;
 };
 
-/** Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
+/** Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
 export type ReadIngredientLinesInput = Record<string, never>;
 /** What read_ingredient_lines eventually produces, read back through `get_job`. */
 export type ReadIngredientLinesOutput = {
 	read: number;
 };
 
-/** Read every Ingredient Line in the library again with the reader as it stands today, as a Job, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them. */
+/** Read every Ingredient Line again, as a Job. It reads every line in the library with the reader as it stands today, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them. */
 export type RereadIngredientLinesInput = Record<string, never>;
 /** What reread_ingredient_lines eventually produces, read back through `get_job`. */
 export type RereadIngredientLinesOutput = {
@@ -3135,7 +3135,7 @@ export type RereadIngredientLinesOutput = {
 	older_versions_changed: number;
 };
 
-/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
+/** Start cooking a Recipe. It creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 export type StartAttemptInput = {
 	attempt_id?: string;
 	branch_id: string;
@@ -3227,7 +3227,7 @@ export type StartAttemptOutput = {
 	version_id: string;
 };
 
-/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
+/** Move an In Progress Attempt forward. It says which Step, which Ingredients are ticked, and the Yield being cooked to: a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
 export type AdvanceAttemptInput = {
 	attempt_id: string;
 	cooking_yield?: {
@@ -3323,7 +3323,7 @@ export type AdvanceAttemptOutput = {
 	version_id: string;
 };
 
-/** End an In Progress Attempt, taking the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked. */
+/** End an In Progress Attempt. It takes the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked. */
 export type FinishAttemptInput = {
 	add_photographs?: string[] | null;
 	attempt_id: string;
@@ -3417,7 +3417,7 @@ export type FinishAttemptOutput = {
 	version_id: string;
 };
 
-/** Change an Attempt's free text, its rating or its Photographs, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
+/** Change an Attempt's free text, rating or Photographs. It may still be In Progress or long finished: an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
 export type EditAttemptInput = {
 	add_photographs?: string[] | null;
 	attempt_id: string;
@@ -3511,7 +3511,7 @@ export type EditAttemptOutput = {
 	version_id: string;
 };
 
-/** Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
+/** Delete an Attempt outright. It is the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
 export type DeleteAttemptInput = {
 	attempt_id: string;
 };
@@ -3520,7 +3520,7 @@ export type DeleteAttemptOutput = {
 	deleted: boolean;
 };
 
-/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving. */
+/** Make an Attempt's Photograph the recipe's Main Photo. Or a Step's photo: the picture you actually took while cooking becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving. */
 export type PromoteAttemptPhotographInput = {
 	attempt_id: string;
 	branch_id: string;
@@ -3542,7 +3542,7 @@ export type PromoteAttemptPhotographOutput = {
 	version_id: string;
 };
 
-/** Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
+/** Write down what you actually cooked. It records where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
 export type SetAsCookedInput = {
 	as_cooked: {
 		cook_time_minutes?: number | null;
@@ -3660,7 +3660,7 @@ export type SetAsCookedOutput = {
 	version_id: string;
 };
 
-/** Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
+/** Keep a cooking's words in the diary, not the recipe. Or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
 export type DeclinePromotionInput = {
 	attempt_id: string;
 	declined: boolean;
@@ -3750,7 +3750,7 @@ export type DeclinePromotionOutput = {
 	version_id: string;
 };
 
-/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+/** Promotion: turn a cooking into a real Version of its recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
 export type PromoteAsCookedInput = {
 	attempt_id: string;
 	branch_id: string;
@@ -3771,7 +3771,7 @@ export type PromoteAsCookedOutput = {
 	version_id: string;
 };
 
-/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
+/** Read your own In Progress Attempt for a Lineage, if any. It is how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 export type GetCurrentAttemptInput = {
 	lineage_id: string;
 };
@@ -3862,7 +3862,7 @@ export type GetCurrentAttemptOutput = {
 	} | null;
 };
 
-/** The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */
+/** Read your cooking diary: every Attempt, newest first. It holds every Attempt you have made, across every recipe, sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */
 export type ListAttemptsInput = Record<string, never>;
 /** What list_attempts answers. */
 export type ListAttemptsOutput = {
@@ -3959,7 +3959,7 @@ export type ListAttemptsOutput = {
 	}[];
 };
 
-/** Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
+/** Read your Shopping List: chosen recipes and their rows. The rows are worked out from the recipes you chose. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
 export type GetShoppingListInput = Record<string, never>;
 /** What get_shopping_list answers. */
 export type GetShoppingListOutput = {
@@ -3995,7 +3995,7 @@ export type GetShoppingListOutput = {
 	}[];
 };
 
-/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
+/** Read what one recipe puts on a Shopping List, line by line. It answers before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
 export type ShoppingBasisInput = {
 	branch_id: string;
 };
@@ -4028,7 +4028,7 @@ export type ShoppingBasisOutput = {
 	} | null;
 };
 
-/** Choose a recipe to shop for, at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
+/** Choose a recipe to shop for. It is chosen at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 export type AddToShoppingListInput = {
 	branch_id: string;
 	shopping_yield?: {
@@ -4110,7 +4110,7 @@ export type RemoveFromShoppingListOutput = {
 	}[];
 };
 
-/** Say how much of a chosen recipe you are shopping for — an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
+/** Say how much of a chosen recipe you are shopping for. Send an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 export type SetShoppingYieldInput = {
 	branch_id: string;
 	shopping_yield?: {
@@ -4153,14 +4153,14 @@ export type SetShoppingYieldOutput = {
 	}[];
 };
 
-/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
+/** Read your Shopping List as plain text. It is ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
 export type ShoppingListAsTextInput = Record<string, never>;
 /** What shopping_list_as_text answers. */
 export type ShoppingListAsTextOutput = {
 	text: string;
 };
 
-/** Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
+/** Empty your Shopping List. Every recipe chosen and every typed line goes at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
 export type EmptyShoppingListInput = {
 	written_at?: string;
 };
@@ -4198,7 +4198,7 @@ export type EmptyShoppingListOutput = {
 	}[];
 };
 
-/** Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
+/** Type a line straight onto your Shopping List. Think bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
 export type AddLooseItemInput = {
 	item_id?: string;
 	text: string;
@@ -4277,7 +4277,7 @@ export type RemoveLooseItemOutput = {
 	}[];
 };
 
-/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
+/** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
 export type ListFoodsInput = Record<string, never>;
 /** What list_foods answers. */
 export type ListFoodsOutput = {
@@ -4295,7 +4295,7 @@ export type ListFoodsOutput = {
 	}[];
 };
 
-/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */
+/** Read one Food: its names and its Cup Weight. Also how many Readings currently point at it. */
 export type GetFoodInput = {
 	food_id: string;
 };
@@ -4313,7 +4313,7 @@ export type GetFoodOutput = {
 	reading_count: number;
 };
 
-/** Say every name a Food answers to in one Language, in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
+/** Say every name a Food answers to in one Language. Send them in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
 export type SetFoodNamesInput = {
 	food_id: string;
 	language: "en" | "fr" | "es";
@@ -4333,7 +4333,7 @@ export type SetFoodNamesOutput = {
 	reading_count: number;
 };
 
-/** Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it. */
+/** Set or clear a Food's Cup Weight. It is the one figure that turns a volume of it into a weight. Anyone may correct it. */
 export type SetFoodCupWeightInput = {
 	cup_weight_grams: number | null;
 	food_id: string;
@@ -4352,7 +4352,7 @@ export type SetFoodCupWeightOutput = {
 	reading_count: number;
 };
 
-/** The Operator's worklist: every note that two Foods are probably one thing, with the words that said so. Evidence, never an instruction — nothing merges itself. */
+/** List the notes that two Foods are probably one thing. It is the Operator's worklist: every such note, with the words that said so. Evidence, never an instruction — nothing merges itself. */
 export type ListMergeSuggestionsInput = Record<string, never>;
 /** What list_merge_suggestions answers. */
 export type ListMergeSuggestionsOutput = {
@@ -4378,7 +4378,7 @@ export type ListMergeSuggestionsOutput = {
 	}[];
 };
 
-/** Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
+/** Count what a Food Merge would move, moving nothing. It says how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
 export type PreviewFoodMergeInput = {
 	absorbed_food_id: string;
 	survivor_food_id: string;
@@ -4448,7 +4448,7 @@ export type DeleteFoodOutput = {
 	deleted: boolean;
 };
 
-/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
+/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 export type GetJobInput = {
 	job_id: string;
 };
@@ -4469,7 +4469,7 @@ export type GetJobOutput = {
 	updated_at: string;
 };
 
-/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */
+/** Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line. */
 export type CancelJobInput = {
 	job_id: string;
 };
@@ -5231,7 +5231,7 @@ export type Answer<N extends OperationName> =
 export const CATALOGUE = [
 	{
 		"name": "instance_status",
-		"summary": "The version of this Kamosu, whether setup has happened, and the shortest password it accepts.",
+		"summary": "Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -5352,7 +5352,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_person",
-		"summary": "Who this Credential names: the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with.",
+		"summary": "Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -5409,7 +5409,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_accounts",
-		"summary": "Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here.",
+		"summary": "List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -5548,7 +5548,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "mint_recovery_link",
-		"summary": "Mint a one-use recovery link for a Person who forgot their password.",
+		"summary": "Mint a recovery link for a Person who forgot their password. The link is spent on its one use.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -5616,7 +5616,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "sweep_photographs",
-		"summary": "Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now.",
+		"summary": "Take away Photographs nothing has pointed at for a week. Their Display Copies go with them. Runs daily on its own; this asks for it now.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -5658,7 +5658,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "take_backup",
-		"summary": "Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>.",
+		"summary": "Take a Backup now, as a Job. A Backup is one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>.",
 		"permission": "operator",
 		"kind": "job",
 		"input_schema": {
@@ -5893,7 +5893,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "mint_access_key",
-		"summary": "Mint an Access Key for an agent to act as you, optionally read-only.",
+		"summary": "Mint an Access Key for an agent to act as you. You may make it read-only.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6027,7 +6027,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "create_kitchen",
-		"summary": "Create a Kitchen: a group of People who see and cook from each other's Cookbooks. Its creator is its first member.",
+		"summary": "Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6274,7 +6274,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_kitchen_nickname",
-		"summary": "Set this member's own private Nickname for a Kitchen, seen by nobody else. An absent or empty Nickname clears it.",
+		"summary": "Set this member's own private Nickname for a Kitchen. Nobody else sees it. An absent or empty Nickname clears it.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6314,7 +6314,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "invite_to_kitchen",
-		"summary": "Mint a one-use Invite for another Person to join this Kitchen. Any member may.",
+		"summary": "Mint a one-use Invite for another Person to this Kitchen. It lets them join it. Any member may.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6452,7 +6452,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "remove_kitchen_member",
-		"summary": "Remove a Person from a Kitchen — including yourself, to leave. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others.",
+		"summary": "Remove a Person from a Kitchen, or yourself to leave it. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6486,7 +6486,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "delete_kitchen",
-		"summary": "An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen.",
+		"summary": "Delete a Kitchen nobody is left in. This is an Operator's only power over a Kitchen: nothing else about one.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6516,7 +6516,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "preview_leaving_kitchen",
-		"summary": "What removing a Person from a Kitchen would leave each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you.",
+		"summary": "Preview what removing a Person from a Kitchen would leave. It answers for each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6553,7 +6553,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_cookbook",
-		"summary": "Your own Cookbook: its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting.",
+		"summary": "Read your own Cookbook. The answer is its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -6846,7 +6846,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "rename_cookbook",
-		"summary": "Give your Cookbook a name of its own, or clear it back to its Co-authors' names with an empty or null one. Any Co-author may.",
+		"summary": "Give your Cookbook a name of its own, or clear it. An empty or null name clears it back to its Co-authors' names. Any Co-author may.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7149,7 +7149,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "invite_to_cookbook",
-		"summary": "Mint a one-use Invite for somebody to write your Cookbook with you. When they accept, their recipes and yours become one Cookbook either of you changes.",
+		"summary": "Mint a one-use Invite for somebody to write your Cookbook. They write it with you. When they accept, their recipes and yours become one Cookbook either of you changes.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7206,7 +7206,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "read_cookbook_invite",
-		"summary": "What accepting a Cookbook Invite would do, before you say yes: whose Cookbook it is, and how many recipes on each side become one.",
+		"summary": "Preview what accepting a Cookbook Invite would do. It answers before you say yes: whose Cookbook it is, and how many recipes on each side become one.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7575,7 +7575,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "accept_cookbook_invite",
-		"summary": "Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use.",
+		"summary": "Open a Cookbook Invite to join the Cookbook it names. Your Cookbook joins that one, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -7875,7 +7875,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "answer_cookbook_join",
-		"summary": "Say yes or no to a Cookbook join that waits on you, as your Cookbook's `joins` lists it. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back.",
+		"summary": "Say yes or no to a Cookbook join that waits on you. Your Cookbook's `joins` lists each one. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -8179,7 +8179,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "leave_cookbook",
-		"summary": "Leave the Cookbook you write with others, taking your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy.",
+		"summary": "Leave the Cookbook you write with others. You take your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -8860,7 +8860,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_tags",
-		"summary": "List every Tag your own Cookbook files by, each shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours.",
+		"summary": "List every Tag your own Cookbook files by. Each is shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -9037,7 +9037,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "merge_tags",
-		"summary": "Merge two of a Kitchen's Tags into one: every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version.",
+		"summary": "Merge two of a Kitchen's Tags into one. Every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -9117,7 +9117,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "delete_tag",
-		"summary": "Take a Tag out of a Kitchen's list and off every recipe carrying it. No recipe changes.",
+		"summary": "Delete a Tag from a Kitchen and every recipe carrying it. It comes out of the Kitchen's list and off each of those recipes. No recipe changes.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -9147,7 +9147,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_recipe_tag",
-		"summary": "File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is.",
+		"summary": "File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -9243,7 +9243,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_related_recipe",
-		"summary": "Relate one of your Cookbook's Recipes to any Recipe you may see, or take that single two-way, untyped link back off. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two.",
+		"summary": "Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -9326,7 +9326,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "create_recipe",
-		"summary": "Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs.",
+		"summary": "Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -10484,7 +10484,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "save_recipe_version",
-		"summary": "Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see.",
+		"summary": "Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -10719,7 +10719,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "edit_recipe",
-		"summary": "Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading.",
+		"summary": "Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -10955,7 +10955,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "start_variation",
-		"summary": "Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it (\"Vegetarian\"). Changing one never changes the other.",
+		"summary": "Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it (\"Vegetarian\"). Changing one never changes the other.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -11962,7 +11962,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "rename_branch",
-		"summary": "Name one of your Cookbook's Branches of a recipe, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name.",
+		"summary": "Name a recipe's Branch in your Cookbook, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12036,7 +12036,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "read_pasted_recipe",
-		"summary": "Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again.",
+		"summary": "Read a pasted recipe into title, ingredients and method. It takes a whole recipe pasted as text. It decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12104,7 +12104,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "read_recipe_pdf",
-		"summary": "Read a recipe PDF — one printed from a web page or a word processor — the way read_pasted_recipe reads pasted text, and answer the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"summary": "Read a recipe PDF into title, ingredients and method. It takes one printed from a web page or a word processor, reads it the way read_pasted_recipe reads pasted text, and answers the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -12174,7 +12174,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "start_translation",
-		"summary": "Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author.",
+		"summary": "Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -13398,7 +13398,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import",
-		"summary": "Bring a batch of already-read recipes into your own Cookbook, as a Job. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job.",
+		"summary": "Bring already-read recipes into your own Cookbook, as a Job. They come as one batch. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -13842,7 +13842,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "import_crouton",
-		"summary": "Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
+		"summary": "Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -14115,7 +14115,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_imports",
-		"summary": "What has been brought into your Kitchens from outside, and what happened each time. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025).",
+		"summary": "List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025).",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -14217,7 +14217,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "forget_import",
-		"summary": "Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone.",
+		"summary": "Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -14524,7 +14524,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "preview_shared_recipe",
-		"summary": "Say what importing a Kamosu Share Link would do, before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused.",
+		"summary": "Preview what importing a Kamosu Share Link would do. It answers before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -14652,7 +14652,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "rename_version",
-		"summary": "Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it.",
+		"summary": "Rename a Version. Its name is the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -14696,7 +14696,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "upload_photograph",
-		"summary": "Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id.",
+		"summary": "Upload a Photograph, base64-encoded. It is the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -14932,7 +14932,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "home_shelves",
-		"summary": "Home: the computed shelves that answer *show me something* rather than handing back a search box — recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042).",
+		"summary": "Read Home: the computed shelves of recipes. They answer *show me something* rather than handing back a search box: recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042).",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15129,7 +15129,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "note_recipe_opened",
-		"summary": "Remember that the caller opened this recipe, for Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027).",
+		"summary": "Remember that the caller opened this recipe. It feeds Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027).",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15163,7 +15163,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "meaning_search_status",
-		"summary": "Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on.",
+		"summary": "Read whether Meaning Search is on here. Also what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -15349,7 +15349,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "build_meaning_index",
-		"summary": "Read the library into the Meaning Search index, as a Job, and turn Meaning Search on. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes.",
+		"summary": "Build the Meaning Search index, as a Job, and turn it on. It reads the library into the index. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes.",
 		"permission": "operator",
 		"kind": "job",
 		"input_schema": {
@@ -15400,7 +15400,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_recipe",
-		"summary": "Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored.",
+		"summary": "Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -16423,7 +16423,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_thread",
-		"summary": "Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread.",
+		"summary": "Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -17314,7 +17314,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_public_address",
-		"summary": "Where this instance currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess.",
+		"summary": "Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -17340,7 +17340,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_public_address",
-		"summary": "Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show.",
+		"summary": "Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -17370,7 +17370,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "export_bundle",
-		"summary": "Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed.",
+		"summary": "Write a Bundle of one recipe. A Bundle is a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -17468,7 +17468,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "make_sheet",
-		"summary": "Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed.",
+		"summary": "Set a Sheet of one recipe, as a PDF for paper. It is the Branch as it stands on this Person's screen. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed.",
 		"permission": "person",
 		"kind": "job",
 		"input_schema": {
@@ -17538,7 +17538,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "make_shared_sheet",
-		"summary": "Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>.",
+		"summary": "Set a Sheet of the recipe a Share Link shows. Anyone holding the link may, with no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>.",
 		"permission": "public",
 		"kind": "job",
 		"input_schema": {
@@ -17867,7 +17867,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "read_shared_recipe",
-		"summary": "Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched.",
+		"summary": "Read a Recipe through its Share Link token. The answer is the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -18982,7 +18982,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "branch_point",
-		"summary": "The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess.",
+		"summary": "Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -19016,7 +19016,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "divergence",
-		"summary": "Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection.",
+		"summary": "Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -20673,7 +20673,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_reading",
-		"summary": "Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line.",
+		"summary": "Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -20780,7 +20780,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "read_ingredient_lines",
-		"summary": "Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it.",
+		"summary": "Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it.",
 		"permission": "operator",
 		"kind": "job",
 		"input_schema": {
@@ -20803,7 +20803,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "reread_ingredient_lines",
-		"summary": "Read every Ingredient Line in the library again with the reader as it stands today, as a Job, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them.",
+		"summary": "Read every Ingredient Line again, as a Job. It reads every line in the library with the reader as it stands today, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them.",
 		"permission": "operator",
 		"kind": "job",
 		"input_schema": {
@@ -20959,7 +20959,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "start_attempt",
-		"summary": "Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may.",
+		"summary": "Start cooking a Recipe. It creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -21440,7 +21440,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "advance_attempt",
-		"summary": "Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched.",
+		"summary": "Move an In Progress Attempt forward. It says which Step, which Ingredients are ticked, and the Yield being cooked to: a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -21945,7 +21945,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "finish_attempt",
-		"summary": "End an In Progress Attempt, taking the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked.",
+		"summary": "End an In Progress Attempt. It takes the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -22456,7 +22456,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "edit_attempt",
-		"summary": "Change an Attempt's free text, its rating or its Photographs, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from.",
+		"summary": "Change an Attempt's free text, rating or Photographs. It may still be In Progress or long finished: an Attempt is freely editable by its cook, unlike the recipe it was cooked from.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -22967,7 +22967,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "delete_attempt",
-		"summary": "Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves.",
+		"summary": "Delete an Attempt outright. It is the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -22997,7 +22997,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "promote_attempt_photograph",
-		"summary": "Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving.",
+		"summary": "Make an Attempt's Photograph the recipe's Main Photo. Or a Step's photo: the picture you actually took while cooking becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -23100,7 +23100,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_as_cooked",
-		"summary": "Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act.",
+		"summary": "Write down what you actually cooked. It records where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -23732,7 +23732,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "decline_promotion",
-		"summary": "Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag.",
+		"summary": "Keep a cooking's words in the diary, not the recipe. Or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -24206,7 +24206,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "promote_as_cooked",
-		"summary": "Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked.",
+		"summary": "Promotion: turn a cooking into a real Version of its recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -24302,7 +24302,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_current_attempt",
-		"summary": "Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered.",
+		"summary": "Read your own In Progress Attempt for a Lineage, if any. It is how two devices cooking the same dish stay in step, and whether resuming should still be offered.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -24784,7 +24784,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_attempts",
-		"summary": "The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf.",
+		"summary": "Read your cooking diary: every Attempt, newest first. It holds every Attempt you have made, across every recipe, sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -25299,7 +25299,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_shopping_list",
-		"summary": "Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off.",
+		"summary": "Read your Shopping List: chosen recipes and their rows. The rows are worked out from the recipes you chose. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -25481,7 +25481,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "shopping_basis",
-		"summary": "What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself.",
+		"summary": "Read what one recipe puts on a Shopping List, line by line. It answers before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -25651,7 +25651,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "add_to_shopping_list",
-		"summary": "Choose a recipe to shop for, at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list.",
+		"summary": "Choose a recipe to shop for. It is chosen at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26057,7 +26057,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_shopping_yield",
-		"summary": "Say how much of a chosen recipe you are shopping for — an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list.",
+		"summary": "Say how much of a chosen recipe you are shopping for. Send an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26270,7 +26270,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "shopping_list_as_text",
-		"summary": "Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out.",
+		"summary": "Read your Shopping List as plain text. It is ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26293,7 +26293,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "empty_shopping_list",
-		"summary": "Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list.",
+		"summary": "Empty your Shopping List. Every recipe chosen and every typed line goes at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26480,7 +26480,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "add_loose_item",
-		"summary": "Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list.",
+		"summary": "Type a line straight onto your Shopping List. Think bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26870,7 +26870,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_foods",
-		"summary": "List every Food this instance knows, each shown in the reader's Reading Language where it has a name there.",
+		"summary": "List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -26955,7 +26955,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_food",
-		"summary": "Read one Food: its names, its Cup Weight, and how many Readings currently point at it.",
+		"summary": "Read one Food: its names and its Cup Weight. Also how many Readings currently point at it.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -27035,7 +27035,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_food_names",
-		"summary": "Say every name a Food answers to in one Language, in order: the list replaces the names it had there. A line naming any of them reads as this Food, so \"œufs\" and \"œuf\" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard.",
+		"summary": "Say every name a Food answers to in one Language. Send them in order: the list replaces the names it had there. A line naming any of them reads as this Food, so \"œufs\" and \"œuf\" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -27130,7 +27130,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "set_food_cup_weight",
-		"summary": "Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it.",
+		"summary": "Set or clear a Food's Cup Weight. It is the one figure that turns a volume of it into a weight. Anyone may correct it.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -27218,7 +27218,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "list_merge_suggestions",
-		"summary": "The Operator's worklist: every note that two Foods are probably one thing, with the words that said so. Evidence, never an instruction — nothing merges itself.",
+		"summary": "List the notes that two Foods are probably one thing. It is the Operator's worklist: every such note, with the words that said so. Evidence, never an instruction — nothing merges itself.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -27348,7 +27348,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "preview_food_merge",
-		"summary": "Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy.",
+		"summary": "Count what a Food Merge would move, moving nothing. It says how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy.",
 		"permission": "operator",
 		"kind": "immediate",
 		"input_schema": {
@@ -27663,7 +27663,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_job",
-		"summary": "Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
+		"summary": "Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -27756,7 +27756,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "cancel_job",
-		"summary": "Cancel a Job you asked for: acknowledged always, honoured while it still waits in line.",
+		"summary": "Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line.",
 		"permission": "public",
 		"kind": "immediate",
 		"input_schema": {
@@ -28010,17 +28010,17 @@ export const METHOD_NAMES = {
 
 /** The typed client: one method per Operation, named as the Catalogue names it. */
 export interface KamosuClient {
-	/** The version of this Kamosu, whether setup has happened, and the shortest password it accepts. */
+	/** Read this Kamosu's version and whether setup has happened. Also the shortest password it accepts. */
 	instanceStatus(input?: InstanceStatusInput): Promise<Answer<'instance_status'>>;
 	/** Set the Language and measures this Person reads in. */
 	setReadingPreferences(input: SetReadingPreferencesInput): Promise<Answer<'set_reading_preferences'>>;
 	/** The Language and measures this Person reads in. Reading Measures live on the account rather than in a browser, so every Door and every device reads the same recipe the same way; the default is American, a stated convention rather than a guess about anybody. */
 	getReadingPreferences(input?: GetReadingPreferencesInput): Promise<Answer<'get_reading_preferences'>>;
-	/** Who this Credential names: the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
+	/** Read who this Credential names. The answer is the Person's permanent id, which is also their Hand, and the name they currently go by — the name every Version they wrote shows here, and the one they sign in with. */
 	getPerson(input?: GetPersonInput): Promise<Answer<'get_person'>>;
 	/** Change this Person's current reminder name. Every Version they ever wrote shows the new one on this instance, since a Hand is named live and nothing is keyed on the name; no id or fingerprint moves. It is also the name they sign in with, so a name somebody else here signs in with is refused. A Bundle already sent keeps the name it left with. */
 	renamePerson(input: RenamePersonInput): Promise<Answer<'rename_person'>>;
-	/** Who holds an account on this instance: their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
+	/** List who holds an account on this instance. Each comes with their name, whether they administer it, and whether the account is disabled. Nothing about what they cook — the Operator administers and does not read (ADR 0007), so no recipe, Attempt, Cookbook or Kitchen of theirs is reachable from here. */
 	listAccounts(input?: ListAccountsInput): Promise<Answer<'list_accounts'>>;
 	/** Mint a one-use Invite link for a new Person. */
 	mintInvite(input: MintInviteInput): Promise<Answer<'mint_invite'>>;
@@ -28028,13 +28028,13 @@ export interface KamosuClient {
 	disableAccount(input: DisableAccountInput): Promise<Answer<'disable_account'>>;
 	/** Delete an account while preserving its Hand in history. The Person's name is freed for somebody new to sign in with; what they wrote keeps their Hand and the name they had. Disabling an account keeps the name. */
 	deleteAccount(input: DeleteAccountInput): Promise<Answer<'delete_account'>>;
-	/** Mint a one-use recovery link for a Person who forgot their password. */
+	/** Mint a recovery link for a Person who forgot their password. The link is spent on its one use. */
 	mintRecoveryLink(input: MintRecoveryLinkInput): Promise<Answer<'mint_recovery_link'>>;
 	/** Make a Person an Operator, or stop them being one. The last Operator cannot be demoted (ADR 0007): an instance with nobody to administer it can never get one back, so the refusal is the point rather than a nicety. */
 	setOperator(input: SetOperatorInput): Promise<Answer<'set_operator'>>;
-	/** Take away Photographs nothing has pointed at for a week, and their Display Copies with them. Runs daily on its own; this asks for it now. */
+	/** Take away Photographs nothing has pointed at for a week. Their Display Copies go with them. Runs daily on its own; this asks for it now. */
 	sweepPhotographs(input?: SweepPhotographsInput): Promise<Answer<'sweep_photographs'>>;
-	/** Take a Backup now, as a Job: one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>. */
+	/** Take a Backup now, as a Job. A Backup is one archive holding a consistent copy of the database and every Photograph, written beside the database under /data. Kamosu keeps three — one taken daily, one weekly, one monthly — and takes them on its own; this asks for one now. A Job because an archive is the size of the library. It is never sent anywhere: fetch the bytes at GET /api/backups/<name>. */
 	takeBackup(input?: TakeBackupInput): Promise<Answer<'take_backup'>>;
 	/** The Backups this instance holds, newest first. Each can be fetched at GET /api/backups/<name>, under the same Credential as any Operation. */
 	listBackups(input?: ListBackupsInput): Promise<Answer<'list_backups'>>;
@@ -28044,105 +28044,105 @@ export interface KamosuClient {
 	renameSession(input: RenameSessionInput): Promise<Answer<'rename_session'>>;
 	/** End one of your browser Sessions. */
 	revokeSession(input: RevokeSessionInput): Promise<Answer<'revoke_session'>>;
-	/** Mint an Access Key for an agent to act as you, optionally read-only. */
+	/** Mint an Access Key for an agent to act as you. You may make it read-only. */
 	mintAccessKey(input: MintAccessKeyInput): Promise<Answer<'mint_access_key'>>;
 	/** List this Person's Access Keys by name and last use. */
 	listAccessKeys(input?: ListAccessKeysInput): Promise<Answer<'list_access_keys'>>;
 	/** End one of your Access Keys. */
 	revokeAccessKey(input: RevokeAccessKeyInput): Promise<Answer<'revoke_access_key'>>;
-	/** Create a Kitchen: a group of People who see and cook from each other's Cookbooks. Its creator is its first member. */
+	/** Create a Kitchen, with its creator as its first member. A Kitchen is a group of People who see and cook from each other's Cookbooks. */
 	createKitchen(input: CreateKitchenInput): Promise<Answer<'create_kitchen'>>;
 	/** List every Kitchen this Person cooks in. */
 	listKitchens(input?: ListKitchensInput): Promise<Answer<'list_kitchens'>>;
 	/** Change a Kitchen's shared Name. Any member may. */
 	renameKitchen(input: RenameKitchenInput): Promise<Answer<'rename_kitchen'>>;
-	/** Set this member's own private Nickname for a Kitchen, seen by nobody else. An absent or empty Nickname clears it. */
+	/** Set this member's own private Nickname for a Kitchen. Nobody else sees it. An absent or empty Nickname clears it. */
 	setKitchenNickname(input: SetKitchenNicknameInput): Promise<Answer<'set_kitchen_nickname'>>;
-	/** Mint a one-use Invite for another Person to join this Kitchen. Any member may. */
+	/** Mint a one-use Invite for another Person to this Kitchen. It lets them join it. Any member may. */
 	inviteToKitchen(input: InviteToKitchenInput): Promise<Answer<'invite_to_kitchen'>>;
 	/** Open a Kitchen Invite: join the Kitchen it names. Spent on use. */
 	acceptKitchenInvite(input: AcceptKitchenInviteInput): Promise<Answer<'accept_kitchen_invite'>>;
-	/** Remove a Person from a Kitchen — including yourself, to leave. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
+	/** Remove a Person from a Kitchen, or yourself to leave it. Their Cookbook leaves with them; each member who stays keeps a Branch of every recipe of theirs they cooked, and they keep one of every recipe they cooked from the others. */
 	removeKitchenMember(input: RemoveKitchenMemberInput): Promise<Answer<'remove_kitchen_member'>>;
-	/** An Operator's power over a Kitchen: delete one nobody is left in. Nothing else about a Kitchen. */
+	/** Delete a Kitchen nobody is left in. This is an Operator's only power over a Kitchen: nothing else about one. */
 	deleteKitchen(input: DeleteKitchenInput): Promise<Answer<'delete_kitchen'>>;
-	/** What removing a Person from a Kitchen would leave each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you. */
+	/** Preview what removing a Person from a Kitchen would leave. It answers for each side, before anybody does it: how many recipes the members who stay keep, and how many the one leaving keeps. `person_id` defaults to you. */
 	previewLeavingKitchen(input: PreviewLeavingKitchenInput): Promise<Answer<'preview_leaving_kitchen'>>;
-	/** Your own Cookbook: its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
+	/** Read your own Cookbook. The answer is its name, who writes it, how many recipes it holds, the Kitchens that see it and the Invites still waiting. */
 	getCookbook(input?: GetCookbookInput): Promise<Answer<'get_cookbook'>>;
-	/** Give your Cookbook a name of its own, or clear it back to its Co-authors' names with an empty or null one. Any Co-author may. */
+	/** Give your Cookbook a name of its own, or clear it. An empty or null name clears it back to its Co-authors' names. Any Co-author may. */
 	renameCookbook(input: RenameCookbookInput): Promise<Answer<'rename_cookbook'>>;
-	/** Mint a one-use Invite for somebody to write your Cookbook with you. When they accept, their recipes and yours become one Cookbook either of you changes. */
+	/** Mint a one-use Invite for somebody to write your Cookbook. They write it with you. When they accept, their recipes and yours become one Cookbook either of you changes. */
 	inviteToCookbook(input?: InviteToCookbookInput): Promise<Answer<'invite_to_cookbook'>>;
 	/** End a Cookbook Invite nobody has used yet. */
 	cancelCookbookInvite(input: CancelCookbookInviteInput): Promise<Answer<'cancel_cookbook_invite'>>;
-	/** What accepting a Cookbook Invite would do, before you say yes: whose Cookbook it is, and how many recipes on each side become one. */
+	/** Preview what accepting a Cookbook Invite would do. It answers before you say yes: whose Cookbook it is, and how many recipes on each side become one. */
 	readCookbookInvite(input: ReadCookbookInviteInput): Promise<Answer<'read_cookbook_invite'>>;
-	/** Open a Cookbook Invite: your Cookbook joins the one it names, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use. */
+	/** Open a Cookbook Invite to join the Cookbook it names. Your Cookbook joins that one, and every recipe in either becomes one Cookbook you all change. Where either Cookbook has other writers, the join waits until each of them says yes, and the answer is your own Cookbook with the join in `joins`. Spent on use. */
 	acceptCookbookInvite(input: AcceptCookbookInviteInput): Promise<Answer<'accept_cookbook_invite'>>;
-	/** Say yes or no to a Cookbook join that waits on you, as your Cookbook's `joins` lists it. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back. */
+	/** Say yes or no to a Cookbook join that waits on you. Your Cookbook's `joins` lists each one. The last yes joins the two Cookbooks. A no from anybody writing either calls it off and opens its Invite again; from the one who accepted it, that takes the acceptance back. */
 	answerCookbookJoin(input: AnswerCookbookJoinInput): Promise<Answer<'answer_cookbook_join'>>;
-	/** Leave the Cookbook you write with others, taking your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy. */
+	/** Leave the Cookbook you write with others. You take your own Branch of every recipe in it with its whole history. Whoever started a recipe keeps the original; everyone else a copy. */
 	leaveCookbook(input?: LeaveCookbookInput): Promise<Answer<'leave_cookbook'>>;
 	/** Separate another Co-author from your Cookbook. They leave with a Branch of every recipe in it, as though they had left. */
 	removeCookbookAuthor(input: RemoveCookbookAuthorInput): Promise<Answer<'remove_cookbook_author'>>;
 	/** Create a Tag in your own Cookbook, named in one Language. A word the Cookbook already files under returns the Tag it already has rather than making a second. */
 	createTag(input: CreateTagInput): Promise<Answer<'create_tag'>>;
-	/** List every Tag your own Cookbook files by, each shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
+	/** List every Tag your own Cookbook files by. Each is shown in the reader's Reading Language where it has a name there. With `everywhere`, every word any Cookbook you may see files by, one entry per word — what a shelf filters by. With a `kitchen_id`, the same for the Cookbooks seen in that one Kitchen of yours. */
 	listTags(input: ListTagsInput): Promise<Answer<'list_tags'>>;
 	/** Name a Tag in one Language, or change the name it has there. Reaches every recipe carrying it at once, and mints no Version. */
 	renameTag(input: RenameTagInput): Promise<Answer<'rename_tag'>>;
-	/** Merge two of a Kitchen's Tags into one: every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version. */
+	/** Merge two of a Kitchen's Tags into one. Every recipe filed under the merged Tag is filed under the kept one instead. Mints no Version. */
 	mergeTags(input: MergeTagsInput): Promise<Answer<'merge_tags'>>;
-	/** Take a Tag out of a Kitchen's list and off every recipe carrying it. No recipe changes. */
+	/** Delete a Tag from a Kitchen and every recipe carrying it. It comes out of the Kitchen's list and off each of those recipes. No recipe changes. */
 	deleteTag(input: DeleteTagInput): Promise<Answer<'delete_tag'>>;
-	/** File a recipe under one of its Kitchen's Tags, or take it back out. Mints no Version: filing is not what a recipe is. */
+	/** File a recipe under a Tag, or take it back out. The Tag is one of the recipe's Kitchen's Tags. Mints no Version: filing is not what a recipe is. */
 	setRecipeTag(input: SetRecipeTagInput): Promise<Answer<'set_recipe_tag'>>;
-	/** Relate one of your Cookbook's Recipes to any Recipe you may see, or take that single two-way, untyped link back off. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
+	/** Relate two Recipes, or take that link back off. One is a Recipe of your Cookbook, the other any Recipe you may see, joined by a single two-way, untyped link. Your Cookbook keeps the link. It never changes either Recipe or travels in a Bundle or Share. Name the far end with `related_branch_id`, or with `related_lineage_id` where the Recipe there has since been deleted — exactly one of the two. */
 	setRelatedRecipe(input: SetRelatedRecipeInput): Promise<Answer<'set_related_recipe'>>;
-	/** Create a Recipe: a Lineage, a Branch in this Kitchen, and a first Version. A title is all it needs. */
+	/** Create a Recipe; a title is all it needs. It makes a Lineage, a Branch in this Kitchen, and a first Version. */
 	createRecipe(input: CreateRecipeInput): Promise<Answer<'create_recipe'>>;
-	/** Save a new state of a Recipe onto a Branch — the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
+	/** Save a whole new state of a Recipe onto a Branch. It is the whole recipe as written, replacing what was there: every field left out is erased. For a partial change use edit_recipe instead. A re-save by the same Hand within 60 minutes of the last one collapses into the Version already being shaped rather than starting a new one, unless another Branch or a Translation already holds that Version. A collapsed save keeps the name and change_note the Version already has unless it sends new ones. A save that changes nothing but sends a new name or change_note writes them onto the Version being shaped, and is refused once that Version is no longer being shaped. A save that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. Changing a recipe your Cookbook did not write — a Kitchen-mate's, or one that arrived — is a Copy: it starts a new Branch of the same Lineage in your own Cookbook, starting at the Version you changed and carrying the whole chain behind it — the Branch you changed is left untouched. The Branch must be one you may see. */
 	saveRecipeVersion(input: SaveRecipeVersionInput): Promise<Answer<'save_recipe_version'>>;
-	/** Change some fields of a Recipe and leave the rest as they are: send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
+	/** Change some fields of a Recipe, keeping the rest. Send only the fields that change. A field left out keeps what the recipe has, and null clears it; the title alone can be changed but never cleared. Ingredients and steps are each replaced whole, so changing one line means sending that whole list, but not the other one. Otherwise exactly save_recipe_version: the result is saved as the recipe's new state, a re-edit by the same Hand within 60 minutes collapses into the Version being shaped (unless another Branch or a Translation already holds it), and changing a recipe your Cookbook did not write is a Copy. A collapsed edit keeps the name and change_note the Version already has unless it sends new ones, and an edit sending only a name or change_note writes them onto the Version being shaped, or is refused once that Version is no longer being shaped. An edit that changes nothing but names a new translates_version_id moves the newest Version's pointer to it, at any time, and writes no Version. An Ingredient Line the edit leaves word for word as it was, in the same place, keeps its Reading as it was, a misreading included; correct one with set_reading. */
 	editRecipe(input: EditRecipeInput): Promise<Answer<'edit_recipe'>>;
-	/** Start a variation of a recipe: a Branch of it, unchanged, in your own Cookbook, under a name you give it ("Vegetarian"). Changing one never changes the other. */
+	/** Start a variation of a recipe in your own Cookbook. It is a Branch of the recipe, unchanged, under a name you give it ("Vegetarian"). Changing one never changes the other. */
 	startVariation(input: StartVariationInput): Promise<Answer<'start_variation'>>;
-	/** Name one of your Cookbook's Branches of a recipe, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
+	/** Name a recipe's Branch in your Cookbook, or clear its name. A Cookbook keeps one unnamed Branch of a recipe in each Language, so a second one needs a name. */
 	renameBranch(input: RenameBranchInput): Promise<Answer<'rename_branch'>>;
 	/** Take one recipe off the shelf for good. It is gone from the shelf, from search and from every member of its Kitchen, and nothing brings it back. **One Branch**: a translation is an ordinary Branch, so deleting the English one leaves the French one whole, and another Kitchen's copy of the same recipe is untouched. **The cooking history stays.** Every Attempt ever made from this recipe keeps its rating, its note and its Photographs, and the Cooked diary keeps each entry under the name the recipe was known by. So does a Shopping List holding it, which says it can no longer be read rather than quietly dropping it. No Version is ever deleted, by this or by anything else. A live Share Link stops working. */
 	deleteRecipe(input: DeleteRecipeInput): Promise<Answer<'delete_recipe'>>;
-	/** Read a whole recipe pasted as text into a title, an ingredient list and a method. Decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
+	/** Read a pasted recipe into title, ingredients and method. It takes a whole recipe pasted as text. It decides only what each line IS — an Ingredient Line, a Step, a Section — and never what it says: every line comes back exactly as pasted, with no amount extracted, no rewording and no reordering (ADR 0002). Nothing is guessed beyond the split and the title: no Yield, no times, no Source, and no Component (ADR 0008). It writes nothing anywhere — what comes back is shown to whoever pasted it, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe or save_recipe_version. The boundary is the index in `lines` where the method starts, so moving it re-splits the same answer without asking again. */
 	readPastedRecipe(input: ReadPastedRecipeInput): Promise<Answer<'read_pasted_recipe'>>;
-	/** Read a recipe PDF — one printed from a web page or a word processor — the way read_pasted_recipe reads pasted text, and answer the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	/** Read a recipe PDF into title, ingredients and method. It takes one printed from a web page or a word processor, reads it the way read_pasted_recipe reads pasted text, and answers the same shape. A printed line that wrapped is joined back into one, and the first line is taken as the title. It writes nothing anywhere: what comes back is shown to whoever sent the PDF, who moves the boundary if it landed wrong, and only then is a recipe saved by an ordinary create_recipe. A scan or a photograph of a page holds no text and is refused with reason `pdf_has_no_text`; text is never read out of a picture. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	readRecipePdf(input: ReadRecipePdfInput): Promise<Answer<'read_recipe_pdf'>>;
-	/** Translate a recipe: start an ordinary Branch of the same Lineage in another Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
+	/** Translate a recipe into another Language. It starts an ordinary Branch of the same Lineage in that Language, whose first Version records which Version of the source it renders. There is no Translation object — what this makes is a Branch, and every Operation from here on is the ordinary one. Its chain starts fresh rather than carrying the source's, which is what separates it from a Copy: different words rendering the same dish, with a history of their own. An agent translating calls this under the Person's own Credential and is a scribe, not an author. */
 	startTranslation(input: StartTranslationInput): Promise<Answer<'start_translation'>>;
 	/** Say what Language a recipe is written in. The only thing that acts on a save's language offer — Kamosu detects and offers, and never changes a Language without the cook saying so. Changing it makes a Version, so the change leaves a trace in the recipe's own history. Setting it to `unknown` says the recipe is honestly more than one Language: from then on it is offered nothing, marked nothing, and shown to every reader whatever they read in. */
 	setRecipeLanguage(input: SetRecipeLanguageInput): Promise<Answer<'set_recipe_language'>>;
-	/** Bring a batch of already-read recipes into your own Cookbook, as a Job. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
+	/** Bring already-read recipes into your own Cookbook, as a Job. They come as one batch. Matched by foreign id against this Cookbook's ledger for the source kind, so re-running finds what it already made instead of doubling it; a recipe found changed is offered for review, never written over. Reading the outside source itself — a file, a page, a Bundle — is each importer's own job. */
 	import(input: ImportInput): Promise<Answer<'import'>>;
-	/** Bring in a Crouton library, as a Job: the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
+	/** Bring in a Crouton library, as a Job. It takes the whole export (a zip of .crumb files) or one .crumb. Each recipe lands in your own Cookbook through the same ledger `import` uses, keyed by its Crouton id, so running it again matches instead of doubling the library. Ingredient Lines are rebuilt from Crouton's split fields; the site's favicon and Crouton's nutrition text are left out. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importCrouton(input: ImportCroutonInput): Promise<Answer<'import_crouton'>>;
-	/** What has been brought into your Kitchens from outside, and what happened each time. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
+	/** List every Import, and what happened each time. It covers what has been brought into your Kitchens from outside. One entry per source — a Crouton library, recipe files, web pages — each holding how many recipes its ledger remembers and every arrival you asked for, newest first. An arrival names the Job whose Report `get_job` serves, so what happened is read back long after the screen that started it closed. Listed is an event, never a mark on a recipe: an imported recipe is an ordinary recipe and says nothing about where it came from (ADR 0025). */
 	listImports(input?: ListImportsInput): Promise<Answer<'list_imports'>>;
-	/** Throw an Import's ledger away whole — the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
+	/** Throw an Import's ledger away whole. The ledger is the memory of which outside recipe became which of yours. Every recipe it made stays exactly as it is. Once forgotten, importing the same file again brings everything in as new, so do this when the place it came from is gone. */
 	forgetImport(input: ForgetImportInput): Promise<Answer<'forget_import'>>;
 	/** Bring in a recipe straight from a URL, as a Job. Reads the page's schema.org JSON-LD (#70) — no per-site scraping, no LLM fallback — and lands it in your own Cookbook through the same ledger `import` uses, keyed by the page's own address. A Kamosu Share Link, one this instance minted or one from another Kamosu at a public address, is not read as a page: it arrives whole as the recipe file it serves, exactly as `import_bundle` receives one, with every Version and its original Source; an ended link is refused and lands nothing (#169). Fetching is bound to public addresses at the dialled address and at every redirect (ADR 0033), and — because a page's own text can tell an agent to fetch another URL — always takes the single depth-one lane, never more than one fetch in flight regardless of who is signed in. */
 	importWebLink(input: ImportWebLinkInput): Promise<Answer<'import_web_link'>>;
-	/** Say what importing a Kamosu Share Link would do, before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
+	/** Preview what importing a Kamosu Share Link would do. It answers before anything is written, as a Job (#170). Reaches the recipe file exactly as `import_web_link` does — this instance's own link locally, another Kamosu's at a public address through the guarded client — and answers the shared recipe's title, Source, writer, how many Versions it carries and a small picture, and whether your own Cookbook holds it already, with how many newer Versions the file carries past yours. The file is staged: pass `upload_id` to `import_bundle` to import exactly what was previewed without fetching it again. An ended link, or an address that is no Share Link, is refused. */
 	previewSharedRecipe(input: PreviewSharedRecipeInput): Promise<Answer<'preview_shared_recipe'>>;
-	/** Rename a Version — the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
+	/** Rename a Version. Its name is the one thing about it that can change later. An absent or empty name clears it. Targeted by the Branch's own sequence number, since the same content can recur more than once on one Branch, each occurrence named on its own. Only the Person who saved that Version may rename it. */
 	renameVersion(input: RenameVersionInput): Promise<Answer<'rename_version'>>;
-	/** Upload a Photograph, base64-encoded — the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
+	/** Upload a Photograph, base64-encoded. It is the fallback for a Door that cannot carry raw bytes (ADR 0001). A browser uses the out-of-band `POST /api/photographs` instead. Two uploads of the same picture answer the same id. */
 	uploadPhotograph(input: UploadPhotographInput): Promise<Answer<'upload_photograph'>>;
 	/** The shelf, and searching it. With no query: everything the Kitchens this Person cooks in hold, merged, alphabetical, one entry per Lineage, each titled in the reader's Reading Language with a marked fallback. With a query: the same shelf narrowed to what matched, an exact title first, every entry quoting the line that matched. One Operation either way — Meaning Search arrives here rather than beside it (ADR 0027, ADR 0029). */
 	searchRecipes(input: SearchRecipesInput): Promise<Answer<'search_recipes'>>;
-	/** Home: the computed shelves that answer *show me something* rather than handing back a search box — recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042). */
+	/** Read Home: the computed shelves of recipes. They answer *show me something* rather than handing back a search box: recently added (newest first), cooked most, quick tonight, never cooked (shuffled each time it is asked for, so it is not the newest again), recently opened. Each is one card per Lineage in the reader's Reading Language, in the same shape the library's shelf answers in. A shelf with nothing on it is left out rather than sent empty, so an instance holding no recipes answers with no shelves at all. All five are counted from recipes and Attempts that already exist, except *recently opened*, which reads what `note_recipe_opened` remembered (ADR 0011, ADR 0027, ADR 0042). */
 	homeShelves(input?: HomeShelvesInput): Promise<Answer<'home_shelves'>>;
-	/** Remember that the caller opened this recipe, for Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027). */
+	/** Remember that the caller opened this recipe. It feeds Home's *recently opened* shelf. One fact per Person per Lineage — opening a recipe's French Branch and its English one is opening the same recipe — and opening it again moves the time rather than adding a row. It is private to the Person, never travels, and is in no fingerprint, Vault or Bundle: an instance that lost it would lose the order of one shelf and nothing else (ADR 0027). */
 	noteRecipeOpened(input: NoteRecipeOpenedInput): Promise<Answer<'note_recipe_opened'>>;
-	/** Whether Meaning Search is on here, what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
+	/** Read whether Meaning Search is on here. Also what model it would use, who accepted that model's terms — and whether this caller should be offered it. Answers on every instance, including the many that will never turn it on. */
 	meaningSearchStatus(input?: MeaningSearchStatusInput): Promise<Answer<'meaning_search_status'>>;
 	/** Accept the terms of the model Meaning Search needs. Kamosu ships no weights (ADR 0029): the person who accepts the terms is the person the terms are about, and the acceptance keeps the Hand that made it and whether it arrived by login or by Access Key. Available at both Doors — a web-only carve-out would be the first hole in Parity, and would stop nothing anyway. */
 	acceptMeaningSearchTerms(input?: AcceptMeaningSearchTermsInput): Promise<Answer<'accept_meaning_search_terms'>>;
@@ -28150,13 +28150,13 @@ export interface KamosuClient {
 	declineMeaningSearch(input?: DeclineMeaningSearchInput): Promise<Answer<'decline_meaning_search'>>;
 	/** Fetch the Meaning Search model into /data, as a Job. No weights ship in the image; this is the only way any arrive, and only after the terms have been accepted. The download is pinned to one revision and verified against a manifest, so a half-finished one is never mistaken for a model. */
 	downloadMeaningModel(input?: DownloadMeaningModelInput): Promise<Answer<'download_meaning_model'>>;
-	/** Read the library into the Meaning Search index, as a Job, and turn Meaning Search on. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes. */
+	/** Build the Meaning Search index, as a Job, and turn it on. It reads the library into the index. Incremental: what is read is what the index does not already hold, so the first run is the whole library and every later one is whatever changed. The index is derived from the recipes and can be rebuilt at any time. Kamosu also does this by itself, within the minute, whenever a recipe changes. */
 	buildMeaningIndex(input?: BuildMeaningIndexInput): Promise<Answer<'build_meaning_index'>>;
 	/** Stop matching on meaning and throw the index away. Discards nothing that cannot be rebuilt — the index is derived from the recipes — and keeps both the acceptance, which is history, and the downloaded weights, so turning it back on is a rebuild rather than another download. */
 	turnOffMeaningSearch(input?: TurnOffMeaningSearchInput): Promise<Answer<'turn_off_meaning_search'>>;
-	/** Read a Recipe: the Branch as it stands and its whole chain of Versions, oldest first. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
+	/** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
-	/** Read the Thread: every Version of every Branch of one Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
+	/** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. branch_id is only the entry point — any Branch of the Lineage answers the same Thread. */
 	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;
 	/** Turn a Recipe's Share Link on, and answer the link. One permanent, unguessable address per Recipe, never expiring, freely passed on. Asking twice for a Recipe already shared answers the link it already has rather than minting a second one, with its `url` again. The instance's public address is asked for at the first Share Link and stored once; a link is kept as a token rather than a URL, so `url` is always built against the address stored now. */
 	shareRecipe(input: ShareRecipeInput): Promise<Answer<'share_recipe'>>;
@@ -28164,89 +28164,89 @@ export interface KamosuClient {
 	endShareLink(input: EndShareLinkInput): Promise<Answer<'end_share_link'>>;
 	/** Whether a Recipe is shared, by whom, and at what address. A live link answers its `url` for as long as it lives, to send again. A link minted before Kamosu kept its address answers none: ending it and sharing again mints one that does. */
 	getShareLink(input: GetShareLinkInput): Promise<Answer<'get_share_link'>>;
-	/** Where this instance currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
+	/** Read this instance's public address, if it has one. That is where it currently says it is reachable from outside, or nothing if it has never been asked. The Operator's half of `set_public_address`: changing an address you cannot see is a guess. */
 	getPublicAddress(input?: GetPublicAddressInput): Promise<Answer<'get_public_address'>>;
-	/** Change where this instance says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
+	/** Change this instance's public address. That is where it says it is reachable from outside. Kept in the database and never in an environment variable, so moving an instance is one act rather than a redeployment. It fixes the future, not the past: Share Links minted after it carry the new address, while a link already sent stays the text it was sent as. A live link's `url`, as `get_share_link` answers it, is built against the new address, so the owner can send the one that opens now. A link minted before Kamosu kept its address has none to show. */
 	setPublicAddress(input: SetPublicAddressInput): Promise<Answer<'set_public_address'>>;
-	/** Write a Bundle of one recipe: a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
+	/** Write a Bundle of one recipe. A Bundle is a plain zip holding a readable Markdown note per recipe with its Thread beneath it, its Photographs, and a hidden .kamosu/ sidecar carrying every Version complete back to the first, the Readings and the ids. It carries the Branch named, its Translations, and every Component it needs as a Passenger. This answers what the Bundle holds; fetch its bytes at GET /api/bundles/<branch_id> under the same Credential. Nothing is sent anywhere and nothing is changed. */
 	exportBundle(input: ExportBundleInput): Promise<Answer<'export_bundle'>>;
-	/** Set a Sheet of one recipe: the Branch as it stands on this Person's screen, set for paper as a PDF. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
+	/** Set a Sheet of one recipe, as a PDF for paper. It is the Branch as it stands on this Person's screen. It carries the recipe and not the library — no Tags, Attempts, Thread or past Versions. Written Ingredient Lines are printed and Readings are not, except the amount beneath a line when a cooking has scaled the recipe; Components unfold after it, parent first, each already scaled. Letter for US Reading Measures, A4 otherwise. `wanted_yield` is the Yield the screen is scaled to, as `get_recipe` takes it. When the Job completes, fetch the PDF at GET /api/sheets/<job_id> under the same Credential. Nothing is changed. */
 	makeSheet(input: MakeSheetInput): Promise<Answer<'make_sheet'>>;
-	/** Set a Sheet of the recipe a Share Link shows, for anyone holding the link — no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
+	/** Set a Sheet of the recipe a Share Link shows. Anyone holding the link may, with no account needed. The recipe is printed as written, with its Components unfolded after it at the amount each line asks for. `language` picks one of the link's Translations; `locale` is the reader's locale (a US or Canadian one prints Letter, anything else A4) and decides nothing but the paper. When the Job completes, fetch the PDF at GET /api/sheets/<job_id>. */
 	makeSharedSheet(input: MakeSharedSheetInput): Promise<Answer<'make_shared_sheet'>>;
 	/** Receive a Bundle into your own Cookbook, as a Job. Every recipe it carries is placed under the sender's Hands and travels on under the sender's ids, its Versions, Readings and Photographs exactly as they were sent, while your Cookbook holds it under an id of this instance's own; one your Cookbook already holds is extended by whatever the Bundle carries past it, so the same friend's next Bundle continues their recipe. Another Cookbook here holding it is no part of the question: each Cookbook receives its own copy. Receiving makes nothing of your own — changing what arrived does. A recipe whose history is damaged arrives as a new recipe of your own with no history, and the Import Report says so. Send the file to POST /api/uploads and pass the `upload_id` it answers, or pass it base64-encoded as `data`. */
 	importBundle(input: ImportBundleInput): Promise<Answer<'import_bundle'>>;
-	/** Read a Recipe through its Share Link token: the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
+	/** Read a Recipe through its Share Link token. The answer is the Recipe as it stands, its Translations, and its Thread complete back to the first Version with every name and *what changed* line. Never an Attempt, a rating or an Attempt photograph. Public, because holding the token is the whole of the permission — this is what the Share Link page consumes, and the page is not an Operation, so Parity is untouched. */
 	readSharedRecipe(input: ReadSharedRecipeInput): Promise<Answer<'read_shared_recipe'>>;
-	/** The last Version two Branches share, found by walking both chains back until they meet — never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
+	/** Find the last Version two Branches share. It is found by walking both chains back until they meet: never declared, always computed. A chain that does not converge on a shared first Version answers a damaged-Bundle error rather than a guess. */
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
-	/** Two Branches of one Lineage laid over each other, so a screen can show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
+	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
-	/** Correct the Reading on one Ingredient Line of a Recipe's current state — an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
+	/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
-	/** Read every Ingredient Line in the library that nothing has read yet, as a Job, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
+	/** Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */
 	readIngredientLines(input?: ReadIngredientLinesInput): Promise<Answer<'read_ingredient_lines'>>;
-	/** Read every Ingredient Line in the library again with the reader as it stands today, as a Job, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them. */
+	/** Read every Ingredient Line again, as a Job. It reads every line in the library with the reader as it stands today, so a fix to the reader reaches lines it already misread. Covers every Version a recipe holds, its history too, and makes no Version. A Reading a person set, and every Component, is left exactly as it is; a line the reader can no longer read loses the reader's old guess. Reports each line whose Reading changed, before and after, once per recipe as it reads on the head, with how many older Versions changed the same way, and each line changed only in older Versions; the Foods now left with nothing pointing at them, which delete_food will take; and how many lines it left alone because a person set them. */
 	rereadIngredientLines(input?: RereadIngredientLinesInput): Promise<Answer<'reread_ingredient_lines'>>;
-	/** Start cooking a Recipe: creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
+	/** Start cooking a Recipe. It creates the Attempt, or hands back the one already In Progress for this Lineage — the cooking screen is that Attempt, never a second thing beside it. Pinned by fingerprint to the Branch's head Version at this moment, or to version_id — an older Version read back from the Thread — when one is given. Anyone who can see the recipe may. */
 	startAttempt(input: StartAttemptInput): Promise<Answer<'start_attempt'>>;
-	/** Move an In Progress Attempt forward: which Step, which Ingredients are ticked, and the Yield being cooked to — a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
+	/** Move an In Progress Attempt forward. It says which Step, which Ingredients are ticked, and the Yield being cooked to: a fact about this cooking, never a deviation. Any of the three, each sent whole rather than patched. */
 	advanceAttempt(input: AdvanceAttemptInput): Promise<Answer<'advance_attempt'>>;
-	/** End an In Progress Attempt, taking the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked. */
+	/** End an In Progress Attempt. It takes the judgement that lands with it: a rating, a note and Photographs, all optional. Ending is not what makes the cooking real — starting already did — only what stops it being In Progress, so a cook who says nothing still cooked. */
 	finishAttempt(input: FinishAttemptInput): Promise<Answer<'finish_attempt'>>;
-	/** Change an Attempt's free text, its rating or its Photographs, whether it is still In Progress or long finished — an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
+	/** Change an Attempt's free text, rating or Photographs. It may still be In Progress or long finished: an Attempt is freely editable by its cook, unlike the recipe it was cooked from. */
 	editAttempt(input: EditAttemptInput): Promise<Answer<'edit_attempt'>>;
-	/** Delete an Attempt outright — the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
+	/** Delete an Attempt outright. It is the explicit way a false start is undone, or any cooking record put away. Never soft-deleted: this is the whole of how an Attempt leaves. */
 	deleteAttempt(input: DeleteAttemptInput): Promise<Answer<'delete_attempt'>>;
-	/** Make a picture taken while cooking the recipe's Main Photo, or a Step's photo — so the picture you actually took becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving. */
+	/** Make an Attempt's Photograph the recipe's Main Photo. Or a Step's photo: the picture you actually took while cooking becomes the recipe's picture. This is an ordinary edit making a Version, with everything that follows from it: a rapid re-save folding into the Version already being shaped, and a Copy in your own Cookbook where you do not write the Branch's. The Branch must be one you may see. The Attempt keeps the picture too; promoting is not moving. */
 	promoteAttemptPhotograph(input: PromoteAttemptPhotographInput): Promise<Answer<'promote_attempt_photograph'>>;
-	/** Write down what you actually cooked, where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
+	/** Write down what you actually cooked. It records where it differed from the recipe: the whole recipe as you cooked it, in ordinary Ingredient Lines and ordinary Step text — a line reworded, one added, one dropped, a step grown. Not a record of differences; the same shape a Version takes. Sending back exactly what the recipe says, or null, stores nothing at all, because cooking a recipe as it is written changes nothing. Changes no recipe and makes no Version: that is Promotion, and it is a separate act. */
 	setAsCooked(input: SetAsCookedInput): Promise<Answer<'set_as_cooked'>>;
-	/** Say that the words a cooking used belong in the diary and not in the recipe — or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
+	/** Keep a cooking's words in the diary, not the recipe. Or take that back. It answers the offer and nothing else: what was cooked stays on the cooking, whole. Remembered, because a question already answered, asked twice, is a nag. */
 	declinePromotion(input: DeclinePromotionInput): Promise<Answer<'decline_promotion'>>;
-	/** Promotion: turn what you cooked into a real Version of the recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
+	/** Promotion: turn a cooking into a real Version of its recipe. Mechanical — the As Cooked is already a whole recipe, so nothing is retyped and nothing is reconciled. It is an ordinary edit and inherits all of one: a rapid re-save folds into the Version being shaped, and a Branch whose Cookbook you do not write becomes a Copy in your own. The Branch must be one you may see. Promoting a cooking of an older Version appends onto wherever the Branch stands now — a Version, never a merge. The Attempt is left exactly as it was, still saying which Version it cooked. */
 	promoteAsCooked(input: PromoteAsCookedInput): Promise<Answer<'promote_as_cooked'>>;
-	/** Read the caller's own In Progress Attempt for a Lineage, if any — how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
+	/** Read your own In Progress Attempt for a Lineage, if any. It is how two devices cooking the same dish stay in step, and whether resuming should still be offered. */
 	getCurrentAttempt(input: GetCurrentAttemptInput): Promise<Answer<'get_current_attempt'>>;
-	/** The cooking diary: every Attempt the caller has made, newest first, across every recipe — sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */
+	/** Read your cooking diary: every Attempt, newest first. It holds every Attempt you have made, across every recipe, sorted by date rather than by recipe, which is what makes *what did I cook that week* answerable. Unfinished and In Progress cookings are in it too, because starting is what makes a cooking real. Each entry names the recipe it was cooked from, and still names it after that recipe has left the caller's shelf. */
 	listAttempts(input?: ListAttemptsInput): Promise<Answer<'list_attempts'>>;
-	/** Your Shopping List: the recipes you chose, and the rows worked out from them. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
+	/** Read your Shopping List: chosen recipes and their rows. The rows are worked out from the recipes you chose. Everyone has exactly one; it has no name and is never archived. The rows are computed on every read and stored nowhere, so editing a chosen recipe or correcting a Reading changes the list at once. A row names a Food in your Reading Language and merges every mention of it; amounts add where the Units honestly convert, saying about, and ride side by side where they do not. Nothing here is ticked off. */
 	getShoppingList(input?: GetShoppingListInput): Promise<Answer<'get_shopping_list'>>;
-	/** What one recipe puts on a Shopping List before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
+	/** Read what one recipe puts on a Shopping List, line by line. It answers before anything is added up: each Ingredient Line, the Food it was read as and the name that Food goes by for you, how much it said, its Unit, and what a cup of the Food weighs. Every recipe this one includes is unfolded to the bottom and its lines are here too, already carrying their share, so a pizza's flour and its dough's flour add up to one thing to buy. Always the Branch's latest Version. It is how a phone with no network works out the list's rows itself for the recipes it holds (#77); get_shopping_list is the list itself. */
 	shoppingBasis(input: ShoppingBasisInput): Promise<Answer<'shopping_basis'>>;
-	/** Choose a recipe to shop for, at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
+	/** Choose a recipe to shop for. It is chosen at a Yield, a multiplier (a Yield with an empty noun) or as it is written. It holds the Branch at its latest Version, never a Lineage and never pinned, so a recipe edited between the planning and the shopping is right in the shop. Choosing one already on the list is not an error and makes no second entry: it moves that entry to the Yield given here, or back to the recipe as written when none is. Answers the whole list. */
 	addToShoppingList(input: AddToShoppingListInput): Promise<Answer<'add_to_shopping_list'>>;
 	/** Take a recipe off your Shopping List. Works whether or not it can still be read, which is exactly the entry somebody most wants gone. Answers the whole list. */
 	removeFromShoppingList(input: RemoveFromShoppingListInput): Promise<Answer<'remove_from_shopping_list'>>;
-	/** Say how much of a chosen recipe you are shopping for — an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
+	/** Say how much of a chosen recipe you are shopping for. Send an amount and its noun, a multiplier (an amount with an empty noun: twice the recipe is `2`), or null for the recipe as written. Every amount it contributes moves with it. Answers the whole list. */
 	setShoppingYield(input: SetShoppingYieldInput): Promise<Answer<'set_shopping_yield'>>;
-	/** Your Shopping List as plain text, ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
+	/** Read your Shopping List as plain text. It is ready to be carried out of Kamosu. Nothing is ticked off here, because the list leaves and something else holds the ticks — Apple Notes, through a Shortcut. The text opens with a header line, the date and the recipes it was built from (and any that can no longer be read), because a note accumulates and three trips appended with no divider are a wall. Under it, one flat alphabetical list with one Markdown checklist line (`- [ ] `) per thing to buy, so each line becomes one checkbox; a row whose amounts could not be added stays on its one line, naming the dish behind each amount. This only reads: emptying the list afterwards is a separate Operation, offered and never done on the way out. */
 	shoppingListAsText(input?: ShoppingListAsTextInput): Promise<Answer<'shopping_list_as_text'>>;
-	/** Empty your Shopping List — every recipe chosen and every typed line at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
+	/** Empty your Shopping List. Every recipe chosen and every typed line goes at once. Offered after the list has left as text and never done on the way out: a list that emptied itself when it was sent would be silent and unrecoverable. Answers the whole list. */
 	emptyShoppingList(input: EmptyShoppingListInput): Promise<Answer<'empty_shopping_list'>>;
-	/** Type a line straight onto your Shopping List — bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
+	/** Type a line straight onto your Shopping List. Think bin bags, coffee. Kept exactly as typed and never read, so it carries no amount and merges with nothing: typing flour beside a recipe that wants flour gives two lines. Answers the whole list. */
 	addLooseItem(input: AddLooseItemInput): Promise<Answer<'add_loose_item'>>;
 	/** Take one typed line off your Shopping List. Answers the whole list. */
 	removeLooseItem(input: RemoveLooseItemInput): Promise<Answer<'remove_loose_item'>>;
-	/** List every Food this instance knows, each shown in the reader's Reading Language where it has a name there. */
+	/** List every Food this instance knows. Each is shown in the reader's Reading Language where it has a name there. */
 	listFoods(input?: ListFoodsInput): Promise<Answer<'list_foods'>>;
-	/** Read one Food: its names, its Cup Weight, and how many Readings currently point at it. */
+	/** Read one Food: its names and its Cup Weight. Also how many Readings currently point at it. */
 	getFood(input: GetFoodInput): Promise<Answer<'get_food'>>;
-	/** Say every name a Food answers to in one Language, in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
+	/** Say every name a Food answers to in one Language. Send them in order: the list replaces the names it had there. A line naming any of them reads as this Food, so "œufs" and "œuf" can both be the eggs. The first is the one a reader is shown. An empty list takes the Language off, but a Food's last name may not go. Any Person may — a Food is instance-wide, not a Kitchen's to guard. */
 	setFoodNames(input: SetFoodNamesInput): Promise<Answer<'set_food_names'>>;
-	/** Set or clear a Food's Cup Weight — the one figure that turns a volume of it into a weight. Anyone may correct it. */
+	/** Set or clear a Food's Cup Weight. It is the one figure that turns a volume of it into a weight. Anyone may correct it. */
 	setFoodCupWeight(input: SetFoodCupWeightInput): Promise<Answer<'set_food_cup_weight'>>;
-	/** The Operator's worklist: every note that two Foods are probably one thing, with the words that said so. Evidence, never an instruction — nothing merges itself. */
+	/** List the notes that two Foods are probably one thing. It is the Operator's worklist: every such note, with the words that said so. Evidence, never an instruction — nothing merges itself. */
 	listMergeSuggestions(input?: ListMergeSuggestionsInput): Promise<Answer<'list_merge_suggestions'>>;
-	/** Say how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
+	/** Count what a Food Merge would move, moving nothing. It says how many Ingredient Lines a Merge would move, and how many Reading rows, without moving any of them. A Merge cannot be undone and refuses to run until this figure is said back to it, so this saying is its safety net rather than a courtesy. */
 	previewFoodMerge(input: PreviewFoodMergeInput): Promise<Answer<'preview_food_merge'>>;
 	/** Join two Foods into one. The survivor keeps its own names and answers to every one of the other's as well, after its own in each Language. Every Reading pointing at the other points at it instead, and every Merge Suggestion naming either is cleared. ingredient_lines is the figure preview_food_merge announced, said back — a Merge that does not match it is refused. Where the two disagree about Cup Weight, cup_weight_grams says which of the two figures survives. There is no un-merge in v1. */
 	mergeFood(input: MergeFoodInput): Promise<Answer<'merge_food'>>;
 	/** Delete a Food nothing points at. One a Reading on some recipe still points at is refused: what a Food knows was expensive to learn and is never discarded by an unrelated act. Readings only a deleted recipe held count for nothing and go with the Food. */
 	deleteFood(input: DeleteFoodInput): Promise<Answer<'delete_food'>>;
-	/** Read one Job: its state, its progress, and its result or the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
+	/** Read one Job's state, progress, and result or failure. A failure carries the reason it failed. Readable by the Person who asked, or by anyone when no Person did. */
 	getJob(input: GetJobInput): Promise<Answer<'get_job'>>;
-	/** Cancel a Job you asked for: acknowledged always, honoured while it still waits in line. */
+	/** Cancel a Job you asked for. It is acknowledged always, and honoured while it still waits in line. */
 	cancelJob(input: CancelJobInput): Promise<Answer<'cancel_job'>>;
 	/** List the Jobs this Person has asked for, newest first. */
 	listJobs(input?: ListJobsInput): Promise<Answer<'list_jobs'>>;

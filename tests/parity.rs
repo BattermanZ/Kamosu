@@ -574,6 +574,69 @@ async fn every_answer_fields_meaning_reaches_the_mcp_listing() {
     }
 }
 
+/// The first sentence of a tool's description, found as Hermes finds it
+/// (`_short_desc` in its `tools/tool_search_catalog.py`): whitespace runs
+/// become one space, and a sentence ends at `.`, `!` or `?` followed by a
+/// space or the end of the text, unless the mark closes `e.g.`, `i.e.` or
+/// `etc`.
+fn first_sentence(description: &str) -> String {
+    let text = description.split_whitespace().collect::<Vec<_>>().join(" ");
+    let chars: Vec<char> = text.chars().collect();
+    // Whether the mark at `end` closes `word`, which starts at a word boundary.
+    let closes = |end: usize, word: &str| {
+        let word: Vec<char> = word.chars().collect();
+        end >= word.len()
+            && chars[end - word.len()..end] == word[..]
+            && (end == word.len()
+                || !(chars[end - word.len() - 1].is_alphanumeric()
+                    || chars[end - word.len() - 1] == '_'))
+    };
+    for (at, mark) in chars.iter().enumerate() {
+        if matches!(mark, '.' | '!' | '?')
+            && chars.get(at + 1).is_none_or(|next| next.is_whitespace())
+            && !["e.g", "i.e", "etc"].iter().any(|word| closes(at, word))
+        {
+            return chars[..=at].iter().collect();
+        }
+    }
+    text
+}
+
+/// The sentence rule itself, so a fault in it shows here rather than as a
+/// tool that seems to fit the listing.
+#[test]
+fn a_first_sentence_ends_where_hermes_ends_it() {
+    assert_eq!(
+        first_sentence("Cut, e.g. here. Not this."),
+        "Cut, e.g. here."
+    );
+    assert_eq!(first_sentence("No  end\nat all"), "No end at all");
+    assert_eq!(first_sentence("Pay 0.5 now! Later."), "Pay 0.5 now!");
+}
+
+/// #190: Hermes lists each tool it has not loaded as its name and the first
+/// sentence of its description, cut to 60 characters. A sentence past that
+/// ends mid-thought in the one line an agent picks tools from, so none may.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_tools_first_sentence_fits_a_short_listing() {
+    let app = support::spawn_app();
+    let (_, listing) = app.post_mcp(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#, None);
+    let tools = listing["result"]["tools"].as_array().expect("tools list");
+    let too_long: Vec<String> = tools
+        .iter()
+        .filter_map(|tool| {
+            let first = first_sentence(tool["description"].as_str().expect("a description"));
+            (first.chars().count() > 60).then(|| format!("{}: {first}", tool["name"]))
+        })
+        .collect();
+    assert!(
+        too_long.is_empty(),
+        "{} first sentences pass 60 characters:\n{}",
+        too_long.len(),
+        too_long.join("\n")
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_only_access_keys_mcp_tool_list_carries_exactly_the_reads() {
     let app = support::spawn_app();
