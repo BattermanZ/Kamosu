@@ -1966,6 +1966,14 @@ export type SearchRecipesOutput = {
 	query: string | null;
 	recipes: {
 		branch_id: string;
+		cookbook: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
 		language: string;
 		language_fallback: boolean;
 		lineage_id: string;
@@ -1976,7 +1984,9 @@ export type SearchRecipesOutput = {
 			step_number: number | null;
 			where: "title" | "tag" | "ingredient" | "step" | "section" | "note" | "attempt";
 		} | null;
+		mine: boolean;
 		title: string;
+		writes: boolean;
 		yield: {
 			amount: string;
 			noun: string;
@@ -1993,6 +2003,14 @@ export type HomeShelvesOutput = {
 		name: "recently_added" | "cooked_most" | "quick_tonight" | "never_cooked" | "recently_opened";
 		recipes: {
 			branch_id: string;
+			cookbook: {
+				authors: {
+					name: string;
+					person_id: string;
+				}[];
+				id: string;
+				name: string | null;
+			};
 			language: string;
 			language_fallback: boolean;
 			lineage_id: string;
@@ -2003,7 +2021,9 @@ export type HomeShelvesOutput = {
 				step_number: number | null;
 				where: "title" | "tag" | "ingredient" | "step" | "section" | "note" | "attempt";
 			} | null;
+			mine: boolean;
 			title: string;
+			writes: boolean;
 			yield: {
 				amount: string;
 				noun: string;
@@ -14720,6 +14740,7 @@ export const CATALOGUE = [
 					]
 				},
 				"mine": {
+					"description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe.",
 					"type": "boolean"
 				},
 				"query": {
@@ -14755,6 +14776,45 @@ export const CATALOGUE = [
 						"properties": {
 							"branch_id": {
 								"type": "string"
+							},
+							"cookbook": {
+								"additionalProperties": false,
+								"properties": {
+									"authors": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"name": {
+													"type": "string"
+												},
+												"person_id": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"person_id",
+												"name"
+											],
+											"type": "object"
+										},
+										"type": "array"
+									},
+									"id": {
+										"type": "string"
+									},
+									"name": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"id",
+									"name",
+									"authors"
+								],
+								"type": "object"
 							},
 							"language": {
 								"type": "string"
@@ -14813,8 +14873,16 @@ export const CATALOGUE = [
 									"null"
 								]
 							},
+							"mine": {
+								"description": "Whether the reader's own Cookbook holds this Branch, written there or arrived there. Changes made to the Cookbook rather than the recipe, such as putting a Tag on it, are allowed exactly where this is true. Not the same as the `mine` filter on search_recipes, which is a history.",
+								"type": "boolean"
+							},
 							"title": {
 								"type": "string"
+							},
+							"writes": {
+								"description": "Whether an edit by the reader lands on this Branch. Where false, an edit is not refused: it starts a Branch of the reader's own instead.",
+								"type": "boolean"
 							},
 							"yield": {
 								"additionalProperties": false,
@@ -14844,7 +14912,10 @@ export const CATALOGUE = [
 							"language_fallback",
 							"main_photo",
 							"yield",
-							"matched"
+							"matched",
+							"cookbook",
+							"writes",
+							"mine"
 						],
 						"type": "object"
 					},
@@ -14894,6 +14965,45 @@ export const CATALOGUE = [
 									"properties": {
 										"branch_id": {
 											"type": "string"
+										},
+										"cookbook": {
+											"additionalProperties": false,
+											"properties": {
+												"authors": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"name": {
+																"type": "string"
+															},
+															"person_id": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"person_id",
+															"name"
+														],
+														"type": "object"
+													},
+													"type": "array"
+												},
+												"id": {
+													"type": "string"
+												},
+												"name": {
+													"type": [
+														"string",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"id",
+												"name",
+												"authors"
+											],
+											"type": "object"
 										},
 										"language": {
 											"type": "string"
@@ -14952,8 +15062,16 @@ export const CATALOGUE = [
 												"null"
 											]
 										},
+										"mine": {
+											"description": "Whether the reader's own Cookbook holds this Branch, written there or arrived there. Changes made to the Cookbook rather than the recipe, such as putting a Tag on it, are allowed exactly where this is true. Not the same as the `mine` filter on search_recipes, which is a history.",
+											"type": "boolean"
+										},
 										"title": {
 											"type": "string"
+										},
+										"writes": {
+											"description": "Whether an edit by the reader lands on this Branch. Where false, an edit is not refused: it starts a Branch of the reader's own instead.",
+											"type": "boolean"
 										},
 										"yield": {
 											"additionalProperties": false,
@@ -14983,7 +15101,10 @@ export const CATALOGUE = [
 										"language_fallback",
 										"main_photo",
 										"yield",
-										"matched"
+										"matched",
+										"cookbook",
+										"writes",
+										"mine"
 									],
 									"type": "object"
 								},

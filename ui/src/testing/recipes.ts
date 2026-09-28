@@ -210,6 +210,12 @@ export function kitchenAnswer(id: string, over: Partial<Kitchen> = {}): Kitchen 
 	};
 }
 
+/**
+ * Whose a shelf entry's recipe is (#177): one the reader wrote in their own
+ * Cookbook, which is what nearly every screen test stands in.
+ */
+export const writtenByMe = () => ({ cookbook: cookbookLabel(), writes: true, mine: true });
+
 /** One entry as `search_recipes` answers it, with everything the Catalogue requires. */
 export const searchEntry = (id: string, title: string) => ({
 	branch_id: `b_${id}`,
@@ -220,6 +226,7 @@ export const searchEntry = (id: string, title: string) => ({
 	main_photo: null,
 	matched: null,
 	yield: null,
+	...writtenByMe(),
 });
 
 /** Every `search_recipes` a screen has sent, in order (#121). */

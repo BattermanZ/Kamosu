@@ -24,6 +24,7 @@ import {
 	kitchenAnswer,
 	searchesSent as searches,
 	serverAnsweredSearchesOtherwise,
+	writtenByMe,
 } from '../../testing/recipes';
 import { went } from '../../testing/navigation';
 import { takePaste } from '$lib/pasted.svelte';
@@ -81,6 +82,7 @@ const entry = (over: Record<string, unknown> = {}) => ({
 	main_photo: null,
 	yield: null,
 	matched: null,
+	...writtenByMe(),
 	...over,
 });
 

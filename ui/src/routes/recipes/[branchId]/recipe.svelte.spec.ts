@@ -21,7 +21,7 @@ import type { GetRecipeOutput } from '$lib/api/catalogue';
 import RecipeTestHarness from './RecipeTestHarness.svelte';
 import { went } from '../../../testing/navigation';
 import { outlivingTheWait, withTheClockFaked } from '../../../testing/jobs';
-import { cookbookLabel, threadBranch } from '../../../testing/recipes';
+import { cookbookLabel, threadBranch, writtenByMe } from '../../../testing/recipes';
 import { holdPaste, takePaste } from '$lib/pasted.svelte';
 
 // Deleting ends by going back to the shelf, because there is nothing left to
@@ -1635,6 +1635,7 @@ describe('the recipe screen', () => {
 					main_photo: null,
 					yield: { amount: '2', noun: 'litres' },
 					matched: null,
+					...writtenByMe(),
 				},
 			],
 		},

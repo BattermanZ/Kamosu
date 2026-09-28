@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, within, fireEvent } from '@testing-library/svelte';
 import Page from './+page.svelte';
 import { renderScreen } from '../testing/render';
+import { writtenByMe } from '../testing/recipes';
 import type { GetCookbookOutput, HomeShelvesOutput } from '$lib/api/catalogue';
 
 type Shelf = HomeShelvesOutput['shelves'][number];
@@ -34,6 +35,7 @@ const card = (over: Record<string, unknown> = {}) => ({
 	// Nothing was searched for on Home, so nothing matched — the same field the
 	// library's shelf fills in, left empty here by the same Operation family.
 	matched: null,
+	...writtenByMe(),
 	...over,
 });
 

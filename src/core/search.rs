@@ -324,6 +324,7 @@ impl Core {
             };
             let reading_language = reading_language_of(conn, person_id)?;
             let (lineages, branches) = shelf_of(conn, person_id, kitchen_id, &reading_language)?;
+            let own_cookbook_id = cookbook_of_person(conn, person_id)?;
 
             // Every Lineage's best block, against this query — over exactly the
             // Branches the shelf has just decided this reader may see, filters
@@ -416,13 +417,14 @@ impl Core {
                         0.0,
                         folded_for_search(&title),
                         shelf_entry(
-                            &lineage_id,
+                            conn,
+                            &own_cookbook_id,
                             shown,
                             &title,
                             &reading_language,
                             &content,
                             None,
-                        ),
+                        )?,
                     ));
                     continue;
                 }
@@ -448,13 +450,14 @@ impl Core {
                                 hit.similarity,
                                 folded_for_search(&title),
                                 shelf_entry(
-                                    &lineage_id,
+                                    conn,
+                                    &own_cookbook_id,
                                     shown,
                                     &title,
                                     &reading_language,
                                     &content,
                                     Some(matched_by(&hit.matched, "meaning")),
-                                ),
+                                )?,
                             ));
                         }
                         continue;
@@ -478,13 +481,14 @@ impl Core {
                     score,
                     folded_for_search(&title),
                     shelf_entry(
-                        &lineage_id,
+                        conn,
+                        &own_cookbook_id,
                         shown,
                         &title,
                         &reading_language,
                         &content,
                         Some(quoted),
-                    ),
+                    )?,
                 ));
             }
 

@@ -17,6 +17,7 @@ import {
 	theirBranch,
 	threadBranch,
 	threadVersion,
+	writtenByMe,
 } from '../../testing/recipes';
 import NoticesTestHarness from './NoticesTestHarness.svelte';
 import type { Device } from './device.svelte';
@@ -34,6 +35,7 @@ const entry = (branch_id: string, main_photo: string | null = null) => ({
 	main_photo,
 	yield: null,
 	matched: null,
+	...writtenByMe(),
 });
 
 const recipe = (branch_id: string): GetRecipeOutput => ({

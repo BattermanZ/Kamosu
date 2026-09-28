@@ -33,6 +33,7 @@ impl Core {
         self.db().with_conn(|conn| {
             let reading_language = reading_language_of(conn, person_id)?;
             let (lineages, branches) = shelf_of(conn, person_id, None, &reading_language)?;
+            let own_cookbook_id = cookbook_of_person(conn, person_id)?;
 
             // This Person's own cooking, and nobody else's. An Attempt is on the
             // Person rather than on the Kitchen (ADR 0005), and every other
@@ -110,7 +111,8 @@ impl Core {
                 let title = content["title"].as_str().unwrap_or_default().to_string();
                 let sorts_as = folded_for_search(&title);
                 let card = shelf_entry(
-                    lineage_id,
+                    conn,
+                    &own_cookbook_id,
                     shown,
                     &title,
                     &reading_language,
@@ -118,7 +120,7 @@ impl Core {
                     // Nothing was searched for, so nothing matched. Home is a
                     // suggestion, not an answer to a question.
                     None,
-                );
+                )?;
 
                 let claim = |by: i64| ShelfCandidate {
                     by,
@@ -215,13 +217,14 @@ impl Core {
 }
 
 /// One Branch as the shelf holds it while it works out which Lineage it belongs
-/// to and which of its Branches the card opens. Nothing here reaches the
-/// answer: a shelf entry names no Cookbook and no head Version.
+/// to and which of its Branches the card opens. The head Version never reaches
+/// the answer; the Cookbook does, as the one the entry's Branch sits in (#177).
 pub(super) struct ShelfBranch {
     pub(super) branch_id: String,
     pub(super) lineage_id: String,
     language: String,
     pub(super) head_version_id: String,
+    cookbook_id: String,
     /// Held in the reader's own Cookbook, arrived there or written there,
     /// rather than in somebody else's: the same test as `own_first`.
     own: bool,
@@ -277,7 +280,7 @@ pub(super) fn shelf_of(
                     branches.head_version_id, \
                     branches.cookbook_id IN \
                         (SELECT cookbook_id FROM cookbook_authors WHERE person_id = ?1), \
-                    branches.name IS NULL \
+                    branches.name IS NULL, branches.cookbook_id \
                FROM branches \
               WHERE {} \
                 AND (?2 IS NULL OR branches.cookbook_id IN ({})) \
@@ -295,6 +298,7 @@ pub(super) fn shelf_of(
                 head_version_id: row.get(3)?,
                 own: row.get(4)?,
                 unnamed: row.get(5)?,
+                cookbook_id: row.get(6)?,
             })
         })
         .map_err(|e| OpError::internal(format!("cannot read the shelf: {e}")))?
@@ -403,16 +407,20 @@ const HOME_SHELF_SHOWN: usize = 12;
 
 /// One entry on the shelf, built the one way, so a match, a near miss and an
 /// unsearched shelf cannot drift into describing the same recipe differently.
+///
+/// `own_cookbook_id` is the reader's own Cookbook, read once by the caller
+/// rather than once per entry.
 pub(super) fn shelf_entry(
-    lineage_id: &str,
+    conn: &Connection,
+    own_cookbook_id: &str,
     shown: &ShelfBranch,
     title: &str,
     reading_language: &str,
     content: &Value,
     matched: Option<Value>,
-) -> Value {
-    json!({
-        "lineage_id": lineage_id,
+) -> Result<Value, OpError> {
+    Ok(json!({
+        "lineage_id": shown.lineage_id,
         "branch_id": shown.branch_id,
         "title": title,
         "language": shown.language,
@@ -429,5 +437,11 @@ pub(super) fn shelf_entry(
         "main_photo": content["main_photo"].clone(),
         "yield": content["yield"].clone(),
         "matched": matched,
-    })
+        // Whose recipe this is and what the reader may do with it, worked out
+        // exactly as `get_recipe` works them out, so a caller reading the whole
+        // shelf knows in advance what the Core will decide (#177).
+        "cookbook": cookbook_label(conn, &shown.cookbook_id)?,
+        "writes": cookbook_writes_branch(conn, own_cookbook_id, &shown.branch_id)?,
+        "mine": shown.cookbook_id == own_cookbook_id,
+    }))
 }

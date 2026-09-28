@@ -5127,6 +5127,115 @@ async fn a_tag_narrows_the_shelf_and_composes_with_a_search() {
     );
 }
 
+/// A shelf entry says whose recipe it is and what the reader may do with it
+/// (#177): `cookbook`, `writes` and `mine`, exactly as `get_recipe` answers
+/// them. So a caller planning a change across the library reads the shelf once,
+/// rather than opening every recipe or collecting refusals.
+///
+/// Three recipes, one of each kind: one the reader wrote, one that arrived in
+/// the reader's own Cookbook, and one in a Kitchen-mate's Cookbook. The arrived
+/// one is why `writes` alone is not enough: an edit to it starts a copy, but
+/// tagging it is allowed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_shelf_entry_says_whose_recipe_it_is_and_what_the_reader_may_do() {
+    let app = support::spawn_app();
+    let (_, key, kitchen_id) = person_with_kitchen(&app, "Aurélien");
+    let (_, mate_key, _) = person_with_kitchen(&app, "Marc");
+    ask_into_kitchen(&app, &key, &kitchen_id, &mate_key);
+    // The sender is nobody's Kitchen-mate, so the recipe she sends reaches the
+    // reader's shelf only by arriving, never also through a shared Kitchen.
+    let (_, sender_key, _) = person_with_kitchen(&app, "Camille");
+
+    let written = recipe_in(&app, &key, "Katsu Curry");
+    let theirs = recipe_in(&app, &mate_key, "Banana Bread");
+    let sent = recipe_in(&app, &sender_key, "Soupe au pistou");
+    let report = receive(&app, &key, &bundle_of(&app, &sender_key, &sent));
+    let arrived = landed_as(&report, &sent);
+
+    // The `mine` filter is a history, not an ownership, and this ticket leaves
+    // it alone: only what the reader wrote or cooked, never what arrived.
+    assert_eq!(
+        titles(&shelf(&app, &key, json!({ "mine": true }))),
+        vec!["Katsu Curry"]
+    );
+
+    // Each Cookbook tags its own recipes, so the Tag filter is asked twice.
+    let course = tag_in(&app, &key, "en", "main course");
+    file_under(&app, &key, &written, &course, true);
+    file_under(&app, &key, &arrived, &course, true);
+    let baking = tag_in(&app, &mate_key, "en", "baking");
+    file_under(&app, &mate_key, &theirs, &baking, true);
+
+    let (status, home) = app.post_op("home_shelves", Some(&key), "{}");
+    assert_eq!(status, 200, "{home}");
+    let recently_added = home["result"]["shelves"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|shelf| shelf["name"] == json!("recently_added"))
+        .expect("every recipe was added")["recipes"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let mut tag_filtered = shelf(&app, &key, json!({ "tag_id": course }));
+    tag_filtered.extend(shelf(&app, &key, json!({ "tag_id": baking })));
+
+    let expected = [
+        (&written, "Katsu Curry", true, true),
+        (&arrived, "Soupe au pistou", false, true),
+        (&theirs, "Banana Bread", false, false),
+    ];
+    for (answer, entries) in [
+        ("search_recipes", shelf(&app, &key, json!({}))),
+        ("home_shelves", recently_added),
+        ("the Tag filter", tag_filtered),
+    ] {
+        assert_eq!(entries.len(), 3, "{answer}: {entries:?}");
+        for (branch_id, title, writes, mine) in &expected {
+            let entry = entries
+                .iter()
+                .find(|entry| entry["title"] == json!(title))
+                .unwrap_or_else(|| panic!("{answer} carries {title}: {entries:?}"));
+            // Which Branch the entry opens is unchanged.
+            assert_eq!(entry["branch_id"], json!(branch_id), "{answer}: {entry}");
+            assert_eq!(
+                (entry["writes"].clone(), entry["mine"].clone()),
+                (json!(writes), json!(mine)),
+                "{answer}: {entry}"
+            );
+
+            let (status, read) = app.post_op(
+                "get_recipe",
+                Some(&key),
+                &json!({ "branch_id": branch_id }).to_string(),
+            );
+            assert_eq!(status, 200, "{read}");
+            for field in ["cookbook", "writes", "mine"] {
+                assert_eq!(
+                    entry[field], read["result"][field],
+                    "{answer}'s {field} for {title} is get_recipe's"
+                );
+            }
+        }
+    }
+
+    // And the entries told the truth in advance: tagging succeeds on exactly
+    // the recipes marked `mine`, and is refused on the one that is not.
+    let pantry = tag_in(&app, &key, "en", "pantry");
+    for (branch_id, title, _, mine) in &expected {
+        let (status, answer) = app.post_op(
+            "set_recipe_tag",
+            Some(&key),
+            &json!({ "branch_id": branch_id, "tag_id": pantry, "carried": true }).to_string(),
+        );
+        assert_eq!(
+            status,
+            if *mine { 200 } else { 401 },
+            "tagging {title}: {answer}"
+        );
+    }
+}
+
 /// A Tag says how many recipes carry it, counted the way the shelf counts
 /// (#104) — so *9 recipes* in Settings and *9 tagged batch cook* on the shelf
 /// are the same nine.

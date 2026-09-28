@@ -1600,7 +1600,11 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                     "kitchen_id": { "type": ["string", "null"] },
                     // Created, branched or cooked by this Person — a history,
                     // not an ownership, and one that needs no curating ever.
-                    "mine": { "type": "boolean" },
+                    // Not the `mine` each entry answers with (#177).
+                    "mine": {
+                        "type": "boolean",
+                        "description": "Only recipes this Person created, branched or cooked: a history, not ownership. Not the same as the `mine` on each entry, which says whether their own Cookbook holds the recipe.",
+                    },
                     // The third filter, and the one that makes a Tag something
                     // a person can browse by rather than a word that happens to
                     // match (#104). Held nowhere, like the other two. It
@@ -3655,10 +3659,24 @@ fn shelf_entry_schema() -> Value {
                 "required": ["where", "line", "step_number", "by"],
                 "additionalProperties": false,
             },
+            // Whose recipe this is, and what the reader may do with it: the
+            // same three answers `get_recipe` gives for the Branch this entry
+            // opens, so a caller can read the whole shelf once and know in
+            // advance what the Core will allow (#177).
+            "cookbook": cookbook_label_schema(),
+            "writes": {
+                "type": "boolean",
+                "description": "Whether an edit by the reader lands on this Branch. Where false, an edit is not refused: it starts a Branch of the reader's own instead.",
+            },
+            "mine": {
+                "type": "boolean",
+                "description": "Whether the reader's own Cookbook holds this Branch, written there or arrived there. Changes made to the Cookbook rather than the recipe, such as putting a Tag on it, are allowed exactly where this is true. Not the same as the `mine` filter on search_recipes, which is a history.",
+            },
         },
         "required": [
             "lineage_id", "branch_id", "title", "language",
-            "language_fallback", "main_photo", "yield", "matched"
+            "language_fallback", "main_photo", "yield", "matched",
+            "cookbook", "writes", "mine"
         ],
         "additionalProperties": false,
     })

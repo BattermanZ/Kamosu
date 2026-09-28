@@ -22,7 +22,7 @@ import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import type { Whose } from '$lib/cookbook';
 import WritingTestHarness from './WritingTestHarness.svelte';
-import { recipeAnswer } from '../../../testing/recipes';
+import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -127,6 +127,7 @@ const SHELF = {
 				main_photo: null,
 				yield: { amount: '1', noun: 'jar' },
 				matched: null,
+				...writtenByMe(),
 			},
 		],
 	},
