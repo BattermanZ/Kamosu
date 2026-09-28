@@ -33,7 +33,7 @@ The size of the surface is the supporting argument, not the deciding one. Measur
 
 ## Consequences
 
-- **Sixty-five Operations began refusing what they silently accepted, and this was measured before it was turned on.** The enforcement was first run in report-only mode across the behaviour suite, the seven `--ignored` corpus tests against the real 86-recipe library, and the live interface at `https://kamosu-dev.batterlan.cc`. One real caller depended on lenient input, and it was Kamosu itself: 80 calls sent a step with no `photo`, which the shared content properties declared *required*. `parse_step_list` had always read an absent `photo` as "no photograph", so the declaration had simply never been true of input. It was the declaration that was wrong, not the callers — `recipe_content_input_properties` now says so.
+- **Sixty-five Operations began refusing what they silently accepted, and this was measured before it was turned on.** The enforcement was first run in report-only mode across the behaviour suite, the seven `--ignored` corpus tests against the real 86-recipe library, and the live interface on the dev instance. One real caller depended on lenient input, and it was Kamosu itself: 80 calls sent a step with no `photo`, which the shared content properties declared *required*. `parse_step_list` had always read an absent `photo` as "no photograph", so the declaration had simply never been true of input. It was the declaration that was wrong, not the callers — `recipe_content_input_properties` now says so.
 
 - **Semantic checks did not move and never will.** Whether a Branch exists, whether a Person may touch it, whether an amount parses: none of that is a schema's job. What moved is shape alone.
 

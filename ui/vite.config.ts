@@ -3,11 +3,18 @@ import { defineConfig } from 'vitest/config';
 import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { loadEnv } from 'vite';
 
 /// The backend, in development: two processes side by side (ADR 0028). Vite
 /// serves the interface and proxies everything the binary owns to it, so a
 /// browser only ever talks to one origin and no CORS question exists.
 const BACKEND = 'http://127.0.0.1:5266';
+
+/// The hostname a TLS test proxy serves the dev interface under, read from
+/// `KAMOSU_DEV_HOST` in the repo-root `.env` (gitignored, AGENTS.local.md) so
+/// no machine's own address is written into the repository. Unset, vite
+/// accepts only its defaults, localhost and IP addresses.
+const DEV_HOST = loadEnv('development', '..', 'KAMOSU_DEV_HOST').KAMOSU_DEV_HOST;
 
 export default defineConfig({
 	plugins: [
@@ -45,7 +52,7 @@ export default defineConfig({
 		host: '0.0.0.0',
 		// The TLS test proxy serves this exact hostname to a browser. Keep the
 		// allowlist narrow: accepting arbitrary Host headers enables DNS rebinding.
-		allowedHosts: ['kamosu-dev.batterlan.cc'],
+		allowedHosts: DEV_HOST ? [DEV_HOST] : [],
 		// Everything the binary owns, proxied so dev and production serve the same
 		// URLs. `/favicon.svg` is named by app.html; the two root PNGs are asked
 		// for by Safari's own convention. All three would 404 in dev otherwise.
