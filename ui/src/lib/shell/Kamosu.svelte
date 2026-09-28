@@ -12,6 +12,7 @@
 	import { provideFiles, type FileFetcher } from '$lib/api/files';
 	import { Library, provideLibrary } from '$lib/offline/library.svelte';
 	import { provideKeeping, type Keeping } from '$lib/offline/outbox';
+	import { provideRoom, type Room } from '$lib/room.svelte';
 
 	interface Props {
 		client: KamosuClient;
@@ -25,6 +26,11 @@
 		library?: Library;
 		/** What the phone holds for the server (#77). A test may bring its own. */
 		keeping?: Keeping;
+		/**
+		 * How much room the window has (#193). The layout follows the window's;
+		 * a test says which it is drawing, and without one it is the phone.
+		 */
+		room?: Room;
 		children: Snippet;
 	}
 
@@ -48,6 +54,7 @@
 			},
 			photographSrc: async (id, size) => `/api/photographs/${id}/${size}`,
 		},
+		room = 'phone',
 		children,
 	}: Props = $props();
 
@@ -62,6 +69,7 @@
 	provideFiles(() => files);
 	provideLibrary(() => theLibrary);
 	provideKeeping(() => keeping);
+	provideRoom(() => room);
 </script>
 
 {@render children()}

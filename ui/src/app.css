@@ -196,6 +196,46 @@
   --step-photo: 96px;
 }
 
+/* ── Room: how much of the window Kamosu has (ADR 0044, #193) ──────────────
+   The one place the wide layout's thresholds are written. A window at least
+   700 wide AND 560 tall is `wide`; the height half is what keeps a phone
+   turned sideways (about 850 by 390) on the phone layout. A wide window at
+   least 1000 wide is also `roomy`, which is room for two columns.
+
+   Both the stylesheet (`wide:` and `roomy:` in a class, `@variant wide` in
+   CSS) and the Room the app reads (`$lib/room.svelte`, through `--room`
+   below) come from these two lines, so a style rule and the Room cannot
+   disagree about which layout is showing. Tailwind's own `sm`/`md`/`lg`
+   stay unused.
+
+   The figures are starting values, set by ADR 0044 before any wide screen
+   existed. They are to be fitted against the real devices, the way #88
+   fitted the cooking screen; whatever moves them, say so here. */
+@custom-variant wide (@media (min-width: 700px) and (min-height: 560px));
+@custom-variant roomy {
+  @variant wide {
+    @media (min-width: 1000px) {
+      @slot;
+    }
+  }
+}
+
+/* The Room, as the stylesheet decided it. `$lib/room.svelte` reads this back
+   rather than holding a copy of the thresholds above. */
+@layer base {
+  :root {
+    --room: phone;
+
+    @variant wide {
+      --room: wide;
+    }
+
+    @variant roomy {
+      --room: roomy;
+    }
+  }
+}
+
 /* ── Fonts, served by the binary at /assets/fonts/ ─────────────────────────── */
 
 @font-face {

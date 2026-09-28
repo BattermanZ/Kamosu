@@ -19,6 +19,7 @@
 	import { realOutbox } from '$lib/offline/outbox';
 	import { m } from '$lib/paraglide/messages';
 	import { story } from '$lib/story/showing.svelte';
+	import { WindowRoom } from '$lib/room.svelte';
 
 	let { children } = $props();
 
@@ -28,6 +29,10 @@
 	const upload = realUpload();
 	const photograph = realPhotographUpload();
 	const files = realFiles();
+
+	// How much room the window has (#193), read back from the stylesheet and
+	// followed as the window is resized or a tablet turned.
+	const room = new WindowRoom();
 
 	// The document's language is the locale Paraglide resolved, which is what
 	// tells a screen reader — and Safari's translation offer — what it is reading.
@@ -120,7 +125,7 @@
 	});
 </script>
 
-<Kamosu {client} {auth} {upload} {photograph} {files} keeping={outbox}>
+<Kamosu {client} {auth} {upload} {photograph} {files} keeping={outbox} room={room.current}>
 	{#if !bare}
 		<Header {onSettings} />
 	{/if}

@@ -325,3 +325,9 @@ _Avoid_: Item, entry, line, aggregate, shopping item
 **Loose Item**:
 A line typed straight onto a **Shopping List** that belongs to no recipe — bin bags, coffee. Kept exactly as typed and never interpreted, so it has no **Food**, no quantity and merges with nothing: typing *flour* beside a recipe that wants flour gives two lines. Reading it would mean guessing at a number about to be shopped by, where a **Shopping Row** is built on **Reading**s that already exist. An **Ingredient Line** nobody ever read appears on a list the same way.
 _Avoid_: Extra, manual item, custom item, note
+
+### Laying out the app
+
+**Room**:
+How much of the window Kamosu has, which decides its layout: **phone**, **wide** (at least about 700 wide and 560 tall) or **roomy** (wide, and at least about 1000 wide, room for two columns side by side). It is read from the window's size alone and never from what device Kamosu is on, so a phone turned sideways is still phone and a tablet is wide whichever way up it stands. It follows the window as it is resized or turned. The figures are written once, in the stylesheet, and the app reads the Room back from there (ADR 0044).
+_Avoid_: Breakpoint, screen size, form factor, device type, viewport

@@ -1244,6 +1244,19 @@
     scroll-snap-align: start;
   }
 }
+@layer base {
+  :root {
+    --room: phone;
+    @media (min-width: 700px) and (min-height: 560px) {
+      --room: wide;
+    }
+    @media (min-width: 700px) and (min-height: 560px) {
+      @media (min-width: 1000px) {
+        --room: roomy;
+      }
+    }
+  }
+}
 @font-face {
   font-family: "Zen Old Mincho";
   font-style: normal;
