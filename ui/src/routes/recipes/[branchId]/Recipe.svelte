@@ -116,21 +116,41 @@
 </script>
 
 <script lang="ts">
+	// What the page is made of. The screen keeps its own state — the recipe it
+	// is reading, the Thread around it, the Divergence, how much it is read at,
+	// and what the last save did — and composes the rest. Each concern that
+	// stands on its own lives beside it (#188):
+	//
+	//   · `sheet.svelte.ts` and `SheetAction`: printing a Sheet (#75, #149);
+	//   · `DeleteRecipe`: deleting it (#120);
+	//   · `on-the-phone.svelte.ts`: the kept copy and the refresh counter (#76);
+	//   · `unfolding.svelte.ts`, `ComponentLine`, `Unfolded` and `Annexe`: its
+	//     Components (#50);
+	//   · `corrections.svelte.ts`: correcting a Reading in place (#32 item 193);
+	//   · `marking.svelte.ts` and `Carrying`: the Divergence's marks and what
+	//     was carried across;
+	//   · `my-pictures.svelte.ts` and `MyPictures`: your pictures of the
+	//     dish (#110);
+	//   · `HowMuchRow`, `ShoppingListButton`, `MetaStrip`, `Cooked`,
+	//     `language-family.ts`, `sharing-a-chain.ts` and `thread-line.ts`:
+	//     the rest.
+	//
+	// The sheets a component raises — deleting's confirmation, the save of
+	// what was carried, a picture onto the recipe — are drawn by that
+	// component, on the reading page. Each is modal, so nothing can swap the
+	// page to Writing while one is open.
+	//
+	// State that has to outlive the reading page being swapped out for writing
+	// (#83) is made here, once, by a `.svelte.ts` module; a component drawn on
+	// the reading page holds only what may be forgotten when it goes.
+
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
-	import { cookingDay } from '$lib/cooking-day';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
-	import { StillRunning, waitForJob } from '$lib/api/job';
-	import type {
-		DivergenceOutput,
-		GetRecipeOutput,
-		GetThreadOutput,
-		MakeSheetOutput,
-	} from '$lib/api/catalogue';
+	import type { DivergenceOutput, GetRecipeOutput, GetThreadOutput } from '$lib/api/catalogue';
 	import Hero from './Hero.svelte';
-	import { ratingLabel } from '$lib/rating';
 	import VersionStrip from './VersionStrip.svelte';
 	import { branchPlainName, yoursAmong } from '$lib/cookbook';
 	import MarkedRow from './MarkedRow.svelte';
@@ -144,33 +164,35 @@
 	import LanguageSheet from './LanguageSheet.svelte';
 	import RenameSheet from './RenameSheet.svelte';
 	import LanguageOffer from './LanguageOffer.svelte';
+	import MetaStrip from './MetaStrip.svelte';
+	import ComponentLine from './ComponentLine.svelte';
+	import Unfolded from './Unfolded.svelte';
+	import Annexe from './Annexe.svelte';
+	import HowMuchRow from './HowMuchRow.svelte';
+	import Cooked from './Cooked.svelte';
+	import MyPictures from './MyPictures.svelte';
+	import SheetAction from './SheetAction.svelte';
+	import ShoppingListButton from './ShoppingListButton.svelte';
+	import DeleteRecipe from './DeleteRecipe.svelte';
+	import Carrying from './Carrying.svelte';
 	import { asBranchLanguage, type WrittenLanguage } from '$lib/language';
 	import { tappableLink } from '$lib/source';
-	import Confirm from '$lib/Confirm.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
-	import { onlyOnThisPhone } from '$lib/offline/outbox';
-	import PhotoToRecipe, { type Offered } from '$lib/PhotoToRecipe.svelte';
 	import StepPhoto from '$lib/StepPhoto.svelte';
-	import { Online, refreshed, thisDevice, type Device } from '$lib/offline/device.svelte';
-	import { SHEET, shareFile, sharesFiles, useFiles } from '$lib/api/files';
-	import HowMuch from '$lib/HowMuch.svelte';
-	import { said, same, toSearch, type Wanted } from '$lib/how-much';
-	import { useLibrary } from '$lib/offline/library.svelte';
-	import { keptAt } from '$lib/offline/reads';
-	import { figureOf, timeText, unitWord } from '$lib/duration';
+	import { thisDevice, type Device } from '$lib/offline/device.svelte';
+	import { useFiles } from '$lib/api/files';
+	import { same, toSearch, type Wanted } from '$lib/how-much';
 	import { takePaste, type PastedDraft } from '$lib/pasted.svelte';
-	import { standing } from '$lib/offline/standing.svelte';
-	import {
-		prose,
-		draftVersion,
-		reading,
-		fieldText,
-		nutritionText,
-		rowKey,
-		type Side,
-		type Taken,
-	} from './divergence';
+	import { nutritionText, numbering, rowKey } from './divergence';
+	import { sheet } from './sheet.svelte';
+	import { onThePhone } from './on-the-phone.svelte';
+	import { unfolding } from './unfolding.svelte';
+	import { corrections, type Slot } from './corrections.svelte';
+	import { marking } from './marking.svelte';
+	import { myPictures } from './my-pictures.svelte';
+	import { languageFamily } from './language-family';
+	import { threadLine } from './thread-line';
+	import { sharingAChain } from './sharing-a-chain';
 
 	interface Props {
 		branchId: string;
@@ -203,24 +225,11 @@
 	 * the recipe screen is where Promotion is offered.
 	 */
 	let attempts = $state<GetThreadOutput['attempts']>([]);
-
-	/**
-	 * Your own pictures of this dish, from every time you cooked it (#110,
-	 * option B) — newest cooking first, as the diary has them. Read from
-	 * `list_attempts`, which the Core scopes to the caller, and never from the
-	 * Thread's `attempts`, which carries the household's: a picture somebody
-	 * else took is theirs to promote, not yours. One still only on this phone
-	 * waits until it has been sent.
-	 */
-	let myPictures = $state<Offered[]>([]);
-	let promotingPhoto = $state(false);
 	/**
 	 * Every Branch of this Lineage the reader can reach, which the Thread
 	 * already answers and which this screen used to read for one fact and
 	 * throw away. It is what tells a recipe it exists in another Language
-	 * (#106, ADR 0006): a Translation is an ordinary Branch, so there is
-	 * nothing else to ask — no Operation lists *this recipe's translations*,
-	 * because there is no such object to list.
+	 * (#106, ADR 0006): see `language-family.ts`.
 	 */
 	let lineageBranches = $state<GetThreadOutput['branches']>([]);
 	/**
@@ -230,65 +239,26 @@
 	 * anything is behind it.
 	 */
 	let lineageVersions = $state<GetThreadOutput['versions']>([]);
-	/**
-	 * The line under that button: the Versions on this Branch's own chain,
-	 * counted and dated. A Variation's chain includes the Versions it started
-	 * from, since those are its past too, and never another Branch's later
-	 * ones. Filtered by the id on screen rather than reset on leaving, so the
-	 * last recipe's count can never label this one's button.
-	 */
-	const threadLine = $derived.by(() => {
-		const own = lineageVersions.filter((each) => each.branch_id === branchId);
-		if (own.length === 0) return null;
-		const last = own.reduce(
-			(latest, each) => (each.created_at > latest ? each.created_at : latest),
-			own[0]!.created_at,
-		);
-		const when = new Date(last).toLocaleDateString();
-		if (own.length === 1) return m.recipe_thread_saved_once({ when });
-		if (own.length === 2) return m.recipe_thread_saved_twice({ when });
-		return m.recipe_thread_saved_times({ count: own.length, when });
-	});
+	const historyLine = $derived(threadLine(lineageVersions, branchId));
 	/** Bumped after a Promotion, to read the recipe back with its new Version. */
 	let reread = $state(0);
 
-	/**
-	 * Which side of the Divergence the page draws. `mine` is always the
-	 * reader's own recipe (#131), so on anybody else's version the page is
-	 * `theirs`: the rows are the same rows, read from the other side, and the
-	 * page is still the recipe in the URL.
-	 */
-	let side = $state<Side>('mine');
-	/** Whether the divergence is marked at all. Off is simply the recipe. */
-	let marks = $state(true);
-	let open = $state(new Set<string>());
-	let taken = $state(new Map<string, Taken>());
-	let saving = $state(false);
-	let changeNote = $state('');
-	let saved = $state<'no' | 'yes' | 'failed'>('no');
+	/** The Divergence's marks, and what has been carried across from it. */
+	const divergent = marking({
+		kamosu,
+		divergence: () => divergence,
+		otherKitchen: () => otherKitchen,
+		// The list is rebuilt from a different set of rows, so nothing keyed by
+		// a line's index or path may stay open.
+		onToggled: () => {
+			fixes.close();
+			unfold.closeAll();
+		},
+		// A new Version can move a line's index, and corrections are keyed by
+		// index. None survives the save.
+		onSaved: () => fixes.forget(),
+	});
 
-	/** Deleting this recipe (#120): the confirmation is open. */
-	let confirmingDelete = $state(false);
-	/** …and the act itself is running, so the sheet cannot be fired twice. */
-	let deleting = $state(false);
-	/** A refusal that came back, shown in the words it came in. */
-	let deleteFailed = $state<string | undefined>(undefined);
-	/**
-	 * Whether a Share Link is live, asked only when the confirmation opens.
-	 *
-	 * The confirmation mentions the link **only when there is one** — a warning
-	 * about a link nobody minted is noise, and noise in a sheet like this is
-	 * how the sentence that matters stops being read. The recipe page does not
-	 * otherwise need to know, so this is one call at the moment it becomes a
-	 * fact worth having rather than a field on every read.
-	 *
-	 * Three states and not two, because the ask can fail. Neither silence nor
-	 * an invented warning is honest then: one hides a link that really is
-	 * about to stop working, the other frightens somebody about a link they
-	 * never minted. `unknown` says which of the two it is and lets the reader
-	 * decide, which is the only thing a screen that does not know can do.
-	 */
-	let shareIsLive = $state<'no' | 'yes' | 'unknown'>('no');
 	/**
 	 * Whether this recipe is on the reader's own Shopping List (#73).
 	 *
@@ -321,18 +291,10 @@
 	let choosingHowMuch = $state(false);
 	/** The last change of how much could not be read — no network, usually. */
 	let howMuchFailed = $state(false);
-	let shopping = $state(false);
-	/** Where asking for a Sheet has got to (#75). */
-	let printing = $state<'idle' | 'setting' | 'stillSetting' | 'ready' | 'failed'>('idle');
-	/**
-	 * The Sheet fetched and waiting for the tap that shares it (#149), in the
-	 * installed app on an Apple device. Set only while `printing` is `ready`.
-	 */
-	let prepared: File | undefined;
-	/** The Sheet being set goes to the share sheet rather than a tab (#149). */
-	let sharing = $state(false);
-	/** Being set, however long it takes: one Sheet at a time, and never a second tab. */
-	const settingSheet = $derived(printing === 'setting' || printing === 'stillSetting');
+
+	/** Printing a Sheet (#75), which outlives the reading page (see `sheet.svelte.ts`). */
+	const paper = sheet(kamosu, files, () => device);
+
 	/**
 	 * Whether the page is being written on rather than read (#83). It is the
 	 * same page either way, which is the whole of the direction Aurélien
@@ -393,67 +355,9 @@
 	 */
 	let translatingInto = $state<WrittenLanguage | undefined>(undefined);
 
-	/**
-	 * Every OTHER Branch of this Lineage, which is the whole of what the
-	 * Language line reads. Computed here rather than inside `Language.svelte`
-	 * so that the component takes plain facts and can be rendered in a test
-	 * without a Thread.
-	 */
-	const otherBranches = $derived(
-		lineageBranches
-			.filter((each) => each.branch_id !== branchId)
-			.map((each) => ({ branch_id: each.branch_id, language: each.language })),
-	);
-	/**
-	 * The Branches that translate THIS one. A Translation names the Version it
-	 * renders and `get_thread` answers that pointer per Branch, so this is a
-	 * fact rather than an inference from Languages: two Branches in different
-	 * Languages are not necessarily a Translation and its source — one may be
-	 * a Divergence somebody relabelled.
-	 */
-	const translationsOfThis = $derived(
-		lineageBranches.filter(
-			(each) => each.branch_id !== branchId && each.translation?.source_branch_id === branchId,
-		),
-	);
-	/**
-	 * Whether Unknown is barred here, **in the Core's own terms**: this recipe
-	 * translates something, or something translates it —
-	 * `set_recipe_language` refuses exactly those two. Not "a sibling is in
-	 * another Language", which would wrongly bar a recipe whose only sibling
-	 * is a Divergence, and is not the rule being enforced.
-	 *
-	 * Where the two could still disagree — a Translation held by a Kitchen
-	 * this reader does not cook in is absent from the Thread — this errs
-	 * toward OFFERING, and the Core's refusal is then shown in its own words.
-	 * Wrongly offering costs a sentence; wrongly barring hides a choice behind
-	 * a reason that is not true.
-	 */
-	const inALanguageFamily = $derived(Boolean(recipe?.translation) || translationsOfThis.length > 0);
-	/**
-	 * The Languages not worth offering to translate into: this recipe's own,
-	 * and those of the Translations this family already holds. A Divergence is
-	 * deliberately NOT counted — somebody else's copy of these words happening
-	 * to be in French is no reason to refuse to write a French translation.
-	 */
-	const languagesTaken = $derived([
-		...(recipe ? [recipe.language] : []),
-		...translationsOfThis.map((each) => each.language),
-		...otherBranches
-			.filter((each) => each.branch_id === recipe?.translation?.source_branch_id)
-			.map((each) => each.language),
-	]);
+	/** This recipe among the other Languages of its Lineage (#106). */
+	const family = $derived(languageFamily(branchId, recipe, lineageBranches));
 
-	/**
-	 * The Language this save's text reads as, narrowed to one this build can
-	 * act on. `language_offer` is declared as a plain string, so a newer
-	 * server could answer a Language this build has no word for — not a thing
-	 * to offer, since accepting it could not be carried out.
-	 *
-	 * Read from the Copy as well as the ordinary save: a copied save answers
-	 * an offer like any other, and the page it lands on is the one that has to
-	 * put it (#106).
-	 */
 	/**
 	 * **Go to the Branch a write landed on, if it is not this one** — true when
 	 * it navigated, so a caller can say what to do otherwise.
@@ -483,10 +387,9 @@
 		language_offer: string | null;
 		varied?: string;
 	}) {
-		// A save moves the head Version, and both of these are keyed by a
-		// line's index into the list that just changed underneath them.
-		correcting = null;
-		fixed = new Map();
+		// A save moves the head Version, and corrections are keyed by a line's
+		// index into the list that just changed underneath them.
+		fixes.forget();
 		// A Copy put the Version on a NEW Branch. Staying here would leave
 		// the cook reading the recipe they deliberately did not change, so
 		// the page follows the one they now hold.
@@ -510,143 +413,25 @@
 		reread += 1;
 	}
 
-	/**
-	 * The dish, as a string, so the read below runs again when the page moves
-	 * to another dish and not every time this one is read again — at another
-	 * amount, say, or after a save.
-	 */
-	const lineage = $derived(recipe?.lineage_id);
-	$effect(() => {
-		if (!lineage) return;
-		let current = true;
-		kamosu
-			.listAttempts({})
-			.then((diary) => {
-				if (!current) return;
-				myPictures = diary.attempts
-					.filter((attempt) => attempt.lineage_id === lineage)
-					.flatMap((attempt) =>
-						attempt.photographs
-							.filter((photograph) => !onlyOnThisPhone(photograph))
-							.map((photograph) => ({
-								photograph,
-								attempt: attempt.id,
-								taken: cookingDay(attempt.created_at),
-							})),
-					);
-			})
-			.catch((error: unknown) => {
-				// The row is an offer, not the recipe: a diary that cannot be
-				// read leaves it out rather than failing the page.
-				if (!(error instanceof OperationError)) throw error;
-			});
-		return () => {
-			current = false;
-		};
-	});
+	/** Your own pictures of this dish (#110), read once per dish. */
+	const pictures = myPictures(kamosu, () => recipe?.lineage_id);
 
+	/**
+	 * The Language this save's text reads as, narrowed to one this build can
+	 * act on. `language_offer` is declared as a plain string, so a newer
+	 * server could answer a Language this build has no word for — not a thing
+	 * to offer, since accepting it could not be carried out.
+	 *
+	 * Read from the Copy as well as the ordinary save: a copied save answers
+	 * an offer like any other, and the page it lands on is the one that has to
+	 * put it (#106).
+	 */
 	const offeredLanguage = $derived.by(() => {
 		const offered =
 			copiedInto?.branchId === branchId
 				? copiedInto.languageOffer
 				: (wrote?.language_offer ?? null);
 		return offered ? asBranchLanguage(offered) : null;
-	});
-
-	/**
-	 * Print a Sheet (#75, ADR 0023): the recipe as it stands on this screen,
-	 * set for paper by the server as a Job. The PDF opens in a tab of its own
-	 * and printing is the browser's own Print — Kamosu has no dialog of its
-	 * own, and no second place where scaling could disagree with this screen.
-	 *
-	 * The tab is opened at the tap and filled once the Job ends: a tab opened
-	 * later, from a promise, is one a browser is entitled to block.
-	 *
-	 * A Sheet that outlasts the ordinary wait has not failed (#117). The screen
-	 * says it is still being set and goes on waiting while the cook stays on
-	 * this recipe, so the tab it promised is the tab the Sheet arrives in.
-	 * Leaving — for another screen, or for another recipe on this one — stops
-	 * the reading: a Sheet not ready by then is not waited for, and its empty
-	 * tab closes. The Job itself carries on regardless (ADR 0032). One that was
-	 * ready as the cook left still fills its tab, but never moves the page they
-	 * have gone to.
-	 *
-	 * In the app installed on an iPhone or iPad no tab opens (#149): the Sheet
-	 * is fetched here once the Job ends, and this same button then shares it
-	 * (`shareSheet`; option A, Aurélien, 25 September 2026).
-	 */
-	async function printSheet() {
-		const forVisit = visit;
-		const leftBehind = () => closed || visit !== forVisit;
-		const toShare = sharesFiles(device, SHEET);
-		sharing = toShare;
-		printing = 'setting';
-		const tab = toShare ? null : window.open('', '_blank');
-		try {
-			// At the amount on screen: the page is what a Sheet prints (ADR 0023).
-			// Not while a Divergence is shown, where the amounts on screen are
-			// `divergence`'s and the scaler is not offered (`pageScaledTo`).
-			const asked = await kamosu.makeSheet(
-				named === undefined || divergence
-					? { branch_id: branchId }
-					: { branch_id: branchId, wanted_yield: named },
-			);
-			const job = await waitForJob(kamosu, asked.job_id, { stopped: leftBehind }).catch(
-				(error: unknown) => {
-					if (!(error instanceof StillRunning)) throw error;
-					printing = 'stillSetting';
-					return waitForJob(kamosu, asked.job_id, {
-						giveUpAfter: Infinity,
-						stopped: leftBehind,
-					});
-				},
-			);
-			if (job.status !== 'completed') {
-				// Left before the Sheet was ready: nothing is left to fill.
-				tab?.close();
-				return;
-			}
-			const at = (job.result as MakeSheetOutput).fetch_at;
-			if (toShare) {
-				const file = await files(at, SHEET);
-				// Left while it was fetched: nothing is kept for a page not shown.
-				if (leftBehind()) return;
-				prepared = file;
-				printing = 'ready';
-				return;
-			}
-			if (tab) tab.location.href = at;
-			else if (!leftBehind()) window.location.assign(at);
-			if (!leftBehind()) printing = 'idle';
-		} catch {
-			tab?.close();
-			if (!leftBehind()) printing = 'failed';
-		}
-	}
-
-	/**
-	 * Hand the prepared Sheet to the share sheet: Save to Files, Print, AirDrop.
-	 * Called straight from the tap with nothing awaited first, since iOS only
-	 * opens the share sheet for a tap it can still see (#149). Closing the
-	 * share sheet is not a failure, and keeps the Sheet for another try; once
-	 * it has gone somewhere, the next tap sets a fresh one.
-	 */
-	function shareSheet() {
-		const file = prepared;
-		if (!file) return;
-		const forVisit = visit;
-		const moved = () => closed || visit !== forVisit || prepared !== file;
-		void shareFile(file).then((outcome) => {
-			if (outcome === 'kept' || moved()) return;
-			prepared = undefined;
-			printing = outcome === 'shared' ? 'idle' : 'failed';
-		});
-	}
-
-	/** Set once this screen closes, so a Sheet still being waited on stops being read. */
-	let closed = false;
-	$effect(() => () => {
-		closed = true;
 	});
 
 	/**
@@ -667,7 +452,7 @@
 			named = wanted;
 			// The read carries every correction made here since the last one,
 			// scaled — the overlay's lines were worked out at the old amount.
-			fixed = new Map();
+			fixes.dropOverlay();
 			howMuchFailed = false;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -682,87 +467,12 @@
 				});
 	}
 
-	/**
-	 * Open the confirmation, and ask whether a Share Link is live while it
-	 * opens rather than before — the sheet is drawn immediately either way,
-	 * and the line appears if the answer arrives saying there is one.
-	 */
-	async function askToDelete() {
-		deleteFailed = undefined;
-		shareIsLive = 'no';
-		confirmingDelete = true;
-		try {
-			const link = await kamosu.getShareLink({ branch_id: branchId });
-			shareIsLive = link.shared ? 'yes' : 'no';
-		} catch {
-			shareIsLive = 'unknown';
-		}
-	}
-
-	/**
-	 * Take this recipe off the shelf (#120). One Branch: the translation beside
-	 * it, and any other Kitchen's copy, are untouched, and so is every cooking
-	 * ever made from it.
-	 *
-	 * Back to the shelf afterwards, because there is nothing left to stand on.
-	 * `replaceState` so the back button does not walk into a recipe that is
-	 * gone — the page it would land on answers *no such Branch*, which is a
-	 * true sentence and a baffling one to be shown for pressing back.
-	 */
-	async function deleteRecipe() {
-		deleting = true;
-		deleteFailed = undefined;
-		try {
-			await kamosu.deleteRecipe({ branch_id: branchId });
-			await goto('/recipes', { replaceState: true });
-		} catch (error: unknown) {
-			if (!(error instanceof OperationError)) throw error;
-			deleteFailed = error.message;
-		} finally {
-			deleting = false;
-		}
-	}
-
 	// ---- on the phone (#76) ---------------------------------------------
 
-	const online = new Online();
-	const library = useLibrary();
-	/**
-	 * When the phone kept the copy being shown, for a recipe the Person's
-	 * Kitchens do not hold. Their own recipes are the library and always on
-	 * the phone; anything else is only the copy from the day it was opened,
-	 * and offline the page says so.
-	 */
-	const keptOn = $derived(standing.branchId === branchId ? standing.keptAt : undefined);
-	const onlyKept = $derived(
-		!online.current && library.onlyOpened(branchId) && keptOn !== undefined,
+	const phone = onThePhone(
+		() => branchId,
+		() => (reread += 1),
 	);
-
-	$effect(() => {
-		const id = branchId;
-		standing.branchId = id;
-		void keptAt('get_recipe', { branch_id: id }).then((at) => {
-			if (standing.branchId === id) standing.keptAt = at;
-		});
-		return () => {
-			if (standing.branchId === id) {
-				standing.branchId = undefined;
-				standing.keptAt = undefined;
-			}
-		};
-	});
-
-	// The phone answered first and the server has since said something else:
-	// read again, from the copy that is now level.
-	let seenRefreshes: number | undefined;
-	$effect(() => {
-		const seen =
-			(refreshed.get('get_recipe') ?? 0) +
-			(refreshed.get('get_thread') ?? 0) +
-			(refreshed.get('divergence') ?? 0);
-		if (seenRefreshes !== undefined && seen > seenRefreshes) untrack(() => (reread += 1));
-		seenRefreshes = seen;
-	});
 
 	/** Which Branch Home has been told was opened: once per visit, not per read. */
 	let notedOpening: string | undefined;
@@ -775,15 +485,9 @@
 	 * not be marked* is an alert about a defect that is not there.
 	 */
 	let saidFor: string | undefined;
-	/**
-	 * Counts the recipes this screen has shown, so work begun on one can tell
-	 * it has been left — even for the same recipe opened again (#117).
-	 */
-	let visit = 0;
 	$effect(() => {
 		if (saidFor !== branchId) {
 			saidFor = branchId;
-			visit += 1;
 			untrack(() => {
 				wrote = undefined;
 				named = undefined;
@@ -791,19 +495,13 @@
 				// to your own must not carry its marks, or anything taken from
 				// it, onto a page that has nothing to compare (#131).
 				divergence = undefined;
-				side = 'mine';
-				marks = true;
-				open = new Set();
-				taken = new Map();
-				changeNote = '';
-				saved = 'no';
+				divergent.reset();
 				choosingHowMuch = false;
 				howMuchFailed = false;
-				// A Sheet being set was the last recipe's; `printSheet` stops
-				// waiting on it once it sees the recipe has changed (#117). A
-				// Sheet ready to share was that recipe's too (#149).
-				printing = 'idle';
-				prepared = undefined;
+				// A Sheet being set was the last recipe's, and stops being
+				// waited on (#117); a Sheet ready to share was that recipe's
+				// too (#149).
+				paper.leave();
 			});
 		}
 	});
@@ -871,32 +569,9 @@
 				attempts = thread.attempts;
 				lineageBranches = thread.branches;
 				lineageVersions = thread.versions;
-				// **A Translation is not a Divergence, and cannot be paired with
-				// one.** A Divergence is two Branches that parted from a shared
-				// Version; a Translation's chain STARTS FRESH, which is exactly
-				// what separates it from a Copy (ADR 0006, `start_translation`).
-				// So a Translation and the recipe it renders share no Version at
-				// all, and asking for a Divergence between them is answered —
-				// correctly — with "their chains never converge".
-				//
-				// **Whether two Branches share a chain is answerable here**, and
-				// is not worth a request that would be refused. The Thread
-				// carries every Branch's every occurrence, so two Branches part
-				// from a shared Version exactly when they have a Version id in
-				// common — which two Translations of one recipe never do, and
-				// a Branch and its Copy always do.
-				const versionsOf = new Map<string, Set<string>>();
-				for (const occurrence of thread.versions) {
-					const seen = versionsOf.get(occurrence.branch_id) ?? new Set<string>();
-					seen.add(occurrence.version_id);
-					versionsOf.set(occurrence.branch_id, seen);
-				}
-				const onPage = versionsOf.get(branchId) ?? new Set<string>();
-				versions = thread.branches.filter(
-					(each) =>
-						each.branch_id === branchId ||
-						[...(versionsOf.get(each.branch_id) ?? [])].some((id) => onPage.has(id)),
-				);
+				// Every Copy and variation of it, and never a Translation: see
+				// `sharing-a-chain.ts` for why a Translation cannot be paired.
+				versions = sharingAChain(thread, branchId);
 				// **Marks compare against your own** (#131, screen choice 1): the
 				// version in your own Cookbook that you wrote, unnamed or, once
 				// named, kept longest (#136). On it there is nothing to mark; on
@@ -916,7 +591,7 @@
 						if (!(error instanceof OperationError)) throw error;
 						return undefined;
 					});
-				if (current && divergence) side = 'theirs';
+				if (current && divergence) divergent.side = 'theirs';
 			} catch (error) {
 				if (!(error instanceof OperationError)) throw error;
 				if (current) failed = true;
@@ -929,7 +604,7 @@
 
 	// ---- where you are standing ------------------------------------------
 
-	const here = $derived(side === 'mine' ? divergence?.mine : divergence?.theirs);
+	const here = $derived(divergent.side === 'mine' ? divergence?.mine : divergence?.theirs);
 	/**
 	 * Whose the other version is — `divergence.theirs`, named plainly for the
 	 * marks' own sentences ("not Hélène’s"). Reading their recipe does not
@@ -964,134 +639,15 @@
 	 */
 	const pageScaledTo = $derived(divergence ? null : (recipe?.versions.at(-1)?.scaled_to ?? null));
 
-	/** One Component, or nothing: the entry sitting at `index` of the list at `at`. */
-	function componentAt(at: number[], index: number) {
-		return components.find(
-			(component) =>
-				component.path.length === at.length + 1 &&
-				at.every((step, depth) => component.path[depth] === step) &&
-				component.path[at.length] === index,
-		);
-	}
-
-	/**
-	 * **Every Component's Steps, in the order the page meets them** — the foot
-	 * of the page under treatment B. A Component with no Steps, one this
-	 * instance does not hold, and one that stopped at a repeat all contribute
-	 * nothing: there is no method to set.
-	 */
-	/**
-	 * Which Components are open. **Closed by default** (ADR 0008): the row says
-	 * which recipe it names and how much of it, and the recipe itself is a tap
-	 * away. Keyed by path, so a Component inside a Component opens on its own.
-	 *
-	 * Crossing to the other Kitchen's recipe closes everything, for the reason
-	 * `open` and `correcting` are cleared there: the two Branches have their own
-	 * lists, so a path that means the dough here means another line over there.
-	 */
-	let unfoldedComponents = $state(new Set<string>());
-	const pathKey = (path: number[]) => path.join('.');
-	function toggleComponent(path: number[]) {
-		const next = new Set(unfoldedComponents);
-		const key = pathKey(path);
-		if (next.has(key)) next.delete(key);
-		else next.add(key);
-		unfoldedComponents = next;
-	}
-	const isOpen = (path: number[]) => unfoldedComponents.has(pathKey(path));
-
-	/**
-	 * **Every open Component's Steps, in the order the page meets them** — the
-	 * foot of the page under treatment B. Folding a Component away takes its
-	 * method with it, so the foot of the page holds exactly what the list above
-	 * says is open. A Component with no Steps, one this instance does not hold,
-	 * and one that stopped at a repeat all contribute nothing.
-	 */
-	const annexes = $derived(
-		components.filter((component) => component.content?.steps.length && isOpen(component.path)),
-	);
+	const unfold = unfolding(() => components);
 
 	// ---- correcting a Reading --------------------------------------------
 
-	/** One slot of `readings`: what Kamosu understood of a line, or nothing. */
-	type Slot = GetRecipeOutput['versions'][number]['readings'][number];
-	/** One Component of the recipe being read, unfolded by the Core (ADR 0008). */
-	type Component = GetRecipeOutput['versions'][number]['components'][number];
-	/**
-	 * A line corrected here: the Reading as it now stands, and the one
-	 * subordinate line it now produces. They travel together because
-	 * `set_reading` answers with both — the conversion is the Core's, and this
-	 * screen only ever displays it.
-	 */
-	type Fixed = { reading: Slot; measured: string | null };
-
-	/** Which Ingredient Line has the corrector open, by index into the list. */
-	let correcting = $state<number | null>(null);
-	/**
-	 * Readings corrected here, laid over what was fetched. `set_reading` makes
-	 * no Version, so there is nothing to refetch and nothing that would show up
-	 * in the Thread — the line simply reads differently from now on.
-	 */
-	let fixed = $state(new Map<number, Fixed>());
-
-	/**
-	 * The Reading on one line, with anything corrected here laid over it.
-	 *
-	 * The overlay is consulted only while standing in your own recipe. It is
-	 * keyed by line index, and the two Branches have their own lists — so on
-	 * the other side index 2 is a different ingredient entirely, and reading
-	 * through the overlay there would put your correction on their line.
-	 */
-	const readingAt = (index: number): Slot =>
-		fixed.has(index) ? (fixed.get(index)?.reading ?? null) : (readings[index] ?? null);
-
-	/**
-	 * **The one line beneath an Ingredient Line**, and the whole of the rule:
-	 * the converted amount where this reader needs one, the echo of what Kamosu
-	 * read where she does not, and nothing at all where there is neither. Never
-	 * both (#49, ADR 0016).
-	 *
-	 * **The echo is silent where it would only repeat the line above it**, which
-	 * is the same rule the conversion already obeys. It was written when a
-	 * Reading existed only because somebody had typed one, so an echo was the
-	 * only way to see what Kamosu held; since #71 Kamosu reads every line it
-	 * can, and an echo that parrots the line is two things it must not be — a
-	 * repetition ADR 0016 says must be absent, and a mark on exactly the lines
-	 * Kamosu managed to read, which is the badge ADR 0002 refuses. What is
-	 * left is the echo that earns its place: the Reading somebody **corrected**,
-	 * which says something the line does not.
-	 *
-	 * Like `readingAt`, the overlay is consulted only in your own recipe: the
-	 * two Branches have their own lists, so index 2 on the other side is a
-	 * different ingredient entirely.
-	 */
-	function beneathLine(index: number): string {
-		if (index < 0) return '';
-		const converted = fixed.has(index)
-			? (fixed.get(index)?.measured ?? null)
-			: (measured.ingredients[index] ?? null);
-		if (converted) return converted;
-		const echo = reading(readingAt(index));
-		const written = content?.ingredients?.[index]?.text ?? '';
-		return echo && saysMoreThan(echo, written) ? echo : '';
-	}
-
-	/**
-	 * Whether an echo is worth showing under the line it was read from: it is,
-	 * only where some word of it is not already up there. Compared as bare
-	 * letters and digits, because the echo drops the punctuation and the
-	 * articles the line keeps — `2 gousses ail` is entirely inside
-	 * `2 gousses d’ail` and says nothing new, while a corrected `250 g farine
-	 * de blé` under `200 g de farine` says two things.
-	 */
-	function saysMoreThan(echo: string, line: string): boolean {
-		const bare = (text: string) => text.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '');
-		const written = bare(line);
-		return bare(echo)
-			.split(/\s+/)
-			.filter(Boolean)
-			.some((word) => !written.includes(word));
-	}
+	const fixes = corrections({
+		readings: () => readings,
+		measured: () => measured,
+		written: (index) => content?.ingredients?.[index]?.text ?? '',
+	});
 
 	/**
 	 * A Reading may be corrected on any version you may see, somebody else's
@@ -1105,26 +661,19 @@
 	 */
 	const correctable = true;
 
-	function toggleCorrector(index: number) {
-		correcting = correcting === index ? null : index;
-	}
-
 	function corrected(index: number, reading: Slot, measuredLine: string | null) {
-		const next = new Map(fixed);
 		// On a page read at a named amount the answer's line was worded at the
 		// cooking's amount instead, so none is laid over until the page is read
 		// again at its own — rather than a figure for the wrong amount (#109).
-		next.set(index, { reading, measured: named === undefined ? measuredLine : null });
-		fixed = next;
-		correcting = null;
+		fixes.lay(index, reading, named === undefined ? measuredLine : null);
 
 		// **A correction on a line that is, or was, a Component re-reads the
-		// recipe** (#87). Everything else a correction changes is in `fixed`,
-		// which is laid over the Readings — but a Component is not a Reading on
-		// this page, it is the Core's unfolding of one, and every part of that
-		// is worked out on the server from the Reading that just changed: which
-		// recipe it names, how much of it is wanted, and the inner recipe's own
-		// lines already scaled by that share (ADR 0008).
+		// recipe** (#87). Everything else a correction changes is laid over the
+		// Readings — but a Component is not a Reading on this page, it is the
+		// Core's unfolding of one, and every part of that is worked out on the
+		// server from the Reading that just changed: which recipe it names, how
+		// much of it is wanted, and the inner recipe's own lines already scaled
+		// by that share (ADR 0008).
 		//
 		// So the pointer is not the only thing worth refetching for. Correcting
 		// `500 g` to `250 g` on a dough leaves the pointer alone and halves the
@@ -1132,8 +681,8 @@
 		// still scaled at 500 — the line contradicting its own panel.
 		//
 		// An ordinary line's correction still refetches nothing: there is
-		// nothing on screen for it that `fixed` does not already hold.
-		const wasComponent = componentAt([], index) !== undefined;
+		// nothing on screen for it that the overlay does not already hold.
+		const wasComponent = unfold.at([], index) !== undefined;
 		const isNowComponent = (reading?.lineage_id ?? null) !== null;
 		if (wasComponent || isNowComponent) {
 			reread += 1;
@@ -1142,107 +691,6 @@
 			// at, and knows nothing of this page's: read it again at this one.
 			void chooseHowMuch(named, false);
 		}
-	}
-
-	const unshared = $derived(
-		divergence
-			? [...divergence.ingredients, ...divergence.steps].filter((row) => row.state !== 'same')
-					.length
-			: 0,
-	);
-
-	/** Marked rows are only ever drawn when there IS a divergence and it is shown. */
-	const marking = $derived(Boolean(divergence) && marks);
-
-	/**
-	 * What the other side has for a single value, when the two do not agree.
-	 * The marking covers the whole recipe, not only the two lists (ADR 0019):
-	 * a Title renamed or a Yield halved is a difference a cook needs to see.
-	 */
-	/**
-	 * A marked value in words. The two times are minutes, so they read with
-	 * their unit, `1 h 30`, as they do in the strip (#175); everything else is
-	 * `fieldText`'s.
-	 */
-	function markText(name: keyof DivergenceOutput['fields'], value: unknown): string {
-		const time = name === 'prep_time_minutes' || name === 'cook_time_minutes';
-		return time && typeof value === 'number' ? timeText(value) : fieldText(value);
-	}
-
-	function markOf(name: keyof DivergenceOutput['fields']): string | null {
-		if (!marking || !divergence) return null;
-		const field = divergence.fields[name];
-		if (field.same) return null;
-		// A Note is a block of prose; "{kitchen} has {value}" reads as nonsense
-		// against one, so it is introduced as the note it is.
-		if (side === 'theirs') {
-			// Their value is the page, so the mark says what YOURS has (#131):
-			// naming them beside your value would say something false about
-			// their recipe.
-			const value = markText(name, field.mine);
-			return name === 'note'
-				? m.divergence_field_note_yours({ value })
-				: m.divergence_field_yours({ value });
-		}
-		const value = markText(name, field.theirs);
-		return name === 'note'
-			? m.divergence_field_note({ kitchen: otherKitchen, value })
-			: m.divergence_field_differs({ kitchen: otherKitchen, value });
-	}
-
-	// Putting the marking away rebuilds the list from a different set of rows —
-	// so an open panel would reopen on whatever line happens to land at that
-	// index. It closes everything first.
-	function toggleMarks() {
-		marks = !marks;
-		open = new Set();
-		correcting = null;
-		unfoldedComponents = new Set();
-	}
-
-	function toggle(key: string) {
-		const next = new Set(open);
-		if (next.has(key)) next.delete(key);
-		else next.add(key);
-		open = next;
-	}
-
-	function carry(key: string, what: Taken | 'undo') {
-		const next = new Map(taken);
-		if (what === 'undo') next.delete(key);
-		else next.set(key, what);
-		taken = next;
-		saved = 'no';
-	}
-
-	function startSaving() {
-		if (!divergence) return;
-		changeNote = prose(divergence, taken);
-		saving = true;
-	}
-
-	async function save() {
-		if (!divergence) return;
-		try {
-			await kamosu.saveRecipeVersion(draftVersion(divergence, taken, changeNote));
-			taken = new Map();
-			saving = false;
-			saved = 'yes';
-			// A new Version can move a line's index, and both of these are keyed
-			// by index. Neither survives the save.
-			correcting = null;
-			fixed = new Map();
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			saved = 'failed';
-		}
-	}
-
-	/** A Step's number, counted over the rows so a Ghost step takes none — it is
-	 *  not a step of the recipe you are standing in. */
-	function numbering() {
-		let n = 0;
-		return (ghost: boolean) => (ghost ? null : ++n);
 	}
 </script>
 
@@ -1287,24 +735,6 @@
 {/snippet}
 
 <!--
-	A time in the strip, with its unit in the figure: `15 min`, `1 h 30`, `9 h`
-	(#175, Aurélien's reading option 1). It printed the stored minutes bare
-	before, over "min prep", so a 9-hour prove read 540. The label beneath is
-	now only Prep or Cook, since the figure says its own unit.
--->
-{#snippet timeFigure(minutes: number)}
-	<b class="block font-display text-panel-figure font-semibold">
-		{#each figureOf(minutes) as part, index (index)}
-			<span class={index > 0 ? 'ms-1' : ''}
-				>{part.value}{#if part.unit}<small class="ms-1 text-read font-normal"
-						>{unitWord(part.unit)}</small
-					>{/if}</span
-			>
-		{/each}
-	</b>
-{/snippet}
-
-<!--
 	Writing (#83). The page becomes writable in place, which is why this is a
 	swap on the same route and not a screen of its own: Aurélien chose that
 	over a separate compose screen, and a `/recipes/<id>/edit` route would be
@@ -1344,8 +774,7 @@
 			// declared the Language it is written in.
 			if (wasTranslating && landed.branch_id !== branchId) {
 				// Leaving: nothing keyed by this recipe's lines may follow.
-				correcting = null;
-				fixed = new Map();
+				fixes.forget();
 				follow(landed.branch_id);
 				return;
 			}
@@ -1355,7 +784,7 @@
 {:else}
 	<div
 		class="mx-auto max-w-2xl pb-tabbar"
-		data-side={side}
+		data-side={divergent.side}
 		data-whose={recipe && !recipe.writes ? 'theirs' : 'mine'}
 	>
 		{#if failed}
@@ -1368,9 +797,9 @@
 					{versions}
 					current={branchId}
 					yours={yoursId}
-					compared={divergence ? { unshared, with: otherKitchen } : undefined}
-					{marks}
-					{toggleMarks}
+					compared={divergence ? { unshared: divergent.unshared, with: otherKitchen } : undefined}
+					marks={divergent.marks}
+					toggleMarks={divergent.toggleMarks}
 				/>
 			{/if}
 
@@ -1411,11 +840,11 @@
 					{@render sourceLine(content.source)}
 				</p>
 			{/if}
-			{#if markOf('source')}
-				<p class="px-gutter pt-2 text-read text-accent">{markOf('source')}</p>
+			{#if divergent.markOf('source')}
+				<p class="px-gutter pt-2 text-read text-accent">{divergent.markOf('source')}</p>
 			{/if}
-			{#if markOf('title')}
-				<p class="px-gutter pt-2 text-read text-accent">{markOf('title')}</p>
+			{#if divergent.markOf('title')}
+				<p class="px-gutter pt-2 text-read text-accent">{divergent.markOf('title')}</p>
 			{/if}
 
 			<!--
@@ -1434,38 +863,14 @@
 				<Language
 					language={recipe.language}
 					translation={recipe.translation}
-					others={otherBranches}
+					others={family.others}
 				/>
 			{/if}
 
-			<!-- The meta: one full-bleed strip, three cells, hairlines between. -->
-			{#if content.prep_time_minutes !== null || content.cook_time_minutes !== null || content.yield}
-				<div class="mt-4 flex border-y border-rule">
-					{#if content.prep_time_minutes !== null}
-						<div class="flex-1 px-2 py-3 text-center">
-							{@render timeFigure(content.prep_time_minutes)}
-							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_prep()}</span>
-						</div>
-					{/if}
-					{#if content.cook_time_minutes !== null}
-						<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
-							{@render timeFigure(content.cook_time_minutes)}
-							<span class="mt-1 block text-label text-ink-2 uppercase">{m.recipe_cook()}</span>
-						</div>
-					{/if}
-					{#if content.yield}
-						<div class="flex-1 border-l border-rule px-2 py-3 text-center first:border-l-0">
-							<b class="block font-display text-panel-figure font-semibold">
-								{content.yield.amount}
-							</b>
-							<span class="mt-1 block text-label text-ink-2 uppercase">{content.yield.noun}</span>
-						</div>
-					{/if}
-				</div>
-			{/if}
+			<MetaStrip {content} />
 			{#each ['prep_time_minutes', 'cook_time_minutes', 'yield'] as const as name (name)}
-				{#if markOf(name)}
-					<p class="mt-1 px-gutter text-read text-accent">{markOf(name)}</p>
+				{#if divergent.markOf(name)}
+					<p class="mt-1 px-gutter text-read text-accent">{divergent.markOf(name)}</p>
 				{/if}
 			{/each}
 
@@ -1491,9 +896,9 @@
 			marks is a sentence about nothing.
 		-->
 
-			{#if onlyKept && keptOn}
+			{#if phone.onlyKept && phone.keptOn}
 				<p class="mt-3 px-gutter text-read text-ink-2">
-					{m.offline_kept_from({ date: keptOn.toLocaleDateString() })}
+					{m.offline_kept_from({ date: phone.keptOn.toLocaleDateString() })}
 				</p>
 			{/if}
 
@@ -1505,7 +910,7 @@
 		-->
 			{#snippet ingredientLine(text: string, at: number)}
 				{@const readable = correctable && at >= 0}
-				{@const component = componentAt([], at)}
+				{@const component = unfold.at([], at)}
 				<li class="flex gap-3 border-b border-rule py-3">
 					<!--
 					Matcha rather than indigo where the line names a recipe (#50). The
@@ -1522,8 +927,8 @@
 							<button
 								type="button"
 								class="block w-full text-left"
-								aria-expanded={correcting === at}
-								onclick={() => toggleCorrector(at)}
+								aria-expanded={fixes.correcting === at}
+								onclick={() => fixes.toggle(at)}
 							>
 								{@render written(text, at, Boolean(component))}
 							</button>
@@ -1531,21 +936,25 @@
 							{@render written(text, at, Boolean(component))}
 						{/if}
 						{#if component}
-							{@render componentLine(component)}
+							<ComponentLine
+								{component}
+								open={unfold.isOpen(component.path)}
+								toggle={() => unfold.toggle(component.path)}
+							/>
 						{/if}
-						{#if readable && correcting === at}
+						{#if readable && fixes.correcting === at}
 							<Correcting
 								{branchId}
 								lineIndex={at}
 								line={text}
-								reading={readingAt(at)}
+								reading={fixes.readingAt(at)}
 								componentTitle={component?.title}
 								onDone={(next, converted) => corrected(at, next, converted)}
-								onCancel={() => (correcting = null)}
+								onCancel={fixes.close}
 							/>
 						{/if}
-						{#if component && isOpen(component.path)}
-							{@render unfolded(component)}
+						{#if component && unfold.isOpen(component.path)}
+							<Unfolded {component} at={unfold.at} />
 						{/if}
 					</div>
 				</li>
@@ -1557,60 +966,17 @@
 			says whether it is a conversion or an echo, and nothing says whether
 			Kamosu read the line at all (ADR 0002).
 
-			A COMPONENT'S SLOT IS FILLED BY `componentLine` INSTEAD, outside this
+			A COMPONENT'S SLOT IS FILLED BY `ComponentLine` INSTEAD, outside this
 			snippet — it is a target, and this one is rendered inside the button
-			that opens the corrector. A button inside a button is invalid HTML and
-			gives one row two overlapping targets, which on a phone is a coin toss.
+			that opens the corrector.
 		-->
 			{#snippet written(text: string, at: number, isComponent: boolean)}
 				<span class="block text-line">{text}</span>
 				{#if !isComponent && pageScaledTo && at >= 0 && !measured.ingredients[at]}
 					<!-- Asked for another amount, and this line did not move (#109). -->
 					<span class="block text-read text-ink-2">{m.how_much_not_scaled()}</span>
-				{:else if !isComponent && beneathLine(at)}
-					<span class="block text-read text-ink-2">{beneathLine(at)}</span>
-				{/if}
-			{/snippet}
-
-			<!--
-			A COMPONENT'S OWN LINE: which recipe it names and how much of it, or the
-			one sentence saying why there is no unfolding. It sits in the same slot
-			every Ingredient Line has for its conversion (#49, ADR 0016) — a
-			Component says something DIFFERENT there, not something extra beside it
-			— and it is worded by the Core, so this screen, the Share Link page and
-			an agent at the MCP door all say it alike.
-
-			IT IS ALSO THE WAY IN, where there is something to open. The written
-			line above keeps its own tap, which every line on this page has, so the
-			recipe's NAME is what opens the recipe — the more obvious of the two
-			anyway. A Component with nothing behind it is not a target: a missing
-			recipe and a stopped repeat are sentences, not doors.
-		-->
-			{#snippet componentLine(component: Component)}
-				{#if component.content}
-					<button
-						type="button"
-						class="flex w-full items-start gap-1 text-left text-read text-support-2"
-						aria-expanded={isOpen(component.path)}
-						onclick={() => toggleComponent(component.path)}
-					>
-						<span class="min-w-0 flex-1">{component.said}</span>
-						<svg
-							viewBox="0 0 24 24"
-							aria-hidden="true"
-							class="mt-1 h-3 w-3 shrink-0"
-							style={isOpen(component.path) ? 'transform: rotate(90deg)' : ''}
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<path d="m9 5 7 7-7 7" />
-						</svg>
-					</button>
-				{:else}
-					<span class="block text-read text-support-2">{component.said}</span>
+				{:else if !isComponent && fixes.beneathLine(at)}
+					<span class="block text-read text-ink-2">{fixes.beneathLine(at)}</span>
 				{/if}
 			{/snippet}
 
@@ -1647,162 +1013,24 @@
 				{/if}
 			{/snippet}
 
-			<!--
-			A COMPONENT UNFOLDED: the inner recipe's own Ingredient Lines, indented
-			under the row that names them behind a matcha rule, on the recessed
-			ground — visibly another recipe's inside without being a card.
-
-			Its Steps are NOT here. They are set at the foot of the page by
-			`annexe`, which is the treatment Aurélien chose (#50), and it is what
-			keeps this a list rather than a method with a shopping list around it.
-
-			The amounts beneath each line are already scaled by how much of that
-			recipe this line asks for and converted to this reader's measures —
-			both worked out in the Core, by the same code that words every other
-			Ingredient Line's slot. A Component inside a Component nests here too;
-			`componentAt` finds it by its path.
-		-->
-			{#snippet unfolded(component: Component)}
-				{#if component.content}
-					<ul class="mt-3 border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
-						{#each component.content.ingredients as item, index (index)}
-							{@const within = componentAt(component.path, index)}
-							{#if item.kind === 'section'}
-								<li class="border-b border-rule py-3 pb-1 last:border-b-0">
-									<h4 class="font-display text-label text-ink-2 uppercase">{item.text}</h4>
-								</li>
-							{:else}
-								<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
-									<span
-										class="ingredient-marker shrink-0 {within ? 'bg-support-2' : 'bg-accent'}"
-										aria-hidden="true"
-									></span>
-									<div class="min-w-0 flex-1">
-										<span class="block text-line">{item.text}</span>
-										{#if within}
-											<span class="block text-read text-support-2">{within.said}</span>
-										{:else if component.measured?.ingredients[index]}
-											<span class="block text-read text-ink-2">
-												{component.measured.ingredients[index]}
-											</span>
-										{/if}
-										{#if within}
-											{@render unfolded(within)}
-										{/if}
-									</div>
-								</li>
-							{/if}
-						{/each}
-					</ul>
-					<!--
-					WHERE THE METHOD WENT. Under treatment B a Component is in two
-					places, and the second one is a long way down the page — so the
-					row says where, and the saying is a link that takes you there.
-					Absent for a Component with no Steps: there is nothing at the foot
-					to point at.
-				-->
-					{#if component.content.steps.length}
-						<a
-							href="#annexe-{pathKey(component.path)}"
-							class="mt-2 block text-read text-support-2 underline underline-offset-2"
-						>
-							{m.recipe_component_method_below()}
-						</a>
-					{/if}
-				{/if}
-			{/snippet}
-
-			<!--
-			THE ANNEXE (#50): one Component's own Steps, at the foot of the page,
-			under a heading in this page's own Section grammar but in matcha — so it
-			reads as belonging to the Component rather than to this recipe's method.
-
-			Never spliced into the Method above it. Composition says WHAT and never
-			WHEN: Kamosu does not know the dough is made the day before, and where
-			the timing matters the cook writes a Step saying so.
-		-->
-			{#snippet annexe(component: Component)}
-				{#if component.content}
-					{@const number = numbering()}
-					<div id="annexe-{pathKey(component.path)}" class="mt-8 scroll-mt-12">
-						<h2
-							class="mx-gutter mb-1 font-display text-label font-semibold text-support-2 uppercase"
-						>
-							{component.title} · {m.recipe_component_method()}
-						</h2>
-						<p class="mx-gutter mb-2 text-read text-ink-2">{component.said}</p>
-						<ol class="mx-gutter border-l-2 border-support-2 bg-ground-2 py-1 pl-3">
-							{#each component.content.steps as item, index (index)}
-								{#if item.kind === 'section'}
-									<li class="border-b border-rule py-4 pb-1">
-										<h3 class="font-display text-label text-ink-2 uppercase">{item.text}</h3>
-									</li>
-								{:else}
-									<li class="flex gap-3 border-b border-rule py-3 last:border-b-0">
-										<span class="w-6 shrink-0 font-display text-line font-semibold text-accent">
-											{number(false)}
-										</span>
-										<p class="min-w-0 flex-1 text-body">{item.text}</p>
-									</li>
-								{/if}
-							{/each}
-						</ol>
-					</div>
-				{/if}
-			{/snippet}
-
 			<!-- Ingredients ------------------------------------------------------ -->
 			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
 				{m.recipe_ingredients()}
 			</h2>
-			<!--
-				HOW MUCH, for the errands (#109). Under the heading because it is a
-				fact about every line beneath it, and a row rather than a control in
-				the meta strip because a third of the library has no Yield to put a
-				control on. In your own recipe only, and not while a Divergence is
-				shown: see `pageScaledTo`.
-			-->
 			{#if !divergence}
-				<div class="mx-gutter mb-2">
-					<div class="flex items-center justify-between gap-3">
-						<p
-							class="min-w-0 text-read {pageScaledTo ? 'font-semibold text-accent' : 'text-ink-2'}"
-						>
-							{pageScaledTo
-								? m.recipe_how_much({ amount: said(pageScaledTo) ?? '' })
-								: content.yield
-									? m.recipe_how_much({ amount: said(content.yield) ?? '' })
-									: m.recipe_how_much_as_written()}
-						</p>
-						<button
-							type="button"
-							class="tap-out h-8 shrink-0 text-read text-accent underline"
-							aria-expanded={choosingHowMuch}
-							onclick={() => (choosingHowMuch = !choosingHowMuch)}
-						>
-							{choosingHowMuch ? m.recipe_how_much_done() : m.recipe_how_much_change()}
-						</button>
-					</div>
-					{#if choosingHowMuch}
-						<div class="mt-2 border-y border-rule py-3">
-							<HowMuch
-								written={content.yield}
-								wanted={pageScaledTo}
-								room="page"
-								onchoose={(chosen) => void chooseHowMuch(chosen)}
-							/>
-						</div>
-					{/if}
-					{#if howMuchFailed}
-						<p class="mt-2 text-read text-support" role="alert">{m.recipe_how_much_offline()}</p>
-					{/if}
-				</div>
+				<HowMuchRow
+					written={content.yield}
+					scaledTo={pageScaledTo}
+					bind:choosing={choosingHowMuch}
+					failed={howMuchFailed}
+					onchoose={(chosen) => void chooseHowMuch(chosen)}
+				/>
 			{/if}
 			<ul class="px-gutter">
-				{#if marking && divergence}
+				{#if divergent.showing && divergence}
 					{#each divergence.ingredients as row, index (rowKey('ingredients', index))}
 						{@const key = rowKey('ingredients', index)}
-						{@const own = side === 'mine' ? row.mine : row.theirs}
+						{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
 						{#if row.kind === 'section'}
 							<li class="border-b border-rule py-4 pb-1">
 								<h3 class="font-display text-label text-ink-2 uppercase">
@@ -1820,28 +1048,28 @@
 							than this ticket's. The sentence is what stops the row
 							going silent about what it is.
 						-->
-							{@const marked = own ? componentAt([], own.index) : undefined}
+							{@const marked = own ? unfold.at([], own.index) : undefined}
 							<MarkedRow
 								{row}
-								{side}
+								side={divergent.side}
 								{otherKitchen}
-								beneath={marked?.said ?? (own ? beneathLine(own.index) : '')}
-								open={open.has(key)}
-								taken={taken.get(key)}
-								onToggle={() => toggle(key)}
-								onCarry={(what) => carry(key, what)}
-								onFixReading={correctable && own ? () => toggleCorrector(own.index) : undefined}
+								beneath={marked?.said ?? (own ? fixes.beneathLine(own.index) : '')}
+								open={divergent.isOpen(key)}
+								taken={divergent.taken.get(key)}
+								onToggle={() => divergent.toggle(key)}
+								onCarry={(what) => divergent.carry(key, what)}
+								onFixReading={correctable && own ? () => fixes.toggle(own.index) : undefined}
 							/>
-							{#if correctable && own && correcting === own.index}
+							{#if correctable && own && fixes.correcting === own.index}
 								<li class="border-b border-rule pb-3 pl-3">
 									<Correcting
 										{branchId}
 										lineIndex={own.index}
 										line={own.text}
-										reading={readingAt(own.index)}
+										reading={fixes.readingAt(own.index)}
 										componentTitle={marked?.title}
 										onDone={(next, converted) => corrected(own.index, next, converted)}
-										onCancel={() => (correcting = null)}
+										onCancel={fixes.close}
 									/>
 								</li>
 							{/if}
@@ -1879,8 +1107,8 @@
 					{nutritionText(content.nutrition ?? null)}
 				</p>
 			{/if}
-			{#if markOf('nutrition')}
-				<p class="mt-1 px-gutter text-read text-accent">{markOf('nutrition')}</p>
+			{#if divergent.markOf('nutrition')}
+				<p class="mt-1 px-gutter text-read text-accent">{divergent.markOf('nutrition')}</p>
 			{/if}
 
 			<!-- Method ----------------------------------------------------------- -->
@@ -1888,11 +1116,11 @@
 				{m.recipe_method()}
 			</h2>
 			<ol class="px-gutter">
-				{#if marking && divergence}
+				{#if divergent.showing && divergence}
 					{@const number = numbering()}
 					{#each divergence.steps as row, index (rowKey('steps', index))}
 						{@const key = rowKey('steps', index)}
-						{@const own = side === 'mine' ? row.mine : row.theirs}
+						{@const own = divergent.side === 'mine' ? row.mine : row.theirs}
 						{@const n = number(!own)}
 						{#if row.kind === 'section'}
 							<li class="border-b border-rule py-4 pb-1">
@@ -1913,15 +1141,15 @@
 						{:else}
 							<MarkedRow
 								{row}
-								{side}
+								side={divergent.side}
 								{otherKitchen}
 								number={n}
 								conversions={own ? (measured.steps[own.index] ?? []) : []}
 								photo={own ? (content.steps[own.index]?.photo ?? null) : null}
-								open={open.has(key)}
-								taken={taken.get(key)}
-								onToggle={() => toggle(key)}
-								onCarry={(what) => carry(key, what)}
+								open={divergent.isOpen(key)}
+								taken={divergent.taken.get(key)}
+								onToggle={() => divergent.toggle(key)}
+								onCarry={(what) => divergent.carry(key, what)}
 							/>
 						{/if}
 					{/each}
@@ -1949,8 +1177,8 @@
 			</ol>
 
 			<!-- The annexe (#50): every Component's Steps, in the order the page met them. -->
-			{#each annexes as component (component.path.join('.'))}
-				{@render annexe(component)}
+			{#each unfold.annexes as component (component.path.join('.'))}
+				<Annexe {component} />
 			{/each}
 
 			{#if content.note}
@@ -1960,8 +1188,8 @@
 					{content.note}
 				</div>
 			{/if}
-			{#if markOf('note')}
-				<p class="mx-gutter mt-1 text-read text-accent">{markOf('note')}</p>
+			{#if divergent.markOf('note')}
+				<p class="mx-gutter mt-1 text-read text-accent">{divergent.markOf('note')}</p>
 			{/if}
 
 			<!--
@@ -1983,84 +1211,18 @@
 				/>
 			{/if}
 
-			<!--
-			Cooked (#59). How this dish has actually gone: how many times, when
-			last, and each Person's most recent verdict with their name.
-
-			There is no average here and no way to build one, which is ADR 0015
-			working rather than a rule anybody has to remember — a rating is a
-			word, and only the newest one each Person gave ever arrives, so a
-			verdict somebody has since superseded cannot drag down a recipe that
-			was fixed months ago. A Person who cooked and said nothing simply
-			does not appear: silence is not a score of zero.
-		-->
 			{#if recipe}
-				<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-					{m.recipe_cooked()}
-				</h2>
-				<div class="px-gutter">
-					{#if recipe.cooked.count === 0 || !recipe.cooked.last_cooked_at}
-						<p class="text-read text-ink-2">{m.recipe_cooked_never()}</p>
-					{:else}
-						{@const when = new Date(recipe.cooked.last_cooked_at).toLocaleDateString()}
-						<p class="text-read text-ink-2">
-							{recipe.cooked.count === 1
-								? m.recipe_cooked_once({ when })
-								: m.recipe_cooked_times({ count: recipe.cooked.count, when })}
-						</p>
-						<ul>
-							{#each recipe.cooked.ratings as verdict (verdict.person_id)}
-								<li class="flex items-baseline justify-between gap-3 border-b border-rule py-2">
-									<span class="text-line">{verdict.name}</span>
-									<span class="text-read text-accent uppercase">{ratingLabel(verdict.rating)}</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-					<!--
-						Your own pictures of the dish, and the way to put one on the
-						recipe (#110, option B): here, among how the dish has actually
-						gone, because that is what they are. Nothing at all when you
-						have none, which is nearly always; and only in your own
-						Branch, for the reason the Tags row is.
-					-->
-					{#if myPictures.length > 0}
-						<div class="mt-3">
-							<h3 class="mb-2 text-label text-ink-2 uppercase">{m.recipe_my_photos()}</h3>
-							<ul class="flex flex-wrap gap-2">
-								{#each myPictures as picture (picture.attempt + picture.photograph)}
-									<li>
-										<AttemptPhoto
-											id={picture.photograph}
-											alt={m.promote_taken({ date: picture.taken })}
-										/>
-									</li>
-								{/each}
-							</ul>
-							<NeedsServer
-								label={m.recipe_use_photo()}
-								waiting={m.offline_waits_edit()}
-								onclick={() => (promotingPhoto = true)}
-								shapeClass="mt-2 min-h-12 w-full px-4 text-body"
-								lookClass="border border-rule text-accent"
-							/>
-						</div>
-					{/if}
-				</div>
-			{/if}
-
-			{#if promotingPhoto && recipe}
-				<PhotoToRecipe
-					{branchId}
-					pictures={myPictures}
-					onPromoted={(landed) => {
-						promotingPhoto = false;
-						// Nothing to name: a promotion changes a photograph and
-						// no Ingredient Line, so no Component is left behind.
-						afterSave({ ...landed, named: true });
-					}}
-					onClose={() => (promotingPhoto = false)}
-				/>
+				<Cooked cooked={recipe.cooked}>
+					<MyPictures
+						{branchId}
+						pictures={pictures.list}
+						onPromoted={(landed) => {
+							// Nothing to name: a promotion changes a photograph and
+							// no Ingredient Line, so no Component is left behind.
+							afterSave({ ...landed, named: true });
+						}}
+					/>
+				</Cooked>
 			{/if}
 
 			{#if copiedInto?.branchId === branchId}
@@ -2109,9 +1271,9 @@
 				/>
 			{/if}
 
-			{#if saved === 'yes'}
+			{#if divergent.saved === 'yes'}
 				<p class="mx-gutter mt-4 text-read text-accent" role="status">{m.divergence_saved()}</p>
-			{:else if saved === 'failed'}
+			{:else if divergent.saved === 'failed'}
 				<p class="mx-gutter mt-4 text-read text-support" role="alert">
 					{m.divergence_save_failed()}
 				</p>
@@ -2178,8 +1340,8 @@
 				class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
 			>
 				{m.recipe_the_thread()}
-				{#if threadLine}
-					<span class="mt-1 block font-sans text-read text-ink-2">{threadLine}</span>
+				{#if historyLine}
+					<span class="mt-1 block font-sans text-read text-ink-2">{historyLine}</span>
 				{/if}
 			</a>
 			<!--
@@ -2237,237 +1399,29 @@
 				{m.share_title()}
 			</a>
 			<!--
-			A Sheet (#75, ADR 0023): this recipe, as it stands here, on paper.
-			It waits for the server, since the server is what sets it.
-		-->
-			{#if printing === 'ready'}
-				<!--
-				The Sheet is already on the phone, so sharing it waits for nothing
-				(#149): the same button, no longer one that needs the server.
+				At the amount on screen: the page is what a Sheet prints (ADR 0023).
+				Not while a Divergence is shown, where the amounts on screen are
+				`divergence`'s and the scaler is not offered (`pageScaledTo`).
 			-->
-				<button
-					type="button"
-					onclick={shareSheet}
-					class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] border border-rule p-4 text-center font-display text-body text-accent"
-				>
-					{m.recipe_share_sheet()}
-				</button>
-			{:else}
-				<NeedsServer
-					label={settingSheet ? m.recipe_print_setting() : m.recipe_print_sheet()}
-					waiting={m.offline_waits_print()}
-					onclick={printSheet}
-					disabled={settingSheet}
-					shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-					lookClass="border border-rule text-accent"
+			<SheetAction
+				sheet={paper}
+				print={() => void paper.print(branchId, divergence ? undefined : named)}
+			/>
+			<ShoppingListButton {branchId} scaledTo={pageScaledTo} bind:onTheList />
+
+			{#if recipe?.writes}
+				<DeleteRecipe
+					{branchId}
+					title={recipe.versions.at(-1)?.content.title ?? ''}
+					cookings={recipe.cooked.count}
 				/>
 			{/if}
-			{#if printing === 'failed'}
-				<p class="mx-gutter mt-2 text-read text-support" role="alert">{m.recipe_print_failed()}</p>
-			{:else if printing === 'stillSetting'}
-				<p class="mx-gutter mt-2 text-read text-ink-2" role="status">
-					{sharing ? m.recipe_share_still_going() : m.recipe_print_still_going()}
-				</p>
-			{/if}
-			<!--
-			Onto the Shopping List (#73, ADR 0024). A button and not a link: it
-			is one act that finishes here, and pressing it again takes the
-			recipe back off. What it stores is the choosing — the Branch, at
-			whatever Version it is on when the list is next read.
-		-->
-			<button
-				type="button"
-				disabled={shopping}
-				class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] border border-rule p-4 text-center font-display text-body {onTheList
-					? 'text-ink-2'
-					: 'text-accent'}"
-				onclick={async () => {
-					shopping = true;
-					try {
-						if (onTheList) {
-							await kamosu.removeFromShoppingList({ branch_id: branchId });
-							onTheList = false;
-						} else {
-							// At the amount on screen (#109): what the errands scaler is for.
-							await kamosu.addToShoppingList(
-								pageScaledTo
-									? { branch_id: branchId, shopping_yield: pageScaledTo }
-									: { branch_id: branchId },
-							);
-							onTheList = true;
-						}
-					} catch (error: unknown) {
-						if (!(error instanceof OperationError)) throw error;
-					} finally {
-						shopping = false;
-					}
-				}}
-			>
-				{onTheList ? m.shopping_on_your_list() : m.shopping_add_this()}
-			</button>
-
-			<!--
-			Deleting this recipe (#120). Set apart from the stack above, below a
-			rule and a gap, as small underlined text rather than a seventh
-			full-width button — the choice of 22 September 2026, over putting it
-			in the stack.
-
-			The reasoning is about the thumb, not the look. Everything above is
-			the same shape in the same column, and *Add to shopping list* is the
-			one people tap most often without reading; a destructive row
-			directly beneath it is a mis-tap waiting to happen. Something that
-			is not button-shaped, past the end of the actions, cannot be reached
-			by the habit that reaches for those.
-
-			NOT in Writing, where the mockup drew it: that screen holds an
-			unsaved draft the whole time it is open, and a screen that can both
-			lose your typing and destroy the recipe is asking two very different
-			questions with one set of buttons.
-
-			`NeedsServer` because deleting is a write against the recipes, which
-			are the server's side of the line and never queued (ADR 0013). The
-			outbox carries your own history, never the recipes — and it queues
-			from an allowlist, so this is already true rather than arranged.
-
-			Only on a recipe you write (#131): deleting is a change, and anybody
-			else's version is theirs to keep or delete, so offering it would
-			only ever be offering a refusal.
-		-->
-			{#if recipe?.writes}
-				<div class="mx-gutter mt-8 border-t border-rule pt-4 text-center">
-					<NeedsServer
-						label={m.recipe_delete()}
-						waiting={m.offline_waits_delete()}
-						onclick={askToDelete}
-						shapeClass="inline-block px-3 py-2 text-read"
-						lookClass="text-support underline underline-offset-4"
-						idleClass="text-ink-2 opacity-55"
-					/>
-				</div>
-			{/if}
 		{/if}
 
-		<!-- Carried across and not yet saved. It becomes real only when an ordinary
-	     Version is saved — there is no other kind of save here. -->
-		{#if taken.size > 0 && divergence}
-			<div
-				class="fixed inset-x-0 bottom-tabbar z-30 mx-auto max-w-2xl border-t border-on-accent/25 bg-accent px-gutter py-3 text-on-accent"
-			>
-				<p class="mb-2 text-read">
-					{taken.size === 1
-						? m.divergence_unsaved_one({ kitchen: otherKitchen })
-						: m.divergence_unsaved({
-								count: taken.size,
-								kitchen: otherKitchen,
-							})}
-				</p>
-				<div class="flex gap-2">
-					<!-- Saving a Version is editing the recipe: it waits for the server,
-				     and what was carried across stays carried until then (#76). -->
-					<NeedsServer
-						label={m.divergence_save()}
-						waiting={m.offline_waits_save()}
-						onclick={startSaving}
-						shapeClass="flex-1 p-2 text-center text-read"
-						lookClass="bg-on-accent text-accent"
-						idleClass="border border-on-accent/40 text-on-accent opacity-55"
-					/>
-					<button
-						type="button"
-						onclick={() => (taken = new Map())}
-						class="flex-1 border border-on-accent/40 p-2 text-center text-read"
-					>
-						{m.divergence_undo()}
-					</button>
-				</div>
-			</div>
+		{#if divergence}
+			<Carrying marking={divergent} {otherKitchen} />
 		{/if}
 	</div>
-{/if}
-
-{#if saving && divergence}
-	<div class="fixed inset-0 z-40 bg-accent/40"></div>
-	<div
-		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
-		role="dialog"
-		aria-modal="true"
-		aria-label={m.divergence_save()}
-	>
-		<h3 class="font-display text-title font-semibold">{m.divergence_save()}</h3>
-		<label class="mt-4 block text-label text-ink-2 uppercase" for="what-changed">
-			{m.divergence_what_changed()}
-		</label>
-		<textarea
-			id="what-changed"
-			rows="3"
-			bind:value={changeNote}
-			class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"></textarea>
-		<p class="mt-2 text-read text-ink-2">
-			{m.divergence_save_hint({ kitchen: otherKitchen })}
-		</p>
-		<NeedsServer
-			label={m.divergence_save()}
-			waiting={m.offline_waits_save()}
-			onclick={save}
-			shapeClass="mt-4 block w-full p-4 text-center font-display text-body"
-			lookClass="bg-accent text-on-accent"
-		/>
-		<button
-			type="button"
-			onclick={() => (saving = false)}
-			class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-accent"
-		>
-			{m.divergence_cancel()}
-		</button>
-	</div>
-{/if}
-
-<!--
-	The confirmation for deleting this recipe (#120), in the one sheet Kamosu
-	asks every irreversible thing through (#103).
-
-	It names three facts and no more. The recipe's name, so there is no doubt
-	which copy you meant — the route is per-Branch, so a delete offered here is
-	never ambiguous. That the cooking history stays, because that is the thing
-	a person would most expect a delete to take and the reassurance is the
-	whole point of saying it. And the Share Link, **only when one is live**.
-
-	No big figure leads it. The sheet's own note says the number should be the
-	thing you are deciding about, and here there is not one: a large `11` over
-	a delete button reads as eleven things going, which is the exact opposite
-	of what this sheet is promising.
-
-	THE COUNT IS THE HOUSEHOLD'S, NEVER THE READER'S, so every phrase here is
-	impersonal — "all 11 times this was cooked", not "you cooked". A recipe is
-	held by a Kitchen rather than a person (ADR 0007) and `cooked.count` tallies
-	every member's Attempts across the whole Lineage, the translation's
-	included. "You cooked this 11 times", said to somebody who cooked it twice,
-	is a plain untruth in the one sheet that most needs to be believed. The
-	Cooked section above is worded impersonally for exactly this reason; these
-	must not drift apart.
--->
-{#if confirmingDelete && recipe}
-	{@const title = recipe.versions.at(-1)?.content.title ?? ''}
-	{@const cookings = recipe.cooked.count}
-	<Confirm
-		title={m.recipe_delete_title({ title })}
-		consequence="{cookings === 0
-			? m.recipe_delete_keeps_none()
-			: cookings === 1
-				? m.recipe_delete_keeps_one()
-				: m.recipe_delete_keeps({ count: cookings })} {m.recipe_delete_gone()}"
-		act={m.recipe_delete_act()}
-		busy={deleting}
-		failed={deleteFailed}
-		run={deleteRecipe}
-		cancel={() => (confirmingDelete = false)}
-	>
-		{#if shareIsLive === 'yes'}
-			<p class="text-body text-support">{m.recipe_delete_shared()}</p>
-		{:else if shareIsLive === 'unknown'}
-			<p class="text-body text-support">{m.recipe_delete_share_unknown()}</p>
-		{/if}
-	</Confirm>
 {/if}
 
 <!--
@@ -2498,8 +1452,8 @@
 	<LanguageSheet
 		branchId={recipe.branch_id}
 		language={recipe.language}
-		inAFamily={inALanguageFamily}
-		taken={languagesTaken}
+		inAFamily={family.inAFamily}
+		taken={family.taken}
 		onSaid={(landed) => {
 			sayingLanguage = false;
 			// Saying this about a recipe another Kitchen writes is a Copy like

@@ -35,6 +35,15 @@ export type ListName = 'ingredients' | 'steps';
 
 export const rowKey = (list: ListName, index: number): string => `${list}:${index}`;
 
+/**
+ * A Step's number, counted over the rows so a Ghost step takes none — it is
+ * not a step of the recipe you are standing in.
+ */
+export function numbering() {
+	let n = 0;
+	return (ghost: boolean) => (ghost ? null : ++n);
+}
+
 /** One row, seen from the recipe you are standing in. */
 export interface Seen {
 	/** The line the recipe you are IN has here. Null makes this row a Ghost. */
