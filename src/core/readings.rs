@@ -1417,8 +1417,8 @@ pub(super) fn measured_for_version(
 /// `3 oz. freshly grated Parmesan` is Parmesan. Where two names start at the
 /// same word the longer wins, so `all-purpose flour` beats `flour`.
 ///
-/// It is the join a Step's `uses` makes ([`named_at`] beneath `names_in`),
-/// asked where rather than whether.
+/// It is the whole-word join [`named_at`] makes, asked where rather than
+/// whether. A Step's `uses` joins more loosely (#184), and this does not.
 fn line_named_first<'a>(readings: &'a [Measurable], food: &str) -> Option<&'a Measurable> {
     let food = folded_for_search(food);
     readings

@@ -1525,8 +1525,9 @@ fn held_from(
 ///
 /// **Nothing new is stored and nobody types a link.** A Step points at no
 /// Ingredient Line and an Ingredient Line has no name of its own (ADR 0019);
-/// what joins them is the Reading's target, which is a word. So this is worked
-/// out here, on every read, from the two things already written — and a Step
+/// what joins them is the Reading's target, which is a word, or a part of it
+/// the Step shortens it to (`crate::step_uses`, #184). So this is worked out
+/// here, on every read, from the two things already written — and a Step
 /// on a recipe nothing has been read on simply uses nothing, which is the
 /// panel degrading to prose rather than failing.
 ///
@@ -1536,60 +1537,31 @@ fn held_from(
 fn cooking_for_version(content: &Value, readings: &[Value]) -> Value {
     let no_lines = Vec::new();
     let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
-
-    // Each Reading's target, folded once — the loose fold, because this asks
-    // *did the cook mean this* rather than *is this the same word*, which is
-    // the same distinction `folded_for_search` was drawn for.
-    let targets: Vec<(usize, String)> = readings
-        .iter()
-        .enumerate()
-        .filter_map(|(line_index, reading)| {
-            let target = reading.get("target")?.as_str()?.trim();
-            (!target.is_empty()).then(|| (line_index, folded_for_search(target)))
-        })
-        .collect();
+    let uses = crate::step_uses::step_uses(step_lines, readings);
 
     let steps: Vec<Value> = step_lines
         .iter()
-        .map(|line| {
-            if line["kind"] != "step" {
-                return Value::Null;
+        .zip(uses)
+        .map(|(line, uses)| match (uses, line["text"].as_str()) {
+            (Some(uses), Some(text)) => {
+                json!({ "uses": uses, "timer_seconds": units::step_duration(text) })
             }
-            let Some(text) = line["text"].as_str() else {
-                return Value::Null;
-            };
-            let folded = folded_for_search(text);
-            let uses: Vec<usize> = targets
-                .iter()
-                .filter(|(_, target)| names_in(&folded, target))
-                .map(|(line_index, _)| *line_index)
-                .collect();
-            json!({ "uses": uses, "timer_seconds": units::step_duration(text) })
+            _ => Value::Null,
         })
         .collect();
 
     json!({ "steps": steps })
 }
 
-/// Whether a Step's folded text names this Food — the whole of how a Step and
-/// an Ingredient Line are joined.
+/// Where `folded_text` first names this Food, as a whole word with one
+/// trailing `s` forgiven. What joins an amount written in a Step to its
+/// Ingredient Line (#150): the Food named soonest after the Unit is the one the
+/// amount measures.
 ///
-/// A whole word, never a fragment: *rice* must not be found inside *price*, and
-/// the corpus's *ail* — garlic — would otherwise be inside half the French
-/// language. The one latitude is a trailing `s`, so a line read as *egg* is
-/// used by a step that says *eggs*, and one read as *tomates* by a step that
-/// says *tomate*. It is a tolerance rather than a rule about plurals: getting
-/// it wrong costs an amount shown on one step too many or one too few, which
-/// ADR 0002 already said this degrades to.
-///
-/// Both sides arrive already folded; nothing here folds anything.
-fn names_in(folded_text: &str, folded_target: &str) -> bool {
-    named_at(folded_text, folded_target).is_some()
-}
-
-/// Where `folded_text` first names this Food, as [`names_in`] finds it. What
-/// joins an amount written in a Step to its Ingredient Line (#150): the Food
-/// named soonest after the Unit is the one the amount measures.
+/// Deliberately stricter than the looser join a Step's `uses` makes
+/// (`crate::step_uses`, #184): an amount belongs to the Food its words name
+/// in full, and loosening that would move which line a converted amount
+/// borrows its Cup Weight from.
 pub(super) fn named_at(folded_text: &str, folded_target: &str) -> Option<usize> {
     let singular = folded_target.strip_suffix('s').unwrap_or(folded_target);
     whole_word_position(folded_text, singular)
@@ -1597,7 +1569,7 @@ pub(super) fn named_at(folded_text: &str, folded_target: &str) -> Option<usize> 
 
 /// Where `haystack` contains `needle` as a whole word — a letter or a digit on
 /// neither side — allowing one trailing `s` on the word found, which is the
-/// plural tolerance [`names_in`] wants.
+/// plural tolerance [`named_at`] wants.
 ///
 /// An empty `needle` is never contained. Saying so here rather than trusting
 /// the caller is what keeps the byte arithmetic below sound: with nothing to
