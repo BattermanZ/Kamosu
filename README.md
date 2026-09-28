@@ -31,25 +31,24 @@ Context Protocol), because both are built from the same list of operations.
 Kamosu runs on a machine you own, in one container with one folder and one
 port, and it sends your data nowhere.
 
-It was written for one household cooking from phones in a kitchen with bad
-wifi, and it is shared in case it suits yours.
-
 <table>
   <tr>
-    <td width="25%" valign="top">
-      <img src="docs/readme/home.png" width="100%" alt="Home: recipe shelves for recently added and most cooked">
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/home.png" width="260" alt="Home: recipe shelves for recently added and most cooked">
       <p align="center"><sub><b>Home</b>: shelves worked out from what you cook</sub></p>
     </td>
-    <td width="25%" valign="top">
-      <img src="docs/readme/recipe.png" width="100%" alt="A recipe page with its photo, times and servings">
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/recipe.png" width="260" alt="A recipe page with its photo, times and servings">
       <p align="center"><sub><b>A recipe</b>, with its whole history behind it</sub></p>
     </td>
-    <td width="25%" valign="top">
-      <img src="docs/readme/cooking.png" width="100%" alt="Cooking mode on one step, with its ingredients to tick off">
+  </tr>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/cooking.png" width="260" alt="Cooking mode on one step, with its ingredients to tick off">
       <p align="center"><sub><b>Cooking mode</b>: one step and what it uses</sub></p>
     </td>
-    <td width="25%" valign="top">
-      <img src="docs/readme/shopping.png" width="100%" alt="A shopping list worked out from three chosen recipes">
+    <td width="50%" valign="top" align="center">
+      <img src="docs/readme/shopping.png" width="260" alt="A shopping list worked out from three chosen recipes">
       <p align="center"><sub><b>Shopping</b>, added up from the recipes you chose</sub></p>
     </td>
   </tr>
