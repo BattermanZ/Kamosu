@@ -1,6 +1,6 @@
 /* The chosen direction — Noren · tight — as a flat token block.
    The five other directions considered on 2026-08-26 were discarded; they survive
-   only on the throwaway branch prototype/36-visual-identity. */
+   only on the tag prototype/36-visual-identity. */
 
 const CHOSEN = {
   name:'Noren · tight',

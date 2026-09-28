@@ -139,5 +139,6 @@ them rather than copy the numbers across.
 ## Where the working is kept
 
 The full six directions, interactive, are the primary source for this decision and live on
-the throwaway branch **`prototype/36-visual-identity`**. They are not on `main` and are not
-maintained.
+the tag **`prototype/36-visual-identity`**. It was a throwaway branch until 2026-09-28, when
+it became a tag. The code is not on `main` or `dev` and is not maintained.
+`git checkout prototype/36-visual-identity` opens it.

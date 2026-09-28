@@ -136,7 +136,7 @@
   --text-list-title: 17px;      /* recipes list card title */
   --text-list-title--line-height: 1.2;
   /* These three finish tokenising sizes that the #36 record found still
-     hard-coded in the chosen direction's shape.css (branch
+     hard-coded in the chosen direction's shape.css (tag
      prototype/36-visual-identity): shelf headings (.k-shelf-h h2), tile titles
      (.k-tile h3) and the amounts-panel figure (.k-need b). The record names
      them as #80's to tokenise; the numbers are theirs, not invented here. */
