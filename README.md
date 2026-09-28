@@ -365,6 +365,12 @@ It prints a path starting `/recover/`. Open it after your Kamosu's address
 (`https://your-kamosu/recover/...`) and choose a new password. Another
 Operator can also send you one from the Operator screen.
 
+**Podman shows no health status.** The `podman-*` images are built in
+Podman's own format, which has no field for a health check. The
+[`docker-compose.yml`](docker-compose.yml) declares one, so use it, or add
+`--health-cmd '["/app/kamosu", "health-check"]' --health-interval 30s` to
+`podman run`.
+
 **Codex cannot connect to Kamosu.** Codex is opening the connection the old
 way, which Kamosu refuses. Start it with the profile from [Codex](#codex),
 which turns on the 2026-07-28 revision.
