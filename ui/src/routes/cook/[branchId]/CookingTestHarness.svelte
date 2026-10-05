@@ -6,6 +6,7 @@
 <script lang="ts">
 	import type { KamosuClient } from '$lib/api/catalogue';
 	import type { Keeping } from '$lib/offline/outbox';
+	import type { Room } from '$lib/room.svelte';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 	import Cooking from './Cooking.svelte';
 
@@ -13,11 +14,13 @@
 		client: KamosuClient;
 		branchId: string;
 		keeping?: Keeping;
+		/** How much room the window has (#193). The phone's unless a test says. */
+		room?: Room;
 	}
 
-	let { client, branchId, keeping }: Props = $props();
+	let { client, branchId, keeping, room = 'phone' }: Props = $props();
 </script>
 
-<Kamosu {client} {keeping}>
+<Kamosu {client} {keeping} {room}>
 	<Cooking {branchId} />
 </Kamosu>

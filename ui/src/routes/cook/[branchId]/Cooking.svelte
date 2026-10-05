@@ -62,6 +62,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import SheetFrame from '$lib/SheetFrame.svelte';
+	import { useRoom } from '$lib/room.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
@@ -147,6 +148,18 @@
 	 */
 	let stepEl = $state<HTMLElement | undefined>(undefined);
 	let stepScrolls = $state(false);
+
+	const room = useRoom();
+	const nextId = $props.id();
+	/**
+	 * The next Step's own element, and how many whole lines of it are shown
+	 * (#197). Three under the Step on an upright tablet. Beside the Step it has
+	 * a column as tall as the Step's box, and how many lines that is depends on
+	 * the window, so it is measured: a line cut through the middle by the edge
+	 * of its column reads as a fault.
+	 */
+	let nextEl = $state<HTMLElement | undefined>(undefined);
+	let nextLines = $state(3);
 
 	/**
 	 * *Got it*. The card closes with the mistake rather than staying open for
@@ -242,6 +255,32 @@
 		measure();
 		window.addEventListener('resize', measure);
 		return () => window.removeEventListener('resize', measure);
+	});
+
+	$effect(() => {
+		const element = nextEl;
+		if (!element || !room.roomy) {
+			nextLines = 3;
+			return;
+		}
+		const measure = () => {
+			const words = element.querySelector('p');
+			if (!words) return;
+			const line = parseFloat(getComputedStyle(words).lineHeight);
+			const tall = element.clientHeight - (words.offsetTop - element.offsetTop);
+			// Where nothing can be measured the three lines stand.
+			nextLines = line > 0 && tall > 0 ? Math.max(1, Math.floor(tall / line)) : 3;
+		};
+		measure();
+		// Watched rather than worked out from what might move it. The column is
+		// as tall as the Step's box, and that changes with the window, with how
+		// many lines the amounts above take, and with a scaled amount gaining a
+		// line beneath it. The words inside never change its height, so this
+		// cannot chase itself.
+		if (typeof ResizeObserver === 'undefined') return;
+		const watching = new ResizeObserver(measure);
+		watching.observe(element);
+		return () => watching.disconnect();
 	});
 
 	onDestroy(() => countdown.dispose());
@@ -346,6 +385,14 @@
 			!finished,
 	);
 	const last = $derived(position >= stops.length - 1);
+
+	/**
+	 * The Step after this one, shown small where the window has room (#197).
+	 * Not on the phone, where the Step needs every line it has. Not while the
+	 * cook is writing on this Step either, when the room belongs to the field.
+	 * The last Step has none.
+	 */
+	const comingNext = $derived(room.wide && !writing ? stops[position + 1] : undefined);
 
 	/** The Section this step falls under, where the recipe has any. */
 	const section = $derived.by(() => {
@@ -728,7 +775,7 @@
 </script>
 
 <div
-	class="fixed inset-0 z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink"
+	class="fixed inset-0 z-30 flex flex-col bg-cook-ground px-gutter pt-safe pb-safe text-cook-ink cook-far wide:px-[var(--cook-inset)]"
 >
 	<!--
 		Kamosu went wrong, said aloud (#119). The root layout keeps #98's card off
@@ -859,7 +906,7 @@
 			taller in one language.
 		-->
 		<header
-			class="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-3 text-read text-cook-ink-2"
+			class="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-3 text-read text-cook-ink-2 wide:pb-4"
 		>
 			<a
 				href="/recipes/{branchId}"
@@ -1113,9 +1160,15 @@
 				{:else if amounts.length === 0}
 					<p class="text-body opacity-70">{m.cook_nothing_new()}</p>
 				{:else}
-					<ul class="flex flex-col gap-2">
+					<!--
+					Two columns where the window is roomy (#197). A tablet on its
+					side is short and wide, and five amounts in one column took
+					almost half of it from the Step. One amount keeps the whole
+					width rather than wrapping in half of it.
+				-->
+					<ul class="flex flex-col gap-2 wide:gap-1 roomy:grid roomy:grid-cols-2 roomy:gap-x-8">
 						{#each amounts as amount (amount.at)}
-							<li>
+							<li class="only:col-span-2">
 								<button
 									type="button"
 									class="flex min-h-12 w-full items-baseline gap-3 text-left"
@@ -1123,7 +1176,7 @@
 									onclick={() => tick(amount.row.from)}
 								>
 									<span
-										class="mt-1 h-4 w-4 shrink-0 self-start rounded-sm border
+										class="mt-1 h-4 w-4 shrink-0 self-start rounded-sm border wide:h-[var(--cook-tick-far)] wide:w-[var(--cook-tick-far)]
 										{isTicked(amount.row) ? 'border-cook-accent bg-cook-accent' : 'border-cook-rule'}"
 										aria-hidden="true"
 									></span>
@@ -1136,7 +1189,9 @@
 											Scaled, so the scaled amount leads and the recipe's own
 											line sits beneath to say what it is an amount of (#109).
 										-->
-											<span class="block font-display text-panel-figure font-semibold">
+											<span
+												class="block font-display text-panel-figure font-semibold wide:leading-figure-far"
+											>
 												{amount.beneath}
 											</span>
 											<span class="block text-read text-cook-ink-2">
@@ -1144,7 +1199,7 @@
 											</span>
 										{:else}
 											<span
-												class="block font-display text-panel-figure font-semibold
+												class="block font-display text-panel-figure font-semibold wide:leading-figure-far
 												{amount.row.dropped ? 'line-through opacity-45' : ''}"
 											>
 												{amount.row.text}
@@ -1218,7 +1273,7 @@
 				{#if !writing}
 					<button
 						type="button"
-						class="tap-out h-8 min-w-0 truncate rounded-sm border border-cook-rule px-3 text-read text-cook-ink"
+						class="tap-out h-8 min-w-0 truncate rounded-sm border border-cook-rule px-3 text-read text-cook-ink wide:h-[var(--cook-control-far)] wide:px-4"
 						aria-label={m.cook_how_much_is({ amount: howMuch })}
 						onclick={() => {
 							atStart = false;
@@ -1243,7 +1298,7 @@
 				{#if countdown.remaining !== null}
 					<button
 						type="button"
-						class="tap-out h-8 shrink-0 rounded-sm border px-3 text-read font-semibold
+						class="tap-out h-8 shrink-0 rounded-sm border px-3 text-read font-semibold wide:h-[var(--cook-control-far)] wide:px-4
 						{countdown.rung
 							? 'border-cook-accent bg-cook-accent text-cook-on-accent'
 							: 'border-cook-accent text-cook-accent'}"
@@ -1257,7 +1312,7 @@
 				{:else if duration !== null && offer}
 					<button
 						type="button"
-						class="tap-out h-8 shrink-0 rounded-sm border border-cook-accent px-3 text-read font-semibold text-cook-accent"
+						class="tap-out h-8 shrink-0 rounded-sm border border-cook-accent px-3 text-read font-semibold text-cook-accent wide:h-[var(--cook-control-far)] wide:px-4"
 						onclick={() => countdown.start(duration)}
 					>
 						{m.cook_timer_start({ duration: offer })}
@@ -1289,7 +1344,7 @@
 			-->
 				{#if !writing}
 					<label
-						class="tap-out ms-auto flex h-8 shrink-0 cursor-pointer items-center text-read text-cook-ink-2"
+						class="tap-out ms-auto flex h-8 shrink-0 cursor-pointer items-center text-read text-cook-ink-2 wide:h-[var(--cook-control-far)]"
 					>
 						{attempt.photographs.length > 0
 							? m.cook_photo_count({ count: attempt.photographs.length })
@@ -1306,7 +1361,7 @@
 				{/if}
 				<button
 					type="button"
-					class="tap-out h-8 shrink-0 text-read {writing
+					class="tap-out h-8 shrink-0 text-read wide:h-[var(--cook-control-far)] {writing
 						? 'ms-auto font-semibold text-cook-accent'
 						: 'text-cook-ink-2'}"
 					onclick={() => {
@@ -1328,7 +1383,10 @@
 			The timer used to be under here too and is not any more — see the row
 			above the hairline (#88).
 		-->
-			<div class="mt-3 flex min-h-0 flex-1 flex-col items-start border-t border-cook-rule pt-3">
+			<div
+				class="mt-3 flex min-h-0 flex-1 flex-col items-start border-t border-cook-rule pt-3 wide:mt-4 wide:pt-6
+				{comingNext ? 'roomy:flex-row roomy:items-stretch roomy:gap-8' : ''}"
+			>
 				{#if writing}
 					<!--
 					The Step, still the largest type in the app, still in the same
@@ -1395,7 +1453,10 @@
 					Version: a step the cook wrote has no photograph, and a rewritten
 					one keeps the recipe's.
 				-->
-					<div class="relative min-h-0 w-full">
+					<div
+						class="relative min-h-0 w-full
+						{comingNext ? 'mb-4 roomy:mb-0 roomy:min-w-0 roomy:flex-1' : ''}"
+					>
 						<div
 							bind:this={stepEl}
 							class="max-h-full overflow-y-auto font-display text-step font-semibold
@@ -1422,6 +1483,36 @@
 						{/if}
 					</div>
 				{/if}
+				<!--
+				THE NEXT STEP, small (#197). Aurélien chose it on 5 October 2026 over
+			the same screen without it. A
+				tablet on the counter has the room, and reading ahead is what a cook
+				does while something simmers. It is the words and nothing else: the
+				amounts above are still only this Step's (ADR 0011), and the next
+				one's arrive when the cook does.
+
+				Under the Step on an upright tablet, at the foot of the Step's box
+				so that it stands in the same place on every Step, and held to three
+				lines. Beside it where the window is roomy, where it takes as many
+				whole lines as its column is tall.
+			-->
+				{#if comingNext}
+					<aside
+						bind:this={nextEl}
+						aria-labelledby={nextId}
+						class="mt-auto min-h-0 w-full shrink-0 border-t border-cook-rule pt-4 text-cook-ink-2 roomy:mt-0 roomy:w-[30%] roomy:overflow-hidden roomy:border-t-0 roomy:border-l roomy:pt-0 roomy:pl-6"
+					>
+						<h2 id={nextId} class="pb-2 text-label font-semibold uppercase">
+							{m.cook_up_next({ n: position + 2, total: stops.length })}
+						</h2>
+						<p
+							class="line-clamp-3 font-display text-next-step"
+							style:-webkit-line-clamp={nextLines}
+						>
+							{comingNext.row.text}
+						</p>
+					</aside>
+				{/if}
 			</div>
 		{/if}
 
@@ -1438,10 +1529,10 @@
 			are in the header now, and this row is the whole of what the bottom of
 			the screen can do.
 		-->
-		<div class="flex shrink-0 gap-3 pt-3">
+		<div class="flex shrink-0 gap-3 pt-3 wide:gap-4 wide:pt-6 wide:pb-3">
 			<button
 				type="button"
-				class="min-h-12 flex-1 rounded-sm border border-cook-accent font-semibold text-cook-accent disabled:opacity-40"
+				class="min-h-12 flex-1 rounded-sm border border-cook-accent font-semibold text-cook-accent disabled:opacity-40 wide:min-h-[var(--cook-foot-far)] wide:text-foot-far"
 				disabled={position === 0 || asking}
 				onclick={() => step(position - 1)}
 			>
@@ -1450,7 +1541,7 @@
 			{#if asking}
 				<button
 					type="button"
-					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent wide:min-h-[var(--cook-foot-far)] wide:text-foot-far"
 					onclick={() => {
 						asking = false;
 						atStart = false;
@@ -1461,7 +1552,7 @@
 			{:else if last}
 				<button
 					type="button"
-					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent wide:min-h-[var(--cook-foot-far)] wide:text-foot-far"
 					onclick={finish}
 				>
 					{m.cook_finish()}
@@ -1469,7 +1560,7 @@
 			{:else}
 				<button
 					type="button"
-					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent"
+					class="min-h-12 flex-1 rounded-sm bg-cook-accent font-semibold text-cook-on-accent wide:min-h-[var(--cook-foot-far)] wide:text-foot-far"
 					onclick={() => step(position + 1)}
 				>
 					{m.cook_next()}

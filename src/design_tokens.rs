@@ -243,6 +243,25 @@ mod tests {
             px("--text-step") > px("--text-title"),
             "ADR 0011: the Step is the largest type in the app"
         );
+        // The wide layout sets the cooking screen larger (#197), and the same
+        // ranking holds there: nothing the screen draws is larger than its Step.
+        let far = px("--text-step-far");
+        for other in [
+            "--text-step",
+            "--text-step-reading-far",
+            "--text-panel-figure-far",
+            "--text-body-far",
+            "--text-line-far",
+            "--text-read-far",
+            "--text-label-far",
+            "--text-foot-far",
+            "--text-next-step",
+        ] {
+            assert!(
+                far > px(other),
+                "ADR 0011: the Step is the largest type in the app, and {other} is not smaller"
+            );
+        }
         assert_eq!(
             vars.get("--spacing-gutter").map(String::as_str),
             Some("20px")
@@ -278,9 +297,11 @@ mod tests {
             })
             .count();
         assert_eq!(
-            steps, 11,
+            steps, 20,
             "step, title, line, list-title, shelf-heading, tile-title, panel-figure, body, \
-             step-reading, read, label"
+             step-reading, read, label; and the cooking screen read from the counter (#197): \
+             step-far, step-reading-far, panel-figure-far, body-far, line-far, read-far, label-far, \
+             foot-far, next-step"
         );
     }
 }

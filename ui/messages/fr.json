@@ -84,6 +84,7 @@
   "cook_false_start_confirm": "Jeter cette cuisson ? Cela annule une fausse manœuvre.",
   "cook_false_start_no": "Continuer",
   "cook_false_start_yes": "Jeter",
+  "cook_up_next": "Ensuite · {n}/{total}",
   "cook_went_wrong": "Une erreur",
   "cook_finish": "Terminer",
   "cook_finished": "C’est cuisiné. Ajoutez une note ou un avis dans le journal quand vous voulez.",

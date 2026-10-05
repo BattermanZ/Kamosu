@@ -198,6 +198,44 @@
      #110 (K3): larger than --photo-thumb because it sits in the largest type
      in the app. The recipe page's Step photograph is --photo-thumb (R2). */
   --step-photo: 96px;
+
+  /* ── The cooking screen on the wide layout (#197, ADR 0044) ───────────────
+     A tablet propped on the counter is read from further away than a phone in
+     the hand, so on the wide layout the cooking screen sets everything larger.
+     A `-far` token is a size at that distance. The `--text-*-far` ones that
+     share a phone token's name take its place through `cook-far` below. The
+     rest have no phone token to replace, because the phone writes those sizes
+     with the spacing scale (`h-8`, `min-h-12`), and the screen names them
+     where it uses them, behind `wide:`.
+
+     Aurélien chose these on prototypes on 5 October 2026, with the next Step
+     shown small beside the one he is on, over the same screen without it.
+     They were fitted as #88
+     fitted the phone's: every Step in the library, each with its own amounts,
+     at the iPad Pro 11"'s height in the installed app. The figures are on #197.
+     38px keeps the Step the largest type in the app (ADR 0011). */
+  --text-step-far: 38px;
+  --text-step-far--line-height: 1.22;
+  --text-step-reading-far: 22px;
+  --text-panel-figure-far: 27px;
+  /* An amount that wraps keeps its two lines together. The phone's inherits
+     the body's, which at 27px left a gap as tall as the one between amounts. */
+  --leading-figure-far: 1.25;
+  --text-body-far: 20px;
+  --text-line-far: 22px;        /* still larger than body, as on the phone */
+  --text-read-far: 16px;
+  --text-label-far: 12px;
+  --text-foot-far: 22px;        /* Back and Next */
+  --text-next-step: 21px;       /* the next Step, small beside this one */
+  --text-next-step--line-height: 1.3;
+  --noren-h-far: 6px;
+  --cook-tick-far: 22px;        /* an amount's tick box; 16 on the phone */
+  --cook-control-far: 44px;     /* the controls on the row above the hairline; 32 on the phone */
+  --cook-foot-far: 72px;        /* Back and Next; 48 on the phone */
+  --cook-gutter-far: 40px;
+  /* The screen stops widening here and sits in the middle of a large monitor,
+     so a line of the Step never runs longer than it can be read at. */
+  --cook-column: 1120px;
 }
 
 /* ── Room: how much of the window Kamosu has (ADR 0044, #193) ──────────────
@@ -444,6 +482,30 @@
 @utility step-fade {
   height: 28px;
   background: linear-gradient(to bottom, transparent, var(--color-cook-ground));
+}
+
+/* The cooking screen read from the counter (#197). On the wide layout each
+   type size the screen is set in becomes its `-far` token, in this one place:
+   the screen's own classes stay the phone's, so the phone's screen cannot be
+   moved by a change made here. It reaches the windows the screen opens too,
+   which are read from the same distance.
+
+   `--cook-inset` is the gutter, or whatever centres the column once the
+   window is wider than it. The percentage is of the screen's own width, and
+   is worked out where the padding is set. */
+@utility cook-far {
+  @variant wide {
+    --text-step: var(--text-step-far);
+    --text-step--line-height: var(--text-step-far--line-height);
+    --text-step-reading: var(--text-step-reading-far);
+    --text-panel-figure: var(--text-panel-figure-far);
+    --text-body: var(--text-body-far);
+    --text-line: var(--text-line-far);
+    --text-read: var(--text-read-far);
+    --text-label: var(--text-label-far);
+    --noren-h: var(--noren-h-far);
+    --cook-inset: max(var(--cook-gutter-far), calc((100% - var(--cook-column)) / 2));
+  }
 }
 
 /* The room every screen leaves for the phone layout's tab bar, which is fixed

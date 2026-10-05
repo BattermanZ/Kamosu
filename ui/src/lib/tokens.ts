@@ -33,7 +33,10 @@ export const COLOUR_ORDER = [
 
 export const RADIUS_ORDER = ['--radius-sm', '--radius-md', '--radius-lg', '--radius-pill'] as const;
 
-/** The type scale, largest first — the ranking is spec (ADR 0011). */
+/**
+ * The type scale, largest first — the ranking is spec (ADR 0011). Then the
+ * cooking screen's sizes on the wide layout, largest first again.
+ */
 export const TYPE_ORDER = [
 	'--text-step',
 	'--text-title',
@@ -46,6 +49,17 @@ export const TYPE_ORDER = [
 	'--text-step-reading',
 	'--text-read',
 	'--text-label',
+	// The cooking screen on the wide layout, read from the counter (#197).
+	// Its Step is larger than everything above.
+	'--text-step-far',
+	'--text-panel-figure-far',
+	'--text-foot-far',
+	'--text-step-reading-far',
+	'--text-line-far',
+	'--text-next-step',
+	'--text-body-far',
+	'--text-read-far',
+	'--text-label-far',
 ] as const;
 
 /** Zero, the seven steps, and the gutter. No other step exists to reach for. */

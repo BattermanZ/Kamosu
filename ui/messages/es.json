@@ -84,6 +84,7 @@
   "cook_false_start_confirm": "¿Descartar esta cocción? Así se deshace un comienzo en falso.",
   "cook_false_start_no": "Seguir cocinando",
   "cook_false_start_yes": "Descartar",
+  "cook_up_next": "Después · {n}/{total}",
   "cook_went_wrong": "Un error",
   "cook_finish": "Terminar",
   "cook_finished": "Cocinado. Añade una valoración o una nota en el diario cuando quieras.",

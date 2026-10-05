@@ -84,6 +84,7 @@
   "cook_false_start_confirm": "Throw this cooking away? Use this to undo a false start.",
   "cook_false_start_no": "Keep cooking",
   "cook_false_start_yes": "Throw it away",
+  "cook_up_next": "Next · {n}/{total}",
   "cook_went_wrong": "Went wrong",
   "cook_finish": "Finish cooking",
   "cook_finished": "Cooked. Rate it or add a note in the diary any time.",
