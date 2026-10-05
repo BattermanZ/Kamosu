@@ -8,10 +8,11 @@
  * the page's banner.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import ShellTestHarness from './ShellTestHarness.svelte';
 import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
+import { HISTORY_INDEX, VISITS, noteArrival } from '$lib/shell/way-back';
 import { m } from '$lib/paraglide/messages';
 import type { Room } from '$lib/room.svelte';
 
@@ -204,6 +205,186 @@ describe('on the phone layout', () => {
 
 		await waitFor(() => expect(navigation()).toBeNull());
 		expect(screen.queryByRole('banner')).toBeNull();
+	});
+});
+
+/**
+ * The back arrow on a page reached from another page (ADR 0044, #195): on the
+ * wide layout only, on every page the sidebar does not list.
+ */
+describe('the back arrow', () => {
+	const arrow = () => screen.queryByRole('link', { name: m.shell_back() });
+
+	/** Put this tab on the history entry SvelteKit numbered `number`. */
+	const onEntry = (number: number) => history.replaceState({ [HISTORY_INDEX]: number }, '');
+
+	/**
+	 * Tap the arrow, and say whether it took the tap over rather than leaving
+	 * it an ordinary link to the parent. The link is not followed either way:
+	 * jsdom has nowhere to go.
+	 */
+	async function tapTakenOver(): Promise<boolean> {
+		let taken = false;
+		const seen = (event: Event) => {
+			taken = event.defaultPrevented;
+			event.preventDefault();
+		};
+		document.addEventListener('click', seen, { once: true });
+		await fireEvent.click(arrow()!);
+		return taken;
+	}
+
+	afterEach(() => {
+		history.replaceState(null, '');
+		sessionStorage.removeItem(VISITS);
+		vi.restoreAllMocks();
+	});
+
+	it.each([
+		['a recipe', '/recipes/b_soba', '/recipes'],
+		["a recipe's Thread", '/recipes/b_soba/thread', '/recipes'],
+		["a recipe's Share", '/recipes/b_soba/share', '/recipes'],
+		['a Food', '/foods/f_flour', '/foods'],
+		['a Report', '/imports/j_1', '/imports'],
+		['what one source brought in', '/imports/from/crouton', '/imports'],
+		['Foods', '/foods', '/settings'],
+		['Brought in', '/imports', '/settings'],
+		['the Operator screen', '/operator', '/settings'],
+	])('is on %s, and leads to its parent when nothing is behind it', async (_, pathname, parent) => {
+		shell(pathname, 'wide');
+
+		expect(arrow()).toHaveAttribute('href', parent);
+		expect(await tapTakenOver()).toBe(false);
+	});
+
+	it.each([['/'], ['/recipes'], ['/shopping'], ['/cooked'], ['/settings']])(
+		"is not on %s, one of the sidebar's own places",
+		(pathname) => {
+			shell(pathname, 'roomy');
+
+			expect(arrow()).toBeNull();
+		},
+	);
+
+	it.each([['/recipes/b_soba'], ['/foods/f_flour'], ['/imports/j_1']])(
+		'is not on the phone layout at %s',
+		(pathname) => {
+			shell(pathname, 'phone');
+
+			expect(arrow()).toBeNull();
+		},
+	);
+
+	it.each([['/cook/b_soba'], ['/invite/abc'], ['/recover/abc'], ['/cookbook-invite/abc']])(
+		'is not at %s, where the wide layout draws no sidebar',
+		(pathname) => {
+			shell(pathname, 'roomy');
+
+			expect(arrow()).toBeNull();
+		},
+	);
+
+	it('goes back, as the device would, when a page of Kamosu is behind this one', async () => {
+		const back = vi.spyOn(history, 'back').mockImplementation(() => {});
+		onEntry(7);
+		noteArrival();
+		// A recipe opened from Recipes: one entry further on.
+		onEntry(8);
+		shell('/recipes/b_soba', 'wide');
+
+		// Taken over, so the link to the parent is not followed as well.
+		expect(await tapTakenOver()).toBe(true);
+
+		expect(back).toHaveBeenCalledOnce();
+	});
+
+	it('goes to the parent when Kamosu was opened on this very page', async () => {
+		const back = vi.spyOn(history, 'back').mockImplementation(() => {});
+		onEntry(7);
+		noteArrival();
+		shell('/recipes/b_soba', 'wide');
+
+		expect(await tapTakenOver()).toBe(false);
+
+		expect(back).not.toHaveBeenCalled();
+	});
+
+	it('still goes back after a reload, which keeps the pages behind it', async () => {
+		const back = vi.spyOn(history, 'back').mockImplementation(() => {});
+		vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+			{ type: 'reload' } as PerformanceNavigationTiming,
+		]);
+		onEntry(7);
+		noteArrival();
+		onEntry(8);
+		// The reload starts the app again on the second entry.
+		noteArrival();
+		shell('/recipes/b_soba', 'wide');
+
+		expect(await tapTakenOver()).toBe(true);
+
+		expect(back).toHaveBeenCalledOnce();
+	});
+
+	it('goes to the parent in a tab opened from another, whose visits are not its own', async () => {
+		const back = vi.spyOn(history, 'back').mockImplementation(() => {});
+		vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+			{ type: 'navigate' } as PerformanceNavigationTiming,
+		]);
+		// What the new tab was handed: the first tab's visit, begun long before.
+		sessionStorage.setItem(VISITS, '[3]');
+		onEntry(8);
+		noteArrival();
+		shell('/recipes/b_soba', 'wide');
+
+		expect(await tapTakenOver()).toBe(false);
+
+		expect(back).not.toHaveBeenCalled();
+	});
+
+	it('never goes back out to another site that stands between two visits', async () => {
+		const back = vi.spyOn(history, 'back').mockImplementation(() => {});
+		const load = vi.spyOn(performance, 'getEntriesByType');
+		const loaded = (type: string) =>
+			load.mockReturnValue([{ type } as PerformanceNavigationTiming]);
+		// A first visit, two pages long. Then another site, and a link back in.
+		loaded('navigate');
+		onEntry(7);
+		noteArrival();
+		loaded('navigate');
+		onEntry(40);
+		noteArrival();
+		// Back to the first visit and forward again, as a loaded page each time.
+		loaded('back_forward');
+		onEntry(8);
+		noteArrival();
+		onEntry(40);
+		noteArrival();
+		shell('/recipes/b_soba', 'wide');
+
+		expect(await tapTakenOver()).toBe(false);
+
+		expect(back).not.toHaveBeenCalled();
+	});
+
+	it('still goes back inside an earlier visit returned to by the device back', async () => {
+		const back = vi.spyOn(history, 'back').mockImplementation(() => {});
+		const load = vi.spyOn(performance, 'getEntriesByType');
+		load.mockReturnValue([{ type: 'navigate' } as PerformanceNavigationTiming]);
+		onEntry(7);
+		noteArrival();
+		// The app is loaded afresh further on, which begins a second visit.
+		onEntry(40);
+		noteArrival();
+		// Back, to the second page of the first.
+		load.mockReturnValue([{ type: 'back_forward' } as PerformanceNavigationTiming]);
+		onEntry(8);
+		noteArrival();
+		shell('/recipes/b_soba', 'wide');
+
+		expect(await tapTakenOver()).toBe(true);
+
+		expect(back).toHaveBeenCalledOnce();
 	});
 });
 

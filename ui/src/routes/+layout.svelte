@@ -18,6 +18,7 @@
 	import { realOutbox } from '$lib/offline/outbox';
 	import { m } from '$lib/paraglide/messages';
 	import { WindowRoom } from '$lib/room.svelte';
+	import { noteArrival } from '$lib/shell/way-back';
 
 	let { children } = $props();
 
@@ -31,6 +32,10 @@
 	// How much room the window has (#193), read back from the stylesheet and
 	// followed as the window is resized or a tablet turned.
 	const room = new WindowRoom();
+
+	// Which history entry Kamosu was opened on, so the back arrow knows whether
+	// a page of Kamosu is behind the one on screen (#195).
+	if (typeof window !== 'undefined') noteArrival();
 
 	// The document's language is the locale Paraglide resolved, which is what
 	// tells a screen reader — and Safari's translation offer — what it is reading.
@@ -118,7 +123,10 @@
 				<!-- Not under the story either (#158): it covers the window, and a card
 				     drawn beneath it would be read out before the story it hides behind. -->
 				{#if !bare}
-					<!-- Kamosu itself went wrong (#98), above the rest, because it outranks
+					<!-- Named for the one rule that moves these cards: beside a back
+					     arrow they start to its right (`clears-back-arrow` in app.css, #195). -->
+					<div class="page-notices">
+						<!-- Kamosu itself went wrong (#98), above the rest, because it outranks
 					     every "not right now" card: those say what cannot be done, and this
 					     says the thing you just did went wrong.
 
@@ -131,16 +139,17 @@
 					     a tap (#119, option B — Aurélien, 23 September 2026). The mistake is
 					     remembered either way, and the card is waiting here the moment the
 					     cook leaves the step. -->
-					<WentWrong />
+						<WentWrong />
 
-					<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
+						<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
 					     the cooking screen, which carries nothing but the Step. -->
-					<Notices />
-					<!-- And what bringing a recipe file in just said, above the recipe it
+						<Notices />
+						<!-- And what bringing a recipe file in just said, above the recipe it
 					     brought (#93). Said here rather than inside the recipe screen
 					     because this is where Kamosu says a thing once and it is put
 					     away — the same place, and the same card, as the rest. -->
-					<Arrived pathname={page.url.pathname} />
+						<Arrived pathname={page.url.pathname} />
+					</div>
 				{:else if cooking && redrawScreen}
 					<!-- The cooking screen itself went wrong while it was being drawn, and
 					     the boundary took it away (#119). There is no Step left to protect,

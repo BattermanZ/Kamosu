@@ -622,6 +622,7 @@
   "recipe_method": "Method",
   "recipe_cook": "cook",
   "recipe_prep": "prep",
+  "shell_back": "Back",
   "time_unit_hours": "h",
   "time_unit_minutes": "min",
   "recipe_moved_on_since": "The recipe has changed since you cooked it. Keeping this replaces what it says now.",

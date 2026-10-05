@@ -622,6 +622,7 @@
   "recipe_method": "Preparación",
   "recipe_cook": "cocción",
   "recipe_prep": "prep",
+  "shell_back": "Atrás",
   "time_unit_hours": "h",
   "time_unit_minutes": "min",
   "recipe_moved_on_since": "La receta ha cambiado desde que la cocinaste. Guardar esto reemplaza lo que dice ahora.",

@@ -28,6 +28,7 @@
 	import { waitForJob } from '$lib/api/job';
 	import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
+	import WayBackLine from '$lib/shell/WayBackLine.svelte';
 	import Section from '$lib/shell/Section.svelte';
 
 	interface Props {
@@ -204,9 +205,10 @@
 </script>
 
 <Screen title={ofABundle ? m.report_title_file() : m.report_title()}>
-	<a href={ofABundle ? '/recipes' : '/settings'} class="text-read text-ink-2"
-		>‹ {ofABundle ? m.report_back_recipes() : m.report_back()}</a
-	>
+	<WayBackLine
+		href={ofABundle ? '/recipes' : '/settings'}
+		label={ofABundle ? m.report_back_recipes() : m.report_back()}
+	/>
 
 	{#if unreachable}
 		<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">

@@ -13,6 +13,8 @@ import { render, screen } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { ListImportsOutput } from '$lib/api/catalogue';
 import ImportsTestHarness from './ImportsTestHarness.svelte';
+import type { Room } from '$lib/room.svelte';
+import { m } from '$lib/paraglide/messages';
 
 type Import = ListImportsOutput['imports'][number];
 type Arrival = Import['arrivals'][number];
@@ -58,13 +60,30 @@ const LIBRARY: Import[] = [
 	},
 ];
 
-function draw(answers: Answers) {
+function draw(answers: Answers, room?: Room) {
 	const kamosu = standIn(answers);
-	render(ImportsTestHarness, { props: { client: kamosu.client } });
+	render(ImportsTestHarness, { props: { client: kamosu.client, room } });
 	return kamosu;
 }
 
 describe('the list of what has been brought in', () => {
+	it('names the way back to Settings under its title on the phone', async () => {
+		draw({ list_imports: { imports: LIBRARY } });
+		await screen.findByRole('link', { name: /Crouton/ });
+
+		expect(screen.getByRole('link', { name: `‹ ${m.imports_back()}` })).toHaveAttribute(
+			'href',
+			'/settings',
+		);
+	});
+
+	it('leaves that line out on the wide layout, where the back arrow is the way back (#195)', async () => {
+		draw({ list_imports: { imports: LIBRARY } }, 'wide');
+		await screen.findByRole('link', { name: /Crouton/ });
+
+		expect(screen.queryByRole('link', { name: `‹ ${m.imports_back()}` })).toBeNull();
+	});
+
 	it('lists every source, whichever importer made it', async () => {
 		draw({ list_imports: { imports: LIBRARY } });
 

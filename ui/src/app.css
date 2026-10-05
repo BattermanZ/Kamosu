@@ -489,6 +489,48 @@
   }
 }
 
+/* The back arrow on the wide layout (#195, ADR 0044): at the top left of the
+   page, a step in from the rail. Every other shape in Kamosu is near-square
+   and this one is round, as chosen on the prototype, which is why its radius
+   is written here and is no token. */
+@utility back-arrow {
+  top: calc(var(--spacing-4) + env(safe-area-inset-top));
+  left: calc(var(--spacing-rail) + var(--spacing-4));
+  border-radius: 50%;
+}
+
+/* A page that carries the back arrow (#195). The arrow is fixed over the
+   page's top left corner, so the page keeps clear of it.
+
+   Where the window leaves a margin beside the page's column wide enough to
+   hold the arrow, the arrow stands in the margin, and only the cards the
+   layout draws across the full width (`page-notices`) start to its right.
+   Where the margin is narrower, as on an upright tablet, the whole page
+   starts below the arrow.
+
+   No width is written here. The margin is worked out from the rail and the
+   column every page with an arrow is drawn in, so moving either moves this.
+   Each `clamp` is a switch: a difference times a large number is far below
+   zero or far above the most it may be. A page that outgrows that column
+   has to clear the arrow itself. */
+@utility clears-back-arrow {
+  @variant wide {
+    /* The arrow, a step before it and half a step after. */
+    --arrow-room: calc(var(--spacing-4) + var(--spacing-12) + var(--spacing-2));
+    --margin: calc((100vw - var(--spacing-rail) - var(--container-2xl)) / 2);
+
+    padding-top: clamp(0px, calc((var(--arrow-room) - var(--margin)) * 9999), var(--arrow-room));
+
+    & .page-notices {
+      padding-left: clamp(
+        0px,
+        calc((var(--margin) - var(--arrow-room) + 1px) * 9999),
+        calc(var(--spacing-4) + var(--spacing-12))
+      );
+    }
+  }
+}
+
 /* The wash under a recipe's title, over its photograph. Indigo rather than a
    neutral grey — the app's own colour — and near-solid at the hem so the title
    is readable over a photograph whose colours nobody chose (#81).

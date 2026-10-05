@@ -6,6 +6,8 @@
 	- **Wide:** the sidebar down the left edge and neither of those. The screen
 	  keeps its own column, centred in what is left beside the sidebar, until
 	  its own ticket widens it.
+	  A page the sidebar does not list carries a back arrow (#195), since a
+	  tablet's installed app has no browser button to go back with.
 	- **Bare:** nothing, on any layout. The cooking screen (ADR 0011) is one Step
 	  filling the window, used with wet hands, and a way to Shopping one stray
 	  touch from the Step is the one thing it may not cost. The story (#158)
@@ -22,11 +24,13 @@
 	import type { Snippet } from 'svelte';
 	import { useRoom } from '$lib/room.svelte';
 	import { story } from '$lib/story/showing.svelte';
+	import BackArrow from './BackArrow.svelte';
 	import Header from './Header.svelte';
 	import Masthead from './Masthead.svelte';
 	import Sidebar from './Sidebar.svelte';
 	import TabBar from './TabBar.svelte';
 	import { signingIn } from './signing-in.svelte';
+	import { parentOf } from './way-back';
 
 	interface Props {
 		/** The address on screen. */
@@ -66,6 +70,9 @@
 	const sidebar = $derived(room.wide && !bare && !outside);
 	const masthead = $derived(room.wide && !bare && outside);
 	const headerAndTabs = $derived(!room.wide && !bare);
+
+	/** Where this page's back arrow goes with nothing behind it, on a page that carries one. */
+	const backTo = $derived(sidebar ? parentOf(pathname) : undefined);
 </script>
 
 {#if headerAndTabs}
@@ -76,7 +83,10 @@
 	<Masthead />
 {/if}
 
-<div class={sidebar ? 'beside-rail' : undefined}>
+<div class={[sidebar && 'beside-rail', backTo && 'clears-back-arrow']}>
+	{#if backTo}
+		<BackArrow parent={backTo} />
+	{/if}
 	{@render screen(bare)}
 </div>
 

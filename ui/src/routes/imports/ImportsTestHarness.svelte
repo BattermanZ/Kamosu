@@ -5,15 +5,18 @@
 <script lang="ts">
 	import type { KamosuClient } from '$lib/api/catalogue';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
+	import type { Room } from '$lib/room.svelte';
 	import Imports from './Imports.svelte';
 
 	interface Props {
 		client: KamosuClient;
+		/** How much room the window has; the phone's without one. */
+		room?: Room;
 	}
 
-	let { client }: Props = $props();
+	let { client, room }: Props = $props();
 </script>
 
-<Kamosu {client}>
+<Kamosu {client} {room}>
 	<Imports />
 </Kamosu>

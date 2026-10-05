@@ -622,6 +622,7 @@
   "recipe_method": "Préparation",
   "recipe_cook": "cuisson",
   "recipe_prep": "prépa",
+  "shell_back": "Retour",
   "time_unit_hours": "h",
   "time_unit_minutes": "min",
   "recipe_moved_on_since": "La recette a changé depuis que vous l'avez cuisinée. Garder ceci remplace ce qu'elle dit maintenant.",

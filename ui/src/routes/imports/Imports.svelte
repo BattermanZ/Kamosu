@@ -26,6 +26,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
+	import WayBackLine from '$lib/shell/WayBackLine.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import { sourceName, sourceSummary, type Import } from '$lib/imports';
@@ -67,7 +68,7 @@
      directly under the title as it does on the Report (#68) and everywhere else.
      Screen puts its own `blurb` between the two, which left the link floating. -->
 <Screen title={m.imports_title()}>
-	<a href="/settings" class="text-read text-ink-2">‹ {m.imports_back()}</a>
+	<WayBackLine href="/settings" label={m.imports_back()} />
 	<p class="mt-2 text-read text-ink-2">{m.imports_blurb()}</p>
 
 	<Section heading={m.imports_sources()}>

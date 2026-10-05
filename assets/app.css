@@ -278,6 +278,11 @@
   .end-0 {
     inset-inline-end: var(--spacing-0);
   }
+  .back-arrow {
+    top: calc(var(--spacing-4) + env(safe-area-inset-top));
+    left: calc(var(--spacing-rail) + var(--spacing-4));
+    border-radius: 50%;
+  }
   .top-0 {
     top: var(--spacing-0);
   }
@@ -968,6 +973,16 @@
   }
   .py-px {
     padding-block: 1px;
+  }
+  @media (min-width: 700px) and (min-height: 560px) {
+    .clears-back-arrow {
+      --arrow-room: calc(var(--spacing-4) + var(--spacing-12) + var(--spacing-2));
+      --margin: calc((100vw - var(--spacing-rail) - var(--container-2xl)) / 2);
+      padding-top: clamp(0px, calc((var(--arrow-room) - var(--margin)) * 9999), var(--arrow-room));
+    }
+    .clears-back-arrow .page-notices {
+      padding-left: clamp( 0px, calc((var(--margin) - var(--arrow-room) + 1px) * 9999), calc(var(--spacing-4) + var(--spacing-12)) );
+    }
   }
   .pt-1 {
     padding-top: var(--spacing-1);
