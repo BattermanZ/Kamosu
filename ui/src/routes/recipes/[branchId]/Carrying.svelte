@@ -7,6 +7,7 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import type { Marking } from './marking.svelte';
 
 	interface Props {
@@ -53,12 +54,11 @@
 {/if}
 
 {#if marking.saving}
-	<div class="fixed inset-0 z-40 bg-accent/40"></div>
-	<div
-		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
-		role="dialog"
-		aria-modal="true"
-		aria-label={m.divergence_save()}
+	<SheetFrame
+		label={m.divergence_save()}
+		tall={78}
+		class="overflow-y-auto bg-ground px-gutter pt-4"
+		onclose={() => (marking.saving = false)}
 	>
 		<h3 class="font-display text-title font-semibold">{m.divergence_save()}</h3>
 		<label class="mt-4 block text-label text-ink-2 uppercase" for="what-changed">
@@ -86,5 +86,5 @@
 		>
 			{m.divergence_cancel()}
 		</button>
-	</div>
+	</SheetFrame>
 {/if}

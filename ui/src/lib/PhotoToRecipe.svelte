@@ -45,7 +45,7 @@
 	import type { GetRecipeOutput, PromoteAttemptPhotographOutput } from '$lib/api/catalogue';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 	import NeedsServer from '$lib/offline/NeedsServer.svelte';
-	import { focusInAndBack } from '$lib/focus-in-and-back';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { copySaid } from '$lib/cookbook';
 
 	interface Props {
@@ -128,26 +128,19 @@
 			working = false;
 		}
 	}
-
-	/**
-	 * Escape closes it, as it closes every other sheet — except while the save
-	 * is on its way, when closing would leave its answer nowhere to land.
-	 */
-	function onKey(event: KeyboardEvent) {
-		if (event.key === 'Escape' && !working) onClose();
-	}
 </script>
 
-<svelte:window onkeydown={onKey} />
-
-<div class="fixed inset-0 z-40 bg-accent/40" aria-hidden="true"></div>
-<div
-	class="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88vh] max-w-2xl flex-col bg-ground pb-safe text-ink"
-	role="dialog"
-	aria-modal="true"
-	aria-label={m.promote_title()}
-	tabindex="-1"
-	{@attach focusInAndBack}
+<!--
+	Escape closes it, as it closes every other sheet, except while the save
+	is on its way, when closing would leave its answer nowhere to land.
+-->
+<SheetFrame
+	label={m.promote_title()}
+	tall={88}
+	class="flex flex-col bg-ground text-ink"
+	onclose={() => {
+		if (!working) onClose();
+	}}
 >
 	<div class="border-b border-rule px-gutter py-3">
 		<p class="text-label text-support-2 uppercase">{m.promote_title()}</p>
@@ -295,7 +288,7 @@
 			lookClass={forking ? 'bg-support text-on-accent' : 'bg-accent text-on-accent'}
 		/>
 	</div>
-</div>
+</SheetFrame>
 
 <!-- A choice's square, filled when chosen: the house pattern from the Tags sheet. -->
 {#snippet box(on: boolean)}

@@ -181,6 +181,13 @@ against the output schema the Catalogue declares first. A test can lie about the
 values; it cannot lie about the shape. Screens take their client from context,
 never from `fetch`.
 
+**Every bottom sheet is drawn by one frame, `ui/src/lib/SheetFrame.svelte`**
+(#196, ADR 0044): a bottom sheet on the phone layout, a window in the middle of
+the room on the wide one. This is the panel that rises over a screen, and has
+nothing to do with the **Sheet** of `CONTEXT.md`, a recipe set for paper. The frame owns the dimmed page, Escape, the caret going in and
+coming back, and Enter. A screen hands it content and never writes
+`role="dialog"` itself; a screen test fails if one does.
+
 **`svelte-check` runs strict and its warnings are failures**, Svelte's
 accessibility warnings included (ADR 0012). **Paraglide compiles every phrase to
 a function**, so a misspelt key is a build error; messages live in

@@ -13,7 +13,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
-	import { focusInAndBack } from '$lib/focus-in-and-back';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 
 	interface Props {
 		photograph: string;
@@ -26,13 +26,7 @@
 	let { photograph, number, shapeClass }: Props = $props();
 
 	let open = $state(false);
-
-	function onKey(event: KeyboardEvent) {
-		if (open && event.key === 'Escape') open = false;
-	}
 </script>
-
-<svelte:window onkeydown={onKey} />
 
 <button
 	type="button"
@@ -56,14 +50,16 @@
 		On the cooking screen's own dark ground on BOTH screens, the recipe page
 		too: a photograph is looked at on dark, and one picture shown two ways
 		would be two things to learn.
+
+		The whole screen on the wide layout as well (#196), where every other
+		sheet became a small window: a photograph is opened to be seen large,
+		and it was already in the middle of a dimmed page.
 	-->
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-cook-ground/95"
-		role="dialog"
-		aria-modal="true"
-		aria-label={m.step_photo_alt({ number })}
-		tabindex="-1"
-		{@attach focusInAndBack}
+	<SheetFrame
+		kind="cover"
+		label={m.step_photo_alt({ number })}
+		class="flex items-center justify-center bg-cook-ground/95"
+		onclose={() => (open = false)}
 	>
 		<img
 			src="/api/photographs/{photograph}/page"
@@ -77,5 +73,5 @@
 		>
 			{m.photo_close()}
 		</button>
-	</div>
+	</SheetFrame>
 {/if}

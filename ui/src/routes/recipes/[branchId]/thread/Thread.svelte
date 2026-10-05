@@ -13,6 +13,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { ratingLabel } from '$lib/rating';
 	import { OperationError } from '$lib/api/client';
@@ -126,6 +127,10 @@
 
 	let openAttempt = $state<Attempt | undefined>(undefined);
 
+	/** What an Attempt's sheet is called, and what it says first. */
+	const whenCooked = (attempt: Attempt) =>
+		m.thread_attempt_cooked({ when: new Date(attempt.created_at).toLocaleDateString() });
+
 	function closeSheets() {
 		openVersion = undefined;
 		openContent = undefined;
@@ -151,27 +156,28 @@
 	{/if}
 </Screen>
 
-{#snippet sheet(scrollable: boolean, children: Snippet)}
-	<!-- Dimmed across the whole window, the sidebar included, while the sheet
-	     keeps to the page beside it (#194). -->
-	<div class="fixed inset-0 z-30 flex items-end bg-ink/40 wide:pl-rail">
-		<div
-			class={`mx-auto w-full max-w-2xl rounded-sm bg-card p-4 ${scrollable ? 'max-h-[70vh] overflow-y-auto' : ''}`}
-		>
-			<button
-				type="button"
-				class="float-right text-label text-ink-2 uppercase"
-				onclick={closeSheets}
-			>
-				{m.thread_close()}
-			</button>
-			{@render children()}
-		</div>
-	</div>
+{#snippet sheet(called: string, scrollable: boolean, children: Snippet)}
+	<!-- Not one of the twelve #196 counted, since it never called itself a
+	     dialog, but a bottom sheet all the same, and ADR 0044 makes every one
+	     of those a window. On the phone it keeps its darker dimming, and on
+	     both layouts its own card. -->
+	<SheetFrame
+		label={called}
+		dim="ink"
+		tall={scrollable ? 70 : undefined}
+		safe={false}
+		class="rounded-sm bg-card p-4 {scrollable ? 'overflow-y-auto' : ''}"
+		onclose={closeSheets}
+	>
+		<button type="button" class="float-right text-label text-ink-2 uppercase" onclick={closeSheets}>
+			{m.thread_close()}
+		</button>
+		{@render children()}
+	</SheetFrame>
 {/snippet}
 
 {#if openVersion}
-	{@render sheet(true, versionDetail)}
+	{@render sheet(openContent?.title ?? m.loading(), true, versionDetail)}
 {/if}
 {#snippet versionDetail()}
 	<p class="font-display text-title font-semibold text-ink">
@@ -207,11 +213,11 @@
 {/snippet}
 
 {#if openAttempt}
-	{@render sheet(false, attemptDetail)}
+	{@render sheet(whenCooked(openAttempt), false, attemptDetail)}
 {/if}
 {#snippet attemptDetail()}
 	<p class="font-display text-body font-semibold text-ink">
-		{m.thread_attempt_cooked({ when: new Date(openAttempt!.created_at).toLocaleDateString() })}
+		{whenCooked(openAttempt!)}
 	</p>
 	{#if openAttempt!.rating}
 		<p class="text-body text-ink">{ratingLabel(openAttempt!.rating)}</p>

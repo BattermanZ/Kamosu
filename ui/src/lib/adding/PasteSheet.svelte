@@ -15,6 +15,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import type { ReadPastedRecipeOutput } from '$lib/api/catalogue';
 	import PasteCheck from '$lib/PasteCheck.svelte';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { drafted } from '$lib/pasted.svelte';
 	import type { Adding } from './adding.svelte';
 
@@ -38,14 +39,20 @@
 	let boundary = $state(pasted.boundary);
 	// svelte-ignore state_referenced_locally
 	let title = $state(pasted.title?.trim() ?? '');
+
+	/** What the button is held to, and Enter with it (#196). */
+	const makeable = $derived(title.trim() !== '' && adding.working === null);
+	const make = () => adding.paste(title, drafted(pasted, boundary));
 </script>
 
-<div class="fixed inset-0 z-40 bg-accent/40"></div>
-<div
-	class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[85vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
-	role="dialog"
-	aria-modal="true"
-	aria-labelledby="{uid}-called"
+<SheetFrame
+	labelledby="{uid}-called"
+	tall={85}
+	class="overflow-y-auto bg-ground px-gutter pt-4"
+	onclose={onback}
+	onconfirm={() => {
+		if (makeable) make();
+	}}
 >
 	<p id="{uid}-called" class="text-label text-ink-2 uppercase">{heading}</p>
 	<label class="mt-3 block">
@@ -64,8 +71,8 @@
 	<button
 		type="button"
 		class="mt-3 block w-full bg-accent p-4 text-center font-display text-body text-on-accent disabled:opacity-60"
-		disabled={title.trim() === '' || adding.working !== null}
-		onclick={() => adding.paste(title, drafted(pasted, boundary))}
+		disabled={!makeable}
+		onclick={make}
 	>
 		{m.plus_paste_make()}
 	</button>
@@ -79,4 +86,4 @@
 	>
 		{m.write_back()}
 	</button>
-</div>
+</SheetFrame>

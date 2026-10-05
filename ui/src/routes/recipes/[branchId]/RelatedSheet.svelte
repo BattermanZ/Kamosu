@@ -53,8 +53,8 @@
 </script>
 
 <script lang="ts">
-	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { RecipeSearch } from '$lib/search.svelte';
@@ -147,30 +147,7 @@
 			working = null;
 		}
 	}
-
-	/**
-	 * The field takes the caret, so the sheet opens ready to be typed into, and
-	 * gives it back on the way out — `TagSheet`'s attachment, for the same
-	 * reason: a keyboard user who cancels out of a sheet must not lose their
-	 * place on the page behind it.
-	 */
-	const focuses: Attachment<HTMLInputElement> = (node) => {
-		const cameFrom = document.activeElement;
-		node.focus();
-		return () => {
-			requestAnimationFrame(() => {
-				if (cameFrom instanceof HTMLElement && cameFrom.isConnected) cameFrom.focus();
-			});
-		};
-	};
-
-	/** Escape closes it, as it closes every other sheet in Kamosu. */
-	function onKey(event: KeyboardEvent) {
-		if (event.key === 'Escape') onClose();
-	}
 </script>
-
-<svelte:window onkeydown={onKey} />
 
 <!--
 	One row, ticked or not, for both lists. The two differ only in what they hold
@@ -212,13 +189,7 @@
 	</button>
 {/snippet}
 
-<div class="fixed inset-0 z-40 bg-accent/40"></div>
-<div
-	class="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[78vh] max-w-2xl flex-col bg-ground pb-safe"
-	role="dialog"
-	aria-modal="true"
-	aria-label={m.related_title()}
->
+<SheetFrame label={m.related_title()} tall={78} class="flex flex-col bg-ground" onclose={onClose}>
 	<div class="border-b border-rule px-gutter py-3">
 		<p class="text-label text-support-2 uppercase">{m.related_title()}</p>
 		<label class="mt-3 block">
@@ -227,7 +198,7 @@
 				type="search"
 				bind:value={typed}
 				placeholder={m.related_search()}
-				{@attach focuses}
+				data-sheet-focus
 				class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
 			/>
 		</label>
@@ -288,4 +259,4 @@
 	>
 		{m.related_done()}
 	</button>
-</div>
+</SheetFrame>

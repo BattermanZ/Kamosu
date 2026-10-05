@@ -34,8 +34,8 @@
 	control says so in those terms.
 -->
 <script lang="ts">
-	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import {
@@ -103,42 +103,18 @@
 			saying = null;
 		}
 	}
-
-	/**
-	 * The sheet takes the caret on the way in and gives it back on the way
-	 * out — `TagSheet`'s attachment, for the same reason: a keyboard user who
-	 * cancels out of a sheet must not lose their place on the page behind it.
-	 *
-	 * It focuses the dialog itself rather than a control, because this sheet
-	 * has no field to type into and landing on the first row would put the
-	 * caret on a choice that changes the recipe.
-	 */
-	const focuses: Attachment<HTMLElement> = (node) => {
-		const cameFrom = document.activeElement;
-		node.focus();
-		return () => {
-			requestAnimationFrame(() => {
-				if (cameFrom instanceof HTMLElement && cameFrom.isConnected) cameFrom.focus();
-			});
-		};
-	};
-
-	/** Escape closes it, as it closes every other sheet in Kamosu. */
-	function onKey(event: KeyboardEvent) {
-		if (event.key === 'Escape') onClose();
-	}
 </script>
 
-<svelte:window onkeydown={onKey} />
-
-<div class="fixed inset-0 z-40 bg-accent/40"></div>
-<div
-	class="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[78vh] max-w-2xl flex-col bg-ground pb-safe"
-	role="dialog"
-	aria-modal="true"
-	aria-label={m.recipe_language_title()}
-	tabindex="-1"
-	{@attach focuses}
+<!--
+	The caret lands on the frame itself, which is what `SheetFrame` does when no
+	field asks for it: this sheet has none, and the first row is a choice that
+	changes the recipe.
+-->
+<SheetFrame
+	label={m.recipe_language_title()}
+	tall={78}
+	class="flex flex-col bg-ground"
+	onclose={onClose}
 >
 	<div class="border-b border-rule px-gutter py-3">
 		<p class="text-label text-support-2 uppercase">{m.recipe_language_title()}</p>
@@ -230,4 +206,4 @@
 	>
 		{m.recipe_language_done()}
 	</button>
-</div>
+</SheetFrame>

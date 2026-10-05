@@ -105,6 +105,7 @@
 	import { tick } from 'svelte';
 	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { usePhotograph } from '$lib/api/upload';
@@ -1477,12 +1478,11 @@
 	second time and no request is made.
 -->
 {#if pasteOpen}
-	<div class="fixed inset-0 z-40 bg-accent/40"></div>
-	<div
-		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[85vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
-		role="dialog"
-		aria-modal="true"
-		aria-label={m.write_paste_offer()}
+	<SheetFrame
+		label={m.write_paste_offer()}
+		tall={85}
+		class="overflow-y-auto bg-ground px-gutter pt-4"
+		onclose={() => (pasteOpen = false)}
 	>
 		<p class="text-label text-ink-2 uppercase">{m.write_paste_offer()}</p>
 
@@ -1546,7 +1546,7 @@
 		>
 			{m.write_back()}
 		</button>
-	</div>
+	</SheetFrame>
 {/if}
 
 {#snippet time(
@@ -1586,12 +1586,24 @@
 	are the same word for different acts.
 -->
 {#if asking}
-	<div class="fixed inset-0 z-40 bg-accent/40"></div>
-	<div
-		class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-4 pb-safe"
-		role="dialog"
-		aria-modal="true"
-		aria-label={act.called}
+	<!--
+		Enter saves, from the sheet or from one of its fields (#196), under the
+		same conditions the button is held to. Only where the sheet asks one
+		thing, a copy or a translation: with onto and beside to choose between,
+		a key must not choose, which is `Confirm`'s rule as well.
+	-->
+	<SheetFrame
+		label={act.called}
+		tall={78}
+		class="overflow-y-auto bg-ground px-gutter pt-4"
+		onclose={() => {
+			if (!saving) asking = false;
+		}}
+		onconfirm={forking || translating
+			? () => {
+					if (!saving) void save();
+				}
+			: undefined}
 	>
 		<!--
 			A translation is neither of the two saves #54 named. It is never a
@@ -1675,5 +1687,5 @@
 		>
 			{m.write_back()}
 		</button>
-	</div>
+	</SheetFrame>
 {/if}

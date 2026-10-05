@@ -479,13 +479,52 @@
    unsaved tray, is held to the same room. Otherwise it would centre on the
    window while the column it belongs to centres beside the sidebar, half a
    rail apart. The dimmed backdrops are `inset-0`, not `inset-x-0`, and still
-   cover the sidebar. #196 moves every sheet onto one frame, which is where
-   this rule's second half should go then. */
+   cover the sidebar. Since #196 every sheet is drawn by one frame,
+   `$lib/SheetFrame.svelte`, and it is held here like the tray rather than by a
+   rule of its own: the frame is drawn on the cooking screen too, which has
+   no rail, and only this element knows a rail is there. */
 @utility beside-rail {
   padding-left: var(--spacing-rail);
 
   & .fixed.inset-x-0 {
     left: var(--spacing-rail);
+  }
+}
+
+/* A sheet on the wide layout: a window in the middle of the room (#196, ADR
+   0044). Aurélien chose it on the prototype on 5 October 2026 over a window
+   as wide as the page's column: 480 wide, since a confirmation is two
+   sentences and two buttons, as tall as what it holds, and centred both ways.
+   A long one stops at four fifths of the window's height, or at 704 on a
+   screen taller than a MacBook's, where four fifths would be a list a metre
+   long, and scrolls inside. Both limits were on the prototype he chose from.
+
+   The figures are written here and are no tokens, as the back arrow's radius
+   is: nothing else in Kamosu is a window, and this is the one place that says
+   what one is. The shadow is the second Kamosu draws, after the + menu's,
+   and is here for the same reason: a window floats over a page that stays
+   readable behind it, and its hairline alone would be lost against the
+   recipe's own rules.
+
+   `$lib/SheetFrame.svelte` puts this on the frame when the Room is wide, in place
+   of the bottom sheet's classes, so no `wide` variant is needed here. */
+@utility sheet-window {
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 30rem;
+  max-height: min(80vh, 44rem);
+  /* For the sheets that never needed to scroll at the foot of a phone and so
+     never said how. One that scrolls a part of itself still does. */
+  overflow-y: auto;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--color-accent) 28%, transparent);
+
+  /* On the cooking screen the window is the dark panel, ruled as that screen
+     rules everything. */
+  &[data-dim='cook'] {
+    border-color: var(--color-cook-rule);
+    box-shadow: none;
   }
 }
 

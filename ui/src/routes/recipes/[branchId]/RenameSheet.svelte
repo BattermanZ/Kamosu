@@ -24,8 +24,8 @@
 	names a version, and could drift from it.
 -->
 <script lang="ts">
-	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 
@@ -70,36 +70,14 @@
 			working = false;
 		}
 	}
-
-	/**
-	 * The field takes the caret on the way in and the page gets it back on the
-	 * way out — `LanguageSheet`'s attachment, landing on the field here because
-	 * typing a name is the one thing this sheet is for.
-	 */
-	const focuses: Attachment<HTMLInputElement> = (node) => {
-		const cameFrom = document.activeElement;
-		node.focus();
-		return () => {
-			requestAnimationFrame(() => {
-				if (cameFrom instanceof HTMLElement && cameFrom.isConnected) cameFrom.focus();
-			});
-		};
-	};
-
-	/** Escape closes it, as it closes every other sheet in Kamosu. */
-	function onKey(event: KeyboardEvent) {
-		if (event.key === 'Escape') onClose();
-	}
 </script>
 
-<svelte:window onkeydown={onKey} />
-
-<div class="fixed inset-0 z-40 bg-accent/40"></div>
-<div
-	class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto bg-ground px-gutter pt-6 pb-safe"
-	role="dialog"
-	aria-modal="true"
-	aria-labelledby="{uid}-title"
+<!-- The field takes the caret: typing a name is the one thing this sheet is for. -->
+<SheetFrame
+	labelledby="{uid}-title"
+	tall={78}
+	class="overflow-y-auto bg-ground px-gutter pt-6"
+	onclose={onClose}
 >
 	<h3 id="{uid}-title" class="font-display text-title font-semibold">{title}</h3>
 	<form
@@ -124,7 +102,7 @@
 			placeholder={m.recipe_version_name_placeholder()}
 			bind:value={draft}
 			required
-			{@attach focuses}
+			data-sheet-focus
 		/>
 		<p class="mt-2 text-read text-ink-2">{m.recipe_version_name_what()}</p>
 		{#if refused}
@@ -161,4 +139,4 @@
 			</button>
 		</p>
 	{/if}
-</div>
+</SheetFrame>

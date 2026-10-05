@@ -41,8 +41,8 @@
 </script>
 
 <script lang="ts">
-	import type { Attachment } from 'svelte/attachments';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { RecipeSearch } from '$lib/search.svelte';
 
@@ -81,49 +81,13 @@
 	const entries = $derived(answer?.recipes ?? []);
 	/** Whether these matched or are merely the nearest there were (ADR 0027). */
 	const closest = $derived(answer?.closest ?? false);
-
-	/**
-	 * The field takes the caret, so the sheet opens ready to be typed into —
-	 * and so the focus is inside the dialog rather than left on the row behind
-	 * it, which is where a keyboard would otherwise still be standing.
-	 *
-	 * AND IT IS GIVEN BACK when the sheet closes, whichever way it closed.
-	 * Without that, cancelling out of the picker drops the focus on `<body>`
-	 * and a keyboard user loses their place — which on the writing screen means
-	 * tabbing back down a twenty-one line list to the row they were on.
-	 *
-	 * The control that opened this is often NOT there to go back to: choosing a
-	 * recipe turns *Recipe* into *Names Pizza Dough*, so the button that was
-	 * focused is destroyed by the very choice it was opened to make. The row
-	 * around it survives, so the focus goes to whatever now stands in its place
-	 * — which is the control that replaced it, and the right place to be.
-	 *
-	 * On a frame rather than at once, because at teardown the replacement has
-	 * not been drawn yet: focusing then would find nothing and land on `<body>`
-	 * after all.
-	 */
-	const focuses: Attachment<HTMLInputElement> = (node) => {
-		const cameFrom = document.activeElement;
-		const row = cameFrom instanceof HTMLElement ? cameFrom.parentElement : null;
-		node.focus();
-		return () => {
-			requestAnimationFrame(() => {
-				if (cameFrom instanceof HTMLElement && cameFrom.isConnected) {
-					cameFrom.focus();
-					return;
-				}
-				row?.querySelector('button')?.focus();
-			});
-		};
-	};
 </script>
 
-<div class="fixed inset-0 z-40 bg-accent/40"></div>
-<div
-	class="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[78vh] max-w-2xl flex-col bg-ground pb-safe"
-	role="dialog"
-	aria-modal="true"
-	aria-label={m.component_pick_title()}
+<SheetFrame
+	label={m.component_pick_title()}
+	tall={78}
+	class="flex flex-col bg-ground"
+	onclose={onCancel}
 >
 	<div class="border-b border-rule px-gutter py-3">
 		<p class="text-label text-support-2 uppercase">{m.component_pick_title()}</p>
@@ -134,7 +98,7 @@
 				type="search"
 				bind:value={typed}
 				placeholder={m.component_pick_search()}
-				{@attach focuses}
+				data-sheet-focus
 				class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
 			/>
 		</label>
@@ -184,4 +148,4 @@
 	>
 		{m.component_pick_cancel()}
 	</button>
-</div>
+</SheetFrame>

@@ -61,6 +61,7 @@
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import type { GetRecipeOutput, StartAttemptOutput } from '$lib/api/catalogue';
@@ -146,26 +147,6 @@
 	 */
 	let stepEl = $state<HTMLElement | undefined>(undefined);
 	let stepScrolls = $state(false);
-
-	/**
-	 * The false-start dialog, so that opening it moves the focus into it.
-	 *
-	 * It has to: #88 moved the control that opens it up into the header, while
-	 * the dialog itself is still the last thing in the document. Without this a
-	 * keyboard or a screen reader would leave the trigger, walk the amounts, the
-	 * Step, Back and Next, and only then arrive at a confirmation it had already
-	 * asked for.
-	 */
-	let discardDialog = $state<HTMLElement | undefined>(undefined);
-	$effect(() => {
-		if (discarding) discardDialog?.focus();
-	});
-
-	/** The same, for the card behind *Went wrong* (#119). */
-	let mistakeDialog = $state<HTMLElement | undefined>(undefined);
-	$effect(() => {
-		if (readingMistake) mistakeDialog?.focus();
-	});
 
 	/**
 	 * *Got it*. The card closes with the mistake rather than staying open for
@@ -616,7 +597,10 @@
 	 * that destroys something, and a wet thumb must not be able to spend it.
 	 */
 	async function discard() {
-		if (!attempt) return;
+		// Once: Enter confirms this sheet as well as the button (#196), and a
+		// second press must not ask for an Attempt that is already going.
+		if (!attempt || throwingAway) return;
+		throwingAway = true;
 		try {
 			await kamosu.deleteAttempt({ attempt_id: attempt.id });
 			forgetDraft(attempt.id);
@@ -625,8 +609,11 @@
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = true;
+		} finally {
+			throwingAway = false;
 		}
 	}
+	let throwingAway = false;
 
 	/**
 	 * A picture of the cooking, taken at the stove (#77, option A). It is kept
@@ -1490,14 +1477,21 @@
 			{/if}
 		</div>
 
+		<!--
+			Opening either sheet below moves the caret into it, which `SheetFrame`
+			does. It has to: #88 moved the control that opens the false start up
+			into the header, while the sheet is still the last thing in the
+			document. Without it a keyboard or a screen reader would leave the
+			trigger, walk the amounts, the Step, Back and Next, and only then
+			arrive at a confirmation it had already asked for.
+		-->
 		{#if discarding}
-			<div
-				bind:this={discardDialog}
-				tabindex="-1"
-				class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl bg-cook-panel px-gutter pt-6 pb-safe"
-				role="dialog"
-				aria-modal="true"
-				aria-label={m.cook_false_start()}
+			<SheetFrame
+				dim="cook"
+				label={m.cook_false_start()}
+				class="bg-cook-panel px-gutter pt-6"
+				onclose={() => (discarding = false)}
+				onconfirm={() => void discard()}
 			>
 				<p class="text-body text-cook-ink">{m.cook_false_start_confirm()}</p>
 				<button
@@ -1514,7 +1508,7 @@
 				>
 					{m.cook_false_start_no()}
 				</button>
-			</div>
+			</SheetFrame>
 		{/if}
 
 		<!--
@@ -1523,13 +1517,12 @@
 			on a tap, so it never covers a Step the cook did not ask it to.
 		-->
 		{#if readingMistake && wentWrong}
-			<div
-				bind:this={mistakeDialog}
-				tabindex="-1"
-				class="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-2xl border-t-3 border-t-support bg-cook-panel px-gutter pt-6 pb-safe"
-				role="dialog"
-				aria-modal="true"
-				aria-label={m.wrong_title()}
+			<SheetFrame
+				dim="cook"
+				label={m.wrong_title()}
+				class="border-t-3 border-t-support bg-cook-panel px-gutter pt-6"
+				onclose={mistakeRead}
+				onconfirm={mistakeRead}
 			>
 				{@render wrongCard()}
 				<button
@@ -1539,7 +1532,7 @@
 				>
 					{m.notice_got_it()}
 				</button>
-			</div>
+			</SheetFrame>
 		{/if}
 	{/if}
 </div>

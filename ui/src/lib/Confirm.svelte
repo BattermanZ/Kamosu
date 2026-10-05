@@ -27,6 +27,7 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import SheetFrame from '$lib/SheetFrame.svelte';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
@@ -72,22 +73,25 @@
 		cancel,
 		children,
 	}: Props = $props();
-
-	/** Escape closes it, as it closes every other sheet in Kamosu. */
-	function onKey(event: KeyboardEvent) {
-		if (event.key === 'Escape' && !busy) cancel();
-	}
 </script>
 
-<svelte:window onkeydown={onKey} />
-
-<div class="fixed inset-0 z-40 bg-accent/40"></div>
-<div
-	class="fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[78vh] max-w-2xl overflow-y-auto border-t
-	border-rule bg-ground px-gutter pt-6 pb-safe"
-	role="dialog"
-	aria-modal="true"
-	aria-labelledby="confirm-title"
+<!--
+	Enter does it, as it does in any window that asks one question (#196), but
+	not where a gentler act is offered beside the irreversible one: with two
+	things to choose between, a key must not choose.
+-->
+<SheetFrame
+	labelledby="confirm-title"
+	tall={78}
+	class="overflow-y-auto border-t border-rule bg-ground px-gutter pt-6"
+	onclose={() => {
+		if (!busy) cancel();
+	}}
+	onconfirm={instead
+		? undefined
+		: () => {
+				if (!busy) run();
+			}}
 >
 	<h2 id="confirm-title" class="font-display text-list-title font-semibold text-ink">{title}</h2>
 
@@ -138,4 +142,4 @@
 			{cancelLabel ?? m.operator_cancel()}
 		</button>
 	</div>
-</div>
+</SheetFrame>
