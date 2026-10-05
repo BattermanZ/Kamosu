@@ -21,6 +21,7 @@ import { tick } from 'svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
 import type { Whose } from '$lib/cookbook';
+import type { Room } from '$lib/room.svelte';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
 
@@ -978,6 +979,74 @@ describe('writing a recipe', () => {
  * checks that the recipe was CHOSEN. Nothing on this screen may ever arrive at
  * a pointer by matching words.
  */
+describe('two columns where the window is roomy (#198)', () => {
+	/** The same edit, made in a window of the given Room, and what it saved. */
+	async function editIn(room: Room) {
+		const kamosu = standIn({ ...SAVED });
+		const { unmount } = render(WritingTestHarness, {
+			props: { client: kamosu.client, content: content(), room },
+		});
+		const line = await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		await fireEvent.input(line, { target: { value: '3 tbsp Chinese sesame paste' } });
+		const step = screen.getByRole('textbox', { name: 'Step 1' });
+		await fireEvent.input(step, { target: { value: 'Mix everything, the oil last.' } });
+		// A row moved from the keyboard, in each list.
+		for (const field of [line, step]) {
+			await fireEvent.keyDown(
+				within(field.closest('li')!).getByRole('button', { name: /Drag to move/ }),
+				{ key: 'ArrowDown' },
+			);
+		}
+		await saveThrough(/Save onto mine/);
+		const input = sent(kamosu);
+		unmount();
+		return input;
+	}
+
+	// The ticket asks for this by name. It holds today because the columns are
+	// the stylesheet's and the editor never asks the Room anything, and a
+	// screen test lays nothing out. It is here for the day somebody draws the
+	// two columns as a second editor.
+	it('saves from two columns exactly what the same edit saves on the phone', async () => {
+		const onThePhone = await editIn('phone');
+		const inTwoColumns = await editIn('roomy');
+
+		expect(onThePhone?.ingredients).toContainEqual({
+			kind: 'ingredient',
+			text: '3 tbsp Chinese sesame paste',
+		});
+		expect(inTwoColumns).toEqual(onThePhone);
+	});
+
+	it('puts the Ingredient Lines in one column and the Steps in the other', async () => {
+		renderWriting();
+		const line = await screen.findByRole('textbox', { name: 'Ingredient line 1' });
+		const step = screen.getByRole('textbox', { name: 'Step 1' });
+
+		const columns = line.closest('.recipe-columns')!;
+		expect(columns).not.toBeNull();
+		expect(columns.children).toHaveLength(2);
+		expect(columns.children[0]).toContainElement(line);
+		expect(columns.children[1]).toContainElement(step);
+
+		// The part that stays in view is a box inside the left column, never
+		// the column. As the column it stayed for the whole page and rode over
+		// everything under the Method, which Aurélien found on the iPad.
+		const stays = line.closest('.stays-in-view')!;
+		expect(stays.parentElement).toBe(columns.children[0]);
+		expect(stays).not.toContainElement(step);
+
+		// The note, the Source and the save are under both columns, not in one.
+		for (const below of [
+			screen.getByRole('textbox', { name: 'A note about this recipe' }),
+			screen.getByRole('textbox', { name: 'Source' }),
+			screen.getAllByRole('button', { name: /Save onto mine/ }).at(-1)!,
+		]) {
+			expect(columns).not.toContainElement(below);
+		}
+	});
+});
+
 describe('where a Copy goes (#111, #131)', () => {
 	it('never asks: a Copy is started in your own Cookbook', async () => {
 		const { kamosu } = renderWriting({}, false);

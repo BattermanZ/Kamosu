@@ -581,6 +581,9 @@
 	// only be dragged cannot be reached from a keyboard at all, and
 	// `svelte-check` counts that as a build failure here (ADR 0012).
 
+	/** The box the Ingredient Lines stay in view in, on a roomy window (#198). */
+	let linesStayEl = $state<HTMLElement | undefined>(undefined);
+
 	/** Where the finger is, kept so the scroll tick can re-read it. */
 	let pointerAt = 0;
 	let ticking = 0;
@@ -624,10 +627,31 @@
 		const EDGE = 96;
 		const above = pointerAt - EDGE;
 		const below = window.innerHeight - EDGE - pointerAt;
-		if (above < 0) window.scrollBy(0, Math.max(-20, above / 3));
-		else if (below < 0) window.scrollBy(0, Math.min(20, -below / 3));
+		const by = above < 0 ? Math.max(-20, above / 3) : below < 0 ? Math.min(20, -below / 3) : 0;
+		if (by !== 0 && !scrollTheLines(by)) window.scrollBy(0, by);
 		settle();
 		ticking = requestAnimationFrame(autoScroll);
+	}
+
+	/**
+	 * Where the window is roomy the Ingredient Lines stay in view in a box that
+	 * scrolls on its own once it is taller than the window (#198). A line
+	 * dragged to the edge scrolls that box, and the page is left where it is:
+	 * the box stays put while the page moves, so scrolling the page would move
+	 * nothing under the pointer and run off to the foot of the Method. The
+	 * page is scrolled only to bring the rest of the box into the window.
+	 *
+	 * Everywhere else the box scrolls nothing, this answers no, and the page
+	 * scrolls as it always did.
+	 */
+	function scrollTheLines(by: number) {
+		const box = dragging?.list === 'lines' ? linesStayEl : undefined;
+		if (!box || getComputedStyle(box).overflowY !== 'auto') return false;
+		const before = box.scrollTop;
+		box.scrollBy(0, by);
+		if (box.scrollTop !== before) return true;
+		const { top, bottom } = box.getBoundingClientRect();
+		return by > 0 ? bottom <= window.innerHeight : top >= 0;
 	}
 
 	function startDrag(list: 'lines' | 'steps', index: number, event: PointerEvent) {
@@ -1019,7 +1043,7 @@
 	const MATCHA = 'rounded-sm border border-support-2 px-2 py-1 text-read text-support-2';
 </script>
 
-<div class="mx-auto max-w-2xl pb-tabbar">
+<div class="mx-auto recipe-page pb-tabbar">
 	<!--
 		The bar that says you are writing. It stays at the top of the page
 		rather than following the scroll: this is one page, and a bar pinned
@@ -1197,36 +1221,44 @@
 	     bread for a Tuesday (#32's item 43). Aurélien's wording, 1B (#118). -->
 	<p id={cookHintId} class="px-gutter pt-2 text-read text-ink-2">{m.write_cook_hint()}</p>
 
-	<!-- Ingredients. -->
-	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-		{m.recipe_ingredients()}
-	</h2>
-	<ul bind:this={linesEl}>
-		{#each lines as row, index (row.id)}
-			<li
-				data-row
-				class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
-					'lines' && dragging.index === index
-					? 'bg-card'
-					: ''}"
-			>
-				{@render handle('lines', index)}
-				{#if row.kind === 'ingredient'}
-					<span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
-				{/if}
-				<div class="min-w-0 flex-1">
-					<textarea
-						bind:value={row.text}
-						rows="1"
-						{@attach grows(row.text)}
-						aria-label={row.kind === 'section'
-							? m.write_heading_aria()
-							: m.write_line_aria({ number: lineNumbers[index] ?? 0 })}
-						class={row.kind === 'section' ? HEADING_FIELD : FIELD}
-						onfocus={() => (cursor = { list: 'lines', index })}
-						onkeydown={(event) => onKey(event, 'lines', index)}></textarea>
-					<div class="flex flex-wrap items-center gap-2 pt-1">
-						<!--
+	<!--
+		The page's two columns where the window is roomy (#198), since the
+		editor is the page (#83). `Recipe.svelte` holds the choice and why the
+		part that stays in view is a box inside the left column.
+	-->
+	<div class="recipe-columns">
+		<div>
+			<div class="stays-in-view" bind:this={linesStayEl}>
+				<!-- Ingredients. -->
+				<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+					{m.recipe_ingredients()}
+				</h2>
+				<ul bind:this={linesEl}>
+					{#each lines as row, index (row.id)}
+						<li
+							data-row
+							class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
+								'lines' && dragging.index === index
+								? 'bg-card'
+								: ''}"
+						>
+							{@render handle('lines', index)}
+							{#if row.kind === 'ingredient'}
+								<span class="ingredient-marker shrink-0 bg-accent" aria-hidden="true"></span>
+							{/if}
+							<div class="min-w-0 flex-1">
+								<textarea
+									bind:value={row.text}
+									rows="1"
+									{@attach grows(row.text)}
+									aria-label={row.kind === 'section'
+										? m.write_heading_aria()
+										: m.write_line_aria({ number: lineNumbers[index] ?? 0 })}
+									class={row.kind === 'section' ? HEADING_FIELD : FIELD}
+									onfocus={() => (cursor = { list: 'lines', index })}
+									onkeydown={(event) => onKey(event, 'lines', index)}></textarea>
+								<div class="flex flex-wrap items-center gap-2 pt-1">
+									<!--
 							THE ONE PART OF THE READING THAT IS EDITED HERE (#87):
 							whether this line names a Recipe rather than a Food.
 							Matcha, which is the colour of a Reading that points at a
@@ -1237,48 +1269,56 @@
 							control: `set_reading` refuses one on a section, and a
 							button that always fails is worse than no button.
 						-->
-						{#if row.kind === 'ingredient'}
-							{#if row.namedRecipe}
-								<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
-									{m.write_line_names({
-										title: row.namedRecipe.title ?? m.write_line_recipe(),
-									})}
-								</button>
-								<button type="button" class={QUIET} onclick={() => (row.namedRecipe = null)}>
-									{m.write_line_not_recipe()}
-								</button>
-							{:else}
-								<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
-									{m.write_line_recipe()}
-								</button>
-							{/if}
-						{/if}
-						<button
-							type="button"
-							class="{QUIET} text-support"
-							onclick={() => remove('lines', index)}
-						>
-							{m.write_remove()}
-						</button>
-					</div>
+									{#if row.kind === 'ingredient'}
+										{#if row.namedRecipe}
+											<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
+												{m.write_line_names({
+													title: row.namedRecipe.title ?? m.write_line_recipe(),
+												})}
+											</button>
+											<button type="button" class={QUIET} onclick={() => (row.namedRecipe = null)}>
+												{m.write_line_not_recipe()}
+											</button>
+										{:else}
+											<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
+												{m.write_line_recipe()}
+											</button>
+										{/if}
+									{/if}
+									<button
+										type="button"
+										class="{QUIET} text-support"
+										onclick={() => remove('lines', index)}
+									>
+										{m.write_remove()}
+									</button>
+								</div>
+							</div>
+						</li>
+					{/each}
+				</ul>
+				{#if lines.length === 0}
+					<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_ingredients()}</p>
+				{/if}
+				<div class="flex gap-2 px-gutter pt-2">
+					<button
+						type="button"
+						class="{QUIET} flex-1 text-accent"
+						onclick={() => addLine('ingredient')}
+					>
+						{m.write_add_line()}
+					</button>
+					<button
+						type="button"
+						class="{QUIET} flex-1 text-accent"
+						onclick={() => addLine('section')}
+					>
+						{m.write_add_heading()}
+					</button>
 				</div>
-			</li>
-		{/each}
-	</ul>
-	{#if lines.length === 0}
-		<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_ingredients()}</p>
-	{/if}
-	<div class="flex gap-2 px-gutter pt-2">
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addLine('ingredient')}>
-			{m.write_add_line()}
-		</button>
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addLine('section')}>
-			{m.write_add_heading()}
-		</button>
-	</div>
-	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_add_where()}</p>
+				<p class="px-gutter pt-2 text-read text-ink-2">{m.write_add_where()}</p>
 
-	<!--
+				<!--
 		The Nutrition figure, typed where it is read (#84): at the foot of the
 		Ingredients, which is the treatment Aurélien chose on 21 September 2026
 		for both surfaces. Reading and writing share it rather than each making
@@ -1290,142 +1330,148 @@
 		empty field — and the hint says so, since a box under a list of
 		ingredients otherwise looks like one it would fill in.
 	-->
-	<div class="mt-4 flex items-end gap-2 border-t border-rule px-gutter pt-3">
-		<label class="flex-1">
-			<span class="block text-label text-ink-2 uppercase">{m.write_nutrition_label()}</span>
-			<!--
+				<div class="mt-4 flex items-end gap-2 border-t border-rule px-gutter pt-3">
+					<label class="flex-1">
+						<span class="block text-label text-ink-2 uppercase">{m.write_nutrition_label()}</span>
+						<!--
 				`decimal` rather than `numeric`: a source page stating 154.5 per
 				100 g is stating a figure Kamosu does not round, and a
 				digits-only keypad has no separator to type it with.
 			-->
-			<input bind:value={calories} inputmode="decimal" class={SMALL} />
-		</label>
-		<!--
+						<input bind:value={calories} inputmode="decimal" class={SMALL} />
+					</label>
+					<!--
 			No visible label on the basis: its own two options say what it is,
 			beside a box that says Calories. The name is there for anyone not
 			reading it off the screen.
 		-->
-		<select bind:value={basis} aria-label={m.write_nutrition_basis()} class="{SMALL} flex-1">
-			<option value="per_serving">{m.write_nutrition_per_serving()}</option>
-			<option value="per_100g">{m.write_nutrition_per_100g()}</option>
-		</select>
-	</div>
-	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_nutrition_hint()}</p>
-
-	<!-- The Method, underneath the ingredients on the same page. -->
-	<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
-		{m.recipe_method()}
-	</h2>
-	<ol bind:this={stepsEl}>
-		{#each steps as row, index (row.id)}
-			<li
-				data-row
-				class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
-					'steps' && dragging.index === index
-					? 'bg-card'
-					: ''}"
-			>
-				{@render handle('steps', index)}
-				{#if row.kind === 'step'}
-					<span class="w-6 shrink-0 pt-1 font-display text-line font-semibold text-accent">
-						{stepNumbers[index]}
-					</span>
-				{/if}
-				<div class="min-w-0 flex-1">
-					<textarea
-						bind:value={row.text}
-						rows="1"
-						{@attach grows(row.text)}
-						aria-label={row.kind === 'section'
-							? m.write_heading_aria()
-							: m.write_step_aria({ number: stepNumbers[index] ?? 0 })}
-						class={row.kind === 'section' ? HEADING_FIELD : FIELD}
-						onfocus={() => (cursor = { list: 'steps', index })}
-						onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
-					<div class="flex flex-wrap items-center gap-2 pt-1">
+					<select bind:value={basis} aria-label={m.write_nutrition_basis()} class="{SMALL} flex-1">
+						<option value="per_serving">{m.write_nutrition_per_serving()}</option>
+						<option value="per_100g">{m.write_nutrition_per_100g()}</option>
+					</select>
+				</div>
+				<p class="px-gutter pt-2 text-read text-ink-2">{m.write_nutrition_hint()}</p>
+			</div>
+		</div>
+		<div>
+			<!-- The Method: underneath the Ingredients, or beside them where the window is roomy. -->
+			<h2 class="mx-gutter mt-8 mb-2 font-display text-label font-semibold text-accent uppercase">
+				{m.recipe_method()}
+			</h2>
+			<ol bind:this={stepsEl}>
+				{#each steps as row, index (row.id)}
+					<li
+						data-row
+						class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
+							'steps' && dragging.index === index
+							? 'bg-card'
+							: ''}"
+					>
+						{@render handle('steps', index)}
 						{#if row.kind === 'step'}
-							<label class="{QUIET} cursor-pointer text-accent">
-								{row.photo ? m.write_photo_change() : m.write_step_photo()}
-								<input
-									type="file"
-									accept="image/*"
-									class="hidden"
-									onchange={(event) => pick(event, (name) => (row.photo = name))}
-								/>
-							</label>
-							{#if row.photo}
+							<span class="w-6 shrink-0 pt-1 font-display text-line font-semibold text-accent">
+								{stepNumbers[index]}
+							</span>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<textarea
+								bind:value={row.text}
+								rows="1"
+								{@attach grows(row.text)}
+								aria-label={row.kind === 'section'
+									? m.write_heading_aria()
+									: m.write_step_aria({ number: stepNumbers[index] ?? 0 })}
+								class={row.kind === 'section' ? HEADING_FIELD : FIELD}
+								onfocus={() => (cursor = { list: 'steps', index })}
+								onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
+							<div class="flex flex-wrap items-center gap-2 pt-1">
+								{#if row.kind === 'step'}
+									<label class="{QUIET} cursor-pointer text-accent">
+										{row.photo ? m.write_photo_change() : m.write_step_photo()}
+										<input
+											type="file"
+											accept="image/*"
+											class="hidden"
+											onchange={(event) => pick(event, (name) => (row.photo = name))}
+										/>
+									</label>
+									{#if row.photo}
+										<button
+											type="button"
+											class="{QUIET} text-support"
+											onclick={() => (row.photo = null)}
+										>
+											{m.write_step_photo_remove()}
+										</button>
+									{/if}
+								{/if}
 								<button
 									type="button"
 									class="{QUIET} text-support"
-									onclick={() => (row.photo = null)}
+									onclick={() => remove('steps', index)}
 								>
-									{m.write_step_photo_remove()}
+									{m.write_remove()}
 								</button>
-							{/if}
-						{/if}
-						<button
-							type="button"
-							class="{QUIET} text-support"
-							onclick={() => remove('steps', index)}
-						>
-							{m.write_remove()}
-						</button>
-					</div>
-				</div>
-			</li>
-		{/each}
-	</ol>
-	{#if steps.length === 0}
-		<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_steps()}</p>
-	{/if}
-	<div class="flex gap-2 px-gutter pt-2">
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('step')}>
-			{m.write_add_step()}
-		</button>
-		<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('section')}>
-			{m.write_add_heading()}
-		</button>
+							</div>
+						</div>
+					</li>
+				{/each}
+			</ol>
+			{#if steps.length === 0}
+				<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_steps()}</p>
+			{/if}
+			<div class="flex gap-2 px-gutter pt-2">
+				<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('step')}>
+					{m.write_add_step()}
+				</button>
+				<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('section')}>
+					{m.write_add_heading()}
+				</button>
+			</div>
+			<p class="px-gutter pt-2 text-read text-ink-2">{m.write_step_rule()}</p>
+		</div>
 	</div>
-	<p class="px-gutter pt-2 text-read text-ink-2">{m.write_step_rule()}</p>
 
-	<!-- The note, and where the recipe came from. -->
-	<label class="mt-6 block px-gutter">
-		<span class="block text-label text-ink-2 uppercase">{m.write_note_label()}</span>
-		<textarea
-			bind:value={note}
-			rows="3"
-			class="mt-1 block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"
-		></textarea>
-	</label>
-	<label class="mt-4 block px-gutter">
-		<span class="block text-label text-ink-2 uppercase">{m.write_source_text()}</span>
-		<input bind:value={sourceText} class="mt-1 {SMALL}" />
-	</label>
-	<label class="mt-2 block px-gutter">
-		<span class="block text-label text-ink-2 uppercase">{m.write_source_link()}</span>
-		<input bind:value={sourceLink} type="url" placeholder="https://" class="mt-1 {SMALL}" />
-	</label>
+	<!-- The note, and where the recipe came from, back in the one column (#198). -->
+	<div class="roomy:mx-auto roomy:max-w-2xl">
+		<label class="mt-6 block px-gutter">
+			<span class="block text-label text-ink-2 uppercase">{m.write_note_label()}</span>
+			<textarea
+				bind:value={note}
+				rows="3"
+				class="mt-1 block w-full rounded-sm border border-rule bg-card p-2 text-body text-ink"
+			></textarea>
+		</label>
+		<label class="mt-4 block px-gutter">
+			<span class="block text-label text-ink-2 uppercase">{m.write_source_text()}</span>
+			<input bind:value={sourceText} class="mt-1 {SMALL}" />
+		</label>
+		<label class="mt-2 block px-gutter">
+			<span class="block text-label text-ink-2 uppercase">{m.write_source_link()}</span>
+			<input bind:value={sourceLink} type="url" placeholder="https://" class="mt-1 {SMALL}" />
+		</label>
 
-	{#if failed}
-		<p class="mt-4 px-gutter text-read text-support" role="alert">{failed}</p>
-	{/if}
-
-	<div class="px-gutter py-6">
-		{#if wrong}
-			<p class="mb-2 text-read text-support" role="alert">{wrong}</p>
+		{#if failed}
+			<p class="mt-4 px-gutter text-read text-support" role="alert">{failed}</p>
 		{/if}
-		<button
-			type="button"
-			class="block w-full p-4 text-center font-display text-body {!wrong
-				? act.grave
-					? 'bg-support text-on-accent'
-					: 'bg-accent text-on-accent'
-				: 'border border-rule text-ink-2'}"
-			disabled={saving || Boolean(wrong)}
-			onclick={openSheet}
-		>
-			{act.does}
-		</button>
+
+		<div class="px-gutter py-6">
+			{#if wrong}
+				<p class="mb-2 text-read text-support" role="alert">{wrong}</p>
+			{/if}
+			<button
+				type="button"
+				class="block w-full p-4 text-center font-display text-body {!wrong
+					? act.grave
+						? 'bg-support text-on-accent'
+						: 'bg-accent text-on-accent'
+					: 'border border-rule text-ink-2'}"
+				disabled={saving || Boolean(wrong)}
+				onclick={openSheet}
+			>
+				{act.does}
+			</button>
+		</div>
 	</div>
 </div>
 

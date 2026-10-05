@@ -3123,3 +3123,48 @@ describe('the Source line', () => {
 		});
 	}
 });
+
+describe('two columns where the window is roomy (#198)', () => {
+	it('puts the Ingredients in one column, the Method in the other, and the rest under both', async () => {
+		renderRecipe();
+		const line = await screen.findByText('1 cup potato starch (or corn starch)');
+		const step = screen.getByText('Deep fry at 190 C until crisp.');
+
+		const columns = line.closest('.recipe-columns')!;
+		expect(columns).not.toBeNull();
+		expect(columns.children).toHaveLength(2);
+		expect(columns.children[0]).toContainElement(line);
+		expect(columns.children[0]).toContainElement(
+			screen.getByRole('heading', { name: 'Ingredients' }),
+		);
+		expect(columns.children[1]).toContainElement(step);
+		expect(columns.children[1]).toContainElement(screen.getByRole('heading', { name: 'Method' }));
+
+		// The part that stays in view is a box inside the left column, never
+		// the column. As the column it stayed for the whole page and rode over
+		// everything under the Method, which Aurélien found on the iPad.
+		const stays = line.closest('.stays-in-view')!;
+		expect(stays.parentElement).toBe(columns.children[0]);
+		expect(stays).not.toContainElement(step);
+
+		// What leads the page is above both columns, and what follows is under
+		// both: neither is squeezed into one of them.
+		for (const outside of [
+			screen.getByRole('heading', { name: 'Tags' }),
+			screen.getByRole('heading', { name: 'Cooked' }),
+			screen.getByRole('button', { name: 'Edit this recipe' }),
+			screen.getByRole('link', { name: 'Cook this' }),
+		]) {
+			expect(columns).not.toContainElement(outside);
+		}
+	});
+
+	it('keeps a recipe read against another Branch in one column (#192)', async () => {
+		renderRecipe(onTheirs(), 'theirs');
+		await compared();
+
+		expect(document.querySelector('.recipe-columns')).toBeNull();
+		expect(document.querySelector('.stays-in-view')).toBeNull();
+		expect(document.querySelector('.recipe-page')).toBeNull();
+	});
+});

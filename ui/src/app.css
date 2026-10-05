@@ -236,6 +236,15 @@
   /* The screen stops widening here and sits in the middle of a large monitor,
      so a line of the Step never runs longer than it can be read at. */
   --cook-column: 1120px;
+
+  /* A recipe and its editor where the window is roomy (#198, ADR 0044): the
+     width the page's column grows to, from the 672 every other page keeps.
+     Two fifths of it hold the Ingredients and three fifths the Method, which
+     leaves a Step about 590 wide, a line that can still be read. Aurélien
+     chose the layout on prototypes on 5 October 2026. On a tablet on its side
+     it leaves a margin too narrow for the back arrow, so the page starts
+     below the arrow there. */
+  --recipe-column: 1040px;
 }
 
 /* ── Room: how much of the window Kamosu has (ADR 0044, #193) ──────────────
@@ -613,14 +622,22 @@
    column every page with an arrow is drawn in, so moving either moves this.
    Each `clamp` is a switch: a difference times a large number is far below
    zero or far above the most it may be. A page that outgrows that column
-   has to clear the arrow itself. */
+   says how wide it is in `--page-column`, as a recipe does where the window
+   is roomy (#198), and the same sums then keep it clear. */
 @utility clears-back-arrow {
   @variant wide {
     /* The arrow, a step before it and half a step after. */
     --arrow-room: calc(var(--spacing-4) + var(--spacing-12) + var(--spacing-2));
-    --margin: calc((100vw - var(--spacing-rail) - var(--container-2xl)) / 2);
+    --margin: calc(
+      (100vw - var(--spacing-rail) - var(--page-column, var(--container-2xl))) / 2
+    );
 
-    padding-top: clamp(0px, calc((var(--arrow-room) - var(--margin)) * 9999), var(--arrow-room));
+    /* How far down a page starts to keep clear of the arrow: nothing where
+       the arrow stands in the margin. Named so that anything which stays at
+       the top of such a page (#198) stops in the same place. */
+    --below-arrow: clamp(0px, calc((var(--arrow-room) - var(--margin)) * 9999), var(--arrow-room));
+
+    padding-top: var(--below-arrow);
 
     & .page-notices {
       padding-left: clamp(
@@ -629,6 +646,56 @@
         calc(var(--spacing-4) + var(--spacing-12))
       );
     }
+  }
+
+  &:has(.recipe-page) {
+    @variant roomy {
+      --page-column: var(--recipe-column);
+    }
+  }
+}
+
+/* A recipe, and its editor, where the window is roomy (#198, ADR 0044). The
+   page's column widens, and the Ingredients and the Method stand side by
+   side. On every other window none of these three does anything, so the
+   phone's page and an upright tablet's are the one column they were. */
+@utility recipe-page {
+  /* Both widths are said here, so which one wins never rests on the order
+     two classes happen to be written out in. */
+  max-width: var(--container-2xl);
+
+  @variant roomy {
+    max-width: var(--recipe-column);
+  }
+}
+
+@utility recipe-columns {
+  @variant roomy {
+    display: grid;
+    /* `minmax(0, …)` so that a long word in a line wraps in its column
+       rather than widening it. */
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    column-gap: var(--spacing-8);
+  }
+}
+
+/* The Ingredients, staying in view while the Method scrolls. Taller than the
+   window, they scroll alone. They stop below the back arrow where the page
+   starts below it, which `clears-back-arrow` works out. On a page that
+   carries no arrow there is nothing to stop below.
+
+   This goes on a box inside the left column and never on the column, which
+   is the grid's own item: there it stayed for the whole page and rode over
+   everything under the Method. `dvh` is the window less Safari's bars. */
+@utility stays-in-view {
+  @variant roomy {
+    --stays-below: var(--below-arrow, 0px);
+
+    position: sticky;
+    top: var(--stays-below);
+    max-height: calc(100dvh - var(--stays-below));
+    overflow-y: auto;
+    padding-bottom: var(--spacing-4);
   }
 }
 

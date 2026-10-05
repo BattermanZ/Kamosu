@@ -8,6 +8,7 @@
 	import type { KamosuClient, GetRecipeOutput } from '$lib/api/catalogue';
 	import type { WrittenLanguage } from '$lib/language';
 	import type { Whose } from '$lib/cookbook';
+	import type { Room } from '$lib/room.svelte';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
 	import Writing from './Writing.svelte';
 
@@ -21,6 +22,8 @@
 		/** The lines that already name a Recipe, as the Core unfolds them (#87). */
 		components?: GetRecipeOutput['versions'][number]['components'];
 		photograph?: (file: Blob) => Promise<string>;
+		/** How much room the window has (#193). The phone's unless a test says. */
+		room?: Room;
 		/** Translating into this Language rather than editing (#106). */
 		translatingInto?: WrittenLanguage;
 		onCancel?: () => void;
@@ -44,13 +47,14 @@
 		},
 		components = [],
 		photograph,
+		room = 'phone',
 		translatingInto,
 		onCancel = () => {},
 		onSaved = () => {},
 	}: Props = $props();
 </script>
 
-<Kamosu {client} {photograph}>
+<Kamosu {client} {photograph} {room}>
 	<Writing
 		branchId="mine"
 		lineageId="l_1"
