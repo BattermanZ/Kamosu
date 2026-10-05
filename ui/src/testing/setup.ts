@@ -17,6 +17,7 @@ import { reach, refreshed } from '$lib/offline/device.svelte';
 import { sessions } from '$lib/offline/library.svelte';
 import { standing } from '$lib/offline/standing.svelte';
 import { story } from '$lib/story/showing.svelte';
+import { signingIn } from '$lib/shell/signing-in.svelte';
 
 /**
  * One `goto` for the whole run, cleared after every test. Why it is not mocked
@@ -51,6 +52,7 @@ function startAsIsolationWould(): void {
 	Object.assign(reach, { server: true, lost: 0 });
 	Object.assign(sessions, { began: 0 });
 	Object.assign(story, { showing: false });
+	Object.assign(signingIn, { showing: false, signedIn: undefined });
 	// The story's language buttons write it, like the app's own layout does.
 	document.documentElement.removeAttribute('lang');
 	refreshed.clear();

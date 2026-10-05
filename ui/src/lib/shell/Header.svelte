@@ -1,6 +1,7 @@
 <!--
-	The shell's top: the mark on the left, and the one way into Settings on the
-	right (#102).
+	The shell's top on the phone layout: the mark on the left, and the one way
+	into Settings on the right (#102). The wide layout draws the sidebar in its
+	place, which lists Settings itself (#194).
 
 	The way in is **you**, not the Kitchen's name. #37 intended a Kitchen's name
 	here and never built one, which left a logo that was secretly a button: the

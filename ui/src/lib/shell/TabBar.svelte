@@ -8,43 +8,15 @@
 	reaches mid-recipe (ADR 0011).
 -->
 <script lang="ts">
-	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
+	import { isCurrent, places } from './places';
 
-	interface Section {
-		href: string;
-		label: () => string;
-		/** Drawn at 24px in the current colour; one path each, no icon library. */
-		path: string;
+	interface Props {
+		/** The address on screen, which says which place is the current one. */
+		pathname: string;
 	}
 
-	const sections: Section[] = [
-		{
-			href: '/',
-			label: () => m.nav_home(),
-			path: 'M3 10.5 12 3l9 7.5M5.5 9.5V20h13V9.5',
-		},
-		{
-			href: '/recipes',
-			label: () => m.nav_recipes(),
-			path: 'M4 4h11a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm13 0h3v16M8 8h6M8 12h6',
-		},
-		{
-			href: '/shopping',
-			label: () => m.nav_shopping(),
-			path: 'M4 6h3l2 11h9l2-8H8M10 21h.01M17 21h.01',
-		},
-		{
-			href: '/cooked',
-			label: () => m.nav_cooked(),
-			path: 'M4 15h16a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4ZM7 11c0-2 1.5-2 1.5-4M12 11c0-2 1.5-2 1.5-4M17 11c0-2 1.5-2 1.5-4',
-		},
-	];
-
-	/** The section a path belongs to: `/recipes/soba` is still Recipes. */
-	function isCurrent(href: string, pathname: string): boolean {
-		return href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(`${href}/`);
-	}
+	let { pathname }: Props = $props();
 </script>
 
 <nav
@@ -52,11 +24,11 @@
 	class="fixed inset-x-0 bottom-0 z-20 border-t border-rule bg-card pb-safe"
 >
 	<ul class="mx-auto flex max-w-2xl">
-		{#each sections as section (section.href)}
-			{@const current = isCurrent(section.href, page.url.pathname)}
+		{#each places as place (place.href)}
+			{@const current = isCurrent(place.href, pathname)}
 			<li class="flex-1">
 				<a
-					href={section.href}
+					href={place.href}
 					aria-current={current ? 'page' : undefined}
 					class="flex min-h-12 flex-col items-center justify-center gap-1 pt-2 text-label uppercase
 						{current ? 'text-accent' : 'text-ink-2'}"
@@ -71,9 +43,9 @@
 						stroke-linecap="round"
 						stroke-linejoin="round"
 					>
-						<path d={section.path} />
+						<path d={place.path} />
 					</svg>
-					{section.label()}
+					{place.label()}
 				</a>
 			</li>
 		{/each}

@@ -18,6 +18,7 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import { deviceName } from '$lib/device-name';
+	import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
@@ -55,6 +56,15 @@
 
 	const kamosu = useKamosu();
 	const auth = useAuth();
+
+	// The wide layout draws no sidebar beside this form (#194).
+	$effect(() => {
+		signingIn.showing = true;
+		return () => {
+			signingIn.showing = false;
+		};
+	});
+
 	let setupComplete = $state<boolean | undefined>(undefined);
 	/** The shortest password Kamosu accepts where one is set, as it says (#138). */
 	let passwordMinimum = $state(0);
@@ -186,6 +196,7 @@
 				link: invite ?? recovery,
 			});
 			if (mode === 'first-person' || mode === 'invite') setupComplete = true;
+			heardWhetherSignedIn(true);
 			onSignedIn?.();
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;

@@ -17,6 +17,7 @@ import { went } from '../../testing/navigation';
 import type { GetCookbookOutput, MeaningSearchStatusOutput } from '$lib/api/catalogue';
 import { cookbookLabel, kitchenAnswer } from '../../testing/recipes';
 import { holdTheInstallOffer } from '$lib/offline/device.svelte';
+import { signingIn } from '$lib/shell/signing-in.svelte';
 import { offerToInstall } from '../../testing/install';
 
 /**
@@ -1383,6 +1384,8 @@ describe('telling your Sessions apart (#114)', () => {
 			input: { session_id: 's_phone' },
 		});
 		await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/'));
+		// So the sidebar is gone before Home is drawn, not a moment after (#194).
+		expect(signingIn.signedIn).toBe(false);
 	});
 
 	it('renames an older Session in place, starting from an empty name', async () => {

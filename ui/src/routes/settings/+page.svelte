@@ -15,6 +15,7 @@
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
+	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import { MeaningSearch } from '$lib/meaning.svelte';
 	import { asksWhetherAdministering } from '$lib/operator/administering';
 	import ImportCrouton from './ImportCrouton.svelte';
@@ -386,6 +387,9 @@
 		// Ending the Session in your hand is signing out: Home is the sign-in
 		// form to somebody who is not signed in.
 		if (session.current) {
+			// Said before Home is drawn, so the sidebar is gone with the Session
+			// rather than a moment after it (#194).
+			heardWhetherSignedIn(false);
 			await goto('/');
 			return;
 		}

@@ -16,6 +16,7 @@ import { standIn, type Answers, type StandIn } from '$lib/api/stand-in';
 import type { AuthClient } from '$lib/auth';
 import type { PreviewSharedRecipeOutput } from '$lib/api/catalogue';
 import { forgetArrival, noteArrival, theArrival } from '$lib/arrival.svelte';
+import { signingIn } from '$lib/shell/signing-in.svelte';
 import { getLocale } from '$lib/paraglide/runtime';
 import { outlivingTheWait, withTheClockFaked } from '../testing/jobs';
 import { went } from '../testing/navigation';
@@ -405,6 +406,8 @@ describe('importing a shared recipe, signed out', () => {
 			operation: 'read_shared_recipe',
 			input: { token: TOKEN },
 		});
+		// What the shell draws no sidebar on (#194).
+		expect(signingIn.signedIn).toBe(false);
 	});
 
 	it('sends you to your own Kamosu with the link in hand', async () => {
@@ -456,6 +459,7 @@ describe('importing a shared recipe, signed out', () => {
 
 		expect(await screen.findByRole('heading', { name: 'Import this recipe?' })).toBeInTheDocument();
 		expect(operations(kamosu).filter((name) => name === 'preview_shared_recipe')).toHaveLength(2);
+		expect(signingIn.signedIn).toBe(true);
 	});
 
 	it('names no recipe it cannot read, when the link is another Kamosu’s', async () => {

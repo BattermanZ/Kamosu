@@ -1,0 +1,21 @@
+<!--
+	Kamosu's mark with its name under it, above a page the wide layout draws
+	with no sidebar: the account form, an Invite, a Cookbook Invite, a recovery
+	link (#194).
+
+	The sidebar is where a wide window reads the name, and these pages have
+	none, so without this the name stood nowhere on them. Aurélien asked for it
+	on 5 October 2026, the same objection he had to the first rail. The phone
+	layout keeps its header on these pages until #214 gives both layouts one
+	signed-out page.
+-->
+<script lang="ts">
+	import { m } from '$lib/paraglide/messages';
+</script>
+
+<header
+	class="flex flex-col items-center gap-2 pt-safe font-display text-title font-semibold text-ink"
+>
+	<img src="/assets/img/kamosu-mark.svg" alt="" class="mt-8 h-12 w-12 rounded-sm" />
+	{m.app_name()}
+</header>

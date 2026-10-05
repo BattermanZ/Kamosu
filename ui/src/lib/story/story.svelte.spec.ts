@@ -140,7 +140,7 @@ describe('the story (#158)', () => {
 		expect(container.querySelector('.story')).toHaveClass('still');
 	});
 
-	it('says it is showing, so the layout leaves its header and tab bar out', () => {
+	it('says it is showing, so the shell draws no navigation under it', () => {
 		const { unmount } = render(Story, { props: { ending: 'about' } });
 		expect(story.showing).toBe(true);
 		unmount();

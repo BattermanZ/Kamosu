@@ -3,9 +3,8 @@
 	import { page } from '$app/state';
 	import '../app.css';
 	import { getLocale } from '$lib/paraglide/runtime';
-	import Header from '$lib/shell/Header.svelte';
 	import Kamosu from '$lib/shell/Kamosu.svelte';
-	import TabBar from '$lib/shell/TabBar.svelte';
+	import Shell from '$lib/shell/Shell.svelte';
 	import { realKamosu } from '$lib/kamosu';
 	import { realAuth } from '$lib/auth';
 	import { realPhotographUpload, realUpload } from '$lib/api/upload';
@@ -18,7 +17,6 @@
 	import { listenToTheWorker, reach, retryWhileUnreachable } from '$lib/offline/device.svelte';
 	import { realOutbox } from '$lib/offline/outbox';
 	import { m } from '$lib/paraglide/messages';
-	import { story } from '$lib/story/showing.svelte';
 	import { WindowRoom } from '$lib/room.svelte';
 
 	let { children } = $props();
@@ -88,23 +86,11 @@
 		return () => removeEventListener('online', again);
 	});
 
-	const onSettings = $derived(page.url.pathname.startsWith('/settings'));
-
 	/**
-	 * The cooking screen wears no shell (ADR 0011): it is one Step filling the
-	 * phone, used at arm's length with wet hands. The header would cost it the
-	 * height, and the tab bar would put Shopping one wet thumb away from the step
-	 * you are on — a tap the cook did not intend, which is the one thing this
-	 * screen is not allowed to cost.
+	 * The cooking screen, which the shell draws bare (ADR 0011). Named here
+	 * as well for the one thing below that is drawn only on it.
 	 */
 	const cooking = $derived(page.url.pathname.startsWith('/cook/'));
-
-	/**
-	 * The story (#158) covers the whole window with corners of its own, so it
-	 * wears no shell either: a header and tab bar drawn under it would still be
-	 * read out and tabbed through behind a page that hides them.
-	 */
-	const bare = $derived(cooking || story.showing);
 
 	/**
 	 * The boundary below has taken the screen down (#119). A handled boundary
@@ -126,69 +112,65 @@
 </script>
 
 <Kamosu {client} {auth} {upload} {photograph} {files} keeping={outbox} room={room.current}>
-	{#if !bare}
-		<Header {onSettings} />
-	{/if}
+	<Shell pathname={page.url.pathname}>
+		{#snippet screen(bare)}
+			<main>
+				<!-- Not under the story either (#158): it covers the window, and a card
+				     drawn beneath it would be read out before the story it hides behind. -->
+				{#if !bare}
+					<!-- Kamosu itself went wrong (#98), above the rest, because it outranks
+					     every "not right now" card: those say what cannot be done, and this
+					     says the thing you just did went wrong.
 
-	<main>
-		<!-- Not under the story either (#158): it covers the window, and a card
-		     drawn beneath it would be read out before the story it hides behind. -->
-		{#if !bare}
-			<!-- Kamosu itself went wrong (#98), above the rest, because it outranks
-			     every "not right now" card: those say what cannot be done, and this
-			     says the thing you just did went wrong.
+					     Not on the cooking screen, for the same reason as everything else
+					     here (ADR 0011) — and, drawn there, not even visible: that screen is
+					     `fixed inset-0 z-30`, so a card in ordinary flow is painted
+					     underneath it, unseen by the cook while a screen reader still
+					     announces the alert. The cooking screen says it in two words of its
+					     own instead, on the row it already has, and opens this card only on
+					     a tap (#119, option B — Aurélien, 23 September 2026). The mistake is
+					     remembered either way, and the card is waiting here the moment the
+					     cook leaves the step. -->
+					<WentWrong />
 
-			     Not on the cooking screen, for the same reason as everything else
-			     here (ADR 0011) — and, drawn there, not even visible: that screen is
-			     `fixed inset-0 z-30`, so a card in ordinary flow is painted
-			     underneath it, unseen by the cook while a screen reader still
-			     announces the alert. The cooking screen says it in two words of its
-			     own instead, on the row it already has, and opens this card only on
-			     a tap (#119, option B — Aurélien, 23 September 2026). The mistake is
-			     remembered either way, and the card is waiting here the moment the
-			     cook leaves the step. -->
-			<WentWrong />
+					<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
+					     the cooking screen, which carries nothing but the Step. -->
+					<Notices />
+					<!-- And what bringing a recipe file in just said, above the recipe it
+					     brought (#93). Said here rather than inside the recipe screen
+					     because this is where Kamosu says a thing once and it is put
+					     away — the same place, and the same card, as the rest. -->
+					<Arrived pathname={page.url.pathname} />
+				{:else if cooking && redrawScreen}
+					<!-- The cooking screen itself went wrong while it was being drawn, and
+					     the boundary took it away (#119). There is no Step left to protect,
+					     so #98's card is drawn after all, on the bare page the boundary
+					     left, with the way back the cooking screen would have offered. -->
+					<WentWrong />
+					<a
+						href="/recipes/{page.params.branchId}"
+						class="mx-gutter block min-h-12 rounded-sm bg-accent px-4 py-3 text-center font-semibold text-on-accent"
+					>
+						{m.cook_back_to_recipe()}
+					</a>
+				{/if}
 
-			<!-- What Kamosu cannot do right now, said once at the top (#76). Not on
-			     the cooking screen, which carries nothing but the Step. -->
-			<Notices />
-			<!-- And what bringing a recipe file in just said, above the recipe it
-			     brought (#93). Said here rather than inside the recipe screen
-			     because this is where Kamosu says a thing once and it is put
-			     away — the same place, and the same card, as the rest. -->
-			<Arrived pathname={page.url.pathname} />
-		{:else if cooking && redrawScreen}
-			<!-- The cooking screen itself went wrong while it was being drawn, and
-			     the boundary took it away (#119). There is no Step left to protect,
-			     so #98's card is drawn after all, on the bare page the boundary
-			     left, with the way back the cooking screen would have offered. -->
-			<WentWrong />
-			<a
-				href="/recipes/{page.params.branchId}"
-				class="mx-gutter block min-h-12 rounded-sm bg-accent px-4 py-3 text-center font-semibold text-on-accent"
-			>
-				{m.cook_back_to_recipe()}
-			</a>
-		{/if}
+				<!--
+					The screen itself, walled off (#98). A mistake made while rendering, or
+					inside an effect, reaches no promise at all — a boundary is the only thing
+					that sees it, and without one it tears down the whole app, the card
+					included, so the one surface meant to report the mistake would go with it.
 
-		<!--
-			The screen itself, walled off (#98). A mistake made while rendering, or
-			inside an effect, reaches no promise at all — a boundary is the only thing
-			that sees it, and without one it tears down the whole app, the card
-			included, so the one surface meant to report the mistake would go with it.
-
-			The boundary sits INSIDE main and the card outside it, which is what keeps
-			that from happening: the screen is what is walled off, and the card is
-			what survives to say so. A handled boundary drops its content, so the
-			half-drawn screen goes rather than sitting there looking like it is still
-			loading — which is the whole complaint this issue was filed about.
-		-->
-		<svelte:boundary onerror={screenWentWrong}>
-			{@render children()}
-		</svelte:boundary>
-	</main>
-
-	{#if !bare}
-		<TabBar />
-	{/if}
+					The boundary sits INSIDE main and the card outside it, which is what keeps
+					that from happening: the screen is what is walled off, and the card is
+					what survives to say so. A handled boundary drops its content, so the
+					half-drawn screen goes rather than sitting there looking like it is still
+					loading — which is the whole complaint this issue was filed about.
+				-->
+				<svelte:boundary onerror={screenWentWrong}>
+					{@render children()}
+				</svelte:boundary>
+			</main>
+		{/snippet}
+	</Shell>
 </Kamosu>

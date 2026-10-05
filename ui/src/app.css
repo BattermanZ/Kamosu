@@ -166,6 +166,10 @@
   --spacing-8: 32px;
   --spacing-12: 48px;
   --spacing-gutter: 20px;       /* the screen gutter */
+  /* The sidebar's width on the wide layout: the indigo rail Aurélien chose
+     on 5 October 2026 (#194, ADR 0044), narrow so that an upright tablet
+     keeps almost all of its width for the page. */
+  --spacing-rail: 88px;
   /* ── Shape ──────────────────────────────────────────────────────────────── */
   --radius-sm: 2px;             /* near-square is the direction: everywhere, */
   --radius-md: 2px;             /* including buttons and fields */
@@ -442,11 +446,16 @@
   background: linear-gradient(to bottom, transparent, var(--color-cook-ground));
 }
 
-/* The room every screen leaves for the tab bar, which is fixed over it: the
-   bar's own height, its safe-area padding, and a step of air. Named once so a
+/* The room every screen leaves for the phone layout's tab bar, which is fixed
+   over it: the bar's own height, its safe-area padding, and a step of air. Named once so a
    screen never guesses a number, and so changing the bar changes every screen. */
 @utility pb-tabbar {
   padding-bottom: calc(var(--spacing-12) + var(--spacing-8) + env(safe-area-inset-bottom));
+
+  /* No page draws a tab bar on the wide layout (#194), so only the air stays. */
+  @variant wide {
+    padding-bottom: calc(var(--spacing-8) + env(safe-area-inset-bottom));
+  }
 }
 
 /* Where anything fixed to the bottom of a screen has to sit to clear the tab
@@ -456,6 +465,28 @@
    `bottom-0` the tab bar swallowed its Save button entirely. */
 @utility bottom-tabbar {
   bottom: calc(var(--spacing-12) + env(safe-area-inset-bottom));
+
+  /* With no tab bar to clear on the wide layout (#194), that is the bottom. */
+  @variant wide {
+    bottom: 0;
+  }
+}
+
+/* The page beside the sidebar on the wide layout (#194). The sidebar is fixed
+   over the left edge, so the page starts where it ends.
+
+   Anything a screen fixes across the window's width, a bottom sheet or the
+   unsaved tray, is held to the same room. Otherwise it would centre on the
+   window while the column it belongs to centres beside the sidebar, half a
+   rail apart. The dimmed backdrops are `inset-0`, not `inset-x-0`, and still
+   cover the sidebar. #196 moves every sheet onto one frame, which is where
+   this rule's second half should go then. */
+@utility beside-rail {
+  padding-left: var(--spacing-rail);
+
+  & .fixed.inset-x-0 {
+    left: var(--spacing-rail);
+  }
 }
 
 /* The wash under a recipe's title, over its photograph. Indigo rather than a

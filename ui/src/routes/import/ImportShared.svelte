@@ -31,6 +31,7 @@
 	import { receiveStaged } from '$lib/receive';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import Screen from '$lib/shell/Screen.svelte';
+	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import type { PreviewSharedRecipeOutput } from '$lib/api/catalogue';
 	import Account from '../Account.svelte';
 
@@ -98,6 +99,8 @@
 		(async () => {
 			try {
 				const job = await kamosu.previewSharedRecipe({ url: here.url });
+				// The shell draws its sidebar on this answer (#194).
+				heardWhetherSignedIn(true);
 				const finished = await waitForJob(kamosu, job.job_id);
 				if (current) {
 					step = { is: 'ready', preview: finished.result as PreviewSharedRecipeOutput };
@@ -106,6 +109,7 @@
 				if (!(error instanceof Error)) throw error;
 				if (!current) return;
 				if (error instanceof OperationError && error.kind === 'unauthorized') {
+					heardWhetherSignedIn(false);
 					step = { is: 'where' };
 					// Named where it can be, which is a link this instance shared:
 					// its page is Public, so a stranger may read its title. A far

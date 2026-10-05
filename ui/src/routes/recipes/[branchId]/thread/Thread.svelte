@@ -152,7 +152,9 @@
 </Screen>
 
 {#snippet sheet(scrollable: boolean, children: Snippet)}
-	<div class="fixed inset-0 z-30 flex items-end bg-ink/40">
+	<!-- Dimmed across the whole window, the sidebar included, while the sheet
+	     keeps to the page beside it (#194). -->
+	<div class="fixed inset-0 z-30 flex items-end bg-ink/40 wide:pl-rail">
 		<div
 			class={`mx-auto w-full max-w-2xl rounded-sm bg-card p-4 ${scrollable ? 'max-h-[70vh] overflow-y-auto' : ''}`}
 		>

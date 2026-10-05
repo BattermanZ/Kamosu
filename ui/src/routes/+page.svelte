@@ -20,6 +20,7 @@
 	import Account from './Account.svelte';
 	import Home from './Home.svelte';
 	import CookbookJoins from '$lib/CookbookJoins.svelte';
+	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 
 	const kamosu = useKamosu();
 
@@ -54,6 +55,8 @@
 		kamosu
 			.homeShelves({})
 			.then((shelves) => {
+				// The shell draws its sidebar on this answer (#194).
+				heardWhetherSignedIn(true);
 				if (current) {
 					home = shelves;
 					failed = false;
@@ -76,6 +79,7 @@
 				// answer, and the answer is the login form. Anything else is a
 				// Kamosu that could not be reached, which says so instead.
 				if (error.kind === 'unauthorized') {
+					heardWhetherSignedIn(false);
 					home = null;
 				} else {
 					failed = true;
