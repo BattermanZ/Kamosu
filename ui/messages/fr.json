@@ -306,6 +306,7 @@
   "imports_arrived_heading": "Ce qui est arrivé",
   "imports_back": "Réglages",
   "imports_blurb": "D’où viennent vos recettes. Les recettes elles-mêmes sont dans votre bibliothèque.",
+  "imports_choose": "Choisissez un import pour voir comment il s’est passé.",
   "imports_forget_ask_bundle": "Oublier que ces recettes viennent d’un fichier ?",
   "imports_forget_ask_crouton": "Oublier que ces recettes viennent de Crouton ?",
   "imports_forget_ask_other": "Oublier d’où viennent ces recettes ?",

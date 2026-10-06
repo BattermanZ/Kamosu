@@ -58,10 +58,17 @@
 	onNavigate((navigation) => {
 		if (!document.startViewTransition) return;
 		return new Promise((resolve) => {
-			document.startViewTransition(async () => {
+			const transition = document.startViewTransition(async () => {
 				resolve();
 				await navigation.complete;
 			});
+			// A navigation overtaken by the next one, as when an arrow key is held
+			// in a list (#200), has its transition skipped and its promises
+			// rejected. That is no Mistake, so none of them goes unhandled.
+			const overtaken = () => {};
+			transition.ready.catch(overtaken);
+			transition.finished.catch(overtaken);
+			transition.updateCallbackDone.catch(overtaken);
 		});
 	});
 

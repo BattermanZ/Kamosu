@@ -42,11 +42,10 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
-	import { goto } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useRoom } from '$lib/room.svelte';
-	import { stepInList, typingInAField } from '$lib/shell/walk';
+	import { openInPlace, stepInList, typingInAField } from '$lib/shell/walk';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
@@ -174,7 +173,7 @@
 		// The caret goes to the row, so Tab goes on into the Food it opened.
 		row?.focus({ preventScroll: true });
 		row?.scrollIntoView?.({ block: 'nearest' });
-		void goto(addressOf(to), { replaceState: true, keepFocus: true, noScroll: true });
+		void openInPlace(addressOf(to));
 	}
 </script>
 

@@ -1,7 +1,10 @@
 /**
  * Walking a list with the arrow keys, where the list stays beside what is
- * open (ADR 0044, #199). Foods is the first such list.
+ * open (ADR 0044, #199). Foods is the first such list and Brought in the
+ * second (#200).
  */
+
+import { goto } from '$app/navigation';
 
 /**
  * Whether a key was pressed with the caret somewhere that uses it: a field,
@@ -30,4 +33,22 @@ export function stepInList(
 	const at = open === undefined ? -1 : items.indexOf(open);
 	if (at < 0) return items[0];
 	return items[Math.min(items.length - 1, Math.max(0, at + step))];
+}
+
+/**
+ * Open what an arrow led to, in place of what was open: the history entry is
+ * replaced, so going back leaves the list in one step, and the caret and the
+ * scroll stay where they are.
+ *
+ * An arrow pressed again before the last one has finished opening ends that
+ * navigation, and SvelteKit rejects its promise. That is a key held down and
+ * no Mistake, so it is caught here and never reaches the net under the app
+ * (#98), which showed the *Kamosu went wrong* card for it.
+ */
+export async function openInPlace(address: string): Promise<void> {
+	try {
+		await goto(address, { replaceState: true, keepFocus: true, noScroll: true });
+	} catch {
+		// Overtaken by the next arrow.
+	}
 }

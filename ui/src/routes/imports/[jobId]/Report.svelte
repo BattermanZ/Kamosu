@@ -20,16 +20,25 @@
 	Operation — it is simply the absence of a link — so *that the card was
 	answered* is remembered in this browser, and on another device the pairs
 	are offered again, harmlessly.
+
+	**On the wide layout it is a card beside the list of imports** (#200, ADR
+	0044), as an open Food is beside Foods, and what is a white card on the
+	phone's page is set on the page's ground there, since white on a white card
+	is no card. Nothing else about it changes: the long list of what arrived
+	stays behind its disclosure. A Report that watches its import end says so
+	to that list, whose row for it was read while it ran.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
+	import { useRoom } from '$lib/room.svelte';
 	import { OperationError } from '$lib/api/client';
 	import { waitForJob } from '$lib/api/job';
 	import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import WayBackLine from '$lib/shell/WayBackLine.svelte';
 	import Section from '$lib/shell/Section.svelte';
+	import { useEnded } from '../ended.svelte';
 
 	interface Props {
 		jobId: string;
@@ -40,6 +49,13 @@
 	let { jobId, every = 700 }: Props = $props();
 
 	const kamosu = useKamosu();
+	const room = useRoom();
+	const ended = useEnded();
+
+	/** A card, where the list of imports is beside this page: on the wide layout. */
+	const card = $derived(room.wide);
+	/** What the phone draws as a card on its page, which inside a card is the page's ground. */
+	const panel = $derived(card ? 'bg-ground' : 'bg-card');
 
 	type Report = ImportCroutonOutput;
 	type Pair = Report['related_candidates'][number];
@@ -52,20 +68,28 @@
 	$effect(() => {
 		const id = jobId;
 		let current = true;
+		let waited = false;
 		waitForJob(kamosu, id, {
 			every,
 			giveUpAfter: 6 * 60 * 60 * 1000,
 			whileWaiting: (read) => {
+				waited = true;
 				if (current) job = read;
 			},
 			stopped: () => !current,
 		})
 			.then((read) => {
-				if (current) job = read;
+				if (!current) return;
+				job = read;
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof Error)) throw error;
-				if (current) unreachable = error.message;
+				if (!current) return;
+				unreachable = error.message;
+			})
+			.finally(() => {
+				// The list beside this read the import while it ran.
+				if (current && waited) ended?.say();
 			});
 		return () => {
 			current = false;
@@ -204,14 +228,14 @@
 	const ofABundle = $derived(job?.operation === 'import_bundle');
 </script>
 
-<Screen title={ofABundle ? m.report_title_file() : m.report_title()}>
+<Screen {card} title={ofABundle ? m.report_title_file() : m.report_title()}>
 	<WayBackLine
 		href={ofABundle ? '/recipes' : '/settings'}
 		label={ofABundle ? m.report_back_recipes() : m.report_back()}
 	/>
 
 	{#if unreachable}
-		<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">
+		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{unreachable}
 		</p>
 	{:else if job === undefined || job.status === 'queued'}
@@ -229,12 +253,12 @@
 		</div>
 
 		<Section heading={m.report_needs_you()}>
-			<p class="rounded-sm border border-rule bg-card px-3 py-3 text-read text-ink-2">
+			<p class={['rounded-sm border border-rule px-3 py-3 text-read text-ink-2', panel]}>
 				{m.report_needs_you_waiting()}
 			</p>
 		</Section>
 	{:else if job.status !== 'completed' || !report}
-		<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">
+		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{m.report_stopped({ reason: job.error ?? job.status })}
 		</p>
 	{:else}
@@ -254,7 +278,7 @@
 			{/if}
 
 			{#if pairs.length}
-				<div class="rounded-sm border border-rule bg-card px-3 pb-3">
+				<div class={['rounded-sm border border-rule px-3 pb-3', panel]}>
 					{#if settled}
 						<p class="pt-3 text-read">
 							{#if linkedPairs.length === pairs.length}
@@ -357,7 +381,7 @@
 			{:else}
 				<ul class="grid gap-2">
 					{#each report.unreadable as loss, index (index)}
-						<li class="border-l-3 border-support bg-card px-3 py-2">
+						<li class={['border-l-3 border-support px-3 py-2', panel]}>
 							<p class="text-body font-semibold">
 								{loss.name ?? loss.foreign_id ?? m.report_unreadable_unnamed()}
 							</p>

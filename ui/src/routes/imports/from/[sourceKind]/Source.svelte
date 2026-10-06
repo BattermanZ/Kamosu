@@ -29,7 +29,6 @@
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
@@ -44,6 +43,7 @@
 		sourceName,
 		sourceSummary,
 		whatHappened,
+		whenArrived,
 		type Import,
 	} from '$lib/imports';
 
@@ -87,15 +87,6 @@
 
 	const source = $derived(imports?.find((row) => row.source_kind === sourceKind));
 	const arrivals = $derived(source?.arrivals ?? []);
-
-	const when = (at: string) =>
-		new Date(at).toLocaleString(getLocale(), {
-			day: 'numeric',
-			month: 'long',
-			year: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit',
-		});
 
 	async function forget() {
 		const ledger = source?.import_id;
@@ -147,7 +138,7 @@
 						<a href="/imports/{arrival.job_id}" class="flex min-h-12 items-center gap-3 py-2">
 							<span class="min-w-0 flex-1">
 								<span class="block text-body leading-tight text-ink">
-									{when(arrival.created_at)}
+									{whenArrived(arrival.created_at)}
 								</span>
 								<span class="block text-read {happened.loss ? 'text-support' : 'text-ink-2'}">
 									{happened.said}

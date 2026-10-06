@@ -14,7 +14,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/svelte';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
+import { m } from '$lib/paraglide/messages';
 import ReportTestHarness from './ReportTestHarness.svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
@@ -270,5 +271,77 @@ describe('the Import Report', () => {
 			}),
 		});
 		expect(await screen.findByRole('alert')).toHaveTextContent(/not a Crouton export/);
+	});
+});
+
+/**
+ * The Report beside the list of imports (#200, ADR 0044). On the wide layout
+ * it is a card, as an open Food is, and the list stays beside it.
+ */
+describe('on the wide layout', () => {
+	const arrival = (status: 'running' | 'completed') => ({
+		job_id: 'j_1',
+		created_at: '2026-09-19T10:00:00.000Z',
+		status,
+		arrived: status === 'completed' ? 6 : 0,
+		created: status === 'completed' ? 6 : 0,
+		offered: 0,
+		unreadable: 0,
+	});
+	const listed = (status: 'running' | 'completed') => ({
+		imports: [
+			{
+				import_id: 'imp_crouton',
+				source_kind: 'crouton',
+				created_at: '2026-09-19T10:00:00.000Z',
+				remembered: 6,
+				arrivals: [arrival(status)],
+			},
+		],
+	});
+
+	function beside(answers: Answers) {
+		localStorage.clear();
+		const kamosu = standIn(answers);
+		render(ReportTestHarness, {
+			props: { client: kamosu.client, jobId: 'j_1', room: 'wide', beside: true },
+		});
+		return kamosu;
+	}
+
+	it("is a card, and the phone's page is not", async () => {
+		beside({ get_job: job(), list_imports: listed('completed') });
+		const title = await screen.findByRole('heading', { level: 1 });
+		expect(title.parentElement).toHaveClass('open-card');
+
+		cleanup();
+		open({ get_job: job() });
+		expect((await screen.findByRole('heading', { level: 1 })).parentElement).not.toHaveClass(
+			'open-card',
+		);
+	});
+
+	it('tells the list when the import it was watching ends, so its row says what arrived', async () => {
+		const kamosu = beside({
+			get_job: job({
+				status: 'running',
+				progress: { done: 3, total: 6, message: '' },
+				result: null,
+			}),
+			list_imports: listed('running'),
+		});
+		expect(await screen.findByText(m.imports_row_running())).toBeInTheDocument();
+
+		kamosu.answer('list_imports', listed('completed'));
+		kamosu.answer('get_job', job());
+
+		expect(await screen.findByText(m.imports_row_new_many({ count: 6 }))).toBeInTheDocument();
+	});
+
+	it('leaves the list alone for an import that had ended before the Report opened', async () => {
+		const kamosu = beside({ get_job: job(), list_imports: listed('completed') });
+		await screen.findByText(/6 recipes are on your shelf/);
+
+		expect(kamosu.calls.filter((call) => call.operation === 'list_imports')).toHaveLength(1);
 	});
 });

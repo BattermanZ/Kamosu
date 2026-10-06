@@ -14,6 +14,7 @@
  */
 
 import { m } from '$lib/paraglide/messages';
+import { getLocale } from '$lib/paraglide/runtime';
 import type { ListImportsOutput } from '$lib/api/catalogue';
 
 export type Import = ListImportsOutput['imports'][number];
@@ -101,6 +102,19 @@ export function sourceSummary(source: Import): string {
  */
 export const canForget = (source: Import): boolean =>
 	source.import_id !== null && source.remembered > 0;
+
+/**
+ * When an arrival came in, to the minute: two recipe files opened one after
+ * the other are two rows of one day.
+ */
+export const whenArrived = (at: string): string =>
+	new Date(at).toLocaleString(getLocale(), {
+		day: 'numeric',
+		month: 'long',
+		year: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+	});
 
 /**
  * One arrival in a line, as the parts it is made of.
