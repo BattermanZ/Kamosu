@@ -1,6 +1,6 @@
 <!--
 	The Thread (issue #53): a recipe's whole life on one screen, forking at the
-	Branch Point, Attempts hanging off it. Reading, never editing (CONTEXT.md,
+	Branch Point, Attempts hanging off it. Reading, never editing (GLOSSARY.md,
 	"Thread") — a past Version opens here to be read in full and cooked from,
 	never changed. The one thing written here is a Version's name, by the cook
 	who saved it (#115, ADR 0015): it is outside the fingerprint, so naming

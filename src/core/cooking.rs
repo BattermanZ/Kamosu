@@ -283,7 +283,7 @@ impl Core {
 
     /// Change an Attempt's free text, its rating or its Photographs, whether
     /// it is still In Progress or long finished — an Attempt is freely
-    /// editable by its cook (CONTEXT.md, "Attempt"), unlike the recipe it was
+    /// editable by its cook (GLOSSARY.md, "Attempt"), unlike the recipe it was
     /// cooked from. `None` leaves a field as it stood; `Some(&Value::Null)`
     /// clears it; any other value sets it, validated.
     pub fn edit_attempt(

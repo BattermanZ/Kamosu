@@ -248,7 +248,7 @@ impl Core {
                 ));
             }
             // Before #131 a Kitchen wrote Versions under its own Hand, and the
-            // Kitchen row is what names that Hand (CONTEXT.md, "Hand"). Its
+            // Kitchen row is what names that Hand (GLOSSARY.md, "Hand"). Its
             // name moves to where a Hand this instance no longer mints is
             // named, so everything it wrote keeps its writer (#129). It was
             // minted here, so no Bundle that carries it back renames it.

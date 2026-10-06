@@ -449,7 +449,7 @@ fn write_zip(snapshot: &Path, data_dir: &Path, destination: &Path) -> Result<(),
 mod tests {
     use super::*;
 
-    /// **Kamosu never sends a Backup anywhere** (#78, CONTEXT.md). That is a
+    /// **Kamosu never sends a Backup anywhere** (#78, GLOSSARY.md). That is a
     /// promise about code that does not exist, which is exactly the kind
     /// nothing else can check: no behaviour test can watch for a request that
     /// was never made. So this reads the module's own source and fails the
@@ -480,7 +480,7 @@ mod tests {
                 !shipped.contains(way_out),
                 "src/backups.rs names `{way_out}`. A Backup is written beside the \
                  database and fetched by whoever asks for it — Kamosu never carries \
-                 one anywhere itself (CONTEXT.md, \"Backup\")"
+                 one anywhere itself (GLOSSARY.md, \"Backup\")"
             );
         }
     }

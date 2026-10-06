@@ -96,7 +96,7 @@ use crate::reading;
 /// a Step below it, which is what lets the boundary move without re-reading a
 /// line.
 ///
-/// The word is CONTEXT.md's, and `"section"` is what the Catalogue already
+/// The word is GLOSSARY.md's, and `"section"` is what the Catalogue already
 /// calls this in a recipe's own content — so a pasted row goes onto the page
 /// as itself rather than being translated on the way in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

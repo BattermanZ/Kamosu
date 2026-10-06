@@ -401,7 +401,7 @@ default format drops, and the higher open-files limit lets the interface build
 write its files; Podman's default of 1024 is too few. The image carries one binary with the web app compiled
 into it. For development, see [AGENTS.md](AGENTS.md): everything runs through
 [`just`](https://just.systems). Design decisions and their reasons are in
-[`docs/adr/`](docs/adr/), and [`CONTEXT.md`](CONTEXT.md) defines the words
+[`docs/adr/`](docs/adr/), and [`GLOSSARY.md`](GLOSSARY.md) defines the words
 Kamosu uses.
 
 ## License

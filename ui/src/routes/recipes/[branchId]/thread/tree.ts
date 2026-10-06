@@ -1,5 +1,5 @@
 /**
- * The Thread's shape (CONTEXT.md, "Thread"): every Branch's own chain, oldest
+ * The Thread's shape (GLOSSARY.md, "Thread"): every Branch's own chain, oldest
  * first, split into a shared trunk and the Branches that continue past it —
  * recursively, so a Branch forking off another Branch (a Copy of a Copy, or
  * a Translation of a Copy) reads the same way a fork off the original trunk

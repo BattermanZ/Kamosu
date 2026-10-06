@@ -584,7 +584,7 @@ describe('writing a recipe', () => {
 	 *
 	 * The basis is typed with the number and is not a setting. 308 says nothing
 	 * until it says what it counts, and the two do not convert into each other
-	 * without a weight a recipe does not carry (CONTEXT.md, "Nutrition").
+	 * without a weight a recipe does not carry (GLOSSARY.md, "Nutrition").
 	 */
 	it('types the figure at the foot of the Ingredients, with what it counts', async () => {
 		const { kamosu } = renderWriting();

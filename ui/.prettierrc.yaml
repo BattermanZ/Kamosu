@@ -4,7 +4,7 @@
 # that has drifted.
 #
 # This config lives in ui/ rather than the repo root on purpose. Prettier
-# formats Markdown by default, and docs/adr/, AGENTS.md and CONTEXT.md are
+# formats Markdown by default, and docs/adr/, AGENTS.md and GLOSSARY.md are
 # hand-wrapped prose that must not be reflowed. Scoping it here makes that
 # impossible rather than merely discouraged.
 

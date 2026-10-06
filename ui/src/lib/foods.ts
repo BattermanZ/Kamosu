@@ -2,7 +2,7 @@
  * What the two Food screens share (#107).
  *
  * A Food is an edible thing Kamosu knows about, learnt by itself from the
- * Readings that mention it (CONTEXT.md). It is instance-wide rather than a
+ * Readings that mention it (GLOSSARY.md). It is instance-wide rather than a
  * Kitchen's, which is why every Operation that reads or corrects one is
  * `Permission::Person` and none of them takes a Kitchen.
  */
@@ -33,7 +33,7 @@ export const NAME_LANGUAGES: NameLanguage[] = ['en', 'fr', 'es'] satisfies NameL
  * A word reduced for SEARCHING, which is the only thing it is for.
  *
  * **This is deliberately not a Food Match.** A Food Match holds that "accents
- * and plurals are meaning, so *maïs* is not *mais*" (CONTEXT.md), because it
+ * and plurals are meaning, so *maïs* is not *mais*" (GLOSSARY.md), because it
  * decides whether two words name the same Food. A search box wants the
  * opposite: somebody typing `pecan` on a phone keyboard means `noix de pécan`,
  * and refusing to find it would be pedantry.

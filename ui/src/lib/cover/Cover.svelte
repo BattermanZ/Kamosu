@@ -1,5 +1,5 @@
 <!--
-	A Cover: what leads a recipe with no Main Photo (#46; CONTEXT.md, "Cover").
+	A Cover: what leads a recipe with no Main Photo (#46; GLOSSARY.md, "Cover").
 
 	No ADR governs this — the Cover is a vocabulary entry, not a decision with
 	alternatives that had to be weighed. What it looks like was Aurélien's

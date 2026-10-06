@@ -1122,7 +1122,7 @@
 
 			It always says what it counts: 308 on its own says nothing, and a
 			serving and 100 g do not convert into each other without a weight
-			the recipe does not carry (CONTEXT.md, "Nutrition"). Most recipes
+			the recipe does not carry (GLOSSARY.md, "Nutrition"). Most recipes
 			carry no figure, and then there is nothing here at all — no dash, no
 			placeholder and no zero, because zero would be a claim.
 		-->

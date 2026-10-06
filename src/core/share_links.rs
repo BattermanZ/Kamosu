@@ -271,7 +271,7 @@ impl Core {
                 // The page says who shared it, and a Person is who that is —
                 // never the Kitchen. The name is looked up live, so renaming
                 // yourself reaches every link you have ever minted at once
-                // (CONTEXT.md, "Hand").
+                // (GLOSSARY.md, "Hand").
                 "shared_by": person_name(conn, &shared_by)?,
                 "public_address": stored_public_address(conn)?,
                 "recipe": shared["recipe"].clone(),

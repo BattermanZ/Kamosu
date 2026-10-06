@@ -370,7 +370,7 @@ fn get_photograph(core: &Core, headers: &HeaderMap, hash: &str) -> Response {
 }
 
 /// `GET /api/photographs/{hash}/{size}`: a Display Copy — `card`, `page` or
-/// `print` (CONTEXT.md, "Display Copy") — generated and cached on first ask.
+/// `print` (GLOSSARY.md, "Display Copy") — generated and cached on first ask.
 fn get_display_copy(core: &Core, headers: &HeaderMap, hash: &str, size: &str) -> Response {
     let secret = bearer_from_headers(headers);
     let Some(size) = DisplaySize::parse(size) else {

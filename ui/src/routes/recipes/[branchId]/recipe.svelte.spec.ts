@@ -1241,7 +1241,7 @@ describe('the recipe screen', () => {
 	 *
 	 * The figure always says what it counts. 308 on its own says nothing, and
 	 * the two bases do not convert into each other without a weight the recipe
-	 * does not carry (CONTEXT.md, "Nutrition").
+	 * does not carry (GLOSSARY.md, "Nutrition").
 	 */
 	it('closes the Ingredients with the figure, saying what it counts', async () => {
 		renderRecipe(solo({ nutrition: { calories: 308, basis: 'per_serving' } }));

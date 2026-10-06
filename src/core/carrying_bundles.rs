@@ -1379,7 +1379,7 @@ fn write_carried_readings(
     Ok(())
 }
 
-/// Keep the name each Hand a Bundle carried arrived under (CONTEXT.md,
+/// Keep the name each Hand a Bundle carried arrived under (GLOSSARY.md,
 /// "Hand"): the Kitchen's on the Branch, and the Person's on each Version.
 /// A Hand minted here is named live and is never renamed by what arrives.
 /// Neither is a deleted Kitchen's, kept here once its row is gone (#129).

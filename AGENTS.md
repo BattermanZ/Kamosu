@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Project conventions for Kamosu. Host-specific conventions live in
-`AGENTS.local.md`; vocabulary lives in `CONTEXT.md`; decisions live in
+`AGENTS.local.md`; vocabulary lives in `GLOSSARY.md`; decisions live in
 `docs/adr/`. **Where the spec and an ADR disagree, the ADR wins.**
 
 ## CodeGraph
@@ -193,7 +193,7 @@ never from `fetch`.
 **Every bottom sheet is drawn by one frame, `ui/src/lib/SheetFrame.svelte`**
 (#196, ADR 0044): a bottom sheet on the phone layout, a window in the middle of
 the room on the wide one. This is the panel that rises over a screen, and has
-nothing to do with the **Sheet** of `CONTEXT.md`, a recipe set for paper. The frame owns the dimmed page, Escape, the caret going in and
+nothing to do with the **Sheet** of `GLOSSARY.md`, a recipe set for paper. The frame owns the dimmed page, Escape, the caret going in and
 coming back, and Enter. A screen hands it content and never writes
 `role="dialog"` itself; a screen test fails if one does.
 
@@ -379,5 +379,5 @@ not assume its Markdown-is-truth rule applies here. Deleting Kamosu's database
 loses every account, cooking history and shopping list, and no Vault rebuilds
 them.
 
-Vocabulary lives in `CONTEXT.md`; decisions live in `docs/adr/`. Where the spec
+Vocabulary lives in `GLOSSARY.md`; decisions live in `docs/adr/`. Where the spec
 and an ADR disagree, the ADR wins.

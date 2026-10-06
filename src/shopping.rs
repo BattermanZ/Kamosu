@@ -354,7 +354,7 @@ pub fn rows(
                 .map(|first| first.text.as_str())
                 .unwrap_or_default()),
             // Which Language that name is in, so a name borrowed from another
-            // Language can be marked as borrowed (CONTEXT.md, "Shopping Row").
+            // Language can be marked as borrowed (GLOSSARY.md, "Shopping Row").
             "name_language": food["name_language"],
             "parts": parts_json(&parts_for(&contributions, measures, language)),
             "lines": contributions

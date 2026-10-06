@@ -1335,7 +1335,7 @@ async fn creating_a_recipe_needs_only_a_title_and_produces_a_lineage_branch_and_
     assert_eq!(versions[0]["content"]["title"], json!("Tarte aux pommes"));
     assert_eq!(versions[0]["name"], json!(null));
 
-    // Recorded locally for its author to read (CONTEXT.md, "Version") — but
+    // Recorded locally for its author to read (GLOSSARY.md, "Version") — but
     // never surfaced through get_recipe, since it never travels off-instance.
     let access_key_id: Option<String> = app
         .core
@@ -2248,7 +2248,7 @@ async fn editing_a_recipe_your_cookbook_did_not_write_starts_a_copy() {
 async fn saving_unchanged_content_from_another_cookbook_starts_no_copy() {
     // Merely receiving or viewing a recipe must never create a Branch — and
     // neither must a "save" that changes nothing, even from a Cookbook that
-    // did not write this Branch (CONTEXT.md, "Copy": "Merely reading a recipe
+    // did not write this Branch (GLOSSARY.md, "Copy": "Merely reading a recipe
     // never starts one").
     let app = support::spawn_app();
     let (_owner, owner_key, _) = person_with_kitchen(&app, "Aurélien");
@@ -3821,7 +3821,7 @@ async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken(
         .to_string();
 
     // A Person who is not a member of the recipe's Kitchen may still name
-    // this Food — it is instance-wide, not a Kitchen's to guard (CONTEXT.md).
+    // this Food — it is instance-wide, not a Kitchen's to guard (GLOSSARY.md).
     let stranger = app.core.create_person("Marc").expect("person");
     let stranger_key = app
         .core
@@ -3856,7 +3856,7 @@ async fn any_person_may_name_a_food_and_its_last_remaining_name_cannot_be_taken(
     );
 
     // ...but its last remaining name may not be, too — a Food is known by
-    // its words alone (CONTEXT.md).
+    // its words alone (GLOSSARY.md).
     let (status, response) = app.post_op(
         "set_food_names",
         Some(&owner_key),
@@ -3945,7 +3945,7 @@ async fn a_line_naming_either_of_a_foods_names_in_a_language_reads_as_that_food(
 // --- Merge Suggestions and Merge (issue #48) ---------------------------------
 
 /// The Operator, with an Access Key and a Kitchen of their own — the only Person
-/// who may merge a Food or delete one (CONTEXT.md, ADR 0022).
+/// who may merge a Food or delete one (GLOSSARY.md, ADR 0022).
 fn operator_with_kitchen(app: &support::TestApp) -> (String, String) {
     let first = json!({
         "name": "Aurélien",
@@ -4079,7 +4079,7 @@ async fn merging_is_the_operators_and_says_what_it_will_move_before_it_moves_it(
     let food_b = food_named(&app, &operator_key, "en", "flour");
 
     // An ordinary Person may not merge: it is on the Operator's exact list of
-    // powers and on no one else's (CONTEXT.md).
+    // powers and on no one else's (GLOSSARY.md).
     let stranger = app.core.create_person("Marc").expect("person");
     let stranger_key = app
         .core
@@ -4917,7 +4917,7 @@ async fn deleting_a_tag_takes_it_off_every_recipe_and_changes_no_recipe() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn merging_two_tags_carries_every_recipe_across_and_mints_no_version() {
-    // CONTEXT.md, "Tag": renaming *or merging* one reaches all of them at once.
+    // GLOSSARY.md, "Tag": renaming *or merging* one reaches all of them at once.
     let app = support::spawn_app();
     let (_, key, _) = person_with_kitchen(&app, "Aurélien");
 
@@ -8497,7 +8497,7 @@ async fn a_read_only_access_key_cannot_start_or_advance_an_attempt_but_can_read_
 // --- The Thread and the Branch Point (issue #53) ------------------------------
 
 /// One Lineage, two Branches, one Person who writes both — a Cookbook holding
-/// a recipe and a variation of it (CONTEXT.md, "Branch"; ADR 0041), built with
+/// a recipe and a variation of it (GLOSSARY.md, "Branch"; ADR 0041), built with
 /// real Operations rather than raw SQL.
 /// The shared trunk runs four Versions deep before the fork, and each side
 /// grows two more afterwards, so the chain the Branch Point has to walk is
@@ -15246,7 +15246,7 @@ async fn a_duration_in_a_steps_text_is_offered_as_a_timer_and_nothing_else_is() 
     );
 
     // The Step's text is untouched: a timer is read out of it, never written
-    // into it (CONTEXT.md, "Step").
+    // into it (GLOSSARY.md, "Step").
     assert_eq!(
         fetched["result"]["versions"][0]["content"]["steps"][2]["text"],
         json!("Pour in the water and simmer for about 7 minutes.")
@@ -17249,7 +17249,7 @@ async fn nothing_computes_nutrition_from_the_ingredient_lines_or_the_foods_they_
     );
 
     // And the Foods those Readings made carry the slot the deferred CIQUAL
-    // binding will one day fill, empty (CONTEXT.md, "Food").
+    // binding will one day fill, empty (GLOSSARY.md, "Food").
     let (status, foods) = app.post_op("list_foods", Some(&key), "{}");
     assert_eq!(status, 200, "{foods}");
     let listed = foods["result"]["foods"].as_array().expect("foods");
@@ -17318,7 +17318,7 @@ async fn a_nutrition_figure_that_does_not_say_what_it_counts_is_refused() {
 /// it, and a field added later that would carry a Food's Cup Weight or its
 /// nutrition into a Bundle fails this test rather than a review. The recipe's
 /// own Nutrition figure is deliberately not covered: that one is a word of the
-/// recipe and travels with it, which is exactly the distinction CONTEXT.md
+/// recipe and travels with it, which is exactly the distinction GLOSSARY.md
 /// draws between the two things called nutrition.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn what_a_bundle_could_carry_never_reaches_a_food() {
@@ -21501,7 +21501,7 @@ async fn fetching_a_backup_is_an_operator_power_and_nobody_elses() {
     let name = archive_named(&app, &operator_key, "daily");
 
     // An ordinary Person may not read another Person's recipes, and an archive
-    // is every Person's recipes in one file (CONTEXT.md, "Operator").
+    // is every Person's recipes in one file (GLOSSARY.md, "Operator").
     let (_person, key, _kitchen) = person_with_kitchen(&app, "Someone else");
     assert_eq!(app.post_op("list_backups", Some(&key), "{}").0, 401);
     assert_eq!(app.post_op("take_backup", Some(&key), "{}").0, 401);
@@ -21523,7 +21523,7 @@ async fn fetching_a_backup_is_an_operator_power_and_nobody_elses() {
     }
 }
 
-/// **Kamosu never sends a Backup anywhere** (CONTEXT.md, "Backup"). Said here
+/// **Kamosu never sends a Backup anywhere** (GLOSSARY.md, "Backup"). Said here
 /// as a fact about the Catalogue, which is the whole of what Kamosu can be
 /// asked to do (ADR 0001): neither Operation takes any input at all, so there
 /// is nowhere for a caller to name a destination.
@@ -24282,7 +24282,7 @@ mod crouton {
     }
 
     /// An Import is held in the Cookbook of whoever asked for it
-    /// (CONTEXT.md, and `import_each` alike), so joining somebody else's
+    /// (GLOSSARY.md, and `import_each` alike), so joining somebody else's
     /// Kitchen does not put their channel in your list. `imports` is unique per
     /// `(cookbook_id, source_kind)`, so without this the answer would carry two
     /// `crouton` entries and this Person's own arrivals would attach to

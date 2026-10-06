@@ -405,7 +405,7 @@
 	 * What the Core read out of this Step's own text: the Ingredient Lines it
 	 * uses, and the duration it offers as a timer. Deliberately not called a
 	 * Reading — that word is taken, and means what Kamosu understood of an
-	 * INGREDIENT LINE (CONTEXT.md).
+	 * INGREDIENT LINE (GLOSSARY.md).
 	 */
 	/**
 	 * Looked up by where the step CAME FROM in the Version, never by where it

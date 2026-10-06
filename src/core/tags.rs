@@ -145,7 +145,7 @@ impl Core {
 
     /// Merge two of a Cookbook's Tags into one: every recipe filed under the
     /// merged Tag is filed under the kept one instead, and the merged Tag is
-    /// gone. The other half of what CONTEXT.md says a Tag is — "renaming or
+    /// gone. The other half of what GLOSSARY.md says a Tag is — "renaming or
     /// merging one reaches all of them at once".
     ///
     /// The kept Tag keeps its own names. Where it has no name in a Language and
@@ -336,7 +336,7 @@ pub(super) fn tag_id_for_word(
 }
 
 /// The Tag a recipe arriving from elsewhere is filed under, in the receiving
-/// Cookbook's own list (CONTEXT.md, "Tag"): a word this Cookbook already files
+/// Cookbook's own list (GLOSSARY.md, "Tag"): a word this Cookbook already files
 /// by, in that Language, is that Tag; otherwise one is made, named in every
 /// Language it arrived in. `None` when there is no name to file by. A Bundle's
 /// tags, a Crouton library's (#128), and a Branch copied from another

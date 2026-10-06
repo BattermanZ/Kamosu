@@ -50,7 +50,7 @@ const MAX_MEGAPIXELS: u64 = 100;
 /// has no Sheet consumer yet and is a reasonable placeholder until one exists).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplaySize {
-    /// A shelf card: CONTEXT.md, "Display Copy".
+    /// A shelf card: GLOSSARY.md, "Display Copy".
     Card,
     /// A recipe page on a phone.
     Page,

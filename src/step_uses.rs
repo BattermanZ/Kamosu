@@ -1,5 +1,5 @@
 //! **Which Ingredient Lines a Step uses**, read out of the Step's own words
-//! and the Readings beside it (ADR 0011, CONTEXT.md "Step"). Nothing is stored
+//! and the Readings beside it (ADR 0011, GLOSSARY.md "Step"). Nothing is stored
 //! and nobody types a link (ADR 0019): this runs on every read of a Version.
 //!
 //! A recipe names an ingredient in full once, in its list, and shortens it

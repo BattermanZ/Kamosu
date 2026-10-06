@@ -185,7 +185,7 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE kitchen_members ADD COLUMN nickname TEXT;
 
         -- A Kitchen Invite: a one-use link a member mints, spent the moment
-        -- another Person opens it and joins (CONTEXT.md, "Invite").
+        -- another Person opens it and joins (GLOSSARY.md, "Invite").
         CREATE TABLE IF NOT EXISTS kitchen_invites (
             id          TEXT PRIMARY KEY,
             secret_hash TEXT NOT NULL UNIQUE,
@@ -458,7 +458,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- and stamped once, deliberately or by simply stopping; an
         -- Attempt is real and counts as a cooking from the moment it is
         -- inserted, finished or not. `note` and `rating` are the free
-        -- text and optional five-star score CONTEXT.md's Attempt holds,
+        -- text and optional five-star score GLOSSARY.md's Attempt holds,
         -- editable at any time by the cook. Never soft-deleted: a `DELETE`
         -- is the whole of how an Attempt is undone (ADR 0010).
         CREATE TABLE attempts (
@@ -838,7 +838,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- wrote a Branch; sharing is an act somebody takes, and the page names
         -- them ("Shared by Aurélien"). A Kitchen's Nickname could never appear
         -- here in any case — it is private to the member who set it
-        -- (CONTEXT.md, "Kitchen").
+        -- (GLOSSARY.md, "Kitchen").
         CREATE TABLE share_links (
             id          TEXT PRIMARY KEY,
             branch_id   TEXT NOT NULL REFERENCES branches(id),
@@ -1219,7 +1219,7 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 30,
         description: "the name a Hand arrived under, for a Hand minted elsewhere (#67)",
         sql: r#"
-        -- A Hand is a name and a permanent id (CONTEXT.md, "Hand"). On the
+        -- A Hand is a name and a permanent id (GLOSSARY.md, "Hand"). On the
         -- instance that minted it the name is looked up live, from `people`
         -- or `kitchens`, so renaming yourself reaches all your history at
         -- once. A Hand that arrived in a Bundle has no row in either: "anywhere
@@ -1271,7 +1271,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- Kitchen here -- so Marc sending his pizza to two households on the
         -- same Kamosu reached only the first of them.
         --
-        -- The two are separated here, under the two names CONTEXT.md gives
+        -- The two are separated here, under the two names GLOSSARY.md gives
         -- them. `id` stays the **local id**: every Operation, every URL and all
         -- five foreign keys into this table keep using it, and a received
         -- Branch gets a freshly minted one. `travelling_id` is the

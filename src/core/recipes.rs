@@ -51,7 +51,7 @@ impl Core {
     /// already there mints nothing.
     ///
     /// Changing a recipe your Cookbook did not write is a **Copy**
-    /// (CONTEXT.md, "Copy"; ADR 0041): it happens here, at the moment of the
+    /// (GLOSSARY.md, "Copy"; ADR 0041): it happens here, at the moment of the
     /// change, never at the moment of merely reading `branch_id`. Somebody
     /// who is not one of the Branch's Co-authors — a Kitchen-mate, or anyone
     /// saving onto a Branch that arrived in their own Cookbook from elsewhere
@@ -466,7 +466,7 @@ impl Core {
     }
 
     /// Rename a Version — the one thing about it that can change later
-    /// (CONTEXT.md, "Version"). An absent or empty name clears it. Targeted
+    /// (GLOSSARY.md, "Version"). An absent or empty name clears it. Targeted
     /// by `sequence` rather than `version_id`: the same content can recur
     /// more than once on one Branch (a save reverting to exact earlier
     /// text), and each occurrence carries its own independent name — the
@@ -837,7 +837,7 @@ impl Core {
 
     /// Read the Thread: every Version of every Branch of one Lineage this
     /// Person can see, oldest first per Branch, with every Attempt hanging
-    /// off it (CONTEXT.md, "Thread"). `branch_id` is only the entry point —
+    /// off it (GLOSSARY.md, "Thread"). `branch_id` is only the entry point —
     /// any Branch of the Lineage answers the same Thread. Forking itself is
     /// left for the caller to read out of `parent_version_id`, or to ask
     /// `branch_point` to compute authoritatively; this never calls it, so
@@ -965,7 +965,7 @@ impl Core {
     }
 
     /// The Branch Point between two Branches: the last Version they share,
-    /// found by walking both chains back until they meet (CONTEXT.md,
+    /// found by walking both chains back until they meet (GLOSSARY.md,
     /// "Branch Point") — never declared, always computed. Every valid
     /// Branch's chain is contiguous back to a first Version with no parent;
     /// a chain that is not, or two chains that never converge, is reported
@@ -1516,7 +1516,7 @@ fn held_from(
 }
 
 /// **What the cooking screen reads out of each Step, and stores nowhere**
-/// (ADR 0011, CONTEXT.md "Step"): which Ingredient Lines the Step uses, and
+/// (ADR 0011, GLOSSARY.md "Step"): which Ingredient Lines the Step uses, and
 /// the duration it offers as a timer.
 ///
 /// One slot per row of `content.steps`, in the same order — the shape
@@ -1659,7 +1659,7 @@ fn merged_onto_head(head: &Value, changes: &Value) -> Value {
 /// request input (#43): the title, the optional Yield, Prep/Cook Time, Note,
 /// Source and Nutrition figure, and the Ingredient Line and Step lists — each a flat, ordered
 /// sequence in which a Section is a real entry rather than a faked line
-/// (CONTEXT.md, "Section"). Every field but the title is optional and
+/// (GLOSSARY.md, "Section"). Every field but the title is optional and
 /// normalises to `null` or `[]` when absent, so `{ "title": "..." }` alone is
 /// a complete, valid Recipe. This is the whole state, never a delta: calling
 /// it again with fields left out replaces them, exactly as a fresh save of
@@ -1719,7 +1719,7 @@ pub(super) fn parse_recipe_content(input: &Value) -> Result<Value, OpError> {
 }
 
 /// Nutrition, all of it v1 has: one figure and what that figure counts
-/// (CONTEXT.md, "Nutrition"). Kamosu never works the number out from the
+/// (GLOSSARY.md, "Nutrition"). Kamosu never works the number out from the
 /// Ingredient Lines or the Foods they name — #12 defers CIQUAL and the
 /// compute button past v1 — so this is only ever what somebody typed, or
 /// what a source page's own structured data stated (#70, ADR 0025).
@@ -1749,7 +1749,7 @@ fn parse_nutrition(value: &Value) -> Result<Value, OpError> {
 }
 
 /// A Yield: one amount and what it is an amount of — "4 servings", "24
-/// cookies", "1.5 litres" are all the same field (CONTEXT.md, "Yield"), kept
+/// cookies", "1.5 litres" are all the same field (GLOSSARY.md, "Yield"), kept
 /// as written rather than parsed into a number and a Unit. The noun is a
 /// distinct concept from Unit (grams, cups, spoons — a closed, convertible
 /// list), so it is never called `unit` here.
@@ -1803,7 +1803,7 @@ pub(super) fn parse_named_yield(value: &Value) -> Result<Value, OpError> {
 /// Prep Time and Cook Time are whole minutes; Cook Time includes resting,
 /// proving, marinating and chilling — one field for however the dish spends
 /// unattended time, documented at the Catalogue level for any Door reading
-/// it (CONTEXT.md, "Cook Time").
+/// it (GLOSSARY.md, "Cook Time").
 fn parse_optional_minutes(value: Option<&Value>, field: &str) -> Result<Option<i64>, OpError> {
     match value {
         None | Some(Value::Null) => Ok(None),
@@ -1823,7 +1823,7 @@ fn parse_optional_minutes(value: Option<&Value>, field: &str) -> Result<Option<i
 }
 
 /// A Source: free text with an optional link — "Mum's ring binder, p.40" is
-/// as real an attribution as a URL (CONTEXT.md, "Source").
+/// as real an attribution as a URL (GLOSSARY.md, "Source").
 fn parse_source(value: &Value) -> Result<Value, OpError> {
     let object = value.as_object().ok_or_else(|| {
         OpError::bad_request("source must be an object with text and an optional link")
@@ -1883,7 +1883,7 @@ fn parse_line_list(value: Option<&Value>, field: &str, line_kind: &str) -> Resul
 
 /// The Step list: the same flat Section-and-entry shape as the Ingredient
 /// list, where a Step carries text and an optional photo — no timer or
-/// temperature field to fill in (CONTEXT.md, "Step"). The photo is carried
+/// temperature field to fill in (GLOSSARY.md, "Step"). The photo is carried
 /// only as a reference to a Photograph already uploaded through
 /// `upload_photograph`, unvalidated here the way any other pointer in this
 /// codebase is (ADR 0017).
@@ -2380,7 +2380,7 @@ fn version_is_held_by_another_branch(
     })
 }
 
-/// Start a **Copy** (CONTEXT.md, "Copy"): a new Branch of the same Lineage in
+/// Start a **Copy** (GLOSSARY.md, "Copy"): a new Branch of the same Lineage in
 /// `cookbook_id`, under that Cookbook's own Hand, carrying the whole chain of
 /// `branch_id` behind it verbatim — same Versions, same Hands, same names and
 /// *what changed* lines, nothing truncated (ADR 0018). The caller appends the

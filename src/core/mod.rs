@@ -223,7 +223,7 @@ pub struct Caller {
     /// Whether this Person administers the instance.
     pub is_operator: bool,
     /// The Access Key that resolved this Credential, if any — never set for a
-    /// login Session. Local only: a Version records it (CONTEXT.md, "Version")
+    /// login Session. Local only: a Version records it (GLOSSARY.md, "Version")
     /// so it never travels in a Bundle. No Operation surfaces it back yet —
     /// that is for whichever future ticket reads a Version's full detail.
     pub access_key_id: Option<String>,
@@ -571,7 +571,7 @@ impl Core {
     /// `Permission::Operator`. Fetching a Backup is the one route that needs
     /// it: an archive holds every Person's recipes, Attempts and shopping
     /// lists, so carrying one off the machine is on the Operator's exact list
-    /// (CONTEXT.md, "Operator") and nobody else's.
+    /// (GLOSSARY.md, "Operator") and nobody else's.
     pub fn authenticate_for_operator(&self, secret: Option<&str>) -> Result<Caller, OpError> {
         let caller = self.authenticate(secret)?;
         if !caller.is_operator {

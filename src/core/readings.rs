@@ -469,7 +469,7 @@ impl Core {
     /// takes the Language off, except that a Food's last name may not go: it
     /// is known by its words alone.
     ///
-    /// Any Person may (CONTEXT.md) — a Food is instance-wide, not a Kitchen's
+    /// Any Person may (GLOSSARY.md) — a Food is instance-wide, not a Kitchen's
     /// to guard. Where a word already answers for a different Food, this
     /// still attaches it here: typing a name onto a Food another already
     /// answers to is the one deliberate way to make a duplicate name
@@ -547,7 +547,7 @@ impl Core {
 
     /// Set or clear a Food's Cup Weight — the one figure that turns a volume
     /// of it into a weight. Kamosu ships none by default; anyone may correct
-    /// or add one (CONTEXT.md). `None` clears it back to "offers millilitres
+    /// or add one (GLOSSARY.md). `None` clears it back to "offers millilitres
     /// instead of grams".
     pub fn set_food_cup_weight(
         &self,
@@ -660,7 +660,7 @@ impl Core {
     ///
     /// `ingredient_lines` is the figure `preview_food_merge` announced, said
     /// back. It must match what the Merge is about to move or the Merge is
-    /// refused — which is what makes the saying the safety net CONTEXT.md
+    /// refused — which is what makes the saying the safety net GLOSSARY.md
     /// calls it rather than a number nobody had to read.
     ///
     /// Where the two disagree about Cup Weight, `cup_weight_grams` says which
@@ -1353,7 +1353,7 @@ pub(super) fn measured_for_version(
     let written_in = units::written_in(readings.iter().filter_map(|r| r.unit.as_deref()));
 
     // A Step's truth is its text, so everything here is an addition beside it
-    // and never written into it (CONTEXT.md, ADR 0016): the oven in the other
+    // and never written into it (GLOSSARY.md, ADR 0016): the oven in the other
     // system, and each amount the Step writes, converted and scaled exactly as
     // an Ingredient Line is (#150). Each is placed straight after what it
     // converts, so they come in the order the text has them. A step already in

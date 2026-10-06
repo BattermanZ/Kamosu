@@ -41,7 +41,7 @@ pub(super) fn written_moment(
 }
 
 /// The name a Hand is shown by, as a SQL expression over the column holding
-/// it (CONTEXT.md, "Hand"; ADR 0015). A Hand this instance minted is named
+/// it (GLOSSARY.md, "Hand"; ADR 0015). A Hand this instance minted is named
 /// live — a Person's from `people`, a Cookbook's from the Cookbook answering
 /// to it now (ADR 0041) — so renaming either reaches every Version and Branch
 /// at once. A Kitchen's is what a Branch a Kitchen wrote before Cookbooks
@@ -100,7 +100,7 @@ pub(super) fn required_text<'a>(value: &'a str, field: &str) -> Result<&'a str, 
     Ok(value)
 }
 
-/// A Person's name, looked up live (CONTEXT.md, "Hand").
+/// A Person's name, looked up live (GLOSSARY.md, "Hand").
 pub(super) fn person_name(conn: &Connection, person_id: &str) -> Result<String, OpError> {
     // A Person here is named live. A Hand that arrived in a Bundle is named by
     // what arrived with it, and nothing else ever will name it (#67).

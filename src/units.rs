@@ -637,7 +637,7 @@ static BY_STAPLE: LazyLock<HashMap<String, f64>> = LazyLock::new(|| {
 /// ordinary answer and is not a gap: a Food with no Cup Weight is a line that
 /// offers millilitres instead of grams.
 ///
-/// The match is exact on the fold, exactly as a Food Match is (CONTEXT.md) —
+/// The match is exact on the fold, exactly as a Food Match is (GLOSSARY.md) —
 /// `farine T55` is its own Food and gets silence rather than a guess at which
 /// flour somebody meant. That silence is the designed failure mode, not a bug.
 pub fn shipped_cup_weight<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<f64> {
@@ -1313,7 +1313,7 @@ enum Scale {
 }
 
 /// **The conversion offered beside a Step**, or nothing — an addition beside the
-/// sentence and never written into it (CONTEXT.md: a Step's truth is its text).
+/// sentence and never written into it (GLOSSARY.md: a Step's truth is its text).
 ///
 /// Nothing is the answer where the step carries no temperature, where it
 /// already carries both — which 20 of the 39 real steps with a temperature do —
@@ -1719,7 +1719,7 @@ fn fold_loosely(word: &str) -> String {
 /// **The timer a Step offers**, in seconds, or nothing.
 ///
 /// Read out of the Step's own text at display time and stored nowhere
-/// (ADR 0011, CONTEXT.md "Step"): nothing is typed beside the sentence and the
+/// (ADR 0011, GLOSSARY.md "Step"): nothing is typed beside the sentence and the
 /// Step's truth stays its text. One tap starts it; Kamosu never writes it down.
 ///
 /// Nothing is the answer for roughly three Steps in four — 425 of the 579 real

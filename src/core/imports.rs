@@ -84,7 +84,7 @@ impl Core {
     ///
     /// **Scoped to the caller's own Cookbook, and that is what an Import is.**
     /// Every importer lands its recipes in the Cookbook of whoever asked
-    /// (`import_each`, and the Bundle path alike; ADR 0041), which CONTEXT.md
+    /// (`import_each`, and the Bundle path alike; ADR 0041), which GLOSSARY.md
     /// states as the definition rather than as an implementation detail.
     /// `imports` is unique per `(cookbook_id, source_kind)`, so one Cookbook
     /// has one channel of each kind, however many Co-authors run it.
@@ -509,7 +509,7 @@ impl Core {
 
     /// One candidate against the ledger: unseen becomes a new Lineage,
     /// Branch and first Version, the importing Person's Hand on it
-    /// (CONTEXT.md, "Hand"; ADR 0025). Seen before and now identical is
+    /// (GLOSSARY.md, "Hand"; ADR 0025). Seen before and now identical is
     /// `Unchanged`; seen before and now different records the candidate's
     /// content as a Version — content-addressed, so this never collides with
     /// or moves anything already on the Branch — and answers `Offered`
@@ -791,7 +791,7 @@ fn relating_name(title: &str) -> String {
 }
 
 /// Pairs among the recipes one Import landed that share a name or a web page,
-/// offered as Related Recipe candidates (CONTEXT.md, "Related Recipe"). A
+/// offered as Related Recipe candidates (GLOSSARY.md, "Related Recipe"). A
 /// site's name alone is not enough: nine Instagram recipes share one and have
 /// nothing to do with each other. A pair already related is not offered again.
 fn related_candidates(

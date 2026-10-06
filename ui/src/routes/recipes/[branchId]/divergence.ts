@@ -165,7 +165,7 @@ export function fieldMark(field: Field | undefined, side: Side): string | null {
  * **The Nutrition figure as the one phrase it reads as** — the number and what
  * it counts, together and never apart. 308 says nothing until it says whether
  * it counts a serving or 100 g, and the two do not convert into each other
- * without a weight the recipe does not carry (CONTEXT.md, "Nutrition").
+ * without a weight the recipe does not carry (GLOSSARY.md, "Nutrition").
  *
  * Written once here because both places that show it — the foot of the
  * Ingredients on the recipe page, and the divergence mark beside it (#84) —

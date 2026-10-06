@@ -30,7 +30,7 @@ pub enum Permission {
 /// envelope, `{ "job_id": ... }`, read back through `get_job` and `list_jobs`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// An Operation that answers within a single request (CONTEXT.md).
+    /// An Operation that answers within a single request (GLOSSARY.md).
     Immediate,
     /// An Operation too slow to answer within a single request: asking returns
     /// a job id at once; state, progress and result are ordinary Operations.
@@ -4000,7 +4000,7 @@ fn translation_schema() -> Value {
 /// One occurrence of one Version on one Branch, as the Thread shows it —
 /// deliberately lighter than a `recipe_schema` entry: no content, no
 /// Readings, since the Thread reads back names and *what changed* lines, not
-/// the recipe itself (CONTEXT.md, "Thread").
+/// the recipe itself (GLOSSARY.md, "Thread").
 fn thread_version_schema() -> Value {
     json!({
         "type": "object",
@@ -4093,7 +4093,7 @@ fn yield_schema() -> Value {
         "type": ["object", "null"],
         "properties": {
             "amount": { "type": "string" },
-            // Named `noun`, not `unit`: CONTEXT.md's Yield ("4 servings",
+            // Named `noun`, not `unit`: GLOSSARY.md's Yield ("4 servings",
             // "24 cookies") is a different concept from its Unit glossary
             // entry (grams, cups, spoons — a closed, convertible list).
             "noun": { "type": "string" },
@@ -4118,7 +4118,7 @@ fn recipe_content_properties() -> Value {
         },
         "note": { "type": ["string", "null"] },
         // The single Photograph that stands for the recipe wherever it is
-        // listed (CONTEXT.md, "Main Photo") — a reference only; storing the
+        // listed (GLOSSARY.md, "Main Photo") — a reference only; storing the
         // picture itself is `upload_photograph` (#45, ADR 0017).
         "main_photo": { "type": ["string", "null"] },
         "source": {
@@ -4130,7 +4130,7 @@ fn recipe_content_properties() -> Value {
             "required": ["text", "link"],
             "additionalProperties": false,
         },
-        // v1's whole of nutrition (CONTEXT.md, "Nutrition"): a figure the cook
+        // v1's whole of nutrition (GLOSSARY.md, "Nutrition"): a figure the cook
         // types, or one a source page's own structured data stated — never
         // computed from the Ingredient Lines or the Foods they name. The basis
         // is required alongside the number because 308 says nothing until it
@@ -4398,7 +4398,7 @@ fn create_recipe_input_schema() -> Value {
 /// `save_recipe_version`'s input: the whole recipe as it now reads, replacing
 /// what was on the Branch — a title is the one field that must be there. A
 /// save by anybody who does not write the Branch's Cookbook starts a Copy in
-/// their own (CONTEXT.md, "Copy"; ADR 0041), so there is never a place to
+/// their own (GLOSSARY.md, "Copy"; ADR 0041), so there is never a place to
 /// name.
 fn save_recipe_version_input_schema() -> Value {
     let mut properties = recipe_content_input_properties();
@@ -4591,7 +4591,7 @@ fn pasted_recipe_schema() -> Value {
 }
 
 /// Every importer's eventual result: the Import Report, a ledger read by a
-/// person rather than an error log (ADR 0025, CONTEXT.md "Import Report").
+/// person rather than an error log (ADR 0025, GLOSSARY.md "Import Report").
 /// Every candidate lands in exactly one bucket — `arrived` covers a recipe
 /// freshly made, one already matched and found unchanged, and a Branch a
 /// Bundle extended, told apart by `status`; `offered` is a previously-seen
@@ -5128,7 +5128,7 @@ fn measured_step_schema() -> Value {
 }
 
 /// **What the cooking screen reads out of each Step**, and Kamosu stores
-/// nowhere (ADR 0011, CONTEXT.md "Step"): which Ingredient Lines the Step uses,
+/// nowhere (ADR 0011, GLOSSARY.md "Step"): which Ingredient Lines the Step uses,
 /// and the duration it offers as a timer.
 ///
 /// One slot per row of the Version's `steps`, in the same order `measured`

@@ -37,7 +37,7 @@
 //!     no second piece of art to keep true;
 //!   · a share names the **Person** who shared it and never the Kitchen. A
 //!     Kitchen's Nickname is private to the member who set it and could not
-//!     appear here in any case (CONTEXT.md, "Kitchen").
+//!     appear here in any case (GLOSSARY.md, "Kitchen").
 //!
 //! **No Attempt appears here in any form** (ADR 0005, ADR 0026). That is not a
 //! filter this file applies; `read_shared_recipe` has no field for one.
@@ -910,7 +910,7 @@ fn meta(content: &Value, words: &Words) -> String {
 ///
 /// It always says what it counts. 308 on its own says nothing, and a serving
 /// and 100 g do not convert into each other without a weight the recipe does
-/// not carry (CONTEXT.md, "Nutrition").
+/// not carry (GLOSSARY.md, "Nutrition").
 ///
 /// Empty for the great majority of recipes, which carry no figure — and then
 /// there is nothing here at all, not a dash and not a zero. Zero would be a
