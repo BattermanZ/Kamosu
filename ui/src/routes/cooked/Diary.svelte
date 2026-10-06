@@ -232,7 +232,7 @@
 	}
 </script>
 
-<Screen title={m.cooked_title()} blurb={m.cooked_blurb()}>
+<Screen title={m.cooked_title()} blurb={m.cooked_blurb()} fills>
 	{#if failed}
 		<p class="text-body text-support" role="alert">{m.cooked_failed()}</p>
 	{:else if !entries}
@@ -249,16 +249,26 @@
 				<h2 class="mb-2 border-b border-rule pb-2 text-label font-medium text-accent uppercase">
 					{month.heading}
 				</h2>
-				<ul>
+				<!--
+					On the wide layout a month is a grid of cards (#201), and a
+					cooking opens inside its own card. A card is as tall as the
+					tallest in its row. Its button fills it and holds the card's
+					padding, so a tap anywhere on a card opens it, the foot of a
+					short one included.
+				-->
+				<ul class="diary-grid">
 					{#each month.of as entry (entry.id)}
-						<li class="border-b border-rule py-3">
+						<li
+							class="border-b border-rule py-3 wide:flex wide:flex-col wide:rounded-sm wide:border wide:bg-card wide:p-0"
+						>
 							<button
 								type="button"
-								class="block w-full text-left"
+								class="block w-full text-left wide:flex wide:flex-1 wide:flex-col wide:px-4 wide:py-3"
 								aria-expanded={opened === entry.id}
 								onclick={() => open(entry)}
 							>
-								<span class="flex items-baseline justify-between gap-3">
+								<!-- The day goes under the name in a card, which is narrower than the phone's row. -->
+								<span class="flex items-baseline justify-between gap-3 wide:flex-col wide:gap-0">
 									<span class="min-w-0 font-display text-line">{entry.recipe.title}</span>
 									<span class="shrink-0 text-read text-ink-2">{cookingDay(entry.created_at)}</span>
 								</span>
@@ -297,7 +307,9 @@
 							</button>
 
 							{#if opened === entry.id}
-								<div class="mt-3 rounded-sm border border-rule bg-ground-2 p-3">
+								<div
+									class="mt-3 rounded-sm border border-rule bg-ground-2 p-3 wide:mx-4 wide:mt-0 wide:mb-3"
+								>
 									{#if entry.recipe.branch_id}
 										<a
 											href={`/recipes/${entry.recipe.branch_id}`}
@@ -424,7 +436,8 @@
 
 										{#if confirming}
 											<p class="text-read text-support">{m.cooked_delete_confirm()}</p>
-											<div class="flex gap-2">
+											<!-- In a card the two wrap onto two rows where their words do not fit side by side. -->
+											<div class="flex gap-2 wide:flex-wrap">
 												<button
 													type="button"
 													onclick={() => remove(entry)}

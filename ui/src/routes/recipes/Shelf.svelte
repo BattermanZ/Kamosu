@@ -333,23 +333,28 @@
 	});
 </script>
 
-<Screen title={m.recipes_title()} blurb={m.recipes_blurb()}>
+<Screen title={m.recipes_title()} blurb={m.recipes_blurb()} fills>
 	<search>
 		<!--
 			The + for every new recipe sits at the end of the search box (#174),
 			there with the shelf, while a search runs, and when it finds nothing.
+
+			The box stops at the phone's column on the wide layout (#201), where
+			the grid under it runs on to the window's edge.
 		-->
-		<Plus>
-			<label class="block">
-				<span class="sr-only">{m.recipes_search()}</span>
-				<input
-					type="search"
-					bind:value={typed}
-					placeholder={m.recipes_search()}
-					class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
-				/>
-			</label>
-		</Plus>
+		<div class="max-w-2xl">
+			<Plus>
+				<label class="block">
+					<span class="sr-only">{m.recipes_search()}</span>
+					<input
+						type="search"
+						bind:value={typed}
+						placeholder={m.recipes_search()}
+						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
+					/>
+				</label>
+			</Plus>
+		</div>
 
 		<div class="mt-3 flex flex-wrap gap-2">
 			{#snippet chip(name: string, held: boolean, choose: () => void)}
@@ -442,7 +447,7 @@
 			because with a library this size a search that finds nothing usually
 			means you do not have it yet (ADR 0027).
 		-->
-		<div class="mt-6">
+		<div class="mt-6 max-w-2xl">
 			<h2 class="font-display text-shelf-heading font-semibold">
 				{m.recipes_nothing_title({ query: unmatched })}
 			</h2>
@@ -474,7 +479,7 @@
 			<p class="mt-6 mb-3 text-label text-ink-2 uppercase" role="status">
 				{m.recipes_closest()}
 			</p>
-			<ul class="grid grid-cols-2 gap-3">
+			<ul class="tile-grid">
 				{#each entries as entry (entry.lineage_id)}
 					<Tile {entry} />
 				{/each}
@@ -509,7 +514,7 @@
 				{entries.length === 1 ? m.recipes_found_one() : m.recipes_found({ count: entries.length })}
 			{/if}
 		</p>
-		<ul class="grid grid-cols-2 gap-3">
+		<ul class="tile-grid">
 			{#each entries as entry (entry.lineage_id)}
 				<Tile {entry} />
 			{/each}

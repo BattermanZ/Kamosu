@@ -20,13 +20,22 @@
 		 * the wide layout (#199).
 		 */
 		card?: boolean;
+		/**
+		 * Runs to the window's right edge on the wide layout, for one of the
+		 * browsing screens (#201). The phone's column is unchanged.
+		 */
+		fills?: boolean;
 		children?: Snippet;
 	}
 
-	let { title, blurb, expandsFrom, card = false, children }: Props = $props();
+	let { title, blurb, expandsFrom, card = false, fills = false, children }: Props = $props();
 </script>
 
-<div class={card ? 'open-card' : 'mx-auto max-w-2xl px-gutter pt-6 pb-tabbar'}>
+<div
+	class={card
+		? 'open-card'
+		: ['mx-auto max-w-2xl px-gutter pt-6 pb-tabbar', fills && 'wide:max-w-none']}
+>
 	<h1
 		class="font-display text-title font-semibold"
 		style={expandsFrom
@@ -36,7 +45,7 @@
 		{title}
 	</h1>
 	{#if blurb}
-		<p class="mt-1 text-read text-ink-2">{blurb}</p>
+		<p class="mt-1 max-w-2xl text-read text-ink-2">{blurb}</p>
 	{/if}
 
 	{#if children}

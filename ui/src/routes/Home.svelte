@@ -87,11 +87,11 @@
 </script>
 
 <div class="pt-6 pb-tabbar">
-	<div class="mx-auto max-w-2xl px-gutter">
+	<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">
 		<h1 class="font-display text-title font-semibold">{m.home_title()}</h1>
-		<p class="mt-1 text-read text-ink-2">{m.home_blurb()}</p>
+		<p class="mt-1 max-w-2xl text-read text-ink-2">{m.home_blurb()}</p>
 		{#if asking}
-			<div class="mt-4 grid gap-3">{@render asking()}</div>
+			<div class="mt-4 grid max-w-2xl gap-3">{@render asking()}</div>
 		{/if}
 	</div>
 
@@ -103,7 +103,7 @@
 			gives on the Recipes screen, because it is the same situation: you do
 			not have it yet, and adding it was what you came to do (ADR 0027).
 		-->
-		<div class="mx-auto mt-8 max-w-2xl px-gutter">
+		<div class="mx-auto mt-8 max-w-2xl px-gutter wide:mx-0">
 			<div class="rounded-sm border border-dashed border-rule bg-ground-2 p-6">
 				<h2 class="font-display text-shelf-heading font-semibold">{m.home_empty_title()}</h2>
 				<p class="mt-2 text-read text-ink-2">{m.home_empty_why()}</p>
@@ -120,7 +120,7 @@
 	{:else}
 		{#each home.shelves as on (on.name)}
 			<section class="mt-8">
-				<div class="mx-auto max-w-2xl px-gutter">
+				<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">
 					<div class="mb-1 flex items-baseline justify-between gap-3 border-b border-rule pb-2">
 						<h2 class="text-label font-medium text-accent uppercase">
 							{shelf[on.name].heading()}
@@ -153,9 +153,14 @@
 					without it the rail silently scrolls the gutter away at rest and
 					the first card sits flush against the side of the phone while its
 					own heading is still indented.
+
+					On the wide layout the rail runs to the window's right edge
+					(#201), and the cards keep the phone's width: an iPad on its
+					side then shows two whole shelves before scrolling, where
+					wider cards showed one and a half.
 				-->
 				<ul
-					class="mx-auto mt-3 flex max-w-2xl snap-x snap-mandatory scroll-pl-gutter gap-3 overflow-x-auto px-gutter [&>li]:w-[var(--tile-w)] [&>li]:shrink-0 [&>li]:snap-start"
+					class="mx-auto mt-3 flex max-w-2xl snap-x snap-mandatory scroll-pl-gutter gap-3 overflow-x-auto px-gutter wide:max-w-none [&>li]:w-[var(--tile-w)] [&>li]:shrink-0 [&>li]:snap-start"
 				>
 					{#each on.recipes as entry (entry.lineage_id)}
 						<Tile {entry} />

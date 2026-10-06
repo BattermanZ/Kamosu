@@ -110,11 +110,11 @@
 {:else if home}
 	<Home {home} asking={cookbook?.joins.some((join) => join.you === 'asked') ? asking : undefined} />
 {:else if failed}
-	<div class="mx-auto max-w-2xl px-gutter pt-6">
+	<div class="mx-auto max-w-2xl px-gutter pt-6 wide:mx-0">
 		<p class="text-body text-support" role="alert">{m.home_failed()}</p>
 	</div>
 {:else}
-	<div class="mx-auto max-w-2xl px-gutter pt-6">
+	<div class="mx-auto max-w-2xl px-gutter pt-6 wide:mx-0">
 		<p class="text-body text-ink-2">{m.loading()}</p>
 	</div>
 {/if}

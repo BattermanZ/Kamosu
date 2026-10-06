@@ -255,6 +255,18 @@
      monitor. */
   --list-column: 300px;
   --card-column: 600px;
+
+  /* The browsing screens on the wide layout (#201, ADR 0044). Home, Recipes
+     and Cooked run to the window's right edge, and these
+     are the narrowest a card gets before a row takes one fewer. Aurélien chose
+     them on prototypes on 6 October 2026, over cards at least 224 and 320.
+     160 keeps a recipe's card the size it has on the phone, so an upright
+     iPad Pro 11" shows 4 across, one on its side 6 and a MacBook 14" 8. A
+     cooking's card holds words and no photograph, so it is wider: 3, 4 and 5
+     across. Neither stops adding columns on a large monitor, which he was
+     shown. */
+  --tile-min: 160px;
+  --diary-min: 224px;
 }
 
 /* ── Room: how much of the window Kamosu has (ADR 0044, #193) ──────────────
@@ -715,6 +727,37 @@
   padding: var(--spacing-6) var(--spacing-gutter);
   border: 1px solid var(--color-rule);
   background: var(--color-card);
+}
+
+/* The grid of recipes on Recipes (#201, ADR 0044). Two columns on the phone,
+   as it always was. On the wide layout it takes as many columns as fit, none
+   narrower than `--tile-min`, and they share out what is left over. */
+@utility tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-3);
+
+  @variant wide {
+    grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr));
+  }
+}
+
+/* A month of the diary on Cooked (#201, ADR 0044). The phone's is a list and
+   this does nothing there. On the wide layout it is a grid of cards, which
+   the rows become with classes of their own. Cards in a row share a height,
+   until a cooking in that month is open: then every card of the month is as
+   tall as what it holds, so the open one's neighbours do not stretch into
+   empty boxes beside it. */
+@utility diary-grid {
+  @variant wide {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--diary-min), 1fr));
+    gap: var(--spacing-3);
+
+    &:has([aria-expanded="true"]) {
+      align-items: start;
+    }
+  }
 }
 
 /* A recipe, and its editor, where the window is roomy (#198, ADR 0044). The

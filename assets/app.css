@@ -93,6 +93,8 @@
     --recipe-column: 1040px;
     --list-column: 300px;
     --card-column: 600px;
+    --tile-min: 160px;
+    --diary-min: 224px;
   }
 }
 @layer base {
@@ -478,6 +480,24 @@
   }
   .ml-3 {
     margin-left: var(--spacing-3);
+  }
+  @media (min-width: 700px) and (min-height: 560px) {
+    .diary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(var(--diary-min), 1fr));
+      gap: var(--spacing-3);
+    }
+    .diary-grid:has([aria-expanded="true"]) {
+      align-items: start;
+    }
+  }
+  .tile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--spacing-3);
+    @media (min-width: 700px) and (min-height: 560px) {
+      grid-template-columns: repeat(auto-fill, minmax(var(--tile-min), 1fr));
+    }
   }
   @media (min-width: 700px) and (min-height: 560px) {
     @media (min-width: 1000px) {
@@ -1429,8 +1449,23 @@
     }
   }
   @media (min-width: 700px) and (min-height: 560px) {
+    .wide\:mx-0 {
+      margin-inline: var(--spacing-0);
+    }
+    .wide\:mx-4 {
+      margin-inline: var(--spacing-4);
+    }
+    .wide\:mt-0 {
+      margin-top: var(--spacing-0);
+    }
     .wide\:mt-4 {
       margin-top: var(--spacing-4);
+    }
+    .wide\:mb-3 {
+      margin-bottom: var(--spacing-3);
+    }
+    .wide\:flex {
+      display: flex;
     }
     .wide\:h-\[var\(--cook-control-far\)\] {
       height: var(--cook-control-far);
@@ -1444,17 +1479,48 @@
     .wide\:w-\[var\(--cook-tick-far\)\] {
       width: var(--cook-tick-far);
     }
+    .wide\:max-w-none {
+      max-width: none;
+    }
+    .wide\:flex-1 {
+      flex: 1;
+    }
+    .wide\:flex-col {
+      flex-direction: column;
+    }
+    .wide\:flex-wrap {
+      flex-wrap: wrap;
+    }
+    .wide\:gap-0 {
+      gap: var(--spacing-0);
+    }
     .wide\:gap-1 {
       gap: var(--spacing-1);
     }
     .wide\:gap-4 {
       gap: var(--spacing-4);
     }
+    .wide\:rounded-sm {
+      border-radius: var(--radius-sm);
+    }
+    .wide\:border {
+      border-style: var(--tw-border-style);
+      border-width: 1px;
+    }
+    .wide\:bg-card {
+      background-color: var(--color-card);
+    }
+    .wide\:p-0 {
+      padding: var(--spacing-0);
+    }
     .wide\:px-4 {
       padding-inline: var(--spacing-4);
     }
     .wide\:px-\[var\(--cook-inset\)\] {
       padding-inline: var(--cook-inset);
+    }
+    .wide\:py-3 {
+      padding-block: var(--spacing-3);
     }
     .wide\:pt-6 {
       padding-top: var(--spacing-6);
