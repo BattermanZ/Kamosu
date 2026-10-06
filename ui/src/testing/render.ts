@@ -10,6 +10,7 @@ import type { Component } from 'svelte';
 import Harness from './Harness.svelte';
 import { standIn, type Answers, type StandIn } from '$lib/api/stand-in';
 import type { Keeping } from '$lib/offline/outbox';
+import type { Room } from '$lib/room.svelte';
 
 /** A screen: a route component, which takes no props — its client arrives by context. */
 export type ScreenComponent = Component<Record<string, never>>;
@@ -27,14 +28,17 @@ export interface Rendered {
  *   instance_status: { version: '0.1.0', setup_complete: true, password_minimum: 15 }
  * });
  * ```
+ *
+ * `room` is how much room the window has (#193); the phone's without one.
  */
 export function renderScreen(
 	component: ScreenComponent,
 	answers: Answers = {},
 	keeping?: Keeping,
+	room?: Room,
 ): Rendered {
 	const kamosu = standIn(answers);
-	render(Harness, { props: { component, client: kamosu.client, keeping } });
+	render(Harness, { props: { component, client: kamosu.client, keeping, room } });
 	return { kamosu };
 }
 

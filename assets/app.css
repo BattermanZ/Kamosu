@@ -283,6 +283,13 @@
         padding-bottom: var(--spacing-4);
       }
     }
+    .shopping-chosen {
+      position: sticky;
+      top: 0;
+      max-height: 100dvh;
+      overflow-y: auto;
+      padding-bottom: var(--spacing-4);
+    }
   }
   .sr-only {
     position: absolute;
@@ -481,6 +488,9 @@
   .ml-3 {
     margin-left: var(--spacing-3);
   }
+  .ml-auto {
+    margin-left: auto;
+  }
   @media (min-width: 700px) and (min-height: 560px) {
     .diary-grid {
       display: grid;
@@ -500,7 +510,15 @@
     }
   }
   @media (min-width: 700px) and (min-height: 560px) {
+    .shopping-columns {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+      column-gap: var(--spacing-8);
+    }
     @media (min-width: 1000px) {
+      .shopping-columns {
+        column-gap: var(--spacing-12);
+      }
       .recipe-columns {
         display: grid;
         grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
@@ -547,6 +565,20 @@
   }
   .aspect-square {
     aspect-ratio: 1 / 1;
+  }
+  .step-button {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border: 1px solid var(--color-rule);
+    border-radius: 50%;
+    background: var(--color-card);
+    color: var(--color-accent);
+    font-size: 20px;
+    line-height: 1;
+    &:disabled {
+      opacity: 0.4;
+    }
   }
   .size-4 {
     width: var(--spacing-4);
@@ -697,6 +729,12 @@
       }
     }
   }
+  .two-column-page {
+    max-width: var(--container-2xl);
+    @media (min-width: 700px) and (min-height: 560px) {
+      max-width: var(--recipe-column);
+    }
+  }
   .max-w-2xl {
     max-width: var(--container-2xl);
   }
@@ -711,6 +749,9 @@
   }
   .min-w-0 {
     min-width: var(--spacing-0);
+  }
+  .min-w-\[88px\] {
+    min-width: 88px;
   }
   .flex-1 {
     flex: 1;
@@ -1479,6 +1520,9 @@
     .wide\:w-\[var\(--cook-tick-far\)\] {
       width: var(--cook-tick-far);
     }
+    .wide\:w-full {
+      width: 100%;
+    }
     .wide\:max-w-none {
       max-width: none;
     }
@@ -1496,6 +1540,9 @@
     }
     .wide\:gap-1 {
       gap: var(--spacing-1);
+    }
+    .wide\:gap-3 {
+      gap: var(--spacing-3);
     }
     .wide\:gap-4 {
       gap: var(--spacing-4);

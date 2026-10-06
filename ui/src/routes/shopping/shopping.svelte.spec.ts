@@ -369,4 +369,264 @@ describe('Shopping', () => {
 		renderScreen(Page, { get_shopping_list: { refuse: 'internal' } });
 		expect(await screen.findByRole('alert')).toHaveTextContent(/Couldn't load your list/i);
 	});
+
+	it('has no recipes side on the phone until a recipe is chosen', async () => {
+		renderScreen(Page, { get_shopping_list: { chosen: [], rows: [loose()] } });
+		await screen.findByText('bin bags');
+		expect(screen.queryByRole('heading', { name: 'Chosen' })).not.toBeInTheDocument();
+	});
+
+	it('draws no − and + on the phone', async () => {
+		renderScreen(Page, { get_shopping_list: list() });
+		await screen.findByText('soy sauce');
+		expect(screen.queryByRole('button', { name: /One more of/ })).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /How much of Korean/ })).toHaveTextContent(
+			'shopping for 4 servings',
+		);
+		expect(screen.getByRole('button', { name: /Take Korean Fried Chicken off/ })).toHaveTextContent(
+			'Take off the list',
+		);
+	});
+});
+
+/**
+ * The wide layout (#202, ADR 0044): the recipes chosen on one side and what to
+ * buy on the other. Which column a thing lands in is the stylesheet's and is
+ * checked live; what each side holds and does is checked here.
+ */
+describe('Shopping, on the wide layout', () => {
+	const wide = (answers: Parameters<typeof renderScreen>[1]) =>
+		renderScreen(Page, answers, undefined, 'wide');
+
+	/** The side one heading stands over. */
+	const side = (heading: string): HTMLElement => {
+		const section = screen.getByRole('heading', { name: heading }).closest('section');
+		if (!section) throw new Error(`no side under ${heading}`);
+		return section;
+	};
+
+	it('holds the recipes on one side and what to buy on the other', async () => {
+		wide({ get_shopping_list: list() });
+		await screen.findByText('soy sauce');
+
+		expect(
+			within(side('Chosen')).getByRole('link', { name: 'Korean Fried Chicken' }),
+		).toBeVisible();
+		expect(within(side('Chosen')).queryByText('soy sauce')).not.toBeInTheDocument();
+		expect(within(side('To buy')).getByText('soy sauce')).toBeVisible();
+		expect(within(side('To buy')).getByText('bin bags')).toBeVisible();
+		expect(
+			within(side('To buy')).queryByText('Korean Fried Chicken', { selector: 'a' }),
+		).toBeNull();
+	});
+
+	it('keeps the recipes side standing with nothing chosen, saying what the list is for', async () => {
+		wide({ get_shopping_list: { chosen: [], rows: [] } });
+		await screen.findByRole('heading', { name: 'To buy' });
+
+		expect(within(side('Chosen')).getByText(/Choose the recipes you'll cook/)).toBeVisible();
+		expect(within(side('Chosen')).getByRole('link', { name: 'Add a recipe' })).toBeVisible();
+		// Once, and on the recipes' side.
+		expect(screen.getAllByText(/Choose the recipes you'll cook/)).toHaveLength(1);
+	});
+
+	it('shops for one more of a recipe at a tap on +', async () => {
+		const { kamosu } = wide({
+			get_shopping_list: list(),
+			set_shopping_yield: list({
+				chosen: [chosen({ shopping_yield: { amount: '5', noun: 'servings' } })],
+			}),
+		});
+		await screen.findByText('soy sauce');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'One more of Korean Fried Chicken' }));
+		expect(kamosu.calls.at(-1)).toEqual({
+			operation: 'set_shopping_yield',
+			input: { branch_id: 'b_chicken', shopping_yield: { amount: '5', noun: 'servings' } },
+		});
+		expect(
+			await within(side('Chosen')).findByRole('button', { name: /How much of Korean/ }),
+		).toHaveTextContent('5 servings');
+	});
+
+	it('counts two quick taps on + as two servings', async () => {
+		// The second tap lands before the Core has answered the first, and has
+		// to step from five, not from the four still in the last answer.
+		const { kamosu } = wide({
+			get_shopping_list: list(),
+			set_shopping_yield: list({
+				chosen: [chosen({ shopping_yield: { amount: '6', noun: 'servings' } })],
+			}),
+		});
+		await screen.findByText('soy sauce');
+
+		const more = screen.getByRole('button', { name: 'One more of Korean Fried Chicken' });
+		void fireEvent.click(more);
+		await fireEvent.click(more);
+		expect(
+			kamosu.calls.filter((call) => call.operation === 'set_shopping_yield').map((c) => c.input),
+		).toEqual([
+			{ branch_id: 'b_chicken', shopping_yield: { amount: '5', noun: 'servings' } },
+			{ branch_id: 'b_chicken', shopping_yield: { amount: '6', noun: 'servings' } },
+		]);
+	});
+
+	it('puts the amount back when the Core refuses a step', async () => {
+		wide({ get_shopping_list: list(), set_shopping_yield: { refuse: 'internal' } });
+		await screen.findByText('soy sauce');
+		await fireEvent.click(screen.getByRole('button', { name: 'One more of Korean Fried Chicken' }));
+		expect(await screen.findByRole('alert')).toBeVisible();
+		expect(screen.getByRole('button', { name: /How much of Korean/ })).toHaveTextContent(
+			'4 servings',
+		);
+	});
+
+	it('goes back to the recipe as written when − lands on what it makes', async () => {
+		const { kamosu } = wide({
+			get_shopping_list: list({
+				chosen: [chosen({ shopping_yield: { amount: '5', noun: 'servings' } })],
+			}),
+			set_shopping_yield: list(),
+		});
+		await screen.findByText('soy sauce');
+		// A recipe that has moved says where it started.
+		expect(screen.getByText('the recipe is written for 4 servings')).toBeVisible();
+
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'One fewer of Korean Fried Chicken' }),
+		);
+		// `null`, the recipe as written, and never "4 servings" stored over it.
+		expect(kamosu.calls.at(-1)).toEqual({
+			operation: 'set_shopping_yield',
+			input: { branch_id: 'b_chicken', shopping_yield: null },
+		});
+		await screen.findByText('4 servings');
+		expect(screen.queryByText(/the recipe is written for/)).not.toBeInTheDocument();
+	});
+
+	it('will not step below one', async () => {
+		wide({
+			get_shopping_list: list({
+				chosen: [chosen({ written_yield: { amount: '1', noun: 'servings' } })],
+			}),
+		});
+		await screen.findByText('soy sauce');
+		expect(
+			screen.getByRole('button', { name: 'One fewer of Korean Fried Chicken' }),
+		).toBeDisabled();
+		expect(screen.getByRole('button', { name: 'One more of Korean Fried Chicken' })).toBeEnabled();
+	});
+
+	it('opens the two boxes at a tap on the amount between − and +', async () => {
+		const { kamosu } = wide({
+			get_shopping_list: list(),
+			set_shopping_yield: list({
+				chosen: [chosen({ shopping_yield: { amount: '2', noun: 'trays' } })],
+			}),
+		});
+		await screen.findByText('soy sauce');
+
+		await fireEvent.click(
+			screen.getByRole('button', { name: /How much of Korean Fried Chicken/i }),
+		);
+		await fireEvent.input(screen.getByLabelText('How many'), { target: { value: '2' } });
+		await fireEvent.input(screen.getByLabelText('Of what'), { target: { value: 'trays' } });
+		await fireEvent.submit(screen.getByLabelText('How many').closest('form') as HTMLFormElement);
+
+		expect(kamosu.calls.at(-1)).toEqual({
+			operation: 'set_shopping_yield',
+			input: { branch_id: 'b_chicken', shopping_yield: { amount: '2', noun: 'trays' } },
+		});
+	});
+
+	it('draws no − and + where what is shopped for is counted in another noun', async () => {
+		// One more than two trays of a recipe written for four servings would
+		// have to say five servings.
+		wide({
+			get_shopping_list: list({
+				chosen: [chosen({ shopping_yield: { amount: '2', noun: 'trays' } })],
+			}),
+		});
+		await screen.findByText('soy sauce');
+		expect(screen.queryByRole('button', { name: /One more of/ })).not.toBeInTheDocument();
+		expect(screen.getByRole('button', { name: /How much of Korean/ })).toHaveTextContent(
+			'shopping for 2 trays',
+		);
+		expect(screen.getByText('the recipe is written for 4 servings')).toBeVisible();
+	});
+
+	it('draws no − and + where there is no whole number to step from', async () => {
+		wide({
+			get_shopping_list: list({
+				chosen: [
+					chosen({ written_yield: null }),
+					chosen({
+						branch_id: 'b_loaf',
+						title: 'Banana Loaf',
+						written_yield: { amount: '1½', noun: 'loaves' },
+					}),
+					chosen({ branch_id: 'b_gone', title: 'Lost Soup', gone: true }),
+				],
+			}),
+		});
+		await screen.findByText('soy sauce');
+
+		expect(screen.queryByRole('button', { name: /One more of/ })).not.toBeInTheDocument();
+		// The sentence that opens the two boxes is still there for both.
+		expect(
+			screen.getByRole('button', { name: 'How much of Korean Fried Chicken' }),
+		).toHaveTextContent('Change how much');
+		expect(screen.getByRole('button', { name: 'How much of Banana Loaf' })).toHaveTextContent(
+			'shopping for 1½ loaves',
+		);
+		expect(screen.queryByRole('button', { name: 'How much of Lost Soup' })).toBeNull();
+	});
+
+	it('takes a recipe off the list as the phone does, under a shorter word', async () => {
+		const { kamosu } = wide({
+			get_shopping_list: list(),
+			remove_from_shopping_list: { chosen: [], rows: [loose()] },
+		});
+		await screen.findByText('soy sauce');
+
+		const off = screen.getByRole('button', { name: 'Take Korean Fried Chicken off the list' });
+		expect(off.textContent?.trim()).toBe('Take off');
+		await fireEvent.click(off);
+		expect(kamosu.calls.at(-1)).toEqual({
+			operation: 'remove_from_shopping_list',
+			input: { branch_id: 'b_chicken' },
+		});
+		expect(await within(side('To buy')).findByText('bin bags')).toBeVisible();
+		expect(screen.queryByText('soy sauce')).not.toBeInTheDocument();
+	});
+
+	it('types a Loose Item onto the list side', async () => {
+		const { kamosu } = wide({
+			get_shopping_list: list({ rows: [added()] }),
+			add_loose_item: list({ rows: [added(), loose()] }),
+		});
+		await screen.findByText('soy sauce');
+		await fireEvent.click(
+			within(side('To buy')).getByRole('button', { name: /Add something of your own/i }),
+		);
+		const field = screen.getByLabelText('What to buy');
+		await fireEvent.input(field, { target: { value: 'bin bags' } });
+		await fireEvent.submit(field.closest('form') as HTMLFormElement);
+
+		expect(kamosu.calls.at(-1)).toEqual({
+			operation: 'add_loose_item',
+			input: { text: 'bin bags' },
+		});
+		expect(await within(side('To buy')).findByText('bin bags')).toBeVisible();
+	});
+
+	it('opens the written lines behind a row, and still offers nothing to tick', async () => {
+		wide({ get_shopping_list: list() });
+		await screen.findByText('minced garlic');
+		await fireEvent.click(
+			screen.getByRole('button', { name: /written lines behind minced garlic/i }),
+		);
+		expect(await screen.findByText('2 tbsp minced garlic')).toBeVisible();
+		expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+	});
 });

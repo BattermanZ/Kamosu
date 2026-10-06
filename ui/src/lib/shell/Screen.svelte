@@ -25,16 +25,33 @@
 		 * browsing screens (#201). The phone's column is unchanged.
 		 */
 		fills?: boolean;
+		/**
+		 * As wide as a recipe's page on the wide layout, for a screen that
+		 * lays two columns out there (#202). The phone's column is unchanged.
+		 */
+		columns?: boolean;
 		children?: Snippet;
 	}
 
-	let { title, blurb, expandsFrom, card = false, fills = false, children }: Props = $props();
+	let {
+		title,
+		blurb,
+		expandsFrom,
+		card = false,
+		fills = false,
+		columns = false,
+		children,
+	}: Props = $props();
 </script>
 
 <div
 	class={card
 		? 'open-card'
-		: ['mx-auto max-w-2xl px-gutter pt-6 pb-tabbar', fills && 'wide:max-w-none']}
+		: [
+				'mx-auto px-gutter pt-6 pb-tabbar',
+				columns ? 'two-column-page' : 'max-w-2xl',
+				fills && 'wide:max-w-none',
+			]}
 >
 	<h1
 		class="font-display text-title font-semibold"

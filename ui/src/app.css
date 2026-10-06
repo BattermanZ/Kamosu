@@ -804,6 +804,68 @@
   }
 }
 
+/* Shopping on the wide layout (#202, ADR 0044): the recipes chosen beside what
+   to buy. Aurélien chose the layout on prototypes on 6 October 2026. The page
+   is as wide as a recipe's where it is roomy, and the recipes take the two
+   fifths a recipe's Ingredients take. Unlike a recipe it is two columns on an
+   upright tablet too, where the recipes get about 270, which holds a title and
+   the − and + under it. On the phone the page keeps the width every page has
+   and the other two do nothing. */
+@utility two-column-page {
+  max-width: var(--container-2xl);
+
+  @variant wide {
+    max-width: var(--recipe-column);
+  }
+}
+
+@utility shopping-columns {
+  @variant wide {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    column-gap: var(--spacing-8);
+  }
+
+  @variant roomy {
+    column-gap: var(--spacing-12);
+  }
+}
+
+/* The recipes, staying in view while the list scrolls. This goes on a box
+   inside the left column, as `stays-in-view` does and for its reason. No back
+   arrow stands on Shopping, so there is nothing to stop below. */
+@utility shopping-chosen {
+  @variant wide {
+    position: sticky;
+    top: 0;
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding-bottom: var(--spacing-4);
+  }
+}
+
+/* − and + beside how much of a chosen recipe is being shopped for (#202).
+   Round and 40 across, a quiet outline on the card's white, which is what
+   Aurélien chose on the prototype and asked for again when they were first
+   built square and 48 like the recipe page's. Five recipes carry ten of them
+   in a narrow column, where the recipe page has one pair. The radius is
+   written here because every radius token is near-square on purpose. */
+@utility step-button {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border: 1px solid var(--color-rule);
+  border-radius: 50%;
+  background: var(--color-card);
+  color: var(--color-accent);
+  font-size: 20px;
+  line-height: 1;
+
+  &:disabled {
+    opacity: 0.4;
+  }
+}
+
 /* The wash under a recipe's title, over its photograph. Indigo rather than a
    neutral grey — the app's own colour — and near-solid at the hem so the title
    is readable over a photograph whose colours nobody chose (#81).
