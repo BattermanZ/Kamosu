@@ -91,6 +91,8 @@
     --cook-gutter-far: 40px;
     --cook-column: 1120px;
     --recipe-column: 1040px;
+    --list-column: 300px;
+    --card-column: 600px;
   }
 }
 @layer base {
@@ -259,6 +261,15 @@
       inset: -8px;
     }
   }
+  .list-column {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    padding-top: calc(var(--spacing-4) + env(safe-area-inset-top));
+    border-right: 1px solid var(--color-rule);
+  }
   @media (min-width: 700px) and (min-height: 560px) {
     @media (min-width: 1000px) {
       .stays-in-view {
@@ -385,6 +396,14 @@
   .float-right {
     float: right;
   }
+  .open-card {
+    width: calc(100% - 2 * var(--spacing-4));
+    max-width: var(--card-column);
+    margin: var(--spacing-6) auto;
+    padding: var(--spacing-6) var(--spacing-gutter);
+    border: 1px solid var(--color-rule);
+    background: var(--color-card);
+  }
   .-mx-gutter {
     margin-inline: calc(var(--spacing-gutter) * -1);
   }
@@ -451,6 +470,9 @@
   .mb-6 {
     margin-bottom: var(--spacing-6);
   }
+  .beside-back-arrow {
+    margin-left: calc(var(--arrow-room) - var(--spacing-gutter));
+  }
   .ml-1 {
     margin-left: var(--spacing-1);
   }
@@ -465,6 +487,10 @@
         column-gap: var(--spacing-8);
       }
     }
+  }
+  .list-beside {
+    display: grid;
+    grid-template-columns: var(--list-column) minmax(0, 1fr);
   }
   .line-clamp-2 {
     overflow: hidden;
@@ -561,6 +587,9 @@
   }
   .h-\[var\(--step-photo\)\] {
     height: var(--step-photo);
+  }
+  .h-dvh {
+    height: 100dvh;
   }
   .h-full {
     height: 100%;
@@ -919,6 +948,12 @@
   .border-t-support {
     border-top-color: var(--color-support);
   }
+  .border-l-accent {
+    border-left-color: var(--color-accent);
+  }
+  .border-l-transparent {
+    border-left-color: transparent;
+  }
   .bg-\[var\(--whose\)\] {
     background-color: var(--whose);
   }
@@ -1062,6 +1097,12 @@
         --page-column: var(--recipe-column);
       }
     }
+    .clears-back-arrow:has(.list-beside) {
+      padding-top: 0;
+    }
+    .clears-back-arrow:has(.list-beside) .page-notices {
+      padding-left: calc(var(--spacing-4) + var(--spacing-12));
+    }
   }
   .pt-1 {
     padding-top: var(--spacing-1);
@@ -1101,6 +1142,9 @@
   }
   .pb-4 {
     padding-bottom: var(--spacing-4);
+  }
+  .pb-6 {
+    padding-bottom: var(--spacing-6);
   }
   .pb-8 {
     padding-bottom: var(--spacing-8);
@@ -1261,6 +1305,10 @@
   }
   .italic {
     font-style: italic;
+  }
+  .tabular-nums {
+    --tw-numeric-spacing: tabular-nums;
+    font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
   }
   .line-through {
     text-decoration-line: line-through;
@@ -1683,6 +1731,26 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-ordinal {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-slashed-zero {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-numeric-figure {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-numeric-spacing {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-numeric-fraction {
+  syntax: "*";
+  inherits: false;
+}
 @property --tw-shadow {
   syntax: "*";
   inherits: false;
@@ -1817,6 +1885,11 @@
       --tw-border-style: solid;
       --tw-leading: initial;
       --tw-font-weight: initial;
+      --tw-ordinal: initial;
+      --tw-slashed-zero: initial;
+      --tw-numeric-figure: initial;
+      --tw-numeric-spacing: initial;
+      --tw-numeric-fraction: initial;
       --tw-shadow: 0 0 #0000;
       --tw-shadow-color: initial;
       --tw-shadow-alpha: 100%;

@@ -219,6 +219,7 @@
   "food_unknown_title": "No such Food",
   "food_unnamed": "Unnamed Food",
   "foods_blurb": "Every Food Kamosu has learnt from your recipes. Find the one to correct.",
+  "foods_choose": "Choose a Food to correct it.",
   "foods_lines": "{count} lines point at this",
   "foods_lines_one": "1 line points at this",
   "foods_more": "{count} more answer to this. Keep typing to narrow it.",

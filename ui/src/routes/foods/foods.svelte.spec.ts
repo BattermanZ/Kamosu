@@ -13,6 +13,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { m } from '$lib/paraglide/messages';
+import type { Room } from '$lib/room.svelte';
+import { went } from '../../testing/navigation';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { ListFoodsOutput } from '$lib/api/catalogue';
@@ -168,5 +171,271 @@ describe('the Foods list', () => {
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			'Kamosu could not list its Foods just now.',
 		);
+	});
+});
+
+/**
+ * Foods beside the open Food (#199, ADR 0044).
+ *
+ * On the wide layout the list stays while Foods are opened one after another,
+ * which is what makes tidying open, fix, next. The phone keeps the two full
+ * pages it had.
+ */
+describe('on the wide layout', () => {
+	function beside(open?: string, room: Room = 'wide') {
+		const kamosu = standIn({ list_foods: { foods: LIBRARY } });
+		const drawn = render(FoodsTestHarness, { props: { client: kamosu.client, room, open } });
+		return { ...kamosu, ...drawn };
+	}
+
+	const rows = () => screen.findAllByRole('link');
+	const theOpenFood = () => screen.queryByLabelText('the open Food');
+	const search = () => screen.getByRole('searchbox');
+
+	/** What a sighted cook reads on a row: the words kept for a screen reader are taken out. */
+	function seen(row: HTMLElement): string {
+		const copy = row.cloneNode(true) as HTMLElement;
+		copy.querySelectorAll('.sr-only').forEach((hidden) => hidden.remove());
+		return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+	}
+
+	it('shows the open Food beside the list, and marks its row', async () => {
+		beside('f_sel');
+
+		const list = await rows();
+		expect(list).toHaveLength(LIBRARY.length);
+		expect(theOpenFood()).toBeInTheDocument();
+		expect(screen.getByRole('link', { current: 'page' })).toHaveTextContent('sel');
+	});
+
+	it('says to choose a Food before one is open, and draws none', async () => {
+		beside();
+
+		await rows();
+		expect(screen.getByText(m.foods_choose())).toBeInTheDocument();
+		expect(theOpenFood()).toBeNull();
+	});
+
+	it('keeps the list, what was typed in it and the reading of it while another Food is opened', async () => {
+		const drawn = beside('f_caster');
+		await rows();
+		await fireEvent.input(search(), { target: { value: 'sugar' } });
+		const list = screen.getByRole('list');
+
+		await drawn.rerender({ open: 'f_brown' });
+
+		expect(search()).toHaveValue('sugar');
+		expect(screen.getByRole('list')).toBe(list);
+		expect(drawn.calls.filter((call) => call.operation === 'list_foods')).toHaveLength(1);
+		expect(screen.getByRole('link', { current: 'page' })).toHaveTextContent('brown sugar');
+	});
+
+	it('writes a row as the name with the number of lines beside it', async () => {
+		beside();
+
+		const [first] = await rows();
+		expect(seen(first)).toBe('salt 58');
+		// The number alone says nothing aloud, so the sentence is still there to be read out.
+		expect(first).toHaveTextContent('58 lines point at this');
+	});
+
+	it('leads to the same address the phone opens a Food at', async () => {
+		beside();
+
+		const [first] = await rows();
+		expect(first).toHaveAttribute('href', '/foods/f_salt');
+	});
+
+	it('moves down and up the list with the arrows, opening each Food in place of the last', async () => {
+		const drawn = beside('f_brown');
+		await rows();
+
+		await fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+		// Replaced, so going back leaves the list in one step rather than walking back up it.
+		expect(went).toHaveBeenLastCalledWith('/foods/f_sel', {
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true,
+		});
+
+		await drawn.rerender({ open: 'f_sel' });
+		await fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+		expect(went).toHaveBeenLastCalledWith(
+			'/foods/f_brown',
+			expect.objectContaining({ replaceState: true }),
+		);
+	});
+
+	it('opens the first Food on an arrow when none is open', async () => {
+		beside();
+		await rows();
+
+		await fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+
+		expect(went).toHaveBeenLastCalledWith(
+			'/foods/f_salt',
+			expect.objectContaining({ replaceState: true }),
+		);
+	});
+
+	it('stops at the ends of the list', async () => {
+		beside('f_salt');
+		await rows();
+
+		await fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+
+		expect(went).not.toHaveBeenCalled();
+	});
+
+	it('walks only the Foods the search left', async () => {
+		beside('f_caster');
+		await rows();
+		await fireEvent.input(search(), { target: { value: 'sugar' } });
+
+		// brown sugar (11) is above caster sugar (9); salt and sel are gone.
+		await fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+
+		expect(went).toHaveBeenLastCalledWith('/foods/f_brown', expect.anything());
+	});
+
+	it('puts the caret on the row an arrow opened, so Tab goes on into that Food', async () => {
+		beside('f_brown');
+		const list = await rows();
+
+		await fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+
+		expect(list[2]).toHaveTextContent('sel');
+		expect(list[2]).toHaveFocus();
+	});
+
+	it('lets Tab reach one row of the list and no more, so the Food is one Tab away', async () => {
+		beside('f_sel');
+
+		const list = await rows();
+		expect(list.filter((row) => row.tabIndex === 0)).toEqual([
+			screen.getByRole('link', { current: 'page' }),
+		]);
+	});
+
+	it.each([
+		['the search box', search],
+		["a field of the open Food's", () => theOpenFood()!],
+	])('leaves the arrows to %s while the caret is in it', async (_, field) => {
+		beside('f_brown');
+		await rows();
+
+		const untouched = await fireEvent.keyDown(field(), { key: 'ArrowDown' });
+
+		expect(went).not.toHaveBeenCalled();
+		// Not taken over either, so the caret moves in the field as it always does.
+		expect(untouched).toBe(true);
+	});
+
+	it('leaves an arrow held with another key to the browser', async () => {
+		beside('f_brown');
+		await rows();
+
+		await fireEvent.keyDown(document.body, { key: 'ArrowDown', altKey: true });
+
+		expect(went).not.toHaveBeenCalled();
+	});
+
+	it('changes a row, and what the search answers to, when its Food is corrected beside it', async () => {
+		const kamosu = standIn({ list_foods: { foods: LIBRARY } });
+		const renamed = food('f_sel', [{ language: 'fr', name: 'sel fin' }], 10);
+		render(FoodsTestHarness, {
+			props: { client: kamosu.client, room: 'wide', open: 'f_sel', correction: renamed },
+		});
+		await rows();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'correct it' }));
+
+		expect(screen.getByRole('link', { current: 'page' })).toHaveTextContent('sel fin');
+		await fireEvent.input(search(), { target: { value: 'fin' } });
+		expect(await rows()).toHaveLength(1);
+		// Told, not read again: the list is the one it was.
+		expect(kamosu.calls.filter((call) => call.operation === 'list_foods')).toHaveLength(1);
+	});
+
+	it('is side by side where the window is roomy too', async () => {
+		beside('f_sel', 'roomy');
+
+		await rows();
+		expect(theOpenFood()).toBeInTheDocument();
+	});
+});
+
+describe('on the phone layout', () => {
+	function phone(open?: string) {
+		const kamosu = standIn({ list_foods: { foods: LIBRARY } });
+		const drawn = render(FoodsTestHarness, { props: { client: kamosu.client, open } });
+		return { ...kamosu, ...drawn };
+	}
+
+	it('draws a Food as a full page, with no list beside it and none read', async () => {
+		const drawn = phone('f_sel');
+
+		expect(screen.getByLabelText('the open Food')).toBeInTheDocument();
+		expect(screen.queryByRole('searchbox')).toBeNull();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(screen.queryAllByRole('link')).toHaveLength(0);
+		expect(drawn.calls).toHaveLength(0);
+	});
+
+	it('draws the list as a full page, with no sentence about choosing', async () => {
+		phone();
+
+		const [first] = await screen.findAllByRole('link');
+		expect(first).toHaveTextContent('58 lines point at this');
+		expect(first).not.toHaveAttribute('aria-current');
+		expect(screen.queryByText(m.foods_choose())).toBeNull();
+	});
+
+	it('does nothing on an arrow', async () => {
+		phone();
+		await screen.findAllByRole('link');
+
+		await fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+
+		expect(went).not.toHaveBeenCalled();
+	});
+});
+
+describe('as the window changes', () => {
+	it('keeps the open Food, and what was typed in it, when a wide window narrows to a phone', async () => {
+		const kamosu = standIn({ list_foods: { foods: LIBRARY } });
+		const drawn = render(FoodsTestHarness, {
+			props: { client: kamosu.client, room: 'wide', open: 'f_sel' },
+		});
+		await screen.findAllByRole('link');
+		const field = screen.getByLabelText('the open Food');
+
+		await drawn.rerender({ room: 'phone' });
+
+		expect(screen.getByLabelText('the open Food')).toBe(field);
+		expect(screen.queryByRole('searchbox')).toBeNull();
+	});
+
+	it('keeps what was typed in the search when a phone window widens', async () => {
+		const kamosu = standIn({ list_foods: { foods: LIBRARY } });
+		const drawn = render(FoodsTestHarness, { props: { client: kamosu.client } });
+		await screen.findAllByRole('link');
+		await fireEvent.input(screen.getByRole('searchbox'), { target: { value: 'sugar' } });
+
+		await drawn.rerender({ room: 'wide' });
+
+		expect(screen.getByRole('searchbox')).toHaveValue('sugar');
+	});
+});
+
+describe('arriving with a second word', () => {
+	it('puts the second word in the box, where the first one was', async () => {
+		const kamosu = standIn({ list_foods: { foods: LIBRARY } });
+		const drawn = render(FoodsTestHarness, { props: { client: kamosu.client, q: 'sel' } });
+		await screen.findAllByRole('link');
+
+		await drawn.rerender({ q: 'salt' });
+
+		expect(screen.getByRole('searchbox')).toHaveValue('salt');
 	});
 });

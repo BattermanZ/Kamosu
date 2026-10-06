@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetFoodOutput } from '$lib/api/catalogue';
+import { m } from '$lib/paraglide/messages';
 import FoodTestHarness from './FoodTestHarness.svelte';
 
 type Name = GetFoodOutput['names'][number];
@@ -345,5 +346,101 @@ describe('a Food’s page', () => {
 		draw({ get_food: { refuse: 'not_found', message: 'no such Food' } });
 
 		expect(await screen.findByRole('heading', { name: 'No such Food' })).toBeInTheDocument();
+	});
+});
+
+/**
+ * One Food after another (#199). On the wide layout the Foods list stays
+ * beside the open Food, so the page is handed a second Food without being
+ * left, which never happened while a Food was only ever a page of its own.
+ */
+describe('when another Food is opened in place of this one', () => {
+	async function fromCasterToEggs(before: () => Promise<void> = async () => {}) {
+		const kamosu = standIn({ get_food: CASTER });
+		const drawn = render(FoodTestHarness, { props: { client: kamosu.client, foodId: 'f_caster' } });
+		await screen.findByRole('heading', { name: 'caster sugar' });
+		await before();
+
+		kamosu.answer('get_food', EGGS);
+		await drawn.rerender({ foodId: 'f_eggs' });
+		await screen.findByRole('heading', { name: 'eggs' });
+		return kamosu;
+	}
+
+	it('shows the other Food, read by its own id', async () => {
+		const kamosu = await fromCasterToEggs();
+
+		expect(screen.getByText('12 lines point at this')).toBeInTheDocument();
+		expect(kamosu.calls.at(-1)).toEqual({ operation: 'get_food', input: { food_id: 'f_eggs' } });
+	});
+
+	it('never blinks "Loading" between the two, which an arrow held down would do twenty times', async () => {
+		let blinked = false;
+		const watch = new MutationObserver(() => {
+			blinked ||= screen.queryByRole('heading', { name: m.loading() }) !== null;
+		});
+
+		// Watched from the first Food on: the page does say so before that one.
+		await fromCasterToEggs(async () =>
+			watch.observe(document.body, { subtree: true, childList: true, characterData: true }),
+		);
+		watch.disconnect();
+
+		expect(blinked).toBe(false);
+	});
+
+	it('closes the names that were open for the last Food, which are not this one’s', async () => {
+		await fromCasterToEggs(async () => {
+			await fireEvent.click(screen.getByRole('button', { name: 'Change the names in English' }));
+			expect(screen.getByLabelText('English name 1')).toHaveValue('caster sugar');
+		});
+
+		expect(screen.queryByLabelText('English name 1')).toBeNull();
+	});
+
+	it('forgets what was said about the last Food', async () => {
+		await fromCasterToEggs(async () => {
+			await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+				target: { value: 'a lot' },
+			});
+			await fireEvent.click(screen.getByRole('button', { name: m.food_cup_weight_save() }));
+			expect(screen.getByRole('alert')).toBeInTheDocument();
+		});
+
+		expect(screen.queryByRole('alert')).toBeNull();
+	});
+
+	it('lets the other Food be corrected once it is on screen', async () => {
+		await fromCasterToEggs();
+
+		expect(screen.getByRole('button', { name: m.food_cup_weight_save() })).toBeEnabled();
+	});
+
+	it('does not draw a save of the last Food that answers after this one is open', async () => {
+		const kamosu = standIn({ get_food: CASTER });
+		// The save answers when the test says so, and not before.
+		let answer: (food: GetFoodOutput) => void = () => {};
+		const slow = {
+			...kamosu.client,
+			setFoodCupWeight: () => new Promise<GetFoodOutput>((resolve) => (answer = resolve)),
+		};
+		const drawn = render(FoodTestHarness, { props: { client: slow, foodId: 'f_caster' } });
+		await screen.findByRole('heading', { name: 'caster sugar' });
+		await fireEvent.input(screen.getByLabelText('A cup of it weighs'), {
+			target: { value: '200' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: m.food_cup_weight_save() }));
+
+		kamosu.answer('get_food', EGGS);
+		await drawn.rerender({ foodId: 'f_eggs' });
+		await screen.findByRole('heading', { name: 'eggs' });
+		answer(food({ cup_weight_grams: 200 }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(screen.getByRole('heading', { name: 'eggs' })).toBeInTheDocument();
+		expect(screen.getByLabelText('A cup of it weighs')).toHaveValue('');
+		await waitFor(() =>
+			expect(screen.getByRole('button', { name: m.food_cup_weight_save() })).toBeEnabled(),
+		);
 	});
 });

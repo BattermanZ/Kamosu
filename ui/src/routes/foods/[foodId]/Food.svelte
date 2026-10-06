@@ -43,10 +43,19 @@
 	per-recipe field and deferred per-ingredient data, and all 607 Foods answer
 	`nutrition: null` correctly. No merge, no delete, no merge preview: those are
 	the Operator's and live on the Operator's screen (#103).
+
+	**ON THE WIDE LAYOUT IT IS A CARD BESIDE THE FOODS LIST** (#199, ADR 0044),
+	and one Food follows another there without the page being left. The Food on
+	screen stays until the next has been read, so walking the list with the
+	arrows does not blink "Loading" between every two. Nothing can be saved in
+	that moment, since what is on screen is no longer the Food the address
+	names.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
+	import { useRoom } from '$lib/room.svelte';
+	import { useCorrected } from '../corrected.svelte';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Section from '$lib/shell/Section.svelte';
@@ -67,6 +76,13 @@
 	let { foodId }: Props = $props();
 
 	const kamosu = useKamosu();
+	const room = useRoom();
+	const corrected = useCorrected();
+	/**
+	 * A card, where the Foods list is beside this page: on the wide layout,
+	 * which is the one place the list is kept (`Foods.svelte`, #199).
+	 */
+	const card = $derived(room.wide);
 
 	let food = $state<Food | undefined>(undefined);
 	/** Set when the Food itself could not be read: there is no page without it. */
@@ -74,6 +90,13 @@
 	/** A refusal from an act, shown in the words it arrived in. */
 	let said = $state<string | undefined>(undefined);
 	let working = $state(false);
+	/**
+	 * The Food the address names is being read. Where one Food follows another
+	 * (#199), the last one is still on screen meanwhile and nothing of it may
+	 * be saved.
+	 */
+	let reading = $state(false);
+	const held = $derived(working || reading);
 
 	/**
 	 * Which Language's names are open, the names it had as they are being
@@ -88,16 +111,24 @@
 
 	$effect(() => {
 		let current = true;
+		// What was open or said about the last Food is not about this one.
+		unreachable = false;
+		said = undefined;
+		editing = null;
+		reading = true;
 		kamosu
 			.getFood({ food_id: foodId })
 			.then((answer) => {
 				if (!current) return;
+				reading = false;
 				food = answer;
 				grams = cupWeightBox(answer.cup_weight_grams);
 			})
 			.catch((error: unknown) => {
 				if (!(error instanceof OperationError)) throw error;
-				if (current) unreachable = true;
+				if (!current) return;
+				reading = false;
+				unreachable = true;
 			});
 		return () => {
 			current = false;
@@ -109,16 +140,24 @@
 	 * one is the Core's own answer rather than anything patched together here.
 	 */
 	async function act(run: () => Promise<Food>) {
+		const acted = foodId;
+		// Another Food may be opened in place of this one before the answer
+		// arrives (#199). The answer is still told to the list, whose row it is,
+		// and no longer drawn here, where it would be the last Food under this
+		// one's address.
+		const still = () => foodId === acted;
 		working = true;
 		said = undefined;
 		try {
 			const answered = await run();
+			if (corrected) corrected.latest = answered;
+			if (!still()) return;
 			food = answered;
 			grams = cupWeightBox(answered.cup_weight_grams);
 			editing = null;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
-			said = error.message;
+			if (still()) said = error.message;
 		} finally {
 			working = false;
 		}
@@ -169,11 +208,11 @@
 </script>
 
 {#if unreachable}
-	<Screen title={m.food_unknown_title()} blurb={m.food_unknown_blurb()} />
+	<Screen {card} title={m.food_unknown_title()} blurb={m.food_unknown_blurb()} />
 {:else if food === undefined}
-	<Screen title={m.loading()} />
+	<Screen {card} title={m.loading()} />
 {:else}
-	<Screen title={food.name ?? m.food_unnamed()} blurb={m.food_blurb()}>
+	<Screen {card} title={food.name ?? m.food_unnamed()} blurb={m.food_blurb()}>
 		<p class="text-body text-ink-2">
 			{linesPointingAt(food.reading_count)}
 		</p>
@@ -222,7 +261,7 @@
 						<div class="mt-2 flex gap-2">
 							<button
 								type="button"
-								disabled={working || (wanted.length === 0 && !namedElsewhere)}
+								disabled={held || (wanted.length === 0 && !namedElsewhere)}
 								onclick={() => saveNames(language)}
 								class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
 							>
@@ -257,7 +296,7 @@
 							-->
 							<button
 								type="button"
-								disabled={working}
+								disabled={held}
 								onclick={() => startEditing(language)}
 								aria-label={named.length === 0
 									? m.food_name_add_in({ language: languageName(language) })
@@ -291,7 +330,7 @@
 			<p class="mt-2 text-read text-ink-2">{m.food_cup_weight_explained()}</p>
 			<button
 				type="button"
-				disabled={working}
+				disabled={held}
 				onclick={saveCupWeight}
 				class="mt-3 w-full rounded-sm bg-accent p-2 text-center text-read text-on-accent"
 			>

@@ -245,6 +245,16 @@
      it leaves a margin too narrow for the back arrow, so the page starts
      below the arrow there. */
   --recipe-column: 1040px;
+
+  /* A list that stays beside what is open, on the wide layout (#199, ADR
+     0044). Foods is the first and #200's Imports follows it. Aurélien chose
+     the widths on prototypes on 6 October 2026. At 300 the list shows a Food's
+     name and the number of lines on one row, and leaves an upright iPad Pro
+     11" 446 for the Food, which is more than a phone gives it. What is open
+     is a card whose column is no wider than 600, so its buttons do not stretch across a
+     monitor. */
+  --list-column: 300px;
+  --card-column: 600px;
 }
 
 /* ── Room: how much of the window Kamosu has (ADR 0044, #193) ──────────────
@@ -653,6 +663,58 @@
       --page-column: var(--recipe-column);
     }
   }
+
+  /* A list beside what is open (#199) fills the page from the rail, so the
+     arrow stands over the list's own top corner and the list's title starts
+     to its right (`beside-back-arrow`). Nothing starts below it, and the
+     cards across the top start to its right as they do beside a margin. */
+  &:has(.list-beside) {
+    @variant wide {
+      padding-top: 0;
+
+      & .page-notices {
+        padding-left: calc(var(--spacing-4) + var(--spacing-12));
+      }
+    }
+  }
+}
+
+/* A list kept beside what is open, on the wide layout (#199, ADR 0044). The
+   screen draws these only where the Room is wide, so none of them asks. */
+@utility list-beside {
+  display: grid;
+  grid-template-columns: var(--list-column) minmax(0, 1fr);
+}
+
+/* The list's own column: as tall as the window and staying there, its head
+   at the top and its rows scrolling under it, while the page scrolls what is
+   open. It starts level with the back arrow. `dvh` is the window less
+   Safari's bars. */
+@utility list-column {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-top: calc(var(--spacing-4) + env(safe-area-inset-top));
+  border-right: 1px solid var(--color-rule);
+}
+
+/* The list's title, standing right of the back arrow that is fixed over the
+   list's corner. `--arrow-room` is `clears-back-arrow`'s. */
+@utility beside-back-arrow {
+  margin-left: calc(var(--arrow-room) - var(--spacing-gutter));
+}
+
+/* What is open beside a list: a card in the middle of what the list leaves,
+   keeping a step clear of the list where the window leaves it no more. */
+@utility open-card {
+  width: calc(100% - 2 * var(--spacing-4));
+  max-width: var(--card-column);
+  margin: var(--spacing-6) auto;
+  padding: var(--spacing-6) var(--spacing-gutter);
+  border: 1px solid var(--color-rule);
+  background: var(--color-card);
 }
 
 /* A recipe, and its editor, where the window is roomy (#198, ADR 0044). The

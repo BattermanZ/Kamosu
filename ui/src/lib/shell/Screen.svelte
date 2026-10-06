@@ -15,13 +15,18 @@
 		 * card elsewhere grows into it rather than the screen swapping (ADR 0012).
 		 */
 		expandsFrom?: string;
+		/**
+		 * Drawn as a card, where the screen is what is open beside a list on
+		 * the wide layout (#199).
+		 */
+		card?: boolean;
 		children?: Snippet;
 	}
 
-	let { title, blurb, expandsFrom, children }: Props = $props();
+	let { title, blurb, expandsFrom, card = false, children }: Props = $props();
 </script>
 
-<div class="mx-auto max-w-2xl px-gutter pt-6 pb-tabbar">
+<div class={card ? 'open-card' : 'mx-auto max-w-2xl px-gutter pt-6 pb-tabbar'}>
 	<h1
 		class="font-display text-title font-semibold"
 		style={expandsFrom

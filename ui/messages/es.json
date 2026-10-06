@@ -219,6 +219,7 @@
   "food_unknown_title": "Aquí no hay alimento",
   "food_unnamed": "Alimento sin nombre",
   "foods_blurb": "Todos los alimentos que Kamosu ha aprendido de tus recetas. Encuentra el que quieras corregir.",
+  "foods_choose": "Elige un alimento para corregirlo.",
   "foods_lines": "{count} líneas apuntan a él",
   "foods_lines_one": "1 línea apunta a él",
   "foods_more": "{count} más responden a esto. Sigue escribiendo para acotar.",
