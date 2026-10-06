@@ -76,6 +76,7 @@
 	import { byWord, tagWord, type Tag } from '$lib/tags';
 	import type { ListKitchensOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
+	import { recipeSearchBox } from '$lib/shell/slash';
 	import Empty from '$lib/shell/Empty.svelte';
 	import Tile from './Tile.svelte';
 	import AddOrImport from '$lib/AddOrImport.svelte';
@@ -349,6 +350,7 @@
 					<input
 						type="search"
 						bind:value={typed}
+						{@attach recipeSearchBox}
 						placeholder={m.recipes_search()}
 						class="min-h-12 w-full rounded-sm border border-rule bg-card px-3 text-body"
 					/>

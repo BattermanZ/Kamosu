@@ -575,6 +575,18 @@
 	.corner {
 		letter-spacing: 0.04em !important;
 	}
+	/* Under the pointer (#203). The story draws itself and `app.css` does not
+	   reach its buttons, so the same shades are said again here: the darker
+	   paper under the small words, the lighter indigo on the one button. The
+	   two tap zones cover the page and stay as they are. */
+	@media (hover: hover) {
+		.chrome button:hover {
+			background: var(--color-ground-2);
+		}
+		.cta:hover {
+			background: var(--color-accent-2);
+		}
+	}
 	button:focus-visible {
 		outline: 2px solid var(--color-accent);
 		outline-offset: -4px;

@@ -81,6 +81,7 @@
   --color-ink-2: #5c5a55;       /* secondary text — readings, meta, blurbs */
   --color-rule: #ded5c2;        /* hairlines */
         --color-accent: #1d2b4c;      /* ai, indigo — the one thing you tap */
+  --color-accent-2: #2c3f6b;    /* indigo under the pointer: a filled button hovered (#203) */
   --color-on-accent: #f4efe3;   /* text on indigo */
   --color-support: #b8474b;     /* beni, safflower — language badges, alerts */
   --color-support-2: #7d8b5c;   /* matcha — a reading that points at a component */
@@ -894,4 +895,147 @@
     color-mix(in srgb, var(--color-accent) 55%, transparent) 40%,
     color-mix(in srgb, var(--color-accent) 95%, transparent) 100%
   );
+}
+
+/* ── Under the pointer (ADR 0044, #203) ────────────────────────────────────
+   What a control looks like with the pointer over it. Aurélien chose "the
+   paper darkens" on 6 October 2026 over drawing an indigo line: whatever is
+   under the pointer changes shade and nothing else, because an indigo border
+   already means "this one is chosen" and a line drawn in passing read as
+   that.
+
+   Written once, here, for every control there is and every one to come, so
+   no screen spells out a hover state of its own. Three things make that work:
+
+   1. ALL OF IT IS INSIDE `(hover: hover)`. A touch screen has no pointer to
+      take away again, so a hover state there stays on after the tap. An iPad
+      gets these rules the moment a trackpad is attached and not before.
+   2. THESE RULES ARE IN NO LAYER, and that is on purpose. Tailwind's
+      utilities are in one, and a rule outside every layer beats a rule inside
+      any, so the shade wins over the `bg-card` a button was written with.
+   3. A SURFACE SAYS WHAT DARKENS ON IT. `--under-pointer` is set by the
+      classes that paint a ground or an ink, and a control with no fill of its
+      own takes whatever the nearest one says. On paper that is the darker
+      paper. On indigo it is a little of the paper let through, since the
+      darker paper under kinari text could not be read.
+
+   A control WITH a fill of its own is named below, fill by fill. One whose
+   fill is not named here is left alone rather than guessed at: a new fill
+   needs its own line, and until it has one it does nothing under the pointer,
+   which is safer than turning it a colour its text cannot be read on.
+   "A fill of its own" is read off the class attribute as any class holding
+   `bg-`, a `wide:bg-…` included, which errs the same safe way. A screen test
+   (`under-pointer.spec.ts`) fails on a fill with no line here, and on a
+   `hover:` class written on a screen.
+
+   The hand and the fade are the two rules here that ARE in a layer, the base
+   one, so that a utility still wins over them: the editor's drag handle keeps
+   its `cursor-grab`. */
+@media (hover: hover) {
+  .bg-ground-2 {
+    --under-pointer: var(--color-rule);
+  }
+  .bg-card,
+  .bg-ground {
+    --under-pointer: var(--color-ground-2);
+  }
+  /* On indigo, a faint patch of paper: the sidebar's places. Every indigo
+     button says this too, to no effect, since nothing clickable is inside one
+     and its own shade is set further down. */
+  .bg-accent {
+    --under-pointer: color-mix(in srgb, var(--color-on-accent) 8%, transparent);
+  }
+  /* Kinari words mean a photograph or a dye behind them, and whatever colour
+     that is, a fifth of the paper over it shows. */
+  .text-on-accent {
+    --under-pointer: color-mix(in srgb, var(--color-on-accent) 20%, transparent);
+  }
+  /* The cooking screen's room, and the panels that stand in it. Any class
+     holding the name, because the photograph's cover and the dimming behind a
+     cooking sheet are the same ground let through (`bg-cook-ground/95`). */
+  [class*="bg-cook-ground"] {
+    --under-pointer: var(--color-cook-panel);
+  }
+  .bg-cook-panel {
+    --under-pointer: var(--color-cook-rule);
+  }
+
+  @layer base {
+    /* A hand over anything that can be clicked. A label is one where it
+       stands for a tick box or a file chooser, and not where it names a
+       field. */
+    :where(a[href], button:enabled, select:enabled, summary),
+    :where(label):has(input:is([type="checkbox"], [type="radio"], [type="file"]):enabled),
+    :where(input:is([type="checkbox"], [type="radio"]):enabled) {
+      cursor: pointer;
+    }
+
+    :where(a[href], button, select, summary, label) {
+      transition:
+        background-color 120ms,
+        box-shadow 120ms,
+        color 120ms,
+        filter 120ms;
+    }
+
+    /* Somebody who has asked for less movement gets the change at once. */
+    @media (prefers-reduced-motion: reduce) {
+      :where(a[href], button, select, summary, label) {
+        transition: none;
+      }
+    }
+  }
+
+  /* Everything with no fill of its own, or with the paper's. A control that
+     covers what must stay seen, as the one over an opened photograph does,
+     says `bg-transparent` and is passed over like any fill not named here. */
+  :where(a[href], button:enabled, select:enabled, summary, label:has(input[type="file"]:enabled)):where(
+      :not([class*="bg-"]),
+      .bg-card,
+      .bg-ground,
+      .bg-ground-2
+    ):hover {
+    background-color: var(--under-pointer, var(--color-ground-2));
+  }
+
+  /* A text link: the same shade, as a patch a little wider than its words. */
+  :where(a[href], button:enabled).underline:where(:not([class*="bg-"])):hover {
+    border-radius: 1px;
+    box-shadow: 0 0 0 4px var(--under-pointer, var(--color-ground-2));
+  }
+
+  /* The fills, each turned one shade towards the paper. */
+  :where(a[href], button:enabled, label:has(input[type="file"]:enabled)).bg-accent:hover {
+    border-color: var(--color-accent-2);
+    background-color: var(--color-accent-2);
+  }
+  :where(a[href], button:enabled).bg-support:hover {
+    --lit: color-mix(in srgb, var(--color-support) 86%, var(--color-on-accent));
+    border-color: var(--lit);
+    background-color: var(--lit);
+  }
+  /* The two paper fills that stand on indigo: the cooking screen's, and the
+     one on a Version strip. */
+  :where(a[href], button:enabled):where(.bg-cook-accent, .bg-on-accent):hover {
+    border-color: var(--color-ground-2);
+    background-color: var(--color-ground-2);
+  }
+  :where(a[href], button:enabled).bg-cook-panel:hover {
+    background-color: var(--color-cook-rule);
+  }
+
+  /* A recipe's card, and any other picture that is itself the thing to click:
+     it brightens, and nothing is painted behind it. */
+  :where(a[href], button:enabled).brightens:hover {
+    background-color: transparent;
+    filter: brightness(1.14);
+  }
+
+  /* A place on the sidebar that is not the current one: its quiet words turn
+     to the paper's colour over the faint patch. The current place has the
+     room's darker ground for its fill, which no line above names, so it stays
+     as it is. */
+  .bg-accent :where(a[href]).text-cook-ink-2:hover {
+    color: var(--color-on-accent);
+  }
 }

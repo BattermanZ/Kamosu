@@ -151,6 +151,15 @@ never needs Node — but `just check` regenerates it into a temp directory and
 **fails if what is committed has drifted from `ui/`**. Never hand-edit
 `assets/app.css`; change `ui/src/app.css` and run `just css`.
 
+**What a control looks like under the pointer is written once**, at the foot of
+`ui/src/app.css` (#203, ADR 0044), for every link, button and list row there is.
+Never write a `hover:` class on a screen. A surface says what darkens on it through
+`--under-pointer`, and a control with a fill of its own is named in that block
+fill by fill. A new fill class on something clickable does nothing under the
+pointer until it has a line there, and a screen test fails until it does. The rules sit outside every layer on purpose,
+so they beat the utility a control was written with. A picture that is itself
+the thing to click takes the class `brightens`.
+
 **Tailwind reads `ui/src/` and nothing else**, declared with `source(none)` and
 an explicit `@source` at the top of `ui/src/app.css`. The automatic detection
 that replaced sweeps every non-gitignored file under `ui/` — including config

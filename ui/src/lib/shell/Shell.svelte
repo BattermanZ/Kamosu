@@ -19,6 +19,10 @@
 	  layout draws these pages as it always has.
 
 	The Room decides, not a style rule, so a screen test sees which one is drawn.
+
+	`/` goes to the recipe search wherever the navigation is drawn (#203). The
+	cooking screen and the story take no key of Kamosu's, and neither does a
+	page somebody reads before they are in the app.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -30,6 +34,7 @@
 	import Sidebar from './Sidebar.svelte';
 	import TabBar from './TabBar.svelte';
 	import { signingIn } from './signing-in.svelte';
+	import { slashToSearch } from './slash';
 	import { parentOf } from './way-back';
 
 	interface Props {
@@ -73,7 +78,13 @@
 
 	/** Where this page's back arrow goes with nothing behind it, on a page that carries one. */
 	const backTo = $derived(sidebar ? parentOf(pathname) : undefined);
+
+	function onKey(event: KeyboardEvent) {
+		if (!bare && !outside) slashToSearch(event);
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 {#if headerAndTabs}
 	<Header onSettings={pathname.startsWith('/settings')} />

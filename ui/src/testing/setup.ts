@@ -18,6 +18,7 @@ import { sessions } from '$lib/offline/library.svelte';
 import { standing } from '$lib/offline/standing.svelte';
 import { story } from '$lib/story/showing.svelte';
 import { signingIn } from '$lib/shell/signing-in.svelte';
+import { forgetSlash } from '$lib/shell/slash';
 
 /**
  * One `goto` for the whole run, cleared after every test. Why it is not mocked
@@ -57,6 +58,7 @@ function startAsIsolationWould(): void {
 	document.documentElement.removeAttribute('lang');
 	refreshed.clear();
 	forgetArrival();
+	forgetSlash();
 	// Cleared after every test below as well. This one catches a `goto` made in
 	// the last file's `afterAll`, which no `afterEach` follows.
 	went.mockClear();

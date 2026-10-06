@@ -19,6 +19,7 @@ export const COLOUR_ORDER = [
 	'--color-ink-2',
 	'--color-rule',
 	'--color-accent',
+	'--color-accent-2',
 	'--color-on-accent',
 	'--color-support',
 	'--color-support-2',

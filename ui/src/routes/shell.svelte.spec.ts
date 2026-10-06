@@ -14,9 +14,11 @@ import ShellTestHarness from './ShellTestHarness.svelte';
 import { heardWhetherSignedIn, signingIn } from '$lib/shell/signing-in.svelte';
 import { HISTORY_INDEX, VISITS, noteArrival } from '$lib/shell/way-back';
 import { m } from '$lib/paraglide/messages';
+import { went } from '../testing/navigation';
+import { forgetSlash } from '$lib/shell/slash';
 import type { Room } from '$lib/room.svelte';
 
-function shell(pathname: string, room: Room, holds?: 'account' | 'story') {
+function shell(pathname: string, room: Room, holds?: 'account' | 'story' | 'shelf') {
 	render(ShellTestHarness, { props: { pathname, room, holds } });
 }
 
@@ -400,5 +402,106 @@ describe('as the window changes', () => {
 		expect(places()).toEqual(SIDEBAR);
 		// The same element, so whatever the cook typed or opened inside it stays.
 		expect(screen.getByRole('main')).toBe(main);
+	});
+});
+
+describe('the / key', () => {
+	beforeEach(forgetSlash);
+
+	const searchBox = () => screen.getByRole('searchbox', { name: m.recipes_search() });
+	/** Presses `/` there. False where Kamosu took the key for itself. */
+	const slash = (on: Element, how: KeyboardEventInit = {}) =>
+		fireEvent.keyDown(on, { key: '/', ...how });
+
+	it.each<Room>(['phone', 'roomy'])(
+		'puts the caret in the search box on Recipes, in a %s window',
+		async (room) => {
+			shell('/recipes', room, 'shelf');
+			expect(searchBox()).not.toHaveFocus();
+
+			expect(await slash(document.body)).toBe(false);
+
+			expect(searchBox()).toHaveFocus();
+			expect(went).not.toHaveBeenCalled();
+		},
+	);
+
+	it('opens Recipes from anywhere else, and the search box takes the caret as it arrives', async () => {
+		const { rerender } = render(ShellTestHarness, {
+			props: { pathname: '/settings', room: 'roomy' },
+		});
+
+		expect(await slash(document.body)).toBe(false);
+		expect(went).toHaveBeenCalledExactlyOnceWith('/recipes');
+
+		await rerender({ pathname: '/recipes', room: 'roomy', holds: 'shelf' });
+		expect(searchBox()).toHaveFocus();
+	});
+
+	it('leaves the caret alone on a Recipes that was opened some other way', () => {
+		shell('/recipes', 'roomy', 'shelf');
+
+		expect(searchBox()).not.toHaveFocus();
+	});
+
+	it('types a slash inside a field, the search box included', async () => {
+		shell('/recipes', 'roomy', 'shelf');
+		const field = document.createElement('textarea');
+		screen.getByRole('main').append(field);
+
+		for (const typedInto of [searchBox(), field]) {
+			typedInto.focus();
+			expect(await slash(typedInto)).toBe(true);
+			expect(typedInto).toHaveFocus();
+		}
+		expect(went).not.toHaveBeenCalled();
+	});
+
+	it('is taken from a tick box, which no slash can be typed into', async () => {
+		shell('/settings', 'roomy');
+		const tick = document.createElement('input');
+		tick.type = 'checkbox';
+		screen.getByRole('main').append(tick);
+
+		expect(await slash(tick)).toBe(false);
+		expect(went).toHaveBeenCalledExactlyOnceWith('/recipes');
+	});
+
+	it('is the key a French keyboard writes with Shift, and no shortcut held with another key', async () => {
+		shell('/settings', 'roomy');
+
+		for (const held of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+			expect(await slash(document.body, held)).toBe(true);
+		}
+		expect(went).not.toHaveBeenCalled();
+
+		expect(await slash(document.body, { shiftKey: true })).toBe(false);
+		expect(went).toHaveBeenCalledExactlyOnceWith('/recipes');
+	});
+
+	it('waits while a sheet is open over the page', async () => {
+		shell('/settings', 'roomy');
+		const sheet = document.createElement('div');
+		sheet.setAttribute('role', 'dialog');
+		document.body.append(sheet);
+
+		expect(await slash(sheet)).toBe(true);
+		sheet.remove();
+
+		expect(went).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		['the cooking screen', '/cook/b_soba', undefined],
+		['the story', '/about', undefined],
+		['an Invite', '/invite/abc', undefined],
+		['the account form', '/', 'account' as const],
+	])('does nothing on %s', async (_where, pathname, holds) => {
+		shell(pathname, 'roomy', holds);
+		if (holds === 'account') await waitFor(() => expect(navigation()).toBeNull());
+
+		expect(await slash(document.body)).toBe(true);
+
+		expect(went).not.toHaveBeenCalled();
 	});
 });

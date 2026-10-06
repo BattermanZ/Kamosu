@@ -15,6 +15,7 @@
     --color-ink-2: #5c5a55;
     --color-rule: #ded5c2;
     --color-accent: #1d2b4c;
+    --color-accent-2: #2c3f6b;
     --color-on-accent: #f4efe3;
     --color-support: #b8474b;
     --color-support-2: #7d8b5c;
@@ -1784,6 +1785,78 @@
     ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
       animation-duration: 1ms !important;
     }
+  }
+}
+@media (hover: hover) {
+  .bg-ground-2 {
+    --under-pointer: var(--color-rule);
+  }
+  .bg-card, .bg-ground {
+    --under-pointer: var(--color-ground-2);
+  }
+  .bg-accent {
+    --under-pointer: color-mix(in srgb, #f4efe3 8%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      --under-pointer: color-mix(in srgb, var(--color-on-accent) 8%, transparent);
+    }
+  }
+  .text-on-accent {
+    --under-pointer: color-mix(in srgb, #f4efe3 20%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      --under-pointer: color-mix(in srgb, var(--color-on-accent) 20%, transparent);
+    }
+  }
+  [class*="bg-cook-ground"] {
+    --under-pointer: var(--color-cook-panel);
+  }
+  .bg-cook-panel {
+    --under-pointer: var(--color-cook-rule);
+  }
+  @layer base {
+    :where(a[href], button:enabled, select:enabled, summary), :where(label):has(input:is([type="checkbox"], [type="radio"], [type="file"]):enabled), :where(input:is([type="checkbox"], [type="radio"]):enabled) {
+      cursor: pointer;
+    }
+    :where(a[href], button, select, summary, label) {
+      transition: background-color 120ms, box-shadow 120ms, color 120ms, filter 120ms;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      :where(a[href], button, select, summary, label) {
+        transition: none;
+      }
+    }
+  }
+  :where(a[href], button:enabled, select:enabled, summary, label:has(input[type="file"]:enabled)):where( :not([class*="bg-"]), .bg-card, .bg-ground, .bg-ground-2 ):hover {
+    background-color: var(--under-pointer, var(--color-ground-2));
+  }
+  :where(a[href], button:enabled).underline:where(:not([class*="bg-"])):hover {
+    border-radius: 1px;
+    box-shadow: 0 0 0 4px var(--under-pointer, var(--color-ground-2));
+  }
+  :where(a[href], button:enabled, label:has(input[type="file"]:enabled)).bg-accent:hover {
+    border-color: var(--color-accent-2);
+    background-color: var(--color-accent-2);
+  }
+  :where(a[href], button:enabled).bg-support:hover {
+    --lit: color-mix(in srgb, #b8474b 86%, #f4efe3);
+    @supports (color: color-mix(in lab, red, red)) {
+      --lit: color-mix(in srgb, var(--color-support) 86%, var(--color-on-accent));
+    }
+    border-color: var(--lit);
+    background-color: var(--lit);
+  }
+  :where(a[href], button:enabled):where(.bg-cook-accent, .bg-on-accent):hover {
+    border-color: var(--color-ground-2);
+    background-color: var(--color-ground-2);
+  }
+  :where(a[href], button:enabled).bg-cook-panel:hover {
+    background-color: var(--color-cook-rule);
+  }
+  :where(a[href], button:enabled).brightens:hover {
+    background-color: transparent;
+    filter: brightness(1.14);
+  }
+  .bg-accent :where(a[href]).text-cook-ink-2:hover {
+    color: var(--color-on-accent);
   }
 }
 @property --tw-translate-x {

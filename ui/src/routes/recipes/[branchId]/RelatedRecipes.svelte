@@ -91,7 +91,7 @@
 		{#each shown as entry (entry.lineage_id)}
 			<li class="shrink-0 snap-start" style="width: var(--tile-w)">
 				{#if entry.branch_id}
-					<a href="/recipes/{entry.branch_id}" class="block">
+					<a href="/recipes/{entry.branch_id}" class="brightens block">
 						<!--
 						The shelf tile's frame (`Tile.svelte`): 3/4, rounded, the
 						picture absolutely filling it, lazily loaded because a strip

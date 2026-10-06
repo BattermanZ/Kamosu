@@ -174,91 +174,98 @@
 <div class="mt-3 border border-accent bg-card p-3">
 	<p class="text-label font-semibold text-accent uppercase">{m.reading_heading()}</p>
 
-	<div class="mt-2 grid grid-cols-2 gap-2">
-		<label class="block">
-			<span class="block text-label text-ink-2 uppercase">{m.reading_amount()}</span>
-			<input
-				bind:value={amount}
-				inputmode="decimal"
-				class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
-			/>
-		</label>
-		<label class="block">
-			<span class="block text-label text-ink-2 uppercase">{m.reading_unit()}</span>
-			<input
-				bind:value={unit}
-				class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
-			/>
-		</label>
-		<!--
+	<!-- A form, so Enter in any of its boxes saves the Reading (#203). -->
+	<form
+		onsubmit={(event) => {
+			event.preventDefault();
+			void save();
+		}}
+	>
+		<div class="mt-2 grid grid-cols-2 gap-2">
+			<label class="block">
+				<span class="block text-label text-ink-2 uppercase">{m.reading_amount()}</span>
+				<input
+					bind:value={amount}
+					inputmode="decimal"
+					class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
+				/>
+			</label>
+			<label class="block">
+				<span class="block text-label text-ink-2 uppercase">{m.reading_unit()}</span>
+				<input
+					bind:value={unit}
+					class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
+				/>
+			</label>
+			<!--
 			The one slot, in its two spellings (ADR 0008). A line names a Food or
 			it names a Recipe, so what sits here is either the word to type or the
 			recipe it points at — never both, and never one beside the other.
 		-->
-		{#if isComponent}
-			<div class="col-span-2">
-				<p class="text-read text-support-2">
-					{changed
-						? m.reading_will_name({ title: namedRecipe?.title ?? '' })
-						: m.reading_names_recipe({ title: namedRecipe?.title ?? '' })}
-				</p>
-				<div class="mt-2 flex flex-wrap gap-2">
-					<button type="button" class={MATCHA} onclick={() => (picking = true)}>
-						{m.reading_change_recipe()}
-					</button>
-					<!--
+			{#if isComponent}
+				<div class="col-span-2">
+					<p class="text-read text-support-2">
+						{changed
+							? m.reading_will_name({ title: namedRecipe?.title ?? '' })
+							: m.reading_names_recipe({ title: namedRecipe?.title ?? '' })}
+					</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						<button type="button" class={MATCHA} onclick={() => (picking = true)}>
+							{m.reading_change_recipe()}
+						</button>
+						<!--
 						Un-making it is a DRAFT change like every other field in this
 						box: the target field comes back and nothing is written until
 						the Reading is saved. Clearing the Reading outright is still
 						offered below, and is a different act — it says Kamosu read
 						nothing here at all.
 					-->
-					<button
-						type="button"
-						class="rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
-						onclick={() => (namedRecipe = null)}
-					>
-						{m.reading_not_recipe()}
-					</button>
+						<button
+							type="button"
+							class="rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
+							onclick={() => (namedRecipe = null)}
+						>
+							{m.reading_not_recipe()}
+						</button>
+					</div>
 				</div>
-			</div>
-		{:else}
-			<label class="col-span-2 block">
-				<span class="block text-label text-ink-2 uppercase">{m.reading_target()}</span>
-				<input
-					bind:value={target}
-					class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
-				/>
-			</label>
-			<!--
+			{:else}
+				<label class="col-span-2 block">
+					<span class="block text-label text-ink-2 uppercase">{m.reading_target()}</span>
+					<input
+						bind:value={target}
+						class="mt-1 w-full rounded-sm border border-rule bg-ground p-2 text-body"
+					/>
+				</label>
+				<!--
 				Matcha, because that is the colour of a Reading that points at a
 				recipe everywhere else on this page (#50). It is the way IN to the
 				library, and it suggests nothing: ADR 0008 refuses guessing which
 				recipe a line means.
 			-->
-			<button type="button" class="col-span-2 {MATCHA}" onclick={() => (picking = true)}>
-				{m.reading_is_recipe()}
-			</button>
-		{/if}
-	</div>
+				<button type="button" class="col-span-2 {MATCHA}" onclick={() => (picking = true)}>
+					{m.reading_is_recipe()}
+				</button>
+			{/if}
+		</div>
 
-	<div class="mt-3 flex gap-2">
-		<button
-			type="button"
-			onclick={save}
-			disabled={saving}
-			class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
-		>
-			{m.reading_save()}
-		</button>
-		<button
-			type="button"
-			onclick={onCancel}
-			class="rounded-sm border border-rule px-3 py-2 text-read text-ink-2"
-		>
-			{m.reading_cancel()}
-		</button>
-	</div>
+		<div class="mt-3 flex gap-2">
+			<button
+				type="submit"
+				disabled={saving}
+				class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
+			>
+				{m.reading_save()}
+			</button>
+			<button
+				type="button"
+				onclick={onCancel}
+				class="rounded-sm border border-rule px-3 py-2 text-read text-ink-2"
+			>
+				{m.reading_cancel()}
+			</button>
+		</div>
+	</form>
 
 	<!--
 		THE WAY TO THE FOOD ITSELF (#107). One line, not a panel: everything a

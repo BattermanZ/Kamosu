@@ -335,30 +335,40 @@
 	{:else if link}
 		<p class="mt-6 text-body text-ink-2">{m.share_not_shared()}</p>
 
-		{#if !knowsAddress}
-			<!-- Asked once, at the first Share Link, and kept in the database —
-			     never an environment variable (#65). -->
-			<label class="mt-6 block text-label text-ink-2 uppercase" for="public-address">
-				{m.share_address_label()}
-			</label>
-			<input
-				id="public-address"
-				type="url"
-				bind:value={address}
-				placeholder="https://kamosu.example.com"
-				class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"
-			/>
-			<p class="mt-2 text-read text-ink-2">{m.share_address_hint()}</p>
-		{/if}
-
-		<button
-			type="button"
-			onclick={turnOn}
-			disabled={working}
-			class="mt-6 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
+		<!-- A form, so Enter in the address turns the link on (#203). `novalidate`
+		     keeps an address the Core would refuse a matter for the Core, whose
+		     sentence says what is wrong with it. -->
+		<form
+			novalidate
+			onsubmit={(event) => {
+				event.preventDefault();
+				void turnOn();
+			}}
 		>
-			{m.share_turn_on()}
-		</button>
+			{#if !knowsAddress}
+				<!-- Asked once, at the first Share Link, and kept in the database —
+			     never an environment variable (#65). -->
+				<label class="mt-6 block text-label text-ink-2 uppercase" for="public-address">
+					{m.share_address_label()}
+				</label>
+				<input
+					id="public-address"
+					type="url"
+					bind:value={address}
+					placeholder="https://kamosu.example.com"
+					class="mt-1 w-full rounded-sm border border-rule bg-card p-3 text-body"
+				/>
+				<p class="mt-2 text-read text-ink-2">{m.share_address_hint()}</p>
+			{/if}
+
+			<button
+				type="submit"
+				disabled={working}
+				class="mt-6 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
+			>
+				{m.share_turn_on()}
+			</button>
+		</form>
 	{/if}
 
 	<!--

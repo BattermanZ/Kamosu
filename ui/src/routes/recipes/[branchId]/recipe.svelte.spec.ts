@@ -14,6 +14,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
+import userEvent from '@testing-library/user-event';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import { realFiles } from '$lib/api/files';
 import { OperationError } from '$lib/api/client';
@@ -1562,6 +1563,26 @@ describe('the recipe screen', () => {
 		// And you are still on the recipe — the correction landed under the line.
 		expect(await screen.findByText('500 ml frying oil')).toBeInTheDocument();
 		expect(screen.getByText('Some cooking oil (for deep frying)')).toBeInTheDocument();
+	});
+
+	it('saves a Reading on Enter from any of its boxes (#203)', async () => {
+		const user = userEvent.setup();
+		const { kamosu } = renderRecipe({
+			...solo(),
+			set_reading: {
+				line_index: 2,
+				reading: { amount: '500', unit: 'ml', target: null, lineage_id: null },
+				measured: null,
+			},
+		});
+
+		await user.click(await screen.findByText('Some cooking oil (for deep frying)'));
+		await user.type(screen.getByLabelText(/^Amount$/i), '500');
+		await user.type(screen.getByLabelText(/^Unit$/i), 'ml{Enter}');
+
+		const sent = kamosu.calls.filter((call) => call.operation === 'set_reading');
+		expect(sent).toHaveLength(1);
+		expect(sent[0].input).toMatchObject({ line_index: 2, amount: '500', unit: 'ml' });
 	});
 
 	/**

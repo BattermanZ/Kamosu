@@ -28,7 +28,7 @@
 </script>
 
 <li>
-	<a href="/recipes/{entry.branch_id}" class="block">
+	<a href="/recipes/{entry.branch_id}" class="brightens block">
 		<!--
 			3:4 rather than a fixed height, so two tiles fit any phone's width and
 			the shelf stays two columns of the same thing.

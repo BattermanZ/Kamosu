@@ -18,6 +18,10 @@
 	Indigo is the cooking screen's colour too, so the quieter ink, the darker
 	ground of the current place and the rule round the mark are that room's
 	tokens rather than new ones.
+
+	What a place looks like under the pointer is in `app.css` with every other
+	control's (#203): its words turn to the paper's colour over a faint patch,
+	and the current place stays as it is.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';

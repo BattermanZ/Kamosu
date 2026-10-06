@@ -843,24 +843,33 @@
 					<div class="rounded-sm border border-rule bg-card p-3">
 						<p class="text-read text-ink-2">{m.operator_address_current()}</p>
 						<p class="text-body text-ink">{address ?? m.operator_address_none()}</p>
-						<label class="mt-3 block">
-							<span class="sr-only">{m.operator_address_heading()}</span>
-							<input
-								type="url"
-								bind:value={typedAddress}
-								placeholder="https://kamosu.example"
-								class="min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body"
-							/>
-						</label>
-						<button
-							type="button"
-							disabled={working || typedAddress.trim() === ''}
-							onclick={saveAddress}
-							class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-						text-accent disabled:opacity-60"
+						<!-- A form, so Enter in the box saves the address (#203).
+						     `novalidate` leaves refusing one to the Core, as before. -->
+						<form
+							novalidate
+							onsubmit={(event) => {
+								event.preventDefault();
+								void saveAddress();
+							}}
 						>
-							{m.operator_address_save()}
-						</button>
+							<label class="mt-3 block">
+								<span class="sr-only">{m.operator_address_heading()}</span>
+								<input
+									type="url"
+									bind:value={typedAddress}
+									placeholder="https://kamosu.example"
+									class="min-h-12 w-full rounded-sm border border-rule bg-ground px-3 text-body"
+								/>
+							</label>
+							<button
+								type="submit"
+								disabled={working || typedAddress.trim() === ''}
+								class="mt-2 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
+						text-accent disabled:opacity-60"
+							>
+								{m.operator_address_save()}
+							</button>
+						</form>
 						{#if addressSaved}
 							<p class="mt-2 text-body text-ink" role="status">{m.operator_address_saved()}</p>
 						{/if}

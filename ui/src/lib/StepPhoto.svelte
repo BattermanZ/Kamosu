@@ -30,7 +30,7 @@
 
 <button
 	type="button"
-	class="shrink-0 {shapeClass}"
+	class="brightens shrink-0 {shapeClass}"
 	aria-label={m.step_photo_open({ number })}
 	onclick={() => (open = true)}
 >
@@ -66,9 +66,12 @@
 			alt={m.step_photo_alt({ number })}
 			class="max-h-full max-w-full object-contain"
 		/>
+		<!-- `bg-transparent` is said outright because this button lies over the
+		     whole photograph: with a fill of its own, even none, the shade
+		     everything else takes under the pointer leaves it alone (#203). -->
 		<button
 			type="button"
-			class="absolute inset-0 flex items-start justify-end p-4 text-body text-cook-ink"
+			class="absolute inset-0 flex items-start justify-end bg-transparent p-4 text-body text-cook-ink"
 			onclick={() => (open = false)}
 		>
 			{m.photo_close()}

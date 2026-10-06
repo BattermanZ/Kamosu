@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetFoodOutput } from '$lib/api/catalogue';
 import { m } from '$lib/paraglide/messages';
@@ -300,6 +301,36 @@ describe('a Food’s page', () => {
 			'A cup weighs a number of grams, more than zero.',
 		);
 		expect(kamosu.calls.some((call) => call.operation === 'set_food_cup_weight')).toBe(false);
+	});
+
+	it('saves a Cup Weight on Enter, with no reach for the button (#203)', async () => {
+		const user = userEvent.setup();
+		const kamosu = draw({ get_food: CASTER, set_food_cup_weight: food({ cup_weight_grams: 200 }) });
+
+		await screen.findByRole('heading', { name: 'caster sugar' });
+		await user.type(screen.getByLabelText('A cup of it weighs'), '200{Enter}');
+
+		await waitFor(() =>
+			expect(kamosu.calls.filter((call) => call.operation === 'set_food_cup_weight')).toEqual([
+				expect.objectContaining({ input: { food_id: 'f_caster', cup_weight_grams: 200 } }),
+			]),
+		);
+	});
+
+	it('saves a Language’s names on Enter, and Enter in a name takes none of them off (#203)', async () => {
+		const user = userEvent.setup();
+		const kamosu = draw({ get_food: EGGS, set_food_names: EGGS }, 'f_eggs');
+
+		await user.click(await screen.findByRole('button', { name: 'Change the names in French' }));
+		await user.type(screen.getByPlaceholderText('Another name in French'), 'oeuf{Enter}');
+
+		await waitFor(() =>
+			expect(kamosu.calls.filter((call) => call.operation === 'set_food_names')).toEqual([
+				expect.objectContaining({
+					input: { food_id: 'f_eggs', language: 'fr', names: ['œufs', 'œuf', 'oeuf'] },
+				}),
+			]),
+		);
 	});
 
 	it('mints no Version and touches no recipe, whatever is corrected', async () => {
