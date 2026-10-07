@@ -11,7 +11,7 @@
 
 	**While something is held over it the page is covered** by a sheet of the
 	paper with a dashed frame, and words in the middle say what letting go
-	will do. Aurélien chose this on 7 October 2026 from two options drawn over
+	will do (`$lib/DropCover`). Aurélien chose this on 7 October 2026 from two options drawn over
 	the real Recipes screen (option 1, recorded on #204), over a bar across
 	the top that left the recipes in view. Something Recipes cannot take turns
 	it the alert colour and says so before it is let go.
@@ -31,6 +31,8 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { DropZone, type Carried, type Dropped } from '$lib/drop.svelte';
+	import { DRAWN } from '$lib/drop-drawings';
+	import DropCover from '$lib/DropCover.svelte';
 	import { underASheet } from '$lib/page';
 	import type { Act, Adding } from '$lib/adding/adding.svelte';
 	import { ICON, WAITS_FOR_SERVER } from '$lib/adding/sources';
@@ -96,14 +98,13 @@
 	const showing = $derived(zone.over ? held(zone.over) : null);
 	const refuses = $derived(showing === 'photo' || showing === 'no');
 
-	const CROSS = 'M6 6l12 12M18 6L6 18';
 	const ICONS: Record<Held, string> = {
 		link: ICON.link,
 		file: ICON.file,
 		pdf: ICON.pdf,
-		unsure: 'M12 5v14M5 12h14',
-		photo: CROSS,
-		no: CROSS,
+		unsure: DRAWN.unsure,
+		photo: DRAWN.no,
+		no: DRAWN.no,
 	};
 
 	/** The headline, and the sentence under it. */
@@ -131,40 +132,14 @@
 {#if showing}
 	<!--
 		`inset-x-0` and not `inset-0`: beside the sidebar that is the class the
-		rail moves over (`beside-rail` in app.css). Nothing here can be pressed,
-		so the drag goes on reaching the page beneath. Above the + and its list
+		rail moves over (`beside-rail` in app.css). Above the + and its list
 		(z-30), and never beside a sheet, since none is open while this is.
-
-		The frame's 3px, the 72px card, its 40px drawing and the 560px the words
-		are held to are the prototype's, as chosen; the stylesheet has no token
-		for any of them and nothing else is drawn at these sizes.
 	-->
-	<div
-		role="status"
-		class="pointer-events-none fixed inset-x-0 inset-y-0 z-40 flex items-center justify-center bg-ground/90 p-8 {refuses
-			? 'text-support'
-			: 'text-accent'}"
-	>
-		<div class="absolute inset-4 rounded-sm border-3 border-dashed border-current"></div>
-		<div class="relative max-w-[560px] rounded-sm bg-ground px-8 py-6 text-center">
-			<span
-				class="mx-auto mb-4 flex h-[72px] w-[72px] items-center justify-center rounded-sm border border-rule bg-card"
-			>
-				<svg
-					viewBox="0 0 24 24"
-					aria-hidden="true"
-					class="h-[40px] w-[40px]"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"><path d={ICONS[showing]} /></svg
-				>
-			</span>
-			<p class="font-display text-title font-semibold">{waitsFor ?? WORDS[showing][0]()}</p>
-			{#if !waitsFor}
-				<p class="mt-2 text-body text-ink-2">{WORDS[showing][1]()}</p>
-			{/if}
-		</div>
-	</div>
+	<DropCover
+		class="fixed inset-x-0 inset-y-0 z-40"
+		icon={ICONS[showing]}
+		headline={waitsFor ?? WORDS[showing][0]()}
+		sentence={waitsFor ? null : WORDS[showing][1]()}
+		{refuses}
+	/>
 {/if}

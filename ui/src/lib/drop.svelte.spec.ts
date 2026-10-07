@@ -3,9 +3,9 @@
  * drag of its own, so each test says what a browser would say is carried.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent } from '@testing-library/svelte';
-import { carriedBy, keepDropsOut } from './drop.svelte';
+import { carriedBy, FilePlace, isPicture, keepDropsOut } from './drop.svelte';
 import { carrying } from '../testing/drops';
 
 const pdf = new File(['%PDF'], 'tarte.pdf', { type: 'application/pdf' });
@@ -87,5 +87,51 @@ describe('what a drag says it carries', () => {
 	it('is a file of no known type where the browser lists none', () => {
 		const dataTransfer = { types: ['Files'], files: [] } as unknown as DataTransfer;
 		expect(carriedBy(dataTransfer)).toEqual({ files: [''], link: false });
+	});
+});
+
+describe('a place for one file (#205)', () => {
+	const picture = new File(['x'], 'plate.jpg', { type: 'image/jpeg' });
+	let stop: () => void;
+	afterEach(() => {
+		stop();
+		document.body.replaceChildren();
+	});
+
+	it('takes nothing while a sheet is open over the page', async () => {
+		const take = vi.fn();
+		const place = new FilePlace(isPicture, take);
+		stop = place.listen(document.body);
+		const sheet = document.createElement('div');
+		sheet.setAttribute('role', 'dialog');
+		document.body.append(sheet);
+
+		const dataTransfer = carrying({ files: [picture] });
+		await fireEvent.dragEnter(document.body, { dataTransfer });
+		expect(place.held).toBeNull();
+		await fireEvent.drop(document.body, { dataTransfer });
+		expect(take).not.toHaveBeenCalled();
+		expect(place.refused).toBe(false);
+
+		sheet.remove();
+		await fireEvent.dragEnter(document.body, { dataTransfer });
+		expect(place.held).toBe('ok');
+		await fireEvent.drop(document.body, { dataTransfer });
+		expect(take).toHaveBeenCalledWith(picture);
+	});
+
+	it('forgets a refusal when its button is used, and not when a field inside it is typed in', async () => {
+		const place = new FilePlace(isPicture, vi.fn());
+		document.body.innerHTML = '<textarea></textarea><input type="file" />';
+		stop = place.listen(document.body);
+		const dataTransfer = carrying({ files: [pdf] });
+		await fireEvent.dragEnter(document.body, { dataTransfer });
+		await fireEvent.drop(document.body, { dataTransfer });
+		expect(place.refused).toBe(true);
+
+		await fireEvent.change(document.querySelector('textarea')!);
+		expect(place.refused).toBe(true);
+		await fireEvent.change(document.querySelector('input')!);
+		expect(place.refused).toBe(false);
 	});
 });

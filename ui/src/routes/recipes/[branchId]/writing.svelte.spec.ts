@@ -24,6 +24,7 @@ import type { Whose } from '$lib/cookbook';
 import type { Room } from '$lib/room.svelte';
 import WritingTestHarness from './WritingTestHarness.svelte';
 import { recipeAnswer, writtenByMe } from '../../../testing/recipes';
+import { carrying } from '../../../testing/drops';
 
 type Content = GetRecipeOutput['versions'][number]['content'];
 
@@ -1596,5 +1597,143 @@ describe('the Language offer a save answers', () => {
 		await saveThrough(/Save onto mine/);
 
 		expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ language_offer: 'fr' }));
+	});
+});
+
+describe('dropping a photograph where it goes (#205)', () => {
+	const picture = () => new File([new Uint8Array([1, 2, 3])], 'plate.jpg', { type: 'image/jpeg' });
+	const aPdf = () => new File(['%PDF'], 'tarte.pdf', { type: 'application/pdf' });
+
+	function drawn() {
+		const photograph = vi.fn(async () => 'p_dropped');
+		const kamosu = standIn({ ...SAVED });
+		render(WritingTestHarness, {
+			props: { client: kamosu.client, content: content(), photograph },
+		});
+		return { kamosu, photograph };
+	}
+
+	it("makes a photograph dropped on the recipe's photograph the recipe's, as its button does", async () => {
+		const { kamosu, photograph } = drawn();
+		const hero = screen.getByLabelText('Title');
+		const dataTransfer = carrying({ files: [picture()] });
+
+		await fireEvent.dragEnter(hero, { dataTransfer });
+		expect(screen.getByText('Drop to use this photograph')).toBeInTheDocument();
+		expect(
+			screen.getByText("It becomes the recipe's photograph when you save."),
+		).toBeInTheDocument();
+		// Holding it there is what lets a browser send the drop at all.
+		expect(await fireEvent.dragOver(hero, { dataTransfer })).toBe(false);
+		expect(await fireEvent.drop(hero, { dataTransfer })).toBe(false);
+		expect(screen.queryByText('Drop to use this photograph')).not.toBeInTheDocument();
+		await vi.waitFor(() => expect(photograph).toHaveBeenCalledOnce());
+
+		await saveThrough(/Save onto mine/);
+		expect(sent(kamosu)?.main_photo).toBe('p_dropped');
+	});
+
+	it('puts a photograph dropped on a Step on that Step, and on no other', async () => {
+		const { kamosu, photograph } = drawn();
+		const step = screen.getByLabelText('Step 2');
+		const dataTransfer = carrying({ files: [picture()] });
+
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Drop to add it to step 2')).toBeInTheDocument();
+		expect(screen.queryByText('Drop to add it to step 1')).not.toBeInTheDocument();
+		await fireEvent.drop(step, { dataTransfer });
+		await vi.waitFor(() => expect(photograph).toHaveBeenCalledOnce());
+
+		await saveThrough(/Save onto mine/);
+		expect((sent(kamosu)?.steps as { photo: string | null }[]).map((s) => s.photo)).toEqual([
+			null,
+			null,
+			null,
+			'p_dropped',
+		]);
+		expect(sent(kamosu)?.main_photo).toBeNull();
+	});
+
+	it('says before it is let go that something else does not go there, and keeps nothing', async () => {
+		const { photograph } = drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ files: [aPdf()] });
+
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Only a photograph goes here')).toBeInTheDocument();
+		// Taken and refused, so the browser never opens the file in place of Kamosu.
+		expect(await fireEvent.drop(step, { dataTransfer })).toBe(false);
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			"That didn't go anywhere. A step's photograph has to be a picture.",
+		);
+		expect(photograph).not.toHaveBeenCalled();
+
+		// The next thing held over it is a new try.
+		await fireEvent.dragEnter(step, { dataTransfer: carrying({ files: [picture()] }) });
+		expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+	});
+
+	it("refuses anything but a picture on the recipe's photograph, in words", async () => {
+		const { photograph } = drawn();
+		const hero = screen.getByLabelText('Title');
+		const dataTransfer = carrying({ files: [aPdf()] });
+
+		await fireEvent.dragEnter(hero, { dataTransfer });
+		expect(screen.getByText("This doesn't go here")).toBeInTheDocument();
+		expect(screen.getByText("A recipe's photograph has to be a picture.")).toBeInTheDocument();
+		await fireEvent.drop(hero, { dataTransfer });
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			"That didn't go anywhere. A recipe's photograph has to be a picture.",
+		);
+		expect(photograph).not.toHaveBeenCalled();
+	});
+
+	it('refuses two photographs at once, since the button takes one', async () => {
+		const { photograph } = drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ files: [picture(), picture()] });
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Only a photograph goes here')).toBeInTheDocument();
+		await fireEvent.drop(step, { dataTransfer });
+		expect(photograph).not.toHaveBeenCalled();
+	});
+
+	it('asks for a photograph where the browser cannot name the file yet, and judges it by name once dropped', async () => {
+		const { photograph } = drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ files: [new File(['x'], 'plate.HEIC', { type: '' })] });
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.getByText('Drop a photograph for step 1')).toBeInTheDocument();
+		await fireEvent.drop(step, { dataTransfer });
+		await vi.waitFor(() => expect(photograph).toHaveBeenCalledOnce());
+
+		const unknown = carrying({ files: [new File(['x'], 'notes', { type: '' })] });
+		await fireEvent.dragEnter(step, { dataTransfer: unknown });
+		await fireEvent.drop(step, { dataTransfer: unknown });
+		expect(screen.getByRole('alert')).toBeInTheDocument();
+		expect(photograph).toHaveBeenCalledOnce();
+	});
+
+	it('leaves a link held over a Step to be typed into its field', async () => {
+		drawn();
+		const step = screen.getByLabelText('Step 1');
+		const dataTransfer = carrying({ link: 'https://example.test/a' });
+		await fireEvent.dragEnter(step, { dataTransfer });
+		expect(screen.queryByRole('status')).not.toBeInTheDocument();
+		expect(await fireEvent.dragOver(step, { dataTransfer })).toBe(true);
+	});
+
+	it('says what the button says when the picture cannot be sent', async () => {
+		const photograph = vi.fn(async () => {
+			throw new Error('offline');
+		});
+		render(WritingTestHarness, {
+			props: { client: standIn({ ...SAVED }).client, content: content(), photograph },
+		});
+		const hero = screen.getByLabelText('Title');
+		const dataTransfer = carrying({ files: [picture()] });
+		await fireEvent.dragEnter(hero, { dataTransfer });
+		await fireEvent.drop(hero, { dataTransfer });
+		expect(await screen.findByRole('alert')).toHaveTextContent('That picture could not be kept.');
 	});
 });

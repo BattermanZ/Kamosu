@@ -2,11 +2,14 @@
  * Files and links dropped onto Kamosu (ADR 0044, #204).
  *
  * A drop is taken only where it has one meaning: a PDF, a Bundle or a web
- * link onto Recipes, and whatever #205 adds. Two things live here, and every
+ * link onto Recipes, a photograph onto the photograph it would set, a
+ * Crouton export onto its import (#205). Three things live here, and every
  * place that takes a drop is built from them:
  *
  * - `DropZone` follows a drag over one place, says what it carries while it
  *   is there, and hands over what was let go.
+ * - `FilePlace` is a zone that takes one file of one kind, which is all a
+ *   photograph's place or the Crouton import is.
  * - `keepDropsOut` is the rest of the app. A browser shown a dropped file
  *   opens it in place of the page, and a dropped link is followed, so
  *   anywhere no zone took the drop it is turned away and Kamosu stays.
@@ -21,7 +24,7 @@
  * recipe's card pulled across the shelf carries a link too.
  */
 
-import { typedInto } from './page';
+import { typedInto, underASheet } from './page';
 
 /** What a drag says it carries before it is let go. */
 export interface Carried {
@@ -98,21 +101,24 @@ export class DropZone {
 	/** How many elements inside the place the drag is over: leaving one for another is not leaving. */
 	#depth = 0;
 	#ondrop: (dropped: Dropped) => void;
-	#takes: () => boolean;
+	#takes: (carried: Carried) => boolean;
 
 	/**
 	 * @param ondrop what to do with what was let go here
-	 * @param takes whether the place is taking drops just now. While it is
+	 * @param takes whether the place is taking this just now. While it is
 	 * not, a drag over it is turned away like one anywhere else.
 	 */
-	constructor(ondrop: (dropped: Dropped) => void, takes: () => boolean = () => true) {
+	constructor(
+		ondrop: (dropped: Dropped) => void,
+		takes: (carried: Carried) => boolean = () => true,
+	) {
 		this.#ondrop = ondrop;
 		this.#takes = takes;
 	}
 
 	/** What is being held over this place, or nothing. */
 	get over(): Carried | null {
-		return this.#takes() ? this.#over : null;
+		return this.#over && this.#takes(this.#over) ? this.#over : null;
 	}
 
 	/**
@@ -167,6 +173,86 @@ export class DropZone {
 			forget();
 		};
 	}
+}
+
+/** What a place for one file says of what is held over it: its kind, perhaps its kind, or not. */
+export type HeldFile = 'ok' | 'unsure' | 'no';
+
+/** Whether a file is of the kind a place takes, by its type and, once it is let go, its name. */
+export type FileKind = (type: string, name?: string) => boolean;
+
+/** A picture. One of no known type is judged by its name. */
+export const isPicture: FileKind = (type, name = '') =>
+	type === '' ? /\.(jpe?g|png|heic|heif|webp|gif|avif)$/i.test(name) : type.startsWith('image/');
+
+/**
+ * One place that takes one file of one kind (#205): a photograph where it
+ * would be set, the Crouton export on its import. What is let go there goes
+ * to the code its button runs, so a drop does nothing the button could not.
+ *
+ * Anything else that is a file is taken too, and refused in words, since a
+ * person who aimed here is owed an answer. **A link is not**: a Step's own
+ * field sits inside its place, and a link held over a field is typed there.
+ *
+ * No drop is taken while a sheet is open over the page.
+ */
+export class FilePlace {
+	#zone: DropZone;
+	#is: FileKind;
+	/** The last thing let go here was refused. The next drag, or the button, starts again. */
+	refused = $state(false);
+
+	/**
+	 * @param is the kind of file the place takes
+	 * @param take what its button does with a file
+	 * @param takes whether the button would take one just now
+	 */
+	constructor(is: FileKind, take: (file: File) => void, takes: () => boolean = () => true) {
+		this.#is = is;
+		this.#zone = new DropZone(
+			(dropped) => {
+				const file =
+					'files' in dropped && dropped.files.length === 1 ? dropped.files[0] : undefined;
+				this.refused = !(file && is(file.type, file.name));
+				if (file && !this.refused) take(file);
+			},
+			(carried) => !carried.link && takes() && !underASheet(),
+		);
+	}
+
+	/** What is held over the place, or nothing. More than one file is not what a button takes. */
+	get held(): HeldFile | null {
+		const over = this.#zone.over;
+		if (!over) return null;
+		if (over.files.length !== 1) return 'no';
+		const type = over.files[0];
+		return this.#is(type) ? 'ok' : type === '' ? 'unsure' : 'no';
+	}
+
+	/**
+	 * Follow drags over `target` until what this returns is called. Written
+	 * to be handed to `{@attach}` as it is.
+	 */
+	listen = (target: EventTarget): (() => void) => {
+		const again = (event: Event) => {
+			const picked =
+				event.type === 'change' &&
+				event.target instanceof HTMLInputElement &&
+				event.target.type === 'file';
+			if (picked || carriedBy((event as DragEvent).dataTransfer)) this.refused = false;
+		};
+		const stop = this.#zone.listen(target);
+		// The button inside the place, used, is a new try as well.
+		target.addEventListener('dragenter', again, true);
+		target.addEventListener('change', again, true);
+		return () => {
+			stop();
+			target.removeEventListener('dragenter', again, true);
+			target.removeEventListener('change', again, true);
+			// What the place said goes with it: the next one drawn starts clean.
+			this.refused = false;
+		};
+	};
 }
 
 /**

@@ -115,6 +115,10 @@
 	import { hostOf } from '$lib/source';
 	import { copySaid, type Whose } from '$lib/cookbook';
 	import Cover from '$lib/cover/Cover.svelte';
+	import { FilePlace, isPicture } from '$lib/drop.svelte';
+	import { DRAWN, drawnFor } from '$lib/drop-drawings';
+	import DropCover from '$lib/DropCover.svelte';
+	import DropHere from '$lib/DropHere.svelte';
 	import ComponentPicker, { type NamedRecipe } from './ComponentPicker.svelte';
 	import PasteCheck from '$lib/PasteCheck.svelte';
 	import { drafted as splitPaste, readPasted } from '$lib/pasted.svelte';
@@ -743,6 +747,39 @@
 		if (file) void takePhoto(file, onto);
 	};
 
+	/**
+	 * A photograph dropped where it goes (ADR 0044, #205): onto the recipe's
+	 * own, or onto a Step. Each is what the button there does, through
+	 * `takePhoto`, so it says what the button says when the picture cannot be
+	 * sent. The recipe's photograph is covered while one is held over it, as
+	 * Recipes is; a Step is too small for that and is framed instead.
+	 */
+	const mainPlace = new FilePlace(isPicture, (file) => {
+		void takePhoto(file, (name) => (mainPhoto = name));
+	});
+	const MAIN_SAYS = {
+		ok: [m.drop_photo_recipe, m.drop_photo_recipe_then],
+		unsure: [m.drop_photo_recipe_unsure, m.drop_photo_recipe_then],
+		no: [m.drop_recipes_no, m.drop_photo_recipe_takes],
+	};
+
+	/** Each Step's place, made the first time the Step is drawn and kept by the row's id. */
+	const stepPlaces = new Map<number, FilePlace>();
+	function stepPlace(id: number): FilePlace {
+		let place = stepPlaces.get(id);
+		if (!place) {
+			place = new FilePlace(isPicture, (file) => {
+				// Found again when the picture lands: the row may have moved since.
+				void takePhoto(file, (name) => {
+					const row = steps.find((step) => step.id === id);
+					if (row) row.photo = name;
+				});
+			});
+			stepPlaces.set(id, place);
+		}
+		return place;
+	}
+
 	// ---- saving ---------------------------------------------------------
 
 	/** A field left blank is a field with nothing in it, never an empty string. */
@@ -1126,7 +1163,7 @@
 	{/if}
 
 	<!-- The hero, and the title typed onto it — #81's layout, made writable. -->
-	<div class="relative overflow-hidden">
+	<div class="relative overflow-hidden" {@attach mainPlace.listen}>
 		{#if mainPhoto}
 			<img
 				src="/api/photographs/{mainPhoto}/page"
@@ -1149,6 +1186,15 @@
 				></textarea>
 			</label>
 		</div>
+		{#if mainPlace.held}
+			<DropCover
+				class="absolute inset-0 z-20"
+				icon={drawnFor(mainPlace.held, DRAWN.picture)}
+				headline={MAIN_SAYS[mainPlace.held][0]()}
+				sentence={MAIN_SAYS[mainPlace.held][1]()}
+				refuses={mainPlace.held === 'no'}
+			/>
+		{/if}
 	</div>
 	<div class="flex flex-wrap items-center gap-2 border-b border-rule px-gutter py-2">
 		<label class="{QUIET} cursor-pointer text-accent">
@@ -1157,7 +1203,10 @@
 				type="file"
 				accept="image/*"
 				class="hidden"
-				onchange={(event) => pick(event, (name) => (mainPhoto = name))}
+				onchange={(event) => {
+					mainPlace.refused = false;
+					pick(event, (name) => (mainPhoto = name));
+				}}
 			/>
 		</label>
 		{#if mainPhoto}
@@ -1170,6 +1219,11 @@
 	</div>
 	{#if photoFailed}
 		<p class="px-gutter pt-2 text-read text-support" role="alert">{m.write_photo_failed()}</p>
+	{/if}
+	{#if mainPlace.refused}
+		<p class="px-gutter pt-2 text-read text-support" role="alert">
+			{m.drop_photo_recipe_refused()}
+		</p>
 	{/if}
 
 	<!--
@@ -1360,13 +1414,18 @@
 			</h2>
 			<ol bind:this={stepsEl}>
 				{#each steps as row, index (row.id)}
+					{@const place = row.kind === 'step' ? stepPlace(row.id) : null}
 					<li
 						data-row
-						class="flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
+						class="relative flex items-start gap-2 border-b border-rule px-gutter py-2 {dragging?.list ===
 							'steps' && dragging.index === index
 							? 'bg-card'
 							: ''}"
+						{@attach place?.listen}
 					>
+						{#if place?.held}
+							<DropHere part="frame" held={place.held} />
+						{/if}
 						{@render handle('steps', index)}
 						{#if row.kind === 'step'}
 							<span class="w-6 shrink-0 pt-1 font-display text-line font-semibold text-accent">
@@ -1386,7 +1445,21 @@
 								onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
 							<div class="flex flex-wrap items-center gap-2 pt-1">
 								{#if row.kind === 'step'}
-									<label class="{QUIET} cursor-pointer text-accent">
+									<label class="{QUIET} relative cursor-pointer text-accent">
+										{#if place?.held}
+											{@const number = stepNumbers[index] ?? 0}
+											<DropHere
+												part="words"
+												held={place.held}
+												icon={DRAWN.picture}
+												edged
+												says={{
+													ok: m.drop_photo_step({ number }),
+													unsure: m.drop_photo_step_unsure({ number }),
+													no: m.drop_photo_step_only(),
+												}}
+											/>
+										{/if}
 										{row.photo ? m.write_photo_change() : m.write_step_photo()}
 										<input
 											type="file"
@@ -1413,6 +1486,11 @@
 									{m.write_remove()}
 								</button>
 							</div>
+							{#if place?.refused}
+								<p class="pt-1 text-read text-support" role="alert">
+									{m.drop_photo_step_refused()}
+								</p>
+							{/if}
 						</div>
 					</li>
 				{/each}

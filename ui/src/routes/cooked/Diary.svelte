@@ -26,6 +26,9 @@
 	import { rereads } from '$lib/offline/device.svelte';
 	import { useKeeping } from '$lib/offline/outbox';
 	import { photographCooking, pickedFile } from '$lib/offline/photograph';
+	import { FilePlace, isPicture } from '$lib/drop.svelte';
+	import { DRAWN } from '$lib/drop-drawings';
+	import DropHere from '$lib/DropHere.svelte';
 	import AttemptPhoto from '$lib/offline/AttemptPhoto.svelte';
 	import { said } from '$lib/how-much';
 	import { cookingDay } from '$lib/cooking-day';
@@ -161,8 +164,7 @@
 	 * beside the one at the stove, for the plate photographed at the table.
 	 */
 	let photographing = $state(false);
-	async function photograph(entry: Entry, event: Event) {
-		const picture = pickedFile(event);
+	async function photograph(entry: Entry, picture: File | undefined) {
 		if (!picture) return;
 		photographing = true;
 		writeFailed = undefined;
@@ -176,6 +178,20 @@
 			photographing = false;
 		}
 	}
+
+	/**
+	 * A photograph dropped on the open cooking's own (ADR 0044, #205), which
+	 * is Add a photo by another road: the same `photograph`, kept on the phone
+	 * where there is no network, and not while one is already on its way.
+	 */
+	const photoPlace = new FilePlace(
+		isPicture,
+		(picture) => {
+			const entry = entries?.find((entry) => entry.id === opened);
+			if (entry) void photograph(entry, picture);
+		},
+		() => !photographing,
+	);
 
 	/**
 	 * A cooking's picture on its way to the recipe (#110, option A): the one
@@ -360,7 +376,10 @@
 										option A). Taken at the stove or here, with or without a
 										network: one not yet sent is shown from the phone.
 									-->
-									<div class="mt-3 border-t border-rule pt-3">
+									<div class="relative mt-3 border-t border-rule pt-3" {@attach photoPlace.listen}>
+										{#if photoPlace.held}
+											<DropHere part="frame" held={photoPlace.held} off />
+										{/if}
 										<h3 class="mb-2 text-label text-ink-2 uppercase">
 											{m.cooked_photographs()}
 										</h3>
@@ -379,9 +398,22 @@
 												{/if}
 											{/each}
 											<label
-												class="flex min-h-12 cursor-pointer items-center rounded-sm border border-rule px-3 text-read text-ink-2
+												class="relative flex min-h-12 cursor-pointer items-center rounded-sm border border-rule px-3 text-read text-ink-2
 													{photographing ? 'opacity-60' : ''}"
 											>
+												{#if photoPlace.held}
+													<DropHere
+														part="words"
+														held={photoPlace.held}
+														icon={DRAWN.picture}
+														edged
+														says={{
+															ok: m.drop_photo_cooking(),
+															unsure: m.drop_photo_cooking_unsure(),
+															no: m.drop_photo_cooking_only(),
+														}}
+													/>
+												{/if}
 												{entry.photographs.length > 0
 													? m.cooked_add_another()
 													: m.cooked_add_photo()}
@@ -390,10 +422,15 @@
 													accept="image/*"
 													class="sr-only"
 													disabled={photographing}
-													onchange={(event) => photograph(entry, event)}
+													onchange={(event) => photograph(entry, pickedFile(event))}
 												/>
 											</label>
 										</div>
+										{#if photoPlace.refused}
+											<p class="mt-2 text-read text-support" role="alert">
+												{m.drop_photo_cooking_refused()}
+											</p>
+										{/if}
 										{#if promoted?.entry === entry.id}
 											<p class="mt-2 text-read text-accent" role="status">
 												{#if promoted.copied}

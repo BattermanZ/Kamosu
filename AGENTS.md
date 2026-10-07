@@ -180,7 +180,9 @@ coming back, and Enter. A screen hands it content and never writes
 of that are in `ui/src/lib/drop.svelte.ts`** (#204, ADR 0044). `DropZone` is one
 place that takes a drop: it says what is held over it and hands over what was let
 go. `keepDropsOut`, started once by the root layout, turns away every drop no
-zone took, so a browser never opens a dropped file in place of Kamosu. A drop is
+zone took, so a browser never opens a dropped file in place of Kamosu. `FilePlace`
+is a zone for one file of one kind, a photograph or a Crouton export (#205): the
+place wears `DropCover` where it is big enough and `DropHere` where it is not. A drop is
 the act a button already does, run through that button's own code, and it says
 offline what the button says. Never read `dataTransfer` on a screen.
 

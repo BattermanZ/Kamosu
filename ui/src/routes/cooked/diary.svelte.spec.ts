@@ -20,6 +20,7 @@ import { screen, fireEvent, within } from '@testing-library/svelte';
 import Cooked from './+page.svelte';
 import { keepingForTests, renderScreen } from '../../testing/render';
 import { MY_KITCHENS, PROMOTED, recipeAnswer } from '../../testing/recipes';
+import { carrying } from '../../testing/drops';
 
 /**
  * One Attempt as `edit_attempt` answers it — with everything the Catalogue
@@ -505,5 +506,52 @@ describe('putting a cooking’s picture on the recipe', () => {
 		await fireEvent.click(screen.getByRole('button', { name: /Gone Soup/ }));
 		expect(screen.queryByRole('button', { name: 'Put this photo on the recipe' })).toBeNull();
 		expect(screen.queryByText('Tap a photo to put it on the recipe.')).not.toBeInTheDocument();
+	});
+});
+
+describe('dropping a photograph on a cooking (#205)', () => {
+	async function opened() {
+		const drawn = renderScreen(
+			Cooked,
+			{
+				list_attempts: { attempts: [entry({ photographs: ['p_plate'] })] },
+				edit_attempt: attempt({ photographs: ['p_plate', 'local:0000000000000001'] }),
+			},
+			keepingForTests(),
+		);
+		await fireEvent.click(await screen.findByRole('button', { name: /Miso Soup/ }));
+		return { ...drawn, place: screen.getByRole('heading', { name: 'Photographs' }) };
+	}
+
+	it('adds a dropped photograph to the cooking, as Add another does', async () => {
+		const { kamosu, place } = await opened();
+		const dataTransfer = carrying({
+			files: [new File(['a plate'], 'plate.jpg', { type: 'image/jpeg' })],
+		});
+		await fireEvent.dragEnter(place, { dataTransfer });
+		expect(screen.getByText('Drop to add it')).toBeInTheDocument();
+		expect(await fireEvent.dragOver(place, { dataTransfer })).toBe(false);
+		await fireEvent.drop(place, { dataTransfer });
+		expect(screen.queryByText('Drop to add it')).not.toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(kamosu.calls.find((call) => call.operation === 'edit_attempt')?.input).toEqual({
+				attempt_id: 'at_1',
+				add_photographs: ['local:0000000000000001'],
+			}),
+		);
+	});
+
+	it('refuses anything else in words and changes nothing', async () => {
+		const { kamosu, place } = await opened();
+		const dataTransfer = carrying({
+			files: [new File(['%PDF'], 'tarte.pdf', { type: 'application/pdf' })],
+		});
+		await fireEvent.dragEnter(place, { dataTransfer });
+		expect(screen.getByText('Only a photograph')).toBeInTheDocument();
+		await fireEvent.drop(place, { dataTransfer });
+		expect(screen.getByRole('alert')).toHaveTextContent(
+			"That didn't go anywhere. A cooking's photograph has to be a picture.",
+		);
+		expect(kamosu.calls.some((call) => call.operation === 'edit_attempt')).toBe(false);
 	});
 });

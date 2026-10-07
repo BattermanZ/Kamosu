@@ -1207,5 +1207,22 @@
   "drop_recipes_takes": "Recipes takes a PDF, a Kamosu zip file, or a link to a web page.",
   "drop_recipes_photo": "A photograph doesn't go here",
   "drop_recipes_no": "This doesn't go here",
-  "drop_recipes_refused": "That didn't go anywhere. Recipes takes a PDF, a Kamosu zip file, or a link to a web page."
+  "drop_recipes_refused": "That didn't go anywhere. Recipes takes a PDF, a Kamosu zip file, or a link to a web page.",
+  "drop_photo_recipe": "Drop to use this photograph",
+  "drop_photo_recipe_unsure": "Drop a photograph here",
+  "drop_photo_recipe_then": "It becomes the recipe's photograph when you save.",
+  "drop_photo_recipe_takes": "A recipe's photograph has to be a picture.",
+  "drop_photo_recipe_refused": "That didn't go anywhere. A recipe's photograph has to be a picture.",
+  "drop_photo_step": "Drop to add it to step {number}",
+  "drop_photo_step_unsure": "Drop a photograph for step {number}",
+  "drop_photo_step_only": "Only a photograph goes here",
+  "drop_photo_step_refused": "That didn't go anywhere. A step's photograph has to be a picture.",
+  "drop_photo_cooking": "Drop to add it",
+  "drop_photo_cooking_unsure": "Drop a photograph",
+  "drop_photo_cooking_only": "Only a photograph",
+  "drop_photo_cooking_refused": "That didn't go anywhere. A cooking's photograph has to be a picture.",
+  "drop_crouton": "Drop to import this export",
+  "drop_crouton_unsure": "Drop a Crouton export here",
+  "drop_crouton_only": "Only a Crouton export goes here",
+  "drop_crouton_refused": "That didn't go anywhere. The import takes the zip Crouton exports, or one .crumb."
 }

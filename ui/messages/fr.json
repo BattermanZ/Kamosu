@@ -1207,5 +1207,22 @@
   "drop_recipes_takes": "Recettes accepte un PDF, un fichier zip Kamosu ou un lien vers une page web.",
   "drop_recipes_photo": "Une photo ne va pas ici",
   "drop_recipes_no": "Ceci ne va pas ici",
-  "drop_recipes_refused": "Rien n’a été importé. Recettes accepte un PDF, un fichier zip Kamosu ou un lien vers une page web."
+  "drop_recipes_refused": "Rien n’a été importé. Recettes accepte un PDF, un fichier zip Kamosu ou un lien vers une page web.",
+  "drop_photo_recipe": "Déposez pour utiliser cette photographie",
+  "drop_photo_recipe_unsure": "Déposez une photographie ici",
+  "drop_photo_recipe_then": "Elle devient la photographie de la recette quand vous enregistrez.",
+  "drop_photo_recipe_takes": "La photographie d’une recette doit être une image.",
+  "drop_photo_recipe_refused": "Rien n’a été ajouté. La photographie d’une recette doit être une image.",
+  "drop_photo_step": "Déposez pour l’ajouter à l’étape {number}",
+  "drop_photo_step_unsure": "Déposez une photographie pour l’étape {number}",
+  "drop_photo_step_only": "Seule une photographie va ici",
+  "drop_photo_step_refused": "Rien n’a été ajouté. La photographie d’une étape doit être une image.",
+  "drop_photo_cooking": "Déposez pour l’ajouter",
+  "drop_photo_cooking_unsure": "Déposez une photo",
+  "drop_photo_cooking_only": "Seulement une photo",
+  "drop_photo_cooking_refused": "Rien n’a été ajouté. La photo d’un plat doit être une image.",
+  "drop_crouton": "Déposez pour importer cet export",
+  "drop_crouton_unsure": "Déposez un export Crouton ici",
+  "drop_crouton_only": "Seul un export Crouton va ici",
+  "drop_crouton_refused": "Rien n’a été importé. L’import accepte le zip exporté par Crouton, ou un seul .crumb."
 }
