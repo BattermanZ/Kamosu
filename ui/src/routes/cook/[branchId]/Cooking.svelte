@@ -46,7 +46,7 @@
 	unread, because a badge that fires sometimes teaches people it fires always.
 
 	HOW MUCH IS BEING COOKED IS ASKED BEFORE A FRESH COOKING STARTS (#109, option
-	B, Aurélien's choice of 23 September 2026). The question stands where the
+	B, the choice of 23 September 2026). The question stands where the
 	amounts and the Step will, and the foot's own right-hand button starts the
 	cooking — there is no second button for it. Afterwards the Yield on the row
 	above the hairline brings the question back, and the foot then reads *Back
@@ -958,7 +958,7 @@
 				{m.cook_false_start()}
 			</button>
 			<!--
-				KAMOSU WENT WRONG, in two words (#119, option B — Aurélien, 23
+				KAMOSU WENT WRONG, in two words (#119, option B, chosen 23
 				September 2026). Everywhere else #98's card says it at the top of the
 				page. Here the card would push the Step down the screen and put *Got
 				it* under a wet thumb, so this row carries a beni mark and two words
@@ -1113,7 +1113,7 @@
 					THE REST OF THE LIST. Across the real corpus a step names an
 					Ingredient Line only 42% of the time — 2 steps of 11 on Dan Dan
 					Noodles — so on most steps the panel above is empty and the salt
-					this cook actually used less of is not in it. Aurélien found that
+					this cook actually used less of is not in it. A cook found that
 					standing in the room, and both this and adding a line answer it:
 					the whole list opens INSIDE the panel, which scrolls, so the screen
 					still never hands the cook a second surface to be in.
@@ -1322,7 +1322,7 @@
 				ONE WORD, and the whole of how a cook says *I did it differently*
 				(#58). It opens no sheet and covers nothing: the amounts and the
 				Step become fields where they already stand, so the cook never
-				leaves the step they are on. Aurélien chose this over a sheet on
+				leaves the step they are on. This was chosen over a sheet on
 				4 September 2026, against both built and running; the reasoning is
 				on #58.
 
@@ -1331,7 +1331,7 @@
 			-->
 				<!--
 				A PICTURE OF THE COOKING, one quiet word beside "Changed it" and the
-				same size, at the stove where the dish is (#77). Aurélien chose this
+				same size, at the stove where the dish is (#77). This was chosen
 				over offering it once the cooking is finished, on 19 September 2026:
 				the dough at step 4 is photographed at step 4. It opens the phone's
 				camera, the cook comes back to the step they were on, and the word
@@ -1412,7 +1412,7 @@
 					{/if}
 					<!--
 					A method that grew a stage. Inserting BEFORE and staying put is
-					Aurélien's wording and the right shape: a cook writes the step
+					the wording chosen and the right shape: a cook writes the step
 					down having just done it, so the new one is where they now are.
 				-->
 					<button
@@ -1443,7 +1443,7 @@
 					<!--
 					The Step's photograph, where the recipe gives it one (#110): a
 					small square at the top right that the words wrap around, and a
-					tap shows it across the screen. Aurélien's choice (K3) over a
+					tap shows it across the screen. Chosen (K3) over a
 					picture under the Step, which cut a long Step's words off to make
 					room, and over a button that hid it. A `div` rather than a `p`
 					because the picture's full-screen view cannot sit inside a
@@ -1484,7 +1484,7 @@
 					</div>
 				{/if}
 				<!--
-				THE NEXT STEP, small (#197). Aurélien chose it on 5 October 2026 over
+				THE NEXT STEP, small (#197). It was chosen on 5 October 2026 over
 			the same screen without it. A
 				tablet on the counter has the room, and reading ahead is what a cook
 				does while something simmers. It is the words and nothing else: the

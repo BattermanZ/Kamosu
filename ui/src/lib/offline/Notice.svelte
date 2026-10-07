@@ -1,5 +1,5 @@
 <!--
-	One "not right now" card (#76, option C — Aurélien, 19 September 2026).
+	One "not right now" card (#76, option C, chosen 19 September 2026).
 
 	Kamosu says a thing once, in sentences, at the top of the page, and the
 	person puts it away. Four tones share this one shape so they read as one

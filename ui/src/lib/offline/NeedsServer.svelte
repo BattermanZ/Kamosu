@@ -6,7 +6,7 @@
 	edit queue is a merge, and Kamosu never merges. So offline the button stays
 	where it is, greyed, and its words change to say what it is waiting for —
 	"Editing waits for the server" — rather than failing when pressed (option C,
-	Aurélien, 19 September 2026).
+	chosen 19 September 2026).
 
 	Edit (#83) and Take a Copy (#65) are drawn with this when they arrive, with
 	`offline_waits_edit` and `offline_waits_copy`.

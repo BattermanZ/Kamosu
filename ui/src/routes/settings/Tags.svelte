@@ -1,9 +1,9 @@
 <!--
 	Renaming, merging and deleting a Tag — Settings, not the recipe page (#104).
 
-	Aurélien put them here on 22 September 2026, having first been shown them
-	inside the recipe's own tag sheet: "I don't think a recipe page is the place
-	to rename tags, it makes no sense." He is right, and the line is a useful one
+	They were put here on 22 September 2026, after first being shown
+	inside the recipe's own tag sheet. The answer was: "I don't think a recipe page is the place
+	to rename tags, it makes no sense." That is right, and the line is a useful one
 	to keep: the sheet on a recipe answers *which of my words describe this
 	dish*, and this answers *what my words are*. One is about a dish and the
 	other is about a library.

@@ -1,5 +1,5 @@
 /**
- * The Thread drawn as a graph (#115, Aurélien's choice "G1"): one row per
+ * The Thread drawn as a graph (#115, choice "G1"): one row per
  * Version, every row in date order across every Branch, as `git log --graph`
  * reads. A dot per Version sits on a line down the left edge — grey while
  * several Branches still share those Versions, a colour of its own for each

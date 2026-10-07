@@ -14,7 +14,7 @@
 
 <!--
 	A time in the strip, with its unit in the figure: `15 min`, `1 h 30`, `9 h`
-	(#175, Aurélien's reading option 1). It printed the stored minutes bare
+	(#175, reading option 1). It printed the stored minutes bare
 	before, over "min prep", so a 9-hour prove read 540. The label beneath is
 	now only Prep or Cook, since the figure says its own unit.
 -->

@@ -46,7 +46,7 @@ const MAX_MEGAPIXELS: u64 = 100;
 
 /// A Display Copy's own long edge — worked out from the Photograph, kept only
 /// for convenience, and rebuildable, so these numbers are free to change
-/// (ADR 0017 sets Card and Page from Aurélien's own measured library; Print
+/// (ADR 0017 sets Card and Page from a real measured library; Print
 /// has no Sheet consumer yet and is a reasonable placeholder until one exists).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplaySize {
@@ -119,8 +119,8 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
 pub fn remake(bytes: &[u8]) -> Result<Vec<u8>, OpError> {
     let mut decoder = checked_decoder(bytes)?;
     // Cameras stamp rotation into Exif rather than the pixels (eight of
-    // Aurélien's own sixty do). Reading it now and baking it in before the
-    // metadata is stripped below is the only chance to keep it upright.
+    // the sixty in the real export do). Reading it now and baking it in before
+    // the metadata is stripped below is the only chance to keep it upright.
     let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
     let mut image = DynamicImage::from_decoder(decoder)
         .map_err(|e| OpError::bad_request(format!("cannot read this picture: {e}")))?;

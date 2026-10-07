@@ -1,6 +1,6 @@
 /**
  * The page a Share Link's *Import this recipe* opens (#170), at the screen
- * seam. Aurélien's choices of 26 September 2026: a confirm screen before
+ * seam. The choices of 26 September 2026: a confirm screen before
  * anything is written, one "where do you keep your recipes?" screen for a
  * reader who is not signed in here, and a confirm screen that already knows
  * what the reader holds.
@@ -26,7 +26,7 @@ afterEach(() => {
 	forgetArrival();
 });
 
-const ORIGIN = 'https://recipes.aurelien.example';
+const ORIGIN = 'https://recipes.stephane.example';
 const TOKEN = 'a'.repeat(64);
 const LINK = `/s/${TOKEN}`;
 const WHOLE = `${ORIGIN}/s/${TOKEN}`;
@@ -34,8 +34,8 @@ const WHOLE = `${ORIGIN}/s/${TOKEN}`;
 const PREVIEW: PreviewSharedRecipeOutput = {
 	upload_id: 'u_0123456789abcdef0123456789abcdef',
 	title: 'Yogurt Flatbread',
-	shared_by: 'Aurélien',
-	written_by: 'Aurélien',
+	shared_by: 'Stéphane',
+	written_by: 'Stéphane',
 	source: {
 		text: 'feelgoodfoodie.net',
 		link: 'https://feelgoodfoodie.net/recipe/yogurt-flatbread/',
@@ -130,7 +130,7 @@ describe('importing a shared recipe, signed in', () => {
 
 		expect(await screen.findByRole('heading', { name: 'Import this recipe?' })).toBeInTheDocument();
 		expect(screen.getByText('Yogurt Flatbread')).toBeInTheDocument();
-		expect(screen.getByText('Shared by Aurélien · from feelgoodfoodie.net')).toBeInTheDocument();
+		expect(screen.getByText('Shared by Stéphane · from feelgoodfoodie.net')).toBeInTheDocument();
 		expect(
 			screen.getByText(
 				'It goes into your Cookbook, with every version behind it (3) and where it came from.',
@@ -138,7 +138,7 @@ describe('importing a shared recipe, signed in', () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				'Aurélien stays named as the one who wrote it. Your first change starts your own version.',
+				'Stéphane stays named as the one who wrote it. Your first change starts your own version.',
 			),
 		).toBeInTheDocument();
 		// Asked with the whole address, read against where the reader is.
@@ -162,7 +162,7 @@ describe('importing a shared recipe, signed in', () => {
 			branchId: 'b_here',
 			status: 'created',
 			from: 'link',
-			writer: 'Aurélien',
+			writer: 'Stéphane',
 		});
 	});
 
@@ -234,7 +234,7 @@ describe('importing a shared recipe, signed in', () => {
 		const date = ON_THE_20TH;
 		expect(
 			screen.getByText(
-				`You imported this recipe on ${date}. Aurélien has saved 2 newer versions since.`,
+				`You imported this recipe on ${date}. Stéphane has saved 2 newer versions since.`,
 			),
 		).toBeInTheDocument();
 		expect(
@@ -282,7 +282,7 @@ describe('importing a shared recipe, signed in', () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				`You imported this recipe on ${ON_THE_20TH}. Aurélien has since rewritten it in a way your copy cannot take in, so yours stays as it is.`,
+				`You imported this recipe on ${ON_THE_20TH}. Stéphane has since rewritten it in a way your copy cannot take in, so yours stays as it is.`,
 			),
 		).toBeInTheDocument();
 		expect(screen.getByRole('link', { name: 'Open your copy' })).toBeInTheDocument();
@@ -356,7 +356,7 @@ describe('importing a shared recipe, signed out', () => {
 		ended: false,
 		public_address: ORIGIN,
 		share_id: 'sl_1',
-		shared_by: 'Aurélien',
+		shared_by: 'Stéphane',
 		thread: [],
 		translations: [],
 		recipe: {
@@ -393,7 +393,7 @@ describe('importing a shared recipe, signed out', () => {
 			await screen.findByRole('heading', { name: 'Import Yogurt Flatbread' }),
 		).toBeInTheDocument();
 		expect(
-			screen.getByText('Shared by Aurélien. Where do you keep your recipes?'),
+			screen.getByText('Shared by Stéphane. Where do you keep your recipes?'),
 		).toBeInTheDocument();
 		expect(screen.getByRole('heading', { name: 'Here, on this Kamosu' })).toBeInTheDocument();
 		expect(screen.getByRole('button', { name: 'Log in and import it' })).toBeInTheDocument();
@@ -484,7 +484,7 @@ describe('the line above a recipe imported from a Share Link', () => {
 			passengers: [],
 			jobId: 'j_import',
 			from: 'link',
-			writer: 'Aurélien',
+			writer: 'Stéphane',
 			added: 2,
 		});
 		render(ImportSharedTestHarness, {
@@ -500,7 +500,7 @@ describe('the line above a recipe imported from a Share Link', () => {
 
 		const said = await screen.findByRole('status', { name: 'Brought up to date' });
 		expect(said).toHaveTextContent(
-			'Aurélien’s 2 newer versions of Yogurt Flatbread are in its History now.',
+			'Stéphane’s 2 newer versions of Yogurt Flatbread are in its History now.',
 		);
 	});
 

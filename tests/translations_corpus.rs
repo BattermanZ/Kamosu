@@ -1,4 +1,4 @@
-//! Translations, put through Aurélien's real 86-recipe Crouton export
+//! Translations, put through the real 86-recipe Crouton export
 //! (#56, ADR 0006).
 //!
 //! Three invented examples prove nothing about a rule whose whole justification
@@ -133,7 +133,7 @@ async fn the_real_librarys_languages_are_read_off_its_own_words_and_never_writte
     );
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus translations", false)
@@ -270,7 +270,7 @@ async fn a_real_french_recipe_translates_into_an_ordinary_branch_that_falls_behi
         .clone();
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus translations", false)
@@ -287,7 +287,7 @@ async fn a_real_french_recipe_translates_into_an_ordinary_branch_that_falls_behi
         .unwrap()
         .to_string();
 
-    // An English rendering, written as an agent under Aurélien's own Credential
+    // An English rendering, written as an agent under Stéphane's own Credential
     // would write it: an ordinary Branch of the same Lineage.
     let (status, translated) = app.post_op(
         "start_translation",

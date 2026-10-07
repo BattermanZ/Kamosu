@@ -1,7 +1,7 @@
 <!--
 	One Food: what it is called, what a cup of it weighs, and how much it matters (#107).
 
-	Chosen by Aurélien on 22 September 2026 from three designs drawn at a phone
+	Chosen on 22 September 2026 from three designs drawn at a phone
 	viewport — a Food is a page, reached two ways: from the Ingredient Line that
 	named it, and from the Foods list in Settings. The alternative designs put
 	the whole of this inside the Reading corrector, or only in Settings; the
@@ -25,8 +25,8 @@
 	says so, because "add French" on a screen full of English otherwise reads as
 	an offer to translate a recipe.
 
-	**SEVERAL NAMES IN ONE LANGUAGE ARE ONE ROW** (#179, option B, chosen by
-	Aurélien on 27 September 2026 over a row per name). A Food may answer to
+	**SEVERAL NAMES IN ONE LANGUAGE ARE ONE ROW** (#179, option B, chosen on
+	27 September 2026 over a row per name). A Food may answer to
 	"œufs" and "œuf", and a line naming either reads as it. The row shows them
 	joined "œufs · œuf", as the Foods list already does, and Change opens a box
 	per name with Take off beside it, an empty box for another, and one Save for

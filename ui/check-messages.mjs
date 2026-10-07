@@ -18,17 +18,17 @@ const MEASURED = 'en.json';
 const LIMIT = 170;
 
 // Real warnings that need more than LIMIT to say what a person must know,
-// and story copy Aurélien approved sentence by sentence (#158). Keep this
+// and story copy approved sentence by sentence (#158). Keep this
 // list short: a key belongs here only if cutting it would drop a fact
-// someone needs to act, or words he chose.
+// someone needs to act, or words chosen one by one.
 const ALLOWED_LONGER = {
 	// Who can slow a sign-in, how long the wait is, and the way out.
 	settings_name_held_off: 250,
 	// The story's everyday card (#158): four features in one line, approved
-	// sentence by sentence by Aurélien on 25 September 2026.
+	// sentence by sentence on 25 September 2026.
 	story_10_said: 190,
 	// A scanned PDF's refusal (#176): why, and the two ways in that still
-	// work. Aurélien chose this wording word for word on 27 September 2026.
+	// work. This wording was chosen word for word on 27 September 2026.
 	plus_pdf_no_text: 175,
 };
 

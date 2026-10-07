@@ -2,7 +2,7 @@
 	One recipe on the shelf: a **noren** — a dyed or photographed ground with a
 	cloth band at the hem carrying the recipe's name.
 
-	Chosen by Aurélien on 2026-08-28 from three shelves of the real 86 recipes;
+	Chosen on 2026-08-28 from three shelves of the real 86 recipes;
 	the reasoning is on issue #62. What the choice settles is that a recipe with
 	a Photograph and one without are the *same object* rather than two
 	treatments: a Cover already carries its title on a band at its hem (#46), so

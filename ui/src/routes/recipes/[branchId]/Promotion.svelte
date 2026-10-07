@@ -3,7 +3,7 @@
 	saying that a cooking of this dish departed from the words below, and
 	offering to keep them.
 
-	IT IS HERE RATHER THAN IN THE DIARY, and that was Aurélien's choice on
+	IT IS HERE RATHER THAN IN THE DIARY, and that was the choice on
 	4 September 2026 against a treatment that put it beside the cooking's
 	rating. The argument that won: what you are being asked is a question about
 	the recipe — should these words become part of it — and this is where the

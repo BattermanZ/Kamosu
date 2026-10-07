@@ -836,7 +836,7 @@ pub const MIGRATIONS: &[Migration] = &[
         --
         -- `shared_by` is a **Person**, not a Kitchen. A Kitchen's Hand says who
         -- wrote a Branch; sharing is an act somebody takes, and the page names
-        -- them ("Shared by Aurélien"). A Kitchen's Nickname could never appear
+        -- them ("Shared by Stéphane"). A Kitchen's Nickname could never appear
         -- here in any case — it is private to the member who set it
         -- (GLOSSARY.md, "Kitchen").
         CREATE TABLE share_links (
@@ -1637,7 +1637,7 @@ pub const MIGRATIONS: &[Migration] = &[
         -- Whether a person set this Reading rather than the reader (#166).
         -- A re-read of the library replaces only the reader's own work, so a
         -- correction has to be told apart from it. Nothing recorded that
-        -- before now, so what is already here is guessed (Aurélien's choice
+        -- before now, so what is already here is guessed (the choice
         -- of 27 September 2026). A Component is always a person's: the
         -- reader never names a Lineage. Otherwise, a Reading changed more
         -- than a second after its Version was written is the trace

@@ -33,17 +33,17 @@ import { takePaste } from '$lib/pasted.svelte';
 
 const kitchen = kitchenAnswer('k_home', {
 	name: 'Maison',
-	members: [{ person_id: 'p_1', name: 'Aurélien' }],
+	members: [{ person_id: 'p_1', name: 'Stéphane' }],
 });
 
 /**
- * Marc's Kitchen, which sees his Cookbook as well as Aurélien's: the shelf's
+ * Marc's Kitchen, which sees his Cookbook as well as Stéphane's: the shelf's
  * Kitchen filter narrows to whatever Cookbooks the chosen Kitchen sees.
  */
 const marcsKitchen = kitchenAnswer('k_marc', {
 	name: 'Chez Marc',
 	members: [
-		{ person_id: 'p_1', name: 'Aurélien' },
+		{ person_id: 'p_1', name: 'Stéphane' },
 		{ person_id: 'p_marc', name: 'Marc' },
 	],
 	cookbooks: [cookbookLabel(), cookbookLabel('c_marc', ['Marc'])],
@@ -589,7 +589,7 @@ describe('the recipes screen', () => {
 
 	// --- Browsing by tag (#104) ---------------------------------------------
 	//
-	// The half of Aurélien's choice that makes a tag something you get around
+	// The half of the choice that makes a tag something you get around
 	// by rather than a word a search happens to match. The three states are
 	// covered between these: a library with no tags, which is every new
 	// instance and was this project's own on the day it imported 86 recipes; a
@@ -724,7 +724,7 @@ describe('the recipes screen', () => {
 
 		// Filtering to Marc's Kitchen offers his Kitchen's words: Inès's goes,
 		// and the narrowing goes with it rather than stranding an invisible
-		// filter. Aurélien's own words stay: his Cookbook is seen there too.
+		// filter. Stéphane's own words stay: his Cookbook is seen there too.
 		await fireEvent.click(screen.getByRole('button', { name: 'Chez Marc' }));
 
 		await vi.waitFor(() => {
@@ -1032,7 +1032,7 @@ describe('the + for every new recipe (#174)', () => {
 		return screen.findByRole('dialog', { name: 'From pasted text' });
 	}
 
-	// #175, Aurélien's choice: pasted text is a fourth source, so the recipe
+	// #175, as chosen: pasted text is a fourth source, so the recipe
 	// is made from the text rather than from a title somebody makes up first.
 	it('reads pasted text, shows what it made, and makes the recipe from it unsaved', async () => {
 		const { kamosu } = renderScreen(Recipes, {
@@ -1310,7 +1310,7 @@ describe('the + for every new recipe (#174)', () => {
 		render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
 
 		await pickAPdf();
-		// Aurélien's wording, chosen on #176: why, and what to do instead.
+		// The wording chosen on #176: why, and what to do instead.
 		expect(await screen.findByRole('alert')).toHaveTextContent(
 			"This PDF is a scan or a photo of a page, so it has no text to read. If it came from a website, use From a link instead, or copy the recipe's text and use From pasted text.",
 		);

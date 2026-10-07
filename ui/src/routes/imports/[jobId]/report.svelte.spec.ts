@@ -1,6 +1,6 @@
 /**
  * The screen-seam test: the Import Report for a Crouton library (#69),
- * option A as Aurélien chose it — one page, three parts.
+ * option A as chosen — one page, three parts.
  *
  * `get_job`'s declared result is "anything", so the stand-in cannot hold the
  * Report to its shape here. The generated `ImportCroutonOutput` type does

@@ -1,4 +1,4 @@
-//! The Shopping List, put through Aurélien's real 86-recipe Crouton export
+//! The Shopping List, put through the real 86-recipe Crouton export
 //! (#73, ADR 0024).
 //!
 //! **A shopping list built from ten flattering lines proves nothing.** What it
@@ -160,7 +160,7 @@ async fn the_whole_real_library_on_one_list_merges_adds_and_admits_what_it_canno
     );
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus shopping", false)

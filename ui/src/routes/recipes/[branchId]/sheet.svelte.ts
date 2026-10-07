@@ -17,7 +17,7 @@
  *
  * In the app installed on an iPhone or iPad no tab opens (#149): the Sheet is
  * fetched here once the Job ends, and this same button then shares it
- * (`share`; option A, Aurélien, 25 September 2026).
+ * (`share`; option A, chosen 25 September 2026).
  *
  * **It lives beside the recipe screen rather than inside the button it
  * draws**, because the button is not always on the page: writing on the

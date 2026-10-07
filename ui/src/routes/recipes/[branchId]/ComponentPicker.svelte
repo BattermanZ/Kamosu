@@ -8,7 +8,7 @@
 	a line a Component is somebody picking a recipe out of it.
 
 	IT RAISES THE LIBRARY OVER THE PAGE YOU ARE STANDING ON, which is the
-	treatment Aurélien chose on 20 September 2026 against direction A (#83) and
+	treatment chosen on 20 September 2026 against direction A (#83) and
 	is why this is a sheet rather than a route. Going to the shelf and coming
 	back would lose the line you were on — and on the writing screen it would
 	lose everything typed since the last save.

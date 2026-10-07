@@ -7,7 +7,7 @@
 //!
 //! Why the name is on the picture rather than left to the chat: every client
 //! prints `og:title` as text beneath the image, so a name in both places is the
-//! one thing that reads twice. Aurélien settled this on #65 — the name is set
+//! one thing that reads twice. #65 settled this — the name is set
 //! once, here, and `og:title` says who shared it instead.
 //!
 //! Why it is drawn at all, rather than serving the photograph as it stands: a
@@ -214,8 +214,8 @@ fn paint_wash(pixmap: &mut Pixmap) {
 ///
 /// Set once and only here. Wrapped to at most three lines and shrunk to fit
 /// rather than truncated: a title cut mid-word in a chat is worse than a title
-/// set small, and a recipe called *Aurélien's Creamy Miso Shin Ramyun with
-/// Mushrooms and Cheddar* is a real row in the corpus, not a stress test.
+/// set small, and *Stéphane's Creamy Miso Shin Ramyun with Mushrooms and
+/// Cheddar* is as long as a real row in the corpus runs, not a stress test.
 /// The display face at one size: the two subsets the stylesheet declares, and
 /// the size the title is being set at.
 ///
@@ -304,8 +304,8 @@ impl<'a> TitleFace<'a> {
 ///
 /// Set once and only here. Wrapped to at most three lines and shrunk to fit
 /// rather than truncated: a title cut mid-word in a chat is worse than a title
-/// set small, and a recipe called *Aurélien's Creamy Miso Shin Ramyun with
-/// Mushrooms and Cheddar* is a real row in the corpus, not a stress test.
+/// set small, and *Stéphane's Creamy Miso Shin Ramyun with Mushrooms and
+/// Cheddar* is as long as a real row in the corpus runs, not a stress test.
 ///
 /// The ink is kinari either way — on a photograph it sits on the wash, on a
 /// Cover on the dye itself, and both were chosen to carry it.
@@ -628,7 +628,7 @@ mod tests {
     fn a_long_title_wraps_rather_than_being_cut() {
         let face = TitleFace::load(78.0).expect("the display face");
         let lines = wrap(
-            "Aurelien's Creamy Miso Shin Ramyun with Mushrooms and Cheddar",
+            "Stephane's Creamy Miso Shin Ramyun with Mushrooms and Cheddar",
             &face,
             1104.0,
         );
@@ -641,7 +641,7 @@ mod tests {
         let rejoined = lines.join(" ");
         assert_eq!(
             rejoined,
-            "Aurelien's Creamy Miso Shin Ramyun with Mushrooms and Cheddar"
+            "Stephane's Creamy Miso Shin Ramyun with Mushrooms and Cheddar"
         );
     }
 

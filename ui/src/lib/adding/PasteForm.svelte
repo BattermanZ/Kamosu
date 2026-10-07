@@ -1,7 +1,7 @@
 <!--
 	A whole recipe pasted as text, read, checked, and made (#175).
 
-	Aurélien put this in the + beside the Recipes search box as a fourth source,
+	This sits in the + beside the Recipes search box as a fourth source,
 	because you usually hold the text before any recipe page exists: making a
 	title up first, only for the paste to replace it, was the long way round.
 	It opens under the search row like From a link does (ADR 0027).

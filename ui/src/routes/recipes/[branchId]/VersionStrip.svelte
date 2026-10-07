@@ -1,5 +1,5 @@
 <!--
-	The switch between the versions of one recipe (#131, Aurélien's screen
+	The switch between the versions of one recipe (#131, screen
 	choice 1 of 24 September 2026: a strip of every version).
 
 	ADR 0014 designed a threshold for exactly two Branches: you stood in yours

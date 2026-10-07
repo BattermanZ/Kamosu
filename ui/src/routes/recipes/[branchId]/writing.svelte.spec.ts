@@ -4,7 +4,7 @@
  * it, and so is every input the screen sends — a field renamed in
  * `src/catalogue.rs` fails this test in the same commit.
  *
- * What is being tested is the shape Aurélien chose on 20 September 2026:
+ * What is being tested is the shape chosen on 20 September 2026:
  * ONE PAGE, both lists on it, an Ingredient Line as one free-text field, and
  * a save that says which of two things it is about to do. If an assertion here
  * starts describing a second screen, or a line split into amount and unit
@@ -144,7 +144,7 @@ const READ_BACK = {
 	get_recipe: {
 		branch_id: 'mine',
 		lineage_id: 'l_1',
-		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
 		name: null,
 		writes: true,
 		mine: true,
@@ -579,7 +579,7 @@ describe('writing a recipe', () => {
 
 	/**
 	 * THE FIGURE IS TYPED WHERE IT IS READ (#84): at the foot of the
-	 * Ingredients, which is the treatment Aurélien chose on 21 September 2026
+	 * Ingredients, which is the treatment chosen on 21 September 2026
 	 * for both surfaces. Reading and writing share it rather than each making
 	 * their own choice.
 	 *
@@ -706,7 +706,7 @@ describe('writing a recipe', () => {
 		const sent: Omit<Whose, 'writes'> = {
 			mine: true,
 			arrived: true,
-			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Aurélien' }] },
+			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Stéphane' }] },
 		};
 		renderWriting({}, false, [], content(), undefined, sent);
 		await fireEvent.click(
@@ -717,8 +717,8 @@ describe('writing a recipe', () => {
 				'You were sent this recipe, so your changes go into your own copy of Dan Dan Noodles, in your Cookbook. The one you were sent stays as it arrived.',
 			),
 		).toBeInTheDocument();
-		// Not "in Aurélien's Cookbook": it is in the reader's own.
-		expect(screen.queryByText(/Aurélien/)).not.toBeInTheDocument();
+		// Not "in Stéphane's Cookbook": it is in the reader's own.
+		expect(screen.queryByText(/Stéphane/)).not.toBeInTheDocument();
 	});
 
 	it('names a Cookbook by the name its writers gave it (#132)', async () => {
@@ -1032,7 +1032,7 @@ describe('two columns where the window is roomy (#198)', () => {
 
 		// The part that stays in view is a box inside the left column, never
 		// the column. As the column it stayed for the whole page and rode over
-		// everything under the Method, which Aurélien found on the iPad.
+		// everything under the Method, which was found on the iPad.
 		const stays = line.closest('.stays-in-view')!;
 		expect(stays.parentElement).toBe(columns.children[0]);
 		expect(stays).not.toContainElement(step);

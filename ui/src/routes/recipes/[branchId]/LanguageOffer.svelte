@@ -13,7 +13,7 @@
 	timer, or on the way out. `set_recipe_language` is the only thing that can
 	act on it and it runs on a deliberate tap.
 
-	IT ARRIVES WHERE THE SAVE ALREADY SPEAKS, which is Aurélien's choice of
+	IT ARRIVES WHERE THE SAVE ALREADY SPEAKS, which is the choice of
 	22 September 2026 against a band under the photograph at the top of the
 	page. The reasoning is his: the offer comes at the moment of saving, which
 	is the worst moment to interrupt somebody, so it goes where `Saved.` is

@@ -1,6 +1,6 @@
 <!--
 	`/cookbook-invite/<secret>`: the page a Cookbook Invite link opens (#131,
-	Aurélien's screen choice 2 of 24 September 2026).
+	screen choice 2 of 24 September 2026).
 
 	It says what saying yes does before anything happens: who sent it (one
 	Person, where their Cookbook may have several writers),

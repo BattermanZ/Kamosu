@@ -11,7 +11,7 @@
 
 	**While something is held over it the page is covered** by a sheet of the
 	paper with a dashed frame, and words in the middle say what letting go
-	will do (`$lib/DropCover`). Aurélien chose this on 7 October 2026 from two options drawn over
+	will do (`$lib/DropCover`). This was chosen on 7 October 2026 from two options drawn over
 	the real Recipes screen (option 1, recorded on #204), over a bar across
 	the top that left the recipes in view. Something Recipes cannot take turns
 	it the alert colour and says so before it is let go.

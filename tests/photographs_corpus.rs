@@ -1,4 +1,4 @@
-//! The corpus check ADR 0017 asks for (#45): every photograph in Aurélien's
+//! The corpus check ADR 0017 asks for (#45): every photograph in the
 //! real 86-recipe Crouton export, uploaded through the real `upload_photograph`
 //! Operation, asserting the two facts the ADR measured — no duplicate
 //! photographs, and none of them a Step's photo (Crouton has no such field).
@@ -88,7 +88,7 @@ async fn the_corpus_produces_zero_duplicate_photographs_and_zero_step_photos() {
     }
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus import", false)

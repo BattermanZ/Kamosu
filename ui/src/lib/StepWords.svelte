@@ -1,7 +1,7 @@
 <!--
 	A Step's own words, with each conversion drawn straight after what it
 	converts (#150): "preheat to 425° (about 220 °C)", "1 lb. (about 455 g)
-	ground chicken". Option A, Aurélien's choice on 25 September 2026, over all
+	ground chicken". Option A, the choice on 25 September 2026, over all
 	of a Step's figures on one line beneath it, which left a cook counting along
 	a row of numbers to match them back.
 

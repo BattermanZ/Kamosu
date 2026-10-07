@@ -35,7 +35,7 @@ export function recipeAnswer(
 	return {
 		branch_id,
 		lineage_id,
-		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
 		name: null,
 		writes,
 		// Anybody else's, unless it was sent to the reader.
@@ -92,7 +92,7 @@ export const MY_KITCHENS = {
 	kitchens: [
 		kitchenAnswer('k_home', {
 			name: 'Home',
-			members: [{ person_id: 'p_1', name: 'Aurélien' }],
+			members: [{ person_id: 'p_1', name: 'Stéphane' }],
 		}),
 	],
 };
@@ -134,10 +134,10 @@ export const diaryEntry = (over: Record<string, unknown> = {}) => ({
 type ThreadBranch = GetThreadOutput['branches'][number];
 type Kitchen = ListKitchensOutput['kitchens'][number];
 
-/** A Cookbook as the Core labels one: Aurélien's own, unless a test says whose. */
+/** A Cookbook as the Core labels one: Stéphane's own, unless a test says whose. */
 export function cookbookLabel(
 	id = 'c_1',
-	authors: string[] = ['Aurélien'],
+	authors: string[] = ['Stéphane'],
 	name: string | null = null,
 ): ThreadBranch['cookbook'] {
 	return {

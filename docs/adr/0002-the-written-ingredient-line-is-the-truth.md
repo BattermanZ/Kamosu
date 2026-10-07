@@ -6,7 +6,7 @@ This inverts what three of the four apps surveyed in `docs/research/recipe-app-f
 
 ## Why
 
-Measured against Aurélien's real 86-recipe Crouton library (`docs/research/crouton-real-export.md`):
+Measured against the real 86-recipe Crouton library (`docs/research/crouton-real-export.md`):
 
 - **28% of ingredients (239 of 863) have no quantity at all**, and whole recipes go without — 17 of 17 rows in one, 12 of 12 in another. A model that treats the parts as canonical is guessing for a quarter of a real library, and "to taste" is a legitimate amount.
 - **Crouton kept the parts and threw the line away, and the damage is unrecoverable.** `"2 cloves minced garlic"` survives as `quantity 2 ITEM` plus a food literally named `"cloves minced garlic"`; one row begins with a comma. Nothing can reconstruct what was written.

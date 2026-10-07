@@ -5,7 +5,7 @@
 //! making Lineages and writing the Import Report all belong to
 //! [`crate::core::Core::import_each`]; what lives here is what a `.crumb`
 //! means. `docs/research/crouton-real-export.md` measured the format against
-//! Aurélien's 86 recipes, and every rule below comes from that measurement.
+//! a real library of 86 recipes, and every rule below comes from that measurement.
 //!
 //! - **The Crouton UUID is the foreign id, never the filename.** Crouton names
 //!   a collision `Beef Bourguignon-1.crumb`, so a filename says nothing about

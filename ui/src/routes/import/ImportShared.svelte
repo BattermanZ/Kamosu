@@ -2,7 +2,7 @@
 	What a Share Link page's *Import this recipe* opens (#170), on the instance
 	that shared it or, sent on from there, on the reader's own.
 
-	Aurélien's three choices of 26 September 2026, recorded on #170:
+	The three choices of 26 September 2026, recorded on #170:
 
 	1. **Signed in, a short confirm screen before anything happens.** It shows
 	   the recipe, says it goes into your Cookbook with every Version and where
@@ -189,7 +189,7 @@
 	}
 
 	/**
-	 * Which confirm screen a preview makes (Aurélien's choices 1 and 3): not
+	 * Which confirm screen a preview makes (choices 1 and 3): not
 	 * held; held and written here, so nothing can be imported; held but gone a
 	 * different way from the file, so importing would change nothing; held
 	 * with nothing new; held with newer Versions to bring in.

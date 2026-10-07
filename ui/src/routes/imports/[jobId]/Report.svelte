@@ -1,6 +1,6 @@
 <!--
 	The Import Report for a Crouton library (#69): option A, "one page, three
-	parts", as Aurélien chose it on 2026-09-19 (the decision is a comment on #69).
+	parts", as chosen on 2026-09-19 (the decision is a comment on #69).
 
 	It owes three different kinds of thing at once, and each is drawn as what it
 	is rather than flattened into one list: what is **waiting for a tap** (work,

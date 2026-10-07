@@ -163,7 +163,7 @@ impl Core {
 
             shuffle(&mut never, self.shelf_seed());
 
-            // *Recently added* first, where Aurélien put it (#151): nobody has
+            // *Recently added* first, where #151 put it: nobody has
             // to have cooked anything for it to have something to say, and a
             // recipe that just came in is the likeliest reason to open Home.
             // Then the spec's order, each shelf ordered by its own fact:

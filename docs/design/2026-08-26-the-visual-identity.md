@@ -16,7 +16,7 @@ a tokens page rendered from the real stylesheet, which cannot drift because it i
 
 ## What was chosen
 
-**Noren · tight** — the indigo-over-unbleached-paper direction Aurélien first chose in
+**Noren · tight** — the indigo-over-unbleached-paper direction first chosen in
 `prototype/13-look-and-feel-attempt-2`, with its Japanese typefaces kept and its type
 scale tightened.
 

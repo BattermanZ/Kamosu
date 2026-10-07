@@ -263,7 +263,7 @@ const SIZES_AFTER: &[&str] = &[
 /// basilic`. Like a size, such a word says nothing about which Food to buy,
 /// but it is dropped only where a measure makes it one (#186): straight
 /// before a Unit, and at the start of a Food that follows an amount or a
-/// Unit. Anywhere else it stays in the name, which is Aurélien's choice on
+/// Unit. Anywhere else it stays in the name, which is the choice on
 /// #186: *poulet à la bonne femme* is a dish, not a good woman's chicken.
 ///
 /// Kept apart from [`SIZES`] for that reason, since a size is dropped from
@@ -313,7 +313,7 @@ const PRAISE: &[&str] = &[
 /// **`hot` and `glacé` are left out on purpose.** Hot sauce and a hot dog are
 /// things to buy, and the fold in [`folded`] makes `glacé` one word with the
 /// `glace` of *sucre glace*, which is icing sugar. `chaud` is in, although
-/// *chocolat chaud* is a drink: the question Aurélien answered on #185 named
+/// *chocolat chaud* is a drink: the question answered on #185 named
 /// `chaud` among the words to drop, and an Ingredient Line far more often
 /// means warm milk than hot chocolate.
 ///
@@ -1784,7 +1784,7 @@ mod tests {
 
     #[test]
     fn how_warm_a_food_is_is_no_part_of_its_name() {
-        // The line #185 was filed from, and Aurélien's choice on it: cold
+        // The line #185 was filed from, and the choice on it: cold
         // butter is bought as butter.
         assert_eq!(
             read("100 g de beurre froid (7 c. à soupe)"),
@@ -2283,7 +2283,7 @@ mod tests {
 
     #[test]
     fn a_word_of_praise_stays_where_nothing_was_measured() {
-        // Aurélien's choice on #186: the word goes only after a measure, so
+        // The choice on #186: the word goes only after a measure, so
         // a name that opens with one keeps it.
         assert_eq!(
             read("poulet à la bonne femme"),

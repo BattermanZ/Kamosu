@@ -149,7 +149,7 @@
 					     underneath it, unseen by the cook while a screen reader still
 					     announces the alert. The cooking screen says it in two words of its
 					     own instead, on the row it already has, and opens this card only on
-					     a tap (#119, option B — Aurélien, 23 September 2026). The mistake is
+					     a tap (#119, option B, chosen 23 September 2026). The mistake is
 					     remembered either way, and the card is waiting here the moment the
 					     cook leaves the step. -->
 						<WentWrong />

@@ -5,7 +5,7 @@
  * the oven temperature, or the amount and Unit, exactly as the text has them,
  * and what they come to for this reader. Each addition goes straight after
  * what it converts, "1 lb. (about 455 g) ground chicken" and "preheat to 425°
- * (about 220 °C)": option A, chosen by Aurélien on 25 September 2026 over one
+ * (about 220 °C)": option A, chosen on 25 September 2026 over one
  * line of figures beneath the Step.
  *
  * Found by searching forward from the last one, so two `2 Tbsp.` in one Step

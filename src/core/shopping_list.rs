@@ -263,7 +263,7 @@ impl Core {
     /// the rows out itself.
     ///
     /// ADR 0024 says the rows compute offline for the recipes the phone
-    /// holds, and Aurélien chose on #77 to have the phone do that sum rather
+    /// holds, and the choice on #77 was to have the phone do that sum rather
     /// than leave it until the server is back. The sum is the easy half. What
     /// the phone cannot know by itself is everything behind it: which Food
     /// each line was read as, the name that Food goes by for this reader, how
@@ -463,7 +463,7 @@ fn shopping_list(conn: &Connection, person_id: &str) -> Result<Value, OpError> {
 ///   thing that does not get bought (ADR 0024), and the written line already
 ///   carries the human meaning (ADR 0002).
 /// - **One Kamosu could not work out a factor for contributes its Foods
-///   carrying no amount** — Aurélien's call on #86. `2 poignées de pâte`
+///   carrying no amount** — the call made on #86. `2 poignées de pâte`
 ///   cannot be measured against the dough's Yield, so the dough's flour rides
 ///   in the *some* bucket ADR 0024 already gives the 28% of Ingredient Lines
 ///   written with no quantity. Quoting the line instead would leave that flour
@@ -555,7 +555,7 @@ fn basis_lines(
     lines.retain(|line| !unfolded.iter().any(|opened| *opened == line["path"]));
 
     // **And every Component line still standing says why it is standing**
-    // (ADR 0008, Aurélien's call on #86). A line that buys nothing otherwise
+    // (ADR 0008, the call made on #86). A line that buys nothing otherwise
     // reads exactly like a line Kamosu could not interpret, and the shopper
     // cannot tell from the list which they are looking at — so the one
     // sentence the Core already words for the recipe page goes beneath it

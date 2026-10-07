@@ -1,7 +1,7 @@
 <!--
 	What a recipe says about its Language, on the recipe (#106, ADR 0006).
 
-	**It says nothing unless there is something to say**, which is Aurélien's
+	**It says nothing unless there is something to say**, which is the
 	choice of 22 September 2026 against a Languages section drawn on every
 	recipe and against moving the whole subject onto the Thread. The reasoning
 	is his and worth keeping: the shelf already settled that Kamosu marks a

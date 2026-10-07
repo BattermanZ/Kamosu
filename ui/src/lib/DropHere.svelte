@@ -1,6 +1,6 @@
 <!--
 	What a small place wears while a file is held over it (ADR 0044, #205): a
-	Step, a cooking's photographs, the Crouton import. Aurélien chose this on
+	Step, a cooking's photographs, the Crouton import. This was chosen on
 	7 October 2026 from three drawn on the real screens (option 3), over the
 	look Recipes has, whose words do not fit a Step, and over that look in one
 	line, which blanked each Step the pointer passed.

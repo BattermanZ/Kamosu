@@ -20,14 +20,14 @@ export type LabelledBranch = Pick<
 	'cookbook' | 'name' | 'mine' | 'arrived' | 'hand_name'
 >;
 
-/** Names joined as the reader's Language joins them: "Aurélien and Camille". */
+/** Names joined as the reader's Language joins them: "Stéphane and Camille". */
 export function joinedNames(names: string[]): string {
 	return new Intl.ListFormat(getLocale(), { type: 'conjunction' }).format(names);
 }
 
 /**
  * A Cookbook named plainly, for a sentence that is about it: its own name, or
- * its Co-authors' — "Hélène", "Aurélien and Camille", "Chez nous".
+ * its Co-authors' — "Hélène", "Stéphane and Camille", "Chez nous".
  */
 export function cookbookPlainName(cookbook: CookbookLabel): string {
 	return cookbook.name ?? joinedNames(cookbook.authors.map((author) => author.name));
@@ -35,7 +35,7 @@ export function cookbookPlainName(cookbook: CookbookLabel): string {
 
 /**
  * A Cookbook named as a label on a recipe: its own name, or whose it is —
- * "Hélène’s", "Aurélien and Camille’s".
+ * "Hélène’s", "Stéphane and Camille’s".
  */
 export function cookbookWhose(cookbook: CookbookLabel): string {
 	return cookbook.name ?? m.cookbook_whose({ names: cookbookPlainName(cookbook) });
@@ -75,7 +75,7 @@ export function copySaid(whose: Whose, title: string): string {
 }
 
 /**
- * **Which version of a recipe is yours** (#136, Aurélien's choice A of 27
+ * **Which version of a recipe is yours** (#136, choice A of 27
  * September 2026): the one every other version is marked against. It is your
  * own unnamed one where you have one (#131), and once you name it, the one you
  * have kept longest. Never one sent to you, which is somebody else's writing.

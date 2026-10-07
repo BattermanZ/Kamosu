@@ -1,4 +1,4 @@
-//! Home's computed shelves, put through Aurélien's real 86-recipe Crouton
+//! Home's computed shelves, put through the real 86-recipe Crouton
 //! export (#64).
 //!
 //! Three invented recipes prove nothing about a screen whose whole job is to
@@ -98,7 +98,7 @@ async fn quick_tonight_over_the_real_library_never_guesses_at_a_time_it_does_not
     );
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus home", false)

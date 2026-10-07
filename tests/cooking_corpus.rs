@@ -1,4 +1,4 @@
-//! The cooking screen's two derivations, put through Aurélien's real 86-recipe
+//! The cooking screen's two derivations, put through the real 86-recipe
 //! Crouton export (#61, ADR 0011).
 //!
 //! ADR 0011's whole argument is a measured one — a cooking screen showing only
@@ -93,7 +93,7 @@ async fn a_quarter_of_the_real_steps_offer_a_timer_and_none_of_the_rest_is_inven
     );
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus cooking", false)

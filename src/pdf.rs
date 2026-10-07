@@ -24,7 +24,7 @@ pub const LARGEST_PDF: u64 = 20 * 1024 * 1024;
 /// in its own words and three Languages (#176).
 pub const NO_TEXT: &str = "pdf_has_no_text";
 
-/// The refusal a scanned PDF gets. Aurélien's wording, chosen on #176: it
+/// The refusal a scanned PDF gets. The wording was chosen on #176: it
 /// says why, and what to do instead.
 const NO_TEXT_SENTENCE: &str = "This PDF is a scan or a photo of a page, so it has no text to \
                                 read. If it came from a website, use From a link instead, or copy \

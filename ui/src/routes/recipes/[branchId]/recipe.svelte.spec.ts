@@ -42,9 +42,9 @@ const line = (text: string, index: number) => ({
 });
 const step = (text: string, index: number) => ({ kind: 'step', text, index });
 
-/** Aurélien's own Cookbook, under the name he gave it. */
-const MY_COOKBOOK = cookbookLabel('c_mine', ['Aurélien'], 'Maison Batterman');
-/** Marc's, which Aurélien sees because they share a Kitchen and never writes. */
+/** Stéphane's own Cookbook, under the name he gave it. */
+const MY_COOKBOOK = cookbookLabel('c_mine', ['Stéphane'], 'Maison Batterman');
+/** Marc's, which Stéphane sees because they share a Kitchen and never writes. */
 const MARCS_COOKBOOK = cookbookLabel('c_marc', ['Marc'], 'Chez Marc');
 
 const branch = (
@@ -312,7 +312,7 @@ function forked(extra: Answers = {}) {
 
 /**
  * Marc's version as `get_recipe` answers it, opened from the strip: his words,
- * in his Cookbook, which Aurélien may read and cook and not change.
+ * in his Cookbook, which Stéphane may read and cook and not change.
  */
 function marcsRecipe(): GetRecipeOutput {
 	const mine = forked().get_recipe as GetRecipeOutput;
@@ -866,8 +866,8 @@ describe('the Cooked section', () => {
 					last_cooked_at: '2026-08-14T18:30:00Z',
 					ratings: [
 						{
-							person_id: 'p_aurelien',
-							name: 'Aurélien',
+							person_id: 'p_stephane',
+							name: 'Stéphane',
 							rating: 'again' as const,
 							at: '2026-08-14T18:30:00Z',
 						},
@@ -886,7 +886,7 @@ describe('the Cooked section', () => {
 	it('shows each Person’s own verdict beside their name, and never a score', async () => {
 		renderRecipe(cooked());
 
-		expect(await screen.findByText('Aurélien')).toBeInTheDocument();
+		expect(await screen.findByText('Stéphane')).toBeInTheDocument();
 		expect(screen.getByText('Again')).toBeInTheDocument();
 		expect(screen.getByText('Marie')).toBeInTheDocument();
 		expect(screen.getByText('Tweak it')).toBeInTheDocument();
@@ -912,7 +912,7 @@ describe('the Cooked section', () => {
 });
 
 /**
- * The way into the Thread (#133, Aurélien's choice A). The button says
+ * The way into the Thread (#133, choice A). The button says
  * *History* rather than the Thread's own name, and carries a line built like
  * the Cooked line above it: how many saves are behind it and when the last
  * was. It never says "version", which on this page already means one of the
@@ -979,7 +979,7 @@ describe('the way into the Thread', () => {
  * the Sections, correcting a Reading in place, and a recipe wearing none of
  * the optional things.
  *
- * The layout was chosen by Aurélien on 29 August 2026 and the reasoning is on
+ * The layout was chosen on 29 August 2026 and the reasoning is on
  * the issue. What is tested here is not how it looks but what ADR 0002 makes
  * true of it: the written Line is the truth of the ingredient, a Reading is
  * subordinate to it, a Reading may be absent, and nothing on the page marks
@@ -1232,8 +1232,8 @@ describe('the recipe screen', () => {
 	});
 
 	/**
-	 * THE NUTRITION FIGURE CLOSES THE INGREDIENTS (#84). Aurélien chose that
-	 * placement on 21 September 2026 against four treatments drawn on both
+	 * THE NUTRITION FIGURE CLOSES THE INGREDIENTS (#84). That
+	 * placement was chosen on 21 September 2026 against four treatments drawn on both
 	 * surfaces: a fourth cell in the meta strip, a line directly under the
 	 * strip, this, and a place beside the Source. The list is where what goes
 	 * into the dish is already the subject, and the strip keeps the three cells
@@ -1969,7 +1969,7 @@ describe('the recipe screen', () => {
 	// rather than a Food. Everything the screen shows about one — which recipe,
 	// how much of it, and the three sentences for when there is nothing to
 	// unfold — is worded in the Core, so what these tests hold is the LAYOUT
-	// Aurélien chose on 3 September 2026: B, the annexe.
+	// Chosen on 3 September 2026: B, the annexe.
 
 	/** A recipe whose first line names another recipe. */
 	function withComponent(
@@ -2587,7 +2587,7 @@ describe('deleting a recipe', () => {
 		shared,
 		share_id: shared ? 'sh_1' : null,
 		url: shared ? 'https://kamosu.example/s/tk_1' : null,
-		shared_by: shared ? 'Aurélien' : null,
+		shared_by: shared ? 'Stéphane' : null,
 		created_at: shared ? '2026-09-20T00:00:00Z' : null,
 		public_address: 'https://kamosu.example',
 	});
@@ -2873,7 +2873,7 @@ describe('the Language offer on the recipe', () => {
 });
 
 /**
- * Naming a version of the recipe from its page (#134, Aurélien's choice B): a
+ * Naming a version of the recipe from its page (#134, choice B): a
  * line among the actions opening a small sheet. A "version" here is a Branch,
  * the thing the strip at the top counts, and never one saved Version.
  */
@@ -3093,7 +3093,7 @@ describe('naming a version (#134)', () => {
 });
 
 /**
- * A recipe's Source line, where its link can be tapped (#152, Aurélien's
+ * A recipe's Source line, where its link can be tapped (#152,
  * choice A). The line is set on the photograph when there is one and on paper
  * under a Cover when there is not (#81), and the same holds in both places.
  */
@@ -3163,7 +3163,7 @@ describe('two columns where the window is roomy (#198)', () => {
 
 		// The part that stays in view is a box inside the left column, never
 		// the column. As the column it stayed for the whole page and rode over
-		// everything under the Method, which Aurélien found on the iPad.
+		// everything under the Method, which was found on the iPad.
 		const stays = line.closest('.stays-in-view')!;
 		expect(stays.parentElement).toBe(columns.children[0]);
 		expect(stays).not.toContainElement(step);

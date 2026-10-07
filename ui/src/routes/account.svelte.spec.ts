@@ -129,7 +129,7 @@ describe('the account screen', () => {
 					auth: { authenticate },
 				},
 			});
-			await user.type(await screen.findByLabelText('Name'), 'Aurélien');
+			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
 			await user.type(screen.getByLabelText('Password'), 'a password');
 			await user.click(screen.getByRole('button', { name: 'Log in' }));
 			return authenticate.mock.calls[0][1].session_name;
@@ -190,7 +190,7 @@ describe('the account screen', () => {
 			const authenticate = vi.fn<AuthClient['authenticate']>(async () => {});
 			signInWith(false, authenticate);
 
-			await user.type(await screen.findByLabelText('Name'), 'Aurélien');
+			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
 			await user.type(screen.getByLabelText('Password'), 'fourteen chars');
 			await user.click(screen.getByRole('button', { name: 'Create my account' }));
 
@@ -211,7 +211,7 @@ describe('the account screen', () => {
 				);
 			});
 
-			await user.type(await screen.findByLabelText('Name'), 'Aurélien');
+			await user.type(await screen.findByLabelText('Name'), 'Stéphane');
 			await user.type(screen.getByLabelText('Password'), 'a guess');
 			await user.click(screen.getByRole('button', { name: 'Log in' }));
 

@@ -5,7 +5,7 @@ import { m } from '$lib/paraglide/messages';
  *
  * What is stored does not change. `prep_time_minutes` and `cook_time_minutes`
  * are whole minutes, as they always were, so no recipe already written moves
- * its id (ADR 0038). Aurélien asked for this on 27 September 2026 while
+ * its id (ADR 0038). This was asked for on 27 September 2026 while
  * choosing the writing screen's labels: a time can be minutes or hours, and
  * nobody should have to work out that 9 hours is 540 minutes. So the writing
  * screen takes two boxes, and the reading page says `9 h` rather than `540`.

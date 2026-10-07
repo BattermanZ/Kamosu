@@ -4,8 +4,8 @@
 // in `data.json` by `src/sheet.rs`, in the recipe's own Language, so there is
 // no English here to translate and no arithmetic to drift from the screen's.
 //
-// The typography is "D · the cookbook card, with fine rules", chosen by
-// Aurélien on 19 September 2026 against four treatments printed as real PDFs;
+// The typography is "D · the cookbook card, with fine rules", chosen
+// on 19 September 2026 against four treatments printed as real PDFs;
 // the comparison and the reasoning are recorded on #75. What it settled:
 //
 //   · Zen Old Mincho throughout, 400 for text and 600 for titles and numerals —

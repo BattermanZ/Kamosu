@@ -134,7 +134,7 @@
 	// ── Saying what went wrong ────────────────────────────────────────────────
 	//
 	// A refusal is shown in the words it arrived in. The Core's refusals are
-	// written to be read by a person — "'Aurélien' is the only Operator this
+	// written to be read by a person — "'Stéphane' is the only Operator this
 	// instance has…" — so paraphrasing one here would lose the reason and keep
 	// only the fact.
 	let said = $state<string | undefined>(undefined);

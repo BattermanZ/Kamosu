@@ -1,7 +1,7 @@
 <!--
 	A recipe's Tags, on the recipe (#104).
 
-	**The row is on every recipe, tagged or not**, which is Aurélien's choice of
+	**The row is on every recipe, tagged or not**, which is the choice of
 	22 September 2026 against the quieter option that drew nothing until a recipe
 	had a Tag. The reasoning is his and worth keeping: a library that arrives
 	with 86 recipes and no Tags at all grows none if the only way in is a button

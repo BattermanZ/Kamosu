@@ -16,8 +16,8 @@
 	from somewhere else and ends on the element's own style, so taking the
 	animation away leaves exactly the last frame.
 
-	The direction (Paper), the storyboard and every sentence were chosen by
-	Aurélien on prototypes, 25 September 2026; the issue holds the record.
+	The direction (Paper), the storyboard and every sentence were chosen on
+	prototypes, 25 September 2026; the issue holds the record.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';

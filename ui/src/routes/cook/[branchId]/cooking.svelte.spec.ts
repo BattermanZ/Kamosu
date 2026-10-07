@@ -84,7 +84,7 @@ function answers(over: Answers = {}): Answers {
 		get_recipe: {
 			branch_id: 'b_1',
 			lineage_id: 'l_1',
-			cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+			cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
 			name: null,
 			writes: true,
 			mine: true,
@@ -422,7 +422,7 @@ describe('the cooking screen', () => {
 });
 
 /**
- * Saying *I did it differently* (#58, ADR 0005). Aurélien chose this treatment
+ * Saying *I did it differently* (#58, ADR 0005). This treatment was chosen
  * on 4 September 2026 against one built around a sheet: the step's own words
  * become fields where they already stand, and nothing opens over the Step.
  *
@@ -712,7 +712,7 @@ describe('photographing the cooking (#77)', () => {
 		expect(screen.getByText('The recipe makes 4 servings.')).toBeInTheDocument();
 		// The question stands where the Step will: the Step is not on screen yet.
 		expect(screen.queryByText('Coat the chicken in panko.')).not.toBeInTheDocument();
-		// Aurélien's one change to B: no Start button of its own. The foot's
+		// The one change made to B: no Start button of its own. The foot's
 		// right-hand button is it, and Back has nowhere to go.
 		expect(screen.getAllByRole('button', { name: 'Start cooking' })).toHaveLength(1);
 		expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
@@ -879,7 +879,7 @@ describe('a Step’s photograph while cooking', () => {
 });
 
 /**
- * When Kamosu itself goes wrong mid-cook (#119, option B — Aurélien, 23
+ * When Kamosu itself goes wrong mid-cook (#119, option B, chosen 23
  * September 2026). Everywhere else #98's card says so at the top of the page;
  * here it would cost the Step its height and put *Got it* under a wet thumb, so
  * the cooking screen says it in two words on the row it already has, and the

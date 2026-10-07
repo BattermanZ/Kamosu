@@ -3,7 +3,7 @@
  *
  * **The choosing is stored; the rows are computed**, and until #77 only the
  * server computed them. ADR 0024 says a list works offline, with the rows
- * computed for the recipes the phone holds, and Aurélien chose on #77 to have
+ * computed for the recipes the phone holds, and the choice on #77 was to have
  * the phone do that sum itself rather than leave a changed list unadded until
  * the server is back.
  *

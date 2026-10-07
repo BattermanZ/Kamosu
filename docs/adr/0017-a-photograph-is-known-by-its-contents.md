@@ -24,7 +24,7 @@ Photographs nothing points at are removed by a **sweep** that runs daily, works 
 
 ## The facts that decided it
 
-Measured directly from Aurélien's 86-recipe Crouton export ([#5](https://github.com/BattermanZ/Kamosu/issues/5)), and by encoding his own camera originals on the target server:
+Measured directly from the first Operator's 86-recipe Crouton export ([#5](https://github.com/BattermanZ/Kamosu/issues/5)), and by encoding his own camera originals on the target server:
 
 - **The library is 60 photographs, not 86.** 27 recipes carry none, 58 carry one, one carries two. Decoded, they are **82 MB** — the export's oft-quoted 110 MB is the archive, not the pictures.
 - **`sourceImage` is not a second copy of the photo.** On all 44 recipes that have one it is the **source website's favicon**: median **32 pixels wide, 2.2 KB**, 0.17 MB for all 44 together. Seven are the identical Instagram icon. Not one matches a real photograph. The importer's supposed deduplication question did not exist.

@@ -1,12 +1,12 @@
 <!--
-	The Thread drawn as a graph (#115, Aurélien's choice "G1", replacing #53's
+	The Thread drawn as a graph (#115, choice "G1", replacing #53's
 	side-by-side lanes). One row per Version, in date order across every
 	Branch; a dot per Version on a line down the left edge, grey while
 	several Branches share it and a colour per Branch from where it splits.
 	`graph.ts` decides the shape; this only draws it.
 
 	A Version you saved can be named or renamed in place, under its row
-	(Aurélien's choice "A"). Its *what changed* line is shown beside the field
+	(choice "A"). Its *what changed* line is shown beside the field
 	and never offered for editing: it records why an edit was made, at the
 	moment that was true, and nothing can write it afterwards (#83).
 -->
@@ -112,8 +112,8 @@
 	}
 	/**
 	 * Round, the one exception to the near-square direction in app.css:
-	 * Aurélien asked for the Thread as "coloured balls, like git" and chose
-	 * the round dots of prototype G1 (#115).
+	 * The Thread was asked for as "coloured balls, like git", and
+	 * the round dots of prototype G1 were chosen (#115).
 	 */
 	const dotStyle = (row: VersionRow, hollow = false) =>
 		`left:${x(row.lane) - 6}px;top:${DOT_Y - 6}px;width:12px;height:12px;border-radius:50%;` +

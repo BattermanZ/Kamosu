@@ -2,8 +2,8 @@
 	A recipe's Related Recipes, on the recipe (#105, #52).
 
 	**A strip of the shelf's own cards, between the Method and Cooked**, which is
-	Aurélien's choice of 22 September 2026 against a section of rows near the
-	foot and a chip row beside the Tags. The reasoning is his and worth keeping:
+	the choice of 22 September 2026 against a section of rows near the
+	foot and a chip row beside the Tags. The reasoning is worth keeping:
 	a related recipe is a DISH, so it is drawn as a dish. It wears the face it
 	wears on the shelf — its photograph, or its Cover — at the shelf's own width,
 	and never the shape of a label. The cost accepted is that anything past the
@@ -98,7 +98,7 @@
 						runs off the right edge and most of it is never looked at.
 
 						The TITLE IS SET BENEATH rather than on a band inside the
-						frame, which is where the shelf puts it — Aurélien's choice
+						frame, which is where the shelf puts it — the choice
 						of 22 September 2026, made against this drawn on the real
 						library. The band exists so a grid of Covers is readable at
 						a glance; a strip of three, under a heading, on a page you

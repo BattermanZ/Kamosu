@@ -68,7 +68,7 @@ function draw(tags: Tag[], answers: Answers) {
 
 describe('a recipe’s tags', () => {
 	it('draws the row on a recipe with no tags, rather than hiding the way in', async () => {
-		// Aurélien's choice, against the quieter option: a library that arrives
+		// The choice, against the quieter option: a library that arrives
 		// with 86 recipes and no tags grows none if the only way in is a button
 		// at the foot of a long page.
 		draw([], { list_tags: { tags: [] } });

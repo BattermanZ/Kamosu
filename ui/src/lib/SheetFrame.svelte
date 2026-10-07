@@ -3,8 +3,8 @@
 
 	On the phone layout it is a bottom sheet, as each of them was when it drew
 	its own. On the wide layout it is a window in the middle of the room beside
-	the rail, with the page dimmed and still readable behind it. Aurélien chose
-	that window on 5 October 2026 over one as wide as the page's column: 480
+	the rail, with the page dimmed and still readable behind it. That window
+	was chosen on 5 October 2026 over one as wide as the page's column: 480
 	wide, as tall as what it holds, centred both ways. Its measurements live in
 	`sheet-window` in `app.css`.
 

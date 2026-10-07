@@ -8,7 +8,7 @@ Home gains a fifth shelf, ***recently added***, and it comes first. It holds eve
 
 ## Why
 
-- **Aurélien asked for it** on 2026-09-25 ([#151](https://github.com/BattermanZ/Kamosu/issues/151)): *"On the homepage, I want a last imported carousel."* Nothing on Home was about arrival.
+- **The first Operator asked for it** on 2026-09-25 ([#151](https://github.com/BattermanZ/Kamosu/issues/151)): *"On the homepage, I want a last imported carousel."* Nothing on Home was about arrival.
 - **"Imported" was read as "added" on purpose.** The import ledger is where [ADR 0025](./0025-an-imported-recipe-is-an-ordinary-recipe.md) keeps import facts, and it was the other reading. On the live instance it would have shown 86 Crouton recipes tied for first, from one timestamp, and never the recipes an agent added the same evening. The need behind the request is *show me what just came in*, and only the Lineage's age answers that. No import fact is read, so ADR 0025 is untouched.
 - ***Never cooked* had to change or it repeated the new shelf.** Newest first was its reason for being useful, *the week you added it*. On a library nobody has cooked from yet, it and *recently added* would have been the same twelve cards in the same order. The new shelf now does the newest-first job, and a shuffle gives *never cooked* one of its own, a different handful of recipes you have not got round to.
 

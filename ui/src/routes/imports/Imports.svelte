@@ -1,6 +1,6 @@
 <!--
 	Brought in (#108): option B, "three sources, each with its own history", as
-	Aurélien chose it on 22 September 2026 (the decision is a comment on #108).
+	chosen on 22 September 2026 (the decision is a comment on #108).
 
 	**Why this screen exists.** Forty-eight imports had run on the dev instance
 	and exactly one was reachable — `ImportCrouton.svelte` offered a link to the
@@ -26,7 +26,7 @@
 	heading for its source: the date and time, and under it what happened, in
 	the words the source's own screen uses. The heading is the way to that
 	screen, which stays a full page and is still the only place forgetting is
-	offered. Aurélien chose this on 6 October 2026 over one run of every import
+	offered. This was chosen on 6 October 2026 over one run of every import
 	with the sources at its foot.
 
 	**The arrows walk it**, as they walk Foods (#199). Up and down open the

@@ -1,6 +1,6 @@
 /**
  * What a new Session is called: the browser and the kind of device, read off
- * what the browser says about itself (#114). Aurélien's choice of 23 September
+ * what the browser says about itself (#114). The choice of 23 September
  * 2026 (option B) — named without asking, renamable afterwards from Settings.
  *
  * Deliberately coarse. No version and no model, so the name tells your iPhone

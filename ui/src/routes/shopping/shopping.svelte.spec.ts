@@ -9,7 +9,7 @@
  * What it is really for is the half a behaviour test cannot reach, because
  * none of it is an Operation's answer: that a row the arithmetic could not
  * close **breaks open into the recipes that fed it** rather than reading
- * `about 30 ml + 4 cloves` (the shape Aurélien chose on 2026-09-01, recorded on
+ * `about 30 ml + 4 cloves` (the shape chosen on 2026-09-01, recorded on
  * #73), that the written lines are one tap away, that a Loose Item shows no
  * amount at all, that a recipe gone away keeps its name and says why, and that
  * **nothing on this screen can be ticked**.

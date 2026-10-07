@@ -868,7 +868,7 @@ fn merge_blast_radius(
 /// A Version outlives every Branch that held it (ADR 0004), and so do its
 /// Readings: a deleted recipe leaves them, and so does a save the collapse
 /// window replaced. No Door reaches those, so they must not keep a Food alive
-/// (#162, Aurélien's choice of 27 September 2026). Every count of a Food's
+/// (#162, the choice of 27 September 2026). Every count of a Food's
 /// Readings asks this same question, or the Foods screen would offer to
 /// delete a Food `delete_food` refuses, or the reverse.
 const REACHABLE_READING: &str = "EXISTS (SELECT 1 FROM branch_versions \

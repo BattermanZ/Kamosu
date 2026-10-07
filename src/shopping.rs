@@ -429,7 +429,7 @@ pub fn sort_key(name: &str) -> String {
 /// a number, because there is only one number.
 ///
 /// **Every line under the header is one thing to buy, written as a Markdown
-/// checklist item** — the shape Aurélien chose on #74. The Shortcut appends it
+/// checklist item** — the shape chosen on #74. The Shortcut appends it
 /// to a note as Markdown, or strips the `- [ ] ` and hands each line to Notes'
 /// *Append Checklist Item*; either way each line becomes a checkbox, so no
 /// line may be anything but a thing to buy. That is why a row that could not
@@ -1212,7 +1212,7 @@ mod tests {
 
     /// **The phone adds a Shopping List up exactly as the server does** (#77).
     ///
-    /// Aurélien chose, on #77, to have a phone with no network work the rows
+    /// The choice on #77 was to have a phone with no network work the rows
     /// out itself rather than wait for the server, which means the sum exists
     /// twice: here, and in `ui/src/lib/offline/shopping.ts`. This is what keeps
     /// the two one sum. It writes every case above, with what this file

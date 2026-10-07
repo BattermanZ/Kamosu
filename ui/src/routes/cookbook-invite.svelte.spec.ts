@@ -13,9 +13,9 @@ import LinkTestHarness from './LinkTestHarness.svelte';
 import CookbookInviteRoute from './cookbook-invite/[secret]/+page.svelte';
 
 const ALREADY = {
-	id: 'c_aurelien',
+	id: 'c_stephane',
 	name: null,
-	authors: [{ person_id: 'p_1', name: 'Aurélien' }],
+	authors: [{ person_id: 'p_1', name: 'Stéphane' }],
 	recipe_count: 87,
 	kitchens: [],
 	invites: [],
@@ -44,7 +44,7 @@ describe('a Cookbook Invite link', () => {
 		const { kamosu } = open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
@@ -57,7 +57,7 @@ describe('a Cookbook Invite link', () => {
 
 		expect(
 			await screen.findByRole('heading', {
-				name: 'Aurélien asks you to write one Cookbook together',
+				name: 'Stéphane asks you to write one Cookbook together',
 			}),
 		).toBeInTheDocument();
 		expect(
@@ -94,7 +94,7 @@ describe('a Cookbook Invite link', () => {
 		const { kamosu } = open({
 			read_cookbook_invite: () => ({
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
@@ -112,9 +112,9 @@ describe('a Cookbook Invite link', () => {
 							join_id: 'cj_1',
 							state: 'waiting',
 							accepted_by: { person_id: 'p_2', name: 'Camille' },
-							invited_by: { person_id: 'p_1', name: 'Aurélien' },
+							invited_by: { person_id: 'p_1', name: 'Stéphane' },
 							joining: { id: 'c_camille', name: null, authors: [] },
-							into: { id: 'c_aurelien', name: null, authors: ALREADY.authors },
+							into: { id: 'c_stephane', name: null, authors: ALREADY.authors },
 							together_recipes: 99,
 							waiting_on: asks,
 							you: 'accepted',
@@ -152,7 +152,7 @@ describe('a Cookbook Invite link', () => {
 		const { kamosu } = open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 12,
 				together_recipes: 99,
@@ -180,7 +180,7 @@ describe('a Cookbook Invite link', () => {
 		open({
 			read_cookbook_invite: {
 				cookbook: ALREADY,
-				invited_by: { person_id: 'p_1', name: 'Aurélien' },
+				invited_by: { person_id: 'p_1', name: 'Stéphane' },
 				their_recipes: 87,
 				your_recipes: 87,
 				together_recipes: 87,
@@ -200,7 +200,7 @@ describe('a Cookbook Invite link', () => {
 				signedIn
 					? {
 							cookbook: ALREADY,
-							invited_by: { person_id: 'p_1', name: 'Aurélien' },
+							invited_by: { person_id: 'p_1', name: 'Stéphane' },
 							their_recipes: 87,
 							your_recipes: 12,
 							together_recipes: 99,
@@ -222,7 +222,7 @@ describe('a Cookbook Invite link', () => {
 
 		expect(
 			await screen.findByRole('heading', {
-				name: 'Aurélien asks you to write one Cookbook together',
+				name: 'Stéphane asks you to write one Cookbook together',
 			}),
 		).toBeInTheDocument();
 	});

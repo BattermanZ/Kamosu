@@ -6,8 +6,8 @@
 	without it a tablet has no reliable way back from a recipe.
 
 	A round button holding an arrow and no word, at the top left of the page
-	just right of the rail, staying there while the page scrolls. Aurélien chose
-	it on 5 October 2026 over a line naming the parent; ADR 0044 says why.
+	just right of the rail, staying there while the page scrolls. It was chosen
+	on 5 October 2026 over a line naming the parent; ADR 0044 says why.
 
 	It is a link to the page's parent, which is where it goes when nothing of
 	Kamosu is behind the page. When something is, it goes back instead, exactly

@@ -18,7 +18,7 @@ A **Food** holds any number of names in a Language, in order. "œufs" and "œuf"
 
 - **A small plural rule per Language** (French adds *s* or *x*, English *s*, *es* or *ies*). Rejected: it guesses, and it welds the pairs a cook keeps apart. It would also have superseded part of ADR 0022.
 - **Several names and the plural rule as a fallback.** Rejected for the same reason: the guessing is the risk, whether or not it runs first.
-- **Several names per Language** (chosen by Aurélien on 2026-09-27).
+- **Several names per Language** (chosen on 2026-09-27).
 
 ## Consequences
 

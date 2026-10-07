@@ -10,7 +10,7 @@
 //! **What goes on the page is decided by one rule** — a Sheet carries the
 //! recipe, not the library — and this module is where the rule is applied, not
 //! where it is argued; ADR 0023 is. **What the page looks like** is
-//! `sheet.typ`'s business, and was chosen by Aurélien on #75.
+//! `sheet.typ`'s business, and was chosen on #75.
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -868,7 +868,7 @@ mod tests {
             components,
             version_name: None,
             written_at: "2026-09-03T19:07:04.759Z".into(),
-            hand: "Aurélien".into(),
+            hand: "Stéphane".into(),
             fingerprint: "v_abc".into(),
             share_url: None,
             paper: Paper::A4,
@@ -965,7 +965,7 @@ mod tests {
         assert_eq!(composed["printed"], json!("printed 19 September 2026"));
         assert_eq!(
             composed["provenance"],
-            json!(["written 3 September 2026", "Aurélien"])
+            json!(["written 3 September 2026", "Stéphane"])
         );
     }
 

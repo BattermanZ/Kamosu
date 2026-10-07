@@ -21,7 +21,7 @@ import ShareTestHarness from './ShareTestHarness.svelte';
 const RECIPE = {
 	branch_id: 'b_1',
 	lineage_id: 'l_1',
-	cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Aurélien' }] },
+	cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
 	name: null,
 	writes: true,
 	mine: true,
@@ -120,7 +120,7 @@ describe('the share screen', () => {
 				shared: true,
 				share_id: 'sl_1',
 				url: 'https://kamosu.example/s/abc',
-				shared_by: 'Aurélien',
+				shared_by: 'Stéphane',
 				created_at: '2026-08-30T00:00:00Z',
 				public_address: 'https://kamosu.example',
 			},
@@ -141,7 +141,7 @@ describe('the share screen', () => {
 		// again every time this screen opens (#171, ADR 0031 as amended).
 		expect(await screen.findByText('https://kamosu.example/s/abc')).toBeInTheDocument();
 		expect(screen.queryByText(/shown again/)).toBeNull();
-		expect(screen.getByText(/Shared by Aurélien/)).toBeInTheDocument();
+		expect(screen.getByText(/Shared by Stéphane/)).toBeInTheDocument();
 	});
 
 	it('does not ask for the address again once the instance knows it', async () => {
@@ -166,7 +166,7 @@ describe('the share screen', () => {
 					shared: true,
 					share_id: 'sl_1',
 					url: 'https://kamosu.example/s/abc',
-					shared_by: 'Aurélien',
+					shared_by: 'Stéphane',
 					created_at: '2026-08-30T00:00:00Z',
 					public_address: 'https://kamosu.example',
 				},
@@ -196,7 +196,7 @@ describe('the share screen', () => {
 				// Null because this link was minted before #171, when only the
 				// Secret's hash was stored: it still opens, and cannot be shown.
 				url: null,
-				shared_by: 'Aurélien',
+				shared_by: 'Stéphane',
 				created_at: '2026-08-30T00:00:00Z',
 				public_address: 'https://kamosu.example',
 			},
@@ -217,7 +217,7 @@ describe('the share screen', () => {
 	//
 	// Described before it is taken, which is the habit this whole screen keeps:
 	// the standing line and the line about Components both say what an act
-	// means before you do it (option C, Aurélien, 20 September
+	// means before you do it (option C, chosen 20 September
 	// 2026).
 
 	it('says what the recipe file holds before offering to save it', async () => {
@@ -238,7 +238,7 @@ describe('the share screen', () => {
 				shared: true,
 				share_id: 'sl_1',
 				url: null,
-				shared_by: 'Aurélien',
+				shared_by: 'Stéphane',
 				created_at: '2026-08-30T00:00:00Z',
 				public_address: 'https://kamosu.example',
 			},

@@ -1,5 +1,5 @@
 //! The Crouton importer against the library it was built for (#69): all 86
-//! recipes of Aurélien's real export, sent the way a browser sends them — the
+//! recipes of the real export, sent the way a browser sends them — the
 //! zip staged at `POST /api/uploads`, then `import_crouton` naming it — and
 //! landed in one Job.
 //!
@@ -129,7 +129,7 @@ async fn the_whole_crouton_library_arrives_in_one_job_as_measured() {
 
     // --- One Job ------------------------------------------------------------
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus", false)

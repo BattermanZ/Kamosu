@@ -299,7 +299,7 @@ fn upload_photograph(core: &Core, headers: &HeaderMap, body: &[u8]) -> Response 
     }
 }
 
-/// The largest file `POST /api/uploads` stages. Aurélien's 86-recipe library
+/// The largest file `POST /api/uploads` stages. A real 86-recipe library
 /// is 114 MB, almost all of it photographs; this leaves room for a library
 /// many times that size without letting one request fill the disk.
 const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;

@@ -9,7 +9,7 @@
  *
  * What these guard above everything:
  *
- *   · an ordinary recipe says NOTHING about its Language. That is Aurélien's
+ *   · an ordinary recipe says NOTHING about its Language. That is the
  *     choice of 22 September 2026 and the reason Option 1 was chosen over a
  *     Languages section drawn on every recipe, so an empty state appearing
  *     here later is a regression and not a polish;

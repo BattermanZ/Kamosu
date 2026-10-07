@@ -1,6 +1,6 @@
 <!--
-	The card Kamosu shows when Kamosu is the thing that broke (#98, option C —
-	Aurélien, 22 September 2026).
+	The card Kamosu shows when Kamosu is the thing that broke (#98, option C,
+	chosen 22 September 2026).
 
 	It wears the same shape as the "not right now" cards (#76) so it reads as one
 	voice, and the same beni rule along the top edge as the warning, because that

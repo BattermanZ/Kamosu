@@ -5418,7 +5418,7 @@ fn set_as_cooked_input_schema() -> Value {
 /// Deliberately not a number. ADR 0015 refuses to average ratings, and a scale
 /// out of five invites a reader to do that arithmetic in their own head even
 /// where Kamosu never does; three words make the refusal self-evident. The
-/// scale was Aurélien's choice, recorded on #59 before this was written.
+/// scale was chosen on #59, before this was written.
 fn rating_schema() -> Value {
     json!({
         "type": ["string", "null"],

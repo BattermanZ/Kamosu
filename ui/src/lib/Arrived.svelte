@@ -5,7 +5,7 @@
 	at the top of the page and the person putting it away (#76). A recipe file
 	does not end on the Import Report the way a Crouton library does — one file
 	is one recipe, so the recipe opens and this says the line (option C,
-	Aurélien, 21 September 2026). *How it went* leads to the Report for what a
+	chosen 21 September 2026). *How it went* leads to the Report for what a
 	line cannot hold.
 
 	It shows only above the recipe it is about, and leaving that recipe is what

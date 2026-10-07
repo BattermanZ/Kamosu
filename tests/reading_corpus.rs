@@ -1,4 +1,4 @@
-//! Reading Ingredient Lines, put through Aurélien's real 86-recipe Crouton
+//! Reading Ingredient Lines, put through the real 86-recipe Crouton
 //! export (#71, ADR 0036).
 //!
 //! **This corpus is the only honest scoreboard this feature has.** Ten
@@ -251,7 +251,7 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
     );
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus reading", false)

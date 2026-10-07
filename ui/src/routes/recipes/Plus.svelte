@@ -5,12 +5,12 @@
 	one does its thing in place (ADR 0027): a link opens the address field under
 	the search row, a Bundle (a Kamosu zip file) opens the phone's own picker
 	straight away, a PDF opens it too and raises the sheet a paste is checked
-	on (#176, a row of its own by Aurélien's choice on #174), pasted text opens
-	a box for it under the search row (#175, Aurélien's choice), and writing one
+	on (#176, a row of its own by the choice on #174), pasted text opens
+	a box for it under the search row (#175, chosen there), and writing one
 	asks for a title under the search row. The acts are `$lib/adding`'s, the
 	same ones the dead ends below offer.
 
-	**The arrangement is Aurélien's, chosen on 27 September 2026** from two
+	**The arrangement was chosen on 27 September 2026** from two
 	options drawn over the real Recipes and Home screens (option 1, recorded on
 	#174): beside the search box, a list hanging from the +, Recipes only. It
 	replaced the quiet "Add a recipe from a link · from a recipe file" row #93

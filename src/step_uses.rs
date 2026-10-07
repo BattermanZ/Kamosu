@@ -17,7 +17,7 @@
 //!   again in the dipping sauce: a Step naming it takes the first such line no
 //!   earlier Step has used, or the first line again when every one is used.
 //!   Two *different* foods sharing a short word (*sugar* with brown and white
-//!   sugar) are both linked, and the cook picks. Both were Aurélien's choices
+//!   sugar) are both linked, and the cook picks. Both were chosen
 //!   on #184.
 //! - **What comes after *until* is not going in.** *Steam until most of the
 //!   water has evaporated* adds no water, so a mention after *until*,
@@ -537,7 +537,7 @@ mod tests {
                 &["brown sugar", "white sugar"]
             ),
             [step(&[0, 1]), step(&[1])],
-            "Aurélien's choice on #184: both, and the cook picks; a longer \
+            "the choice on #184: both, and the cook picks; a longer \
              mention settles it where the Step gives one"
         );
     }
@@ -688,7 +688,7 @@ mod tests {
     fn every_link_the_whole_name_rule_made_is_still_made() {
         // Each case, with the (Step, line) links it is allowed to lose: one
         // food on two lines now linking one of them, or a mention after
-        // *until* (Aurélien's choices 2 and 3 on #184). Nothing else may go.
+        // *until* (choices 2 and 3 on #184). Nothing else may go.
         let cases: &[Case] = &[
             (CAKE_STEPS, CAKE_TARGETS, &[]),
             (

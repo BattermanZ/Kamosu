@@ -1,6 +1,6 @@
 # The v1 cut line is drawn at shape, not at features
 
-v1 is **the version Aurélien switches to** — done the day Crouton is deleted from the phone, not the day Kamosu does one thing Crouton cannot.
+v1 is **the version its first Operator switches to** — done the day Crouton is deleted from the phone, not the day Kamosu does one thing Crouton cannot.
 
 What goes in is decided by a single rule. Every candidate is one of two kinds:
 
@@ -12,7 +12,7 @@ What goes in is decided by a single rule. Every candidate is one of two kinds:
 ## Why
 
 - **The switch test is the only measure that produces daily use, and daily use is the point of a first version.** Shipping a beachhead — one thing Crouton cannot do, with both apps open — sounds pragmatic and is a trap: two cookbooks means neither is *the* cookbook, the import never gets finished because nothing forces it, and the feedback that tells you what is wrong never arrives.
-- **It makes scope decidable rather than a matter of taste.** "Would its absence send you back to Crouton?" is a question Aurélien can answer about his own hands. "Is this important?" is a question nobody can answer.
+- **It makes scope decidable rather than a matter of taste.** "Would its absence send you back to Crouton?" is a question the first Operator can answer about his own hands. "Is this important?" is a question nobody can answer.
 - **Retrofit cost is the real asymmetry, and it is wildly uneven.** The eleven decisions already on this map are almost entirely about stored shape, which is why they were worth making before any code exists. Nearly everything else is derived, and derived things are cheap forever.
 - **It was already the working rule.** The map had been applying it for eleven tickets without saying so. Naming it is what lets it be applied to the remaining wish-list consistently instead of item by item on instinct.
 

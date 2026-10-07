@@ -2,7 +2,7 @@
 
 Kamosu's frontend is **Svelte 5 with SvelteKit on `adapter-static`, TypeScript, Tailwind 4 and Paraglide**. The Rust binary serves the built files, so SvelteKit's own server half is unused and is taken purely for its router and project layout.
 
-The choice was not made on elegance, bundle size or familiarity. It was made on a single property Kamosu has and most projects do not: **nobody who can read this code will ever read it.** Aurélien is not a developer, there is no second engineer, and no reviewer stands between a generated component and a phone propped against a chopping board. Every part of the stack above is therefore chosen so that **the build fails rather than the kitchen does** — the same argument [ADR 0001](./0001-both-doors-generated-from-one-operation-catalogue.md) made for Rust, applied to the browser.
+The choice was not made on elegance, bundle size or familiarity. It was made on a single property Kamosu has and most projects do not: **nobody who can read this code will ever read it.** The first Operator is not a developer, there is no second engineer, and no reviewer stands between a generated component and a phone propped against a chopping board. Every part of the stack above is therefore chosen so that **the build fails rather than the kitchen does** — the same argument [ADR 0001](./0001-both-doors-generated-from-one-operation-catalogue.md) made for Rust, applied to the browser.
 
 ## Why
 

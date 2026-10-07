@@ -289,7 +289,7 @@ describe('promotion onto a recipe somebody else writes (#111, #131)', () => {
 		show([attempt()], ['v_1'], {}, false, {
 			mine: true,
 			arrived: true,
-			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Aurélien' }] },
+			cookbook: { id: 'c_me', name: null, authors: [{ person_id: 'p_me', name: 'Stéphane' }] },
 		});
 		await fireEvent.click(await screen.findByRole('button', { name: /keep it as your own copy/i }));
 		expect(

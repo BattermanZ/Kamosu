@@ -1,4 +1,4 @@
-/* PROTOTYPE data. Real content, lifted from Aurélien's 86-recipe Crouton export.
+/* PROTOTYPE data. Real content, lifted from a real 86-recipe Crouton export.
    Ingredient Lines are written as a person writes them (ADR 0002: the line is the truth);
    `reading` is Kamosu's subordinate Reading, and is deliberately null on some lines. */
 

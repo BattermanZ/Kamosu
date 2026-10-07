@@ -6,7 +6,7 @@
 	browser there lets a page trigger it — adding is always Share, then Add to
 	Home Screen (ADR 0013). Elsewhere a Chromium browser may offer to install
 	Kamosu, and while it does the steps give way to a button that opens the
-	browser's own dialog (#173, option B — Aurélien, 27 September 2026). Where
+	browser's own dialog (#173, option B, chosen 27 September 2026). Where
 	it does not, in Firefox or after the dialog was turned down, the steps are
 	written out.
 -->

@@ -145,7 +145,7 @@
 	// --- Reading Language (#112) --------------------------------------------
 	//
 	// Two settings, shown as one until somebody wants them apart. That is
-	// Aurélien's choice of 23 September 2026 (option C). The interface locale is
+	// the choice of 23 September 2026 (option C). The interface locale is
 	// Paraglide's and lives in this browser; the Reading Language is the
 	// account's, and it decides which Language a recipe's title, a Tag and a
 	// Food are shown in at every Door (ADR 0006). Most people want both the
@@ -253,7 +253,7 @@
 
 	// --- You (#113) ---------------------------------------------------------
 	//
-	// Your own name, and where it is changed. Aurélien's choice of 23 September
+	// Your own name, and where it is changed. The choice of 23 September
 	// 2026 (option A): a section of its own at the top, because the name is
 	// about you rather than your devices, and it reaches your whole history.
 	// Nothing is keyed on it (ADR 0015) — a Version carries a Hand, and the
@@ -1391,8 +1391,8 @@
 			Cookbook that writes the recipes they file.
 
 			Renaming and merging are HERE and not on the recipe page, which is
-			Aurélien's choice of 22 September 2026 — `Tags.svelte` beside this
-			file records his reasoning. Putting them in Settings is not the same
+			the choice of 22 September 2026 — `Tags.svelte` beside this
+			file records the reasoning. Putting them in Settings is not the same
 			mistake Meaning Search would have made by living here: a tag is
 			discovered on a recipe, where the row and the sheet are, and this is
 			only where the list is tidied.

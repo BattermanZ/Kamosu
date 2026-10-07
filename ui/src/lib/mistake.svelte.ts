@@ -1,5 +1,5 @@
 /**
- * When Kamosu itself goes wrong (#98, option C — Aurélien, 22 September 2026).
+ * When Kamosu itself goes wrong (#98, option C, chosen 22 September 2026).
  *
  * Every screen draws one line: a **refusal** the Core meant to send is an
  * `OperationError`, caught and said on screen (ADR 0040); anything else is a

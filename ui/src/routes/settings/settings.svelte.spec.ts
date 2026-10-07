@@ -72,7 +72,7 @@ function cookbookOf(over: Partial<GetCookbookOutput> = {}): GetCookbookOutput {
 	return {
 		id: 'c_1',
 		name: null,
-		authors: [{ person_id: 'p_1', name: 'Aurélien' }],
+		authors: [{ person_id: 'p_1', name: 'Stéphane' }],
 		recipe_count: 87,
 		kitchens: [],
 		invites: [],
@@ -89,7 +89,7 @@ function cookbookOf(over: Partial<GetCookbookOutput> = {}): GetCookbookOutput {
 const readsInAmerican: Answers = {
 	get_reading_preferences: { reading_language: 'en', reading_measures: 'us' },
 	// Who is signed in, and what they are called (#113).
-	get_person: { person_id: 'p_1', name: 'Aurélien' },
+	get_person: { person_id: 'p_1', name: 'Stéphane' },
 	// A signed-in Person who does not administer the instance (#103).
 	list_accounts: { refuse: 'unauthorized' },
 	// Meaning Search as most instances have it: nobody has been asked, so this
@@ -148,7 +148,7 @@ describe('the settings screen', () => {
 			list_accounts: {
 				accounts: [
 					{
-						name: 'Aurélien',
+						name: 'Stéphane',
 						is_operator: true,
 						disabled: false,
 						is_you: true,
@@ -358,7 +358,7 @@ describe('the settings screen', () => {
 						name: 'Maison Batterman',
 						cookbooks: [cookbookLabel()],
 						nickname: null,
-						members: [{ person_id: 'p_1', name: 'Aurélien' }],
+						members: [{ person_id: 'p_1', name: 'Stéphane' }],
 					},
 					{
 						id: 'k_shared',
@@ -366,7 +366,7 @@ describe('the settings screen', () => {
 						cookbooks: [cookbookLabel(), cookbookLabel('c_2', ['Marie'])],
 						nickname: 'Nos amis',
 						members: [
-							{ person_id: 'p_1', name: 'Aurélien' },
+							{ person_id: 'p_1', name: 'Stéphane' },
 							{ person_id: 'p_2', name: 'Marie' },
 						],
 					},
@@ -381,7 +381,7 @@ describe('the settings screen', () => {
 		expect(screen.queryByText('Home')).not.toBeInTheDocument();
 		expect(screen.getByDisplayValue('Nos amis')).toBeInTheDocument();
 		expect(
-			screen.getByText('Recipes here: Aurélien’s Cookbook and Marie’s Cookbook'),
+			screen.getByText('Recipes here: Stéphane’s Cookbook and Marie’s Cookbook'),
 		).toBeInTheDocument();
 
 		const marieRow = screen.getByText('Marie').closest('li');
@@ -414,12 +414,12 @@ describe('the settings screen', () => {
 		const rowOf = (name: string) => screen.getByText(name).closest('li') as HTMLElement;
 		const TWO = [
 			kitchen('Family', [
-				['p_1', 'Aurélien'],
+				['p_1', 'Stéphane'],
 				['p_2', 'Hélène'],
 				['p_3', 'Luc'],
 			]),
 			kitchen('Supper Club', [
-				['p_1', 'Aurélien'],
+				['p_1', 'Stéphane'],
 				['p_4', 'Marie'],
 			]),
 		];
@@ -429,7 +429,7 @@ describe('the settings screen', () => {
 		it("offers Remove on everyone else's row and nothing on your own", async () => {
 			renderScreen(Settings, signedIn(TWO));
 			const family = await cardOf('Family');
-			const mine = within(within(family).getByText('Aurélien').closest('li') as HTMLElement);
+			const mine = within(within(family).getByText('Stéphane').closest('li') as HTMLElement);
 			expect(mine.queryByRole('button')).not.toBeInTheDocument();
 			expect(within(rowOf('Hélène')).getByRole('button', { name: 'Remove' })).toBeInTheDocument();
 			expect(
@@ -520,7 +520,7 @@ describe('the settings screen', () => {
 				name: 'Supper Club',
 				cookbooks: [cookbookLabel()],
 				nickname: null,
-				members: [{ person_id: 'p_1', name: 'Aurélien' }],
+				members: [{ person_id: 'p_1', name: 'Stéphane' }],
 			},
 		});
 
@@ -550,7 +550,7 @@ describe('the settings screen', () => {
 						name: 'Maison Batterman',
 						cookbooks: [cookbookLabel()],
 						nickname: null,
-						members: [{ person_id: 'p_1', name: 'Aurélien' }],
+						members: [{ person_id: 'p_1', name: 'Stéphane' }],
 					},
 				],
 			},
@@ -586,7 +586,7 @@ describe('the settings screen', () => {
 				name: 'Supper Club',
 				cookbooks: [cookbookLabel()],
 				nickname: null,
-				members: [{ person_id: 'p_1', name: 'Aurélien' }],
+				members: [{ person_id: 'p_1', name: 'Stéphane' }],
 			},
 		});
 
@@ -630,7 +630,7 @@ describe('the settings screen', () => {
 					name,
 					cookbooks: [cookbookLabel()],
 					nickname: null,
-					members: [{ person_id: 'p_1', name: 'Aurélien' }],
+					members: [{ person_id: 'p_1', name: 'Stéphane' }],
 				})),
 			},
 		});
@@ -706,7 +706,7 @@ describe('the settings screen', () => {
 	// --- Tags (#104) --------------------------------------------------------
 	//
 	// Renaming, merging and deleting are HERE and not on the recipe page, which
-	// is Aurélien's choice of 22 September 2026. These guard the two things that
+	// is the choice of 22 September 2026. These guard the two things that
 	// make the section worth having: the count beside each word, so deleting is
 	// an informed act, and that a tag known only in one Language can be given a
 	// name in another.
@@ -724,7 +724,7 @@ describe('the settings screen', () => {
 					name: 'Maison Batterman',
 					cookbooks: [cookbookLabel()],
 					nickname: null,
-					members: [{ person_id: 'p_1', name: 'Aurélien' }],
+					members: [{ person_id: 'p_1', name: 'Stéphane' }],
 				},
 			],
 		},
@@ -928,7 +928,7 @@ describe('the settings screen', () => {
 
 describe('the Reading Language (#112)', () => {
 	/**
-	 * Aurélien's choice of 23 September 2026 (option C): one Language control
+	 * The choice of 23 September 2026 (option C): one Language control
 	 * that recipes follow, which can split in two for somebody who reads
 	 * Kamosu in one Language and their recipes in another.
 	 */
@@ -1082,7 +1082,7 @@ describe('the Reading Language (#112)', () => {
 						name: 'Maison Batterman',
 						cookbooks: [cookbookLabel()],
 						nickname: null,
-						members: [{ person_id: 'p_1', name: 'Aurélien' }],
+						members: [{ person_id: 'p_1', name: 'Stéphane' }],
 					},
 				],
 			},
@@ -1166,7 +1166,7 @@ describe('your own name (#113)', () => {
 		list_access_keys: { access_keys: [] },
 		...readsInAmerican,
 		list_tags: { tags: [] },
-		list_kitchens: kitchensNaming('Aurélien'),
+		list_kitchens: kitchensNaming('Stéphane'),
 		...over,
 	});
 
@@ -1178,7 +1178,7 @@ describe('your own name (#113)', () => {
 		renderScreen(Settings, signedIn());
 
 		const you = await youSection();
-		expect(within(you).getByText('Aurélien')).toBeInTheDocument();
+		expect(within(you).getByText('Stéphane')).toBeInTheDocument();
 		expect(
 			within(you).getByText('The name on your Versions, and the one you sign in with.'),
 		).toBeInTheDocument();
@@ -1189,7 +1189,7 @@ describe('your own name (#113)', () => {
 		const marked = screen.getAllByText('you');
 		// Two Kitchens, and the Written by list of your Cookbook (#131).
 		expect(marked).toHaveLength(3);
-		for (const mark of marked) expect(mark.closest('li')?.textContent).toContain('Aurélien');
+		for (const mark of marked) expect(mark.closest('li')?.textContent).toContain('Stéphane');
 		const marieRow = screen.getByText('Marie').closest('li') as HTMLElement;
 		expect(within(marieRow).queryByText('you')).not.toBeInTheDocument();
 	});
@@ -1201,7 +1201,7 @@ describe('your own name (#113)', () => {
 			within(await youSection()).getByRole('button', { name: 'Change your name' }),
 		);
 
-		expect(screen.getByLabelText('Your name')).toHaveValue('Aurélien');
+		expect(screen.getByLabelText('Your name')).toHaveValue('Stéphane');
 		expect(
 			screen.getByText('Every Version you ever saved shows the new name, in every Kitchen.'),
 		).toBeInTheDocument();
@@ -1213,7 +1213,7 @@ describe('your own name (#113)', () => {
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_person');
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
-		expect(within(await youSection()).getByText('Aurélien')).toBeInTheDocument();
+		expect(within(await youSection()).getByText('Stéphane')).toBeInTheDocument();
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('rename_person');
 	});
 
@@ -1222,14 +1222,14 @@ describe('your own name (#113)', () => {
 		const { kamosu } = renderScreen(
 			Settings,
 			signedIn({
-				list_kitchens: () => kitchensNaming(renamed ? 'Aurélien Dupont' : 'Aurélien'),
+				list_kitchens: () => kitchensNaming(renamed ? 'Stéphane Dupont' : 'Stéphane'),
 				get_cookbook: () =>
 					cookbookOf({
-						authors: [{ person_id: 'p_1', name: renamed ? 'Aurélien Dupont' : 'Aurélien' }],
+						authors: [{ person_id: 'p_1', name: renamed ? 'Stéphane Dupont' : 'Stéphane' }],
 					}),
 				rename_person: () => {
 					renamed = true;
-					return { name: 'Aurélien Dupont' };
+					return { name: 'Stéphane Dupont' };
 				},
 			}),
 		);
@@ -1238,25 +1238,25 @@ describe('your own name (#113)', () => {
 			within(await youSection()).getByRole('button', { name: 'Change your name' }),
 		);
 		await fireEvent.input(screen.getByLabelText('Your name'), {
-			target: { value: 'Aurélien Dupont' },
+			target: { value: 'Stéphane Dupont' },
 		});
 		await fireEvent.click(screen.getByRole('button', { name: 'Change my name' }));
 
 		expect(
 			await screen.findByText(
-				'Done. Your Versions now say Aurélien Dupont. Sign in with that name from now on.',
+				'Done. Your Versions now say Stéphane Dupont. Sign in with that name from now on.',
 			),
 		).toBeInTheDocument();
 		expect(kamosu.calls).toContainEqual({
 			operation: 'rename_person',
-			input: { name: 'Aurélien Dupont' },
+			input: { name: 'Stéphane Dupont' },
 		});
 		const you = await youSection();
-		expect(within(you).getByText('Aurélien Dupont')).toBeInTheDocument();
+		expect(within(you).getByText('Stéphane Dupont')).toBeInTheDocument();
 		expect(within(you).getByRole('button', { name: 'Change your name' })).toBeInTheDocument();
 		// Your rows in the Kitchens and your Cookbook were read again, and
 		// still say they are you.
-		await vi.waitFor(() => expect(screen.getAllByText(/^Aurélien Dupont$/).length).toBe(4));
+		await vi.waitFor(() => expect(screen.getAllByText(/^Stéphane Dupont$/).length).toBe(4));
 		expect(screen.getAllByText('you')).toHaveLength(3);
 	});
 
@@ -1469,7 +1469,7 @@ describe('your Cookbook (#131)', () => {
 		) as HTMLElement;
 	const TOGETHER = cookbookOf({
 		authors: [
-			{ person_id: 'p_1', name: 'Aurélien' },
+			{ person_id: 'p_1', name: 'Stéphane' },
 			{ person_id: 'p_2', name: 'Camille' },
 		],
 		recipe_count: 99,
@@ -1480,7 +1480,7 @@ describe('your Cookbook (#131)', () => {
 		const book = within(await card());
 		const name = book.getByLabelText('Your Cookbook’s name');
 		expect(name).toHaveValue('');
-		expect(name).toHaveAttribute('placeholder', 'Aurélien’s');
+		expect(name).toHaveAttribute('placeholder', 'Stéphane’s');
 		expect(book.getByText('Named after its writer until you rename it.')).toBeInTheDocument();
 		expect(
 			book.getByText(/^87 recipes\. Only this Cookbook's writers change them/),
@@ -1596,7 +1596,7 @@ describe('your Cookbook (#131)', () => {
 		await fireEvent.click(book.getByRole('button', { name: 'Leave this Cookbook' }));
 
 		const sheet = within(await screen.findByRole('dialog'));
-		expect(sheet.getByRole('heading', { name: 'Leave Aurélien and Camille?' })).toBeInTheDocument();
+		expect(sheet.getByRole('heading', { name: 'Leave Stéphane and Camille?' })).toBeInTheDocument();
 		expect(
 			sheet.getByText(
 				'You take a copy of all 99 recipes, with their history. The others keep theirs.',
@@ -1633,11 +1633,11 @@ describe('your Cookbook (#131)', () => {
 
 	describe('a join waiting on answers (#135)', () => {
 		type Join = GetCookbookOutput['joins'][number];
-		/** Aurélien (you, p_1) said yes to Hélène's Invite; Hélène writes with Bob. */
+		/** Stéphane (you, p_1) said yes to Hélène's Invite; Hélène writes with Bob. */
 		const joinOf = (over: Partial<Join> = {}): Join => ({
 			join_id: 'cj_1',
 			state: 'waiting',
-			accepted_by: { person_id: 'p_1', name: 'Aurélien' },
+			accepted_by: { person_id: 'p_1', name: 'Stéphane' },
 			invited_by: { person_id: 'p_3', name: 'Hélène' },
 			joining: { id: 'c_1', name: null, authors: TOGETHER.authors },
 			into: {

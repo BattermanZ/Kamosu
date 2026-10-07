@@ -38,7 +38,7 @@
 		onSignedIn?: () => void;
 		/**
 		 * A login asked for by another page rather than by `/`: the page a Share
-		 * Link's *Import this recipe* opens (#170, Aurélien's choice 2). It
+		 * Link's *Import this recipe* opens (#170, choice 2). It
 		 * brings its own heading, its own words on the button, and what it
 		 * offers above and below the form. Worn only by a login: an instance
 		 * not yet set up asks for its first Person whoever sent you.

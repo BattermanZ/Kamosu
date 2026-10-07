@@ -29,7 +29,7 @@ fn base64_of(bytes: &[u8]) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uploading_the_same_picture_twice_through_base64_answers_the_same_id() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -52,7 +52,7 @@ async fn uploading_the_same_picture_twice_through_base64_answers_the_same_id() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_out_of_band_route_and_the_base64_fallback_agree_on_the_same_picture() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -77,7 +77,7 @@ async fn the_out_of_band_route_and_the_base64_fallback_agree_on_the_same_picture
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_uploaded_photograph_can_be_read_back_as_webp() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -103,7 +103,7 @@ async fn an_uploaded_photograph_can_be_read_back_as_webp() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_display_copy_is_generated_on_first_ask_and_never_exceeds_its_size() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -135,7 +135,7 @@ async fn a_display_copy_is_generated_on_first_ask_and_never_exceeds_its_size() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_unrecognised_display_size_is_refused() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -154,7 +154,7 @@ async fn an_unrecognised_display_size_is_refused() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn svg_is_refused_by_both_upload_routes() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -189,7 +189,7 @@ async fn svg_is_refused_by_both_upload_routes() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_only_access_key_cannot_upload_a_photograph_either_way() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let read_only_key = app
         .core
         .mint_access_key(&person, "read-only agent", true)
@@ -213,7 +213,7 @@ async fn a_read_only_access_key_cannot_upload_a_photograph_either_way() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fetching_a_photograph_without_a_credential_is_refused() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -234,7 +234,7 @@ async fn fetching_a_photograph_without_a_credential_is_refused() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_photograph_nothing_shows_yet_is_readable_by_its_uploader_and_nobody_else() {
     let app = support::spawn_app();
-    let uploader = app.core.create_person("Aurélien").expect("person");
+    let uploader = app.core.create_person("Stéphane").expect("person");
     let uploader_key = app
         .core
         .mint_access_key(&uploader, "browser session", false)
@@ -350,7 +350,7 @@ async fn a_photograph_arriving_already_made_is_stored_byte_for_byte_with_no_reen
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_main_photo_and_a_steps_photo_are_part_of_the_versions_fingerprint() {
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "browser session", false)
@@ -407,7 +407,7 @@ async fn the_main_photo_and_a_steps_photo_are_part_of_the_versions_fingerprint()
 /// An instance with an operator, since the sweep is an Operator's to ask for.
 fn operator(app: &support::TestApp) -> (String, String) {
     let first = json!({
-        "name": "Aurélien",
+        "name": "Stéphane",
         "password": "a password only its person knows",
         "session_name": "test browser"
     });

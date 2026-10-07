@@ -1,6 +1,6 @@
 <!--
 	Naming a version of this recipe, renaming it, or clearing its name (#134,
-	Aurélien's choice B of 24 September 2026: a line among the recipe's
+	choice B of 24 September 2026: a line among the recipe's
 	actions, opening a small sheet, over tapping the name under the title or
 	pressing and holding its chip).
 

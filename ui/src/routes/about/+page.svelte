@@ -1,6 +1,6 @@
 <!--
 	`/about` — the story (#158) for anyone, signed in or not, with no Invite:
-	a link Aurélien sends on its own. It ends asking the reader to get an Invite
+	a link somebody sends on its own. It ends asking the reader to get an Invite
 	from whoever sent it, and its corner takes them Home, which is the sign-in
 	form to somebody who has no account.
 -->

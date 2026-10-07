@@ -6,7 +6,7 @@
 	Copy — the same two outcomes, in the same words, as saving on the writing
 	screen (#83).
 
-	ONE SHEET, REACHED FROM TWO PLACES. Aurélien chose on 23 September 2026 from
+	ONE SHEET, REACHED FROM TWO PLACES. Chosen on 23 September 2026 from
 	a prototype of three: the diary, where the pictures already are (a tapped
 	photograph arrives here already picked), and the recipe page, where a
 	recipe wearing its Cover is noticed and every cooking of it is in one row.

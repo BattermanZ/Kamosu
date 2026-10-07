@@ -1,7 +1,7 @@
 <!--
 	A Step's photograph, where a Step is read (#110): a small square beside the
-	words, which opens the picture across the whole screen. Aurélien chose the
-	square on both screens on 23 September 2026 — R2 on the recipe page, K3 at
+	words, which opens the picture across the whole screen. The
+	square was chosen on both screens on 23 September 2026 — R2 on the recipe page, K3 at
 	the stove — over a full-width picture that pushed the Method apart and, at
 	the stove, cut a long Step's words off to make room.
 

@@ -1608,7 +1608,7 @@ fn whole_word_at(haystack: &str, start: usize, needle: &str) -> bool {
 /// autosave, so genuinely separate editing sessions land far apart in
 /// practice — there is no realistic pattern this window would wrongly merge,
 /// while it comfortably absorbs one meandering sitting, pauses included
-/// (decided with Aurélien on issue #42).
+/// (decided on issue #42).
 pub const COLLAPSE_WINDOW_SECONDS: i64 = 3600;
 
 /// How a save says the recipe's new content: whole, already parsed, or as

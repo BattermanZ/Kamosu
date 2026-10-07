@@ -1,6 +1,6 @@
 # Crouton: what a real 86-recipe library actually contains
 
-Source: `Crouton Recipes - 20 Aug 2026.zip`, Aurélien's own library, exported 2026-08-20.
+Source: `Crouton Recipes - 20 Aug 2026.zip`, the first Operator's own library, exported 2026-08-20.
 Files lived at `samples/crouton/` (gitignored — 110 MB, mostly photos, and personal);
 since #128 this export sits in `samples/crouton-2026-08-20/` and the 23 September 2026
 one is the corpus. See *Update, 23 September 2026* at the end.
@@ -37,7 +37,7 @@ you get**, and duplicate names get a `-1` suffix.
 | `tags`, `folderIDs`, `isPublicRecipe` | 86 | **0** | present but never populated |
 | `duplicatedFromRecipeUUID` | 1 | 1 | and its source is not in the export |
 
-**`tags` and `folderIDs` are empty in all 86 recipes.** Whatever organisation Aurélien has
+**`tags` and `folderIDs` are empty in all 86 recipes.** Whatever organisation the first Operator has
 in Crouton, the export does not carry it — worth confirming with him before assuming he
 has none.
 

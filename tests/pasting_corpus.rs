@@ -1,4 +1,4 @@
-//! Reading a pasted recipe, put through Aurélien's real 86-recipe Crouton
+//! Reading a pasted recipe, put through the real 86-recipe Crouton
 //! export (#94).
 //!
 //! **This corpus is the only honest scoreboard the split has.** Crouton stored

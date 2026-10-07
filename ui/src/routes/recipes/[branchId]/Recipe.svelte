@@ -16,7 +16,7 @@
 	Which line is which is read against the Branch Point by the `divergence`
 	Operation (ADR 0019). Nothing here pairs anything, and no line carries an id.
 
-	THE PAGE'S OWN LAYOUT was chosen by Aurélien on 29 August 2026 against three
+	THE PAGE'S OWN LAYOUT was chosen on 29 August 2026 against three
 	full mockups drawn on real recipes, and the reasoning is on #81 rather than
 	repeated here. What it settled:
 
@@ -69,7 +69,7 @@
 	respect but two: the square in front of it is matcha rather than indigo, and
 	it opens.
 
-	What it opens into was chosen by Aurélien on 3 September 2026 against two
+	What it opens into was chosen on 3 September 2026 against two
 	treatments drawn on real recipes, recorded on #50. He was offered A · the
 	nest, which put the inner recipe's Steps inside the row with its
 	Ingredients, and chose B · the annexe:
@@ -273,7 +273,7 @@
 
 	// ---- how much, for the errands (#109) ---------------------------------
 	//
-	// A VIEW THAT CARRIES FORWARD, Aurélien's choice of 23 September 2026. The
+	// A VIEW THAT CARRIES FORWARD, the choice of 23 September 2026. The
 	// amounts are asked of the Core at the Yield named here, and nothing is
 	// stored for having named it: Add to shopping list puts the recipe on the
 	// list at it, Cook this opens the cooking's own question already set to it,
@@ -297,8 +297,8 @@
 
 	/**
 	 * Whether the page is being written on rather than read (#83). It is the
-	 * same page either way, which is the whole of the direction Aurélien
-	 * chose: no second route, no compose screen.
+	 * same page either way, which is the whole of the direction
+	 * chosen: no second route, no compose screen.
 	 */
 	let writing = $state(false);
 	/**
@@ -695,7 +695,7 @@
 </script>
 
 <!--
-	The Source line, wherever it is set (#152, Aurélien's choice A of
+	The Source line, wherever it is set (#152, choice A of
 	25 September 2026). Where the Source has a web link, the line itself is the
 	link: the same place, size and colour, with an underline and a ↗ so it does
 	not lean on colour alone, which on the wash it could not. It opens outside
@@ -736,7 +736,7 @@
 
 <!--
 	Writing (#83). The page becomes writable in place, which is why this is a
-	swap on the same route and not a screen of its own: Aurélien chose that
+	swap on the same route and not a screen of its own: that was chosen
 	over a separate compose screen, and a `/recipes/<id>/edit` route would be
 	the rejected option wearing the chosen one's name. `Writing.svelte` holds
 	why the shape is what it is.
@@ -849,7 +849,7 @@
 
 			<!--
 			What this recipe says about its Language, and nothing at all on the
-			ordinary recipe that has nothing to say (#106, ADR 0006). Aurélien's
+			ordinary recipe that has nothing to say (#106, ADR 0006). The
 			choice of 22 September 2026; `Language.svelte` holds the reasoning
 			and the rule that an empty state here would undo it.
 
@@ -876,7 +876,7 @@
 
 			<!--
 			What this Kitchen says about the dish, above the dish itself (#104).
-			The row is drawn on every recipe, tagged or not — Aurélien's choice,
+			The row is drawn on every recipe, tagged or not, by choice,
 			and `Tags.svelte` holds why.
 
 			NOT DRAWN WHEN YOU HAVE CROSSED TO THE OTHER BRANCH. A Divergence
@@ -892,7 +892,7 @@
 			<!--
 			`nutrition` is deliberately absent from that loop. Its mark goes with
 			the figure, at the foot of the Ingredients, because that is where
-			Aurélien put the figure (#84) and a mark separated from the thing it
+			#84 put the figure and a mark separated from the thing it
 			marks is a sentence about nothing.
 		-->
 
@@ -999,8 +999,8 @@
 
 			<!--
 			A Step's photograph, where it has one (#110): a small square at the end
-			of the row, which opens the picture across the screen. Aurélien's
-			choice (R2) over a full-width picture beneath the words, which pulled
+			of the row, which opens the picture across the screen. Chosen
+			(R2) over a full-width picture beneath the words, which pulled
 			the Method apart; `StepPhoto` holds the rest.
 		-->
 			{#snippet stepPhoto(photo: string | null | undefined, n: number | null)}
@@ -1016,8 +1016,8 @@
 			<!--
 			TWO COLUMNS WHERE THE WINDOW IS ROOMY (#198, ADR 0044): the Ingredients
 			on the left in two fifths, the Method on the right in three, and the
-			Ingredients staying in view while the Method scrolls. Aurélien chose
-			this on 5 October 2026 over two even halves that both scroll away, and
+			Ingredients staying in view while the Method scrolls. This was
+			chosen on 5 October 2026 over two even halves that both scroll away, and
 			over a narrower Ingredients column beside the photograph. Everywhere
 			else, a phone and an upright tablet included, these are plain boxes
 			and the page is the one column it was.
@@ -1113,7 +1113,7 @@
 						</ul>
 
 						<!--
-			THE NUTRITION FIGURE CLOSES THE LIST (#84). Aurélien chose this on
+			THE NUTRITION FIGURE CLOSES THE LIST (#84). This was chosen on
 			21 September 2026 against four treatments drawn on both surfaces —
 			a fourth cell in the meta strip, a line directly under the strip,
 			this, and a place beside the Source. The list is where what goes
@@ -1229,7 +1229,7 @@
 		-->
 			<div class="roomy:mx-auto roomy:max-w-2xl">
 				<!--
-			What this recipe goes with (#105, #52). Aurélien's choice of
+			What this recipe goes with (#105, #52). The choice of
 			22 September 2026: the shelf's own cards, here between the Method and
 			Cooked, and `RelatedRecipes.svelte` holds why.
 
@@ -1287,7 +1287,7 @@
 				<!--
 			The Language offer, put to the cook (#106, ADR 0006) — the half of
 			that ADR the interface never kept. It lands HERE, under the save's
-			own line, which is Aurélien's choice of 22 September 2026 against a
+			own line, which is the choice of 22 September 2026 against a
 			band at the top of the page: the offer arrives at the moment of
 			saving, so it goes where the save already speaks.
 
@@ -1361,7 +1361,7 @@
 				</a>
 				<!--
 			Into the Thread, under the word a cook already knows for it (#133,
-			Aurélien's choice A of 24 September 2026). The screen keeps the
+			choice A of 24 September 2026). The screen keeps the
 			Thread's name in the code and the docs; the button says History
 			because "The thread" told nobody what was behind it. It never says
 			"version": on this page that word already means one of the recipe's
@@ -1405,7 +1405,7 @@
 					/>
 				{/if}
 				<!--
-			Naming this version (#134, Aurélien's choice B of 24 September 2026):
+			Naming this version (#134, choice B of 24 September 2026):
 			a line among the acts, directly below Language, opening a small
 			sheet. `RenameSheet.svelte` holds why it says "version" and what it
 			promises about the History.

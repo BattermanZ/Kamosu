@@ -1,4 +1,4 @@
-//! The shelf, put through Aurélien's real 86-recipe Crouton export (#62).
+//! The shelf, put through the real 86-recipe Crouton export (#62).
 //!
 //! Three flattering examples prove nothing about a screen that has to hold a
 //! whole library, so every recipe in the real export is created through the
@@ -106,7 +106,7 @@ async fn the_real_library_reads_as_one_alphabetical_shelf_and_every_result_says_
     );
 
     let app = support::spawn_app();
-    let person = app.core.create_person("Aurélien").expect("person");
+    let person = app.core.create_person("Stéphane").expect("person");
     let key = app
         .core
         .mint_access_key(&person, "corpus shelf", false)

@@ -1,7 +1,7 @@
 <!--
 	Writing a recipe (#83). The other half of #81, which only reads.
 
-	THE PAGE IS THE PAGE. Aurélien chose direction A on 20 September 2026,
+	THE PAGE IS THE PAGE. Direction A was chosen on 20 September 2026,
 	against four full mockups drawn on Dan Dan Noodles out of the real
 	86-recipe export, and the reasoning is on #83 rather than repeated here.
 	What it settled, and what this file has to keep true:
@@ -17,7 +17,7 @@
 	    each drops the new thing in where the cursor is, so a heading goes into
 	    the middle of a list without retyping what follows it.
 
-	One argument was put to Aurélien for the separate screen and it was wrong:
+	One argument was put for the separate screen and it was wrong:
 	that a long list gets more room there. The hero scrolls away, so it does
 	not. That mistake is recorded on #83 so nobody re-derives it.
 
@@ -29,7 +29,7 @@
 	screen (ADR 0021).
 
 	ONE PART OF THE READING IS HERE, AND ONLY ONE (#87): whether the line names
-	a RECIPE rather than a Food. Aurélien settled on 20 September 2026 that the
+	a RECIPE rather than a Food. It was settled on 20 September 2026 that the
 	act of saying *this line is a recipe* is designed once against both screens
 	and wears the same small matcha control on both, so it is here as well as in
 	the reading page's corrector.
@@ -57,7 +57,7 @@
 	A LINE IS DRAGGED, AND THE LIST REARRANGES UNDER IT. You put the line where
 	you can see it going, rather than describing the move and watching it
 	happen afterwards. This is the handle the mockup drew, and it is the
-	control Aurélien approved, so a two-step *move, then choose where* is not
+	control that was approved, so a two-step *move, then choose where* is not
 	a substitute for it.
 
 	It is built on pointer events. HTML5 drag-and-drop does not fire on touch
@@ -1143,7 +1143,7 @@
 	<!--
 		And in the open on a recipe that holds nothing yet, which is when you
 		actually have one as text and there is nothing to lose by pasting it.
-		A card with the page's one filled button (#175, Aurélien's option 1):
+		A card with the page's one filled button (#175, option 1):
 		it was a quiet outlined button before, easy to miss, and its name said
 		"paste" but not that Kamosu sorts the text out for you.
 	-->
@@ -1227,7 +1227,7 @@
 	{/if}
 
 	<!--
-		The facts (#175, Aurélien's option A): #81's strip, in two rows now so
+		The facts (#175, option A): #81's strip, in two rows now so
 		real labels fit on a phone. Every field is named by words on the screen,
 		not by an `aria-label` only a screen reader hears. The reading page's
 		"min prep" read as nonsense here, above an empty box, and the yield was
@@ -1272,7 +1272,7 @@
 		</div>
 	</div>
 	<!-- An overnight prove is cook time, or the quick tonight shelf suggests the
-	     bread for a Tuesday (#32's item 43). Aurélien's wording, 1B (#118). -->
+	     bread for a Tuesday (#32's item 43). The wording is 1B on #118. -->
 	<p id={cookHintId} class="px-gutter pt-2 text-read text-ink-2">{m.write_cook_hint()}</p>
 
 	<!--
@@ -1374,7 +1374,7 @@
 
 				<!--
 		The Nutrition figure, typed where it is read (#84): at the foot of the
-		Ingredients, which is the treatment Aurélien chose on 21 September 2026
+		Ingredients, which is the treatment chosen on 21 September 2026
 		for both surfaces. Reading and writing share it rather than each making
 		their own choice.
 

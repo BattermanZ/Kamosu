@@ -1,7 +1,7 @@
 /**
  * The Cover's guarantees (#46).
  *
- * These are not tests of how a Cover looks — taste is Aurélien's and is
+ * These are not tests of how a Cover looks — taste is settled by choice and
  * recorded on the issue. They are tests of the four promises the ticket makes
  * about a Cover, each of which is a property of `coverFor` alone.
  */

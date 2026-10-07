@@ -2,7 +2,7 @@
 	A Cover: what leads a recipe with no Main Photo (#46; GLOSSARY.md, "Cover").
 
 	No ADR governs this — the Cover is a vocabulary entry, not a decision with
-	alternatives that had to be weighed. What it looks like was Aurélien's
+	alternatives that had to be weighed. What it looks like was a
 	choice, and the reasoning is recorded on issue #46 rather than here, since
 	it is taste rather than architecture.
 

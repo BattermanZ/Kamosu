@@ -46,7 +46,7 @@ export interface Line<K extends string = string> {
 	 * The cook took this line out. Kept so it can be put back; never serialised.
 	 *
 	 * Present on a step as well as an ingredient, and no control drops a step
-	 * today — Aurélien asked for adding and removing Ingredient Lines and for
+	 * today — what was asked for was adding and removing Ingredient Lines and
 	 * inserting a Step, and that is what the screen offers. The field is on both
 	 * lists because they are one shape, and a second shape differing in one
 	 * boolean would cost more than the unused field does. Dropping a step is

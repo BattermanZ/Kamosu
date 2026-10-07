@@ -4,7 +4,7 @@
 	— visibly another recipe's inside without being a card.
 
 	Its Steps are NOT here. They are set at the foot of the page by `Annexe`,
-	which is the treatment Aurélien chose (#50), and it is what keeps this a
+	which is the treatment chosen (#50), and it is what keeps this a
 	list rather than a method with a shopping list around it.
 
 	The amounts beneath each line are already scaled by how much of that recipe

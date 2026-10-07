@@ -40,7 +40,7 @@ const quiet: Answers = {
 	list_accounts: {
 		accounts: [
 			{
-				name: 'Aurélien',
+				name: 'Stéphane',
 				is_operator: true,
 				disabled: false,
 				is_you: true,
@@ -126,7 +126,7 @@ describe("the Operator's screen", () => {
 		renderScreen(Operator, quiet);
 		await openInstance();
 
-		expect(await screen.findByText('Aurélien')).toBeInTheDocument();
+		expect(await screen.findByText('Stéphane')).toBeInTheDocument();
 		expect(screen.getByText('Camille')).toBeInTheDocument();
 		expect(screen.getByText('You')).toBeInTheDocument();
 	});
@@ -271,14 +271,14 @@ describe("the Operator's screen", () => {
 
 	it("shows the Core's refusal when the last Operator is the one being ended", async () => {
 		const refusal =
-			"'Aurélien' is the only Operator this instance has, and deleting the account would leave it with nobody able to administer it and no way to appoint anybody. Make somebody else an Operator first.";
+			"'Stéphane' is the only Operator this instance has, and deleting the account would leave it with nobody able to administer it and no way to appoint anybody. Make somebody else an Operator first.";
 		renderScreen(Operator, {
 			...quiet,
 			delete_account: { refuse: 'bad_request', message: refusal },
 		});
 		await openInstance();
 
-		const you = await openPerson('Aurélien');
+		const you = await openPerson('Stéphane');
 		await fireEvent.click(within(you).getByRole('button', { name: 'Delete' }));
 		const sheet = await screen.findByRole('dialog');
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Delete the account' }));
@@ -317,7 +317,7 @@ describe("the Operator's screen", () => {
 		expect(within(camille).getByRole('button', { name: 'Disable' })).toBeInTheDocument();
 
 		// Opening somebody else closes them, so the screen never grows two sets.
-		await openPerson('Aur\u00e9lien');
+		await openPerson('St\u00e9phane');
 		expect(
 			within(camille).queryByRole('button', { name: 'Recovery link' }),
 		).not.toBeInTheDocument();
@@ -379,7 +379,7 @@ describe("the Operator's screen", () => {
 		});
 
 		// Somebody who already administers is offered the other direction.
-		const you = await openPerson('Aurélien');
+		const you = await openPerson('Stéphane');
 		expect(within(you).getByRole('button', { name: 'Stand down' })).toBeInTheDocument();
 	});
 

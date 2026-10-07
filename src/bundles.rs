@@ -14,7 +14,7 @@
 //! is also why nothing in this file can widen what a Bundle carries: a field
 //! reaches a Bundle only if the Core put it in `Contents`.
 //!
-//! **The note's layout is the one Aurélien chose on 18 September 2026** (layout
+//! **The note's layout is the one chosen on 18 September 2026** (layout
 //! A on #66, "the plain page"): pure CommonMark and nothing any reader has to
 //! understand. No front matter, no wiki links, no callouts. Sections are bold
 //! lines, a Component is its written line with one quiet line under it linking
@@ -1306,7 +1306,7 @@ mod tests {
             "name": name,
             "change_note": null,
             "created_at": "2026-06-02T10:00:00.000Z",
-            "hand": { "id": "p_1", "name": "Aurélien" },
+            "hand": { "id": "p_1", "name": "Stéphane" },
             "signature": null,
             "content": { "title": "Bœuf bourguignon", "ingredients": [], "steps": [] },
             "readings": [],

@@ -7,7 +7,7 @@
 	where you go when you know what you are looking for, and this is where you
 	go when you do not.
 
-	**The arrangement is Aurélien's, chosen on 2026-08-30 from four full-screen
+	**The arrangement was chosen on 2026-08-30 from four full-screen
 	options drawn over the real 86-recipe library; the reasoning is on #64.** It
 	takes the labelled section from one option and the sideways rail from
 	another. What the choice settles:

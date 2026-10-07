@@ -8,7 +8,7 @@
 	list* get the identical answer through the other Door. This file decides
 	what a row looks like and nothing about what it says.
 
-	**What a row looks like was chosen by Aurélien on 2026-09-01**, out of four
+	**What a row looks like was chosen on 2026-09-01**, out of four
 	treatments of one real list served side by side, and the reasoning is
 	recorded on issue #73. The shape is *Three admissions*:
 
@@ -38,7 +38,7 @@
 	recipe's, staying in view, and what to buy in the other three. Each recipe
 	there has − and + either side of how much of it is being shopped for, so
 	one more is one tap, and the amount between them still opens the two
-	boxes. Aurélien chose this on 6 October 2026 over a column 300 wide that
+	boxes. This was chosen on 6 October 2026 over a column 300 wide that
 	kept the phone's sentence. The phone's screen is what it was.
 -->
 <script lang="ts">

@@ -2,7 +2,7 @@
 	Which Tags this recipe has (#104).
 
 	**It does one job.** Renaming, merging and deleting a Tag are not here, and
-	that is Aurélien's choice of 22 September 2026, made after seeing them here:
+	that is the choice of 22 September 2026, made after seeing them here:
 	"I don't think a recipe page is the place to rename tags, it makes no sense."
 	They live in Settings → Tags, because they are about the whole library rather
 	than about the dish on screen. What is left is the only question this sheet

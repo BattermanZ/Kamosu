@@ -23,7 +23,7 @@
 
 	THE LINK IS SHOWN FOR AS LONG AS IT LIVES (#171, ADR 0031 as amended), in
 	the block it had at minting: the address, Copy and Open, above "End the
-	link" (option 1, Aurélien, 26 September 2026). Sending the recipe to a
+	link" (option 1, chosen 26 September 2026). Sending the recipe to a
 	second person is copying it again, never ending the link and minting a new
 	one, which would break every copy already sent. A link minted before Kamosu
 	kept its address has none to show, and the screen says so and how to get one.
@@ -68,7 +68,7 @@
 	 * Read up front and not on the tap, because this screen says what an act
 	 * means **before** you do it: the standing line does, the line about
 	 * components does, and a file that announced itself only once it had gone
-	 * would be the one thing here that breaks the habit (option C, Aurélien,
+	 * would be the one thing here that breaks the habit (option C, chosen
 	 * 20 September 2026). The photograph that has gone missing is the case that
 	 * proves it — worth knowing beforehand, worth nothing after.
 	 *
@@ -217,7 +217,7 @@
 	 * In the app installed on an iPhone or iPad that address would open in the
 	 * app's own window, which has no Share or Save to Files (#156). There the
 	 * file is fetched here, and this same button then shares it (`shareIt`;
-	 * option A, Aurélien, 27 September 2026), as a Sheet is (#149). Holding
+	 * option A, chosen 27 September 2026), as a Sheet is (#149). Holding
 	 * the file until the second tap is the cost of that path.
 	 */
 	async function save() {

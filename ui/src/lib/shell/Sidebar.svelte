@@ -2,7 +2,7 @@
 	The sidebar: what the wide layout draws in place of the header and the tab
 	bar (ADR 0044, #194).
 
-	A narrow indigo rail down the left edge, chosen by Aurélien on 5 October 2026
+	A narrow indigo rail down the left edge, chosen on 5 October 2026
 	over a wider paper sidebar and over keeping the header: it gives the page a
 	band of the app's own colour, and at 88 wide it leaves an upright tablet
 	almost all of its width. The places are drawn as the tab bar draws them, an

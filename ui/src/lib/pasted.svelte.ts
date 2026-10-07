@@ -5,7 +5,7 @@
  *
  * Two places take one. The writing screen fills its own fields from it, and
  * the + beside the Recipes search box makes a new recipe from it (#175, both
- * of Aurélien's options). Both read it and split it the same way, so both
+ * options were chosen). Both read it and split it the same way, so both
  * live here.
  */
 
@@ -36,7 +36,7 @@ export async function readPasted(
  * A PDF already staged at `POST /api/uploads`, read by `read_recipe_pdf` into
  * what a paste is read into (#176), or the sentence saying why it could not
  * be. A scan is refused with a reason this says in the reader's own Language
- * (Aurélien's wording, chosen on #176); any other refusal is the Core's.
+ * (the wording chosen on #176); any other refusal is the Core's.
  */
 export async function readPdf(
 	kamosu: KamosuClient,

@@ -33,7 +33,7 @@ fn operator(app: &support::TestApp) -> (String, String) {
     let (status, created) = app.post_auth(
         "/auth/first-person",
         &json!({
-            "name": "Aurélien",
+            "name": "Stéphane",
             "password": "a password only its person knows",
             "session_name": "first browser",
         })
@@ -150,12 +150,12 @@ const FORGEABLE: &[(&str, &str)] = &[
     ("X-Real-IP", "127.0.0.1"),
     ("X-Forwarded-Proto", "https"),
     ("X-Forwarded-Host", "kamosu.example"),
-    ("X-Forwarded-User", "Aurélien"),
-    ("X-Authenticated-User", "Aurélien"),
-    ("X-Remote-User", "Aurélien"),
-    ("X-Auth-Request-User", "Aurélien"),
+    ("X-Forwarded-User", "Stéphane"),
+    ("X-Authenticated-User", "Stéphane"),
+    ("X-Remote-User", "Stéphane"),
+    ("X-Auth-Request-User", "Stéphane"),
     ("X-Forwarded-Access-Token", "anything at all"),
-    ("Remote-User", "Aurélien"),
+    ("Remote-User", "Stéphane"),
     ("Forwarded", "for=127.0.0.1;proto=https"),
 ];
 
@@ -182,7 +182,7 @@ async fn no_request_header_is_read_as_authority() {
     // others being ignored. The Person's own id and name are used as the
     // values, which is the most a forged header could ever hope to assert.
     for (field, _) in FORGEABLE {
-        for value in [person.as_str(), "Aurélien"] {
+        for value in [person.as_str(), "Stéphane"] {
             let (status, refused) = app.post_op_with_headers("list_jobs", &[(field, value)], "{}");
             assert_eq!(
                 status, 401,
@@ -286,7 +286,7 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
     let logged_in = app.post_auth_response(
         "/auth/login",
         &json!({
-            "name": "Aurélien",
+            "name": "Stéphane",
             "password": "a password only its person knows",
             "session_name": "laptop",
         })
@@ -331,7 +331,7 @@ fn every_secret(app: &support::TestApp, key: &str) -> Vec<Secret> {
         (
             "a recovery link",
             "mint_recovery_link",
-            json!({ "name": "Aurélien" }),
+            json!({ "name": "Stéphane" }),
         ),
     ] {
         let (status, minted) = app.post_op(operation, Some(&session), &input.to_string());
@@ -694,7 +694,7 @@ async fn ending_one_secret_leaves_every_other_one_working() {
 /// A login body for the Operator `operator` creates, with the password given.
 fn login_as_the_operator(password: &str) -> String {
     json!({
-        "name": "Aurélien",
+        "name": "Stéphane",
         "password": password,
         "session_name": "somewhere else",
     })
@@ -878,7 +878,7 @@ async fn a_new_password_must_be_fifteen_characters() {
 
     let (status, refused) = app.post_auth(
         "/auth/first-person",
-        &json!({ "name": "Aurélien", "password": short, "session_name": "x" }).to_string(),
+        &json!({ "name": "Stéphane", "password": short, "session_name": "x" }).to_string(),
     );
     assert_eq!(status, 400, "{refused}");
     assert!(
@@ -901,7 +901,7 @@ async fn a_new_password_must_be_fifteen_characters() {
 
     let recovery = app
         .core
-        .mint_recovery_link("Aurélien")
+        .mint_recovery_link("Stéphane")
         .expect("a recovery link");
     let (status, refused) = app.post_auth(
         "/auth/recover",

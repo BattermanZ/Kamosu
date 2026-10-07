@@ -4,8 +4,8 @@
 	link (#194).
 
 	The sidebar is where a wide window reads the name, and these pages have
-	none, so without this the name stood nowhere on them. Aurélien asked for it
-	on 5 October 2026, the same objection he had to the first rail. The phone
+	none, so without this the name stood nowhere on them. It was asked for
+	on 5 October 2026, on the same objection the first rail met. The phone
 	layout keeps its header on these pages until #214 gives both layouts one
 	signed-out page.
 -->

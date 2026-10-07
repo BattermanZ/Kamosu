@@ -432,7 +432,7 @@ describe('putting a cooking’s picture on the recipe', () => {
 		expect(on.getByText('This will start your own copy')).toBeInTheDocument();
 		expect(
 			on.getByText(
-				'This recipe is in Aurélien’s Cookbook, so your changes go into your own copy of Miso Soup, in your Cookbook. Aurélien’s stays as it is.',
+				'This recipe is in Stéphane’s Cookbook, so your changes go into your own copy of Miso Soup, in your Cookbook. Stéphane’s stays as it is.',
 			),
 		).toBeInTheDocument();
 		await fireEvent.click(on.getByRole('button', { name: 'Start my own copy' }));

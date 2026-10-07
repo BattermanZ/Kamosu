@@ -2,8 +2,8 @@
 	What a place big enough for it wears while something is held over it
 	(ADR 0044): a sheet of the paper with a dashed frame, and in the middle a
 	drawing, a headline saying what letting go will do, and a sentence under
-	it. Aurélien chose this for Recipes on 7 October 2026 (#204, option 1) and
-	kept it unchanged for a recipe's photograph (#205).
+	it. This was chosen for Recipes on 7 October 2026 (#204, option 1) and
+	kept unchanged for a recipe's photograph (#205).
 
 	The one who draws it says where it lies with `class`: over the window, or
 	over one place. Nothing here can be pressed, so the drag goes on reaching

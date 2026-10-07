@@ -1573,7 +1573,7 @@ fn scale_after(characters: &[char], mut index: usize) -> Option<(Scale, usize)> 
 /// a French recipe read by an English cook still says *minutes* in its own
 /// text, so the reader is never told which Language to expect.
 ///
-/// The bare `h` is here although Aurélien's 86-recipe export contains not one
+/// The bare `h` is here although the real 86-recipe export contains not one
 /// — `1 h 30` is the ordinary French spelling and its absence from 579 real
 /// Steps is a fact about those recipes rather than about French. What is *not*
 /// here is a bare `m` or `s`: a metre and a gram's neighbour are too close, and
@@ -1636,7 +1636,7 @@ const MORE_WORDS: &[&str] = &[
 ///
 /// A phrase counts only directly against its duration: after the unit word
 /// (*2 minutes and a half*) or between the number and it (*2 and a half
-/// minutes*). The set was settled with Aurélien in #157; *trois quarts
+/// minutes*). The set was settled in #157; *trois quarts
 /// d'heure* and the other spelled-out fractions are not in it.
 const SPOKEN_PARTS: &[(&[&str], f64)] = &[
     (&["et", "demie"], 0.5),
@@ -1674,7 +1674,7 @@ const JOINING_WORDS: &[&str] = &[
 /// between two numbers is otherwise a range (*cuire 20/25 minutes*), which is
 /// how French writes one.
 ///
-/// **Only an hour is written as a fraction** (#157, Aurélien's choice). Before
+/// **Only an hour is written as a fraction** (#157, chosen there). Before
 /// minutes the slash stays a range, because *cuire 3/4 minutes* is French for
 /// three to four, and a written fraction of a minute is rare where that range
 /// is common.
@@ -1723,7 +1723,7 @@ fn fold_loosely(word: &str) -> String {
 /// Step's truth stays its text. One tap starts it; Kamosu never writes it down.
 ///
 /// Nothing is the answer for roughly three Steps in four — 425 of the 579 real
-/// Steps in Aurélien's export carry no duration at all — and that is not a
+/// Steps in the real export carry no duration at all — and that is not a
 /// failure. A Step with no timer simply offers none.
 ///
 /// **A range answers with its lower end.** 154 real Steps carry a duration and
@@ -1764,7 +1764,7 @@ pub fn step_duration(text: &str) -> Option<i64> {
 /// The longest duration this offers a timer for: a week.
 ///
 /// Not a guess at what a recipe means — a 48-hour ferment and an overnight
-/// marinade are real, and the longest in Aurélien's export is twelve hours. It
+/// marinade are real, and the longest in the real export is twelve hours. It
 /// is a floor under nonsense: past a week the number was not a duration
 /// somebody meant to time, and a countdown running for years is worse than no
 /// timer at all.
@@ -1791,7 +1791,7 @@ fn seconds_each(word: &str) -> Option<i64> {
 /// *1 h 5.* is an hour and five minutes, but *cook 5 minutes 2 at a time* is a
 /// count, and an hour's minutes and a sear's seconds are written in tens.
 ///
-/// None of these is in Aurélien's 86-recipe export, which is why they are
+/// None of these is in the real 86-recipe export, which is why they are
 /// handled from the language rather than from the corpus: `1 h 30` is how
 /// French writes an hour and a half, and *2 minutes 30* how it writes a sear.
 fn rest_after_unit(pieces: &[Piece], unit: usize, unit_seconds: i64) -> f64 {

@@ -1,4 +1,4 @@
-//! Meaning Search, put through Aurélien's real 86-recipe Crouton export (#63).
+//! Meaning Search, put through the real 86-recipe Crouton export (#63).
 //!
 //! Three flattering examples prove nothing about a search that has to hold a
 //! whole library, and a similarity threshold argued in the abstract is a number
@@ -174,7 +174,7 @@ fn library_with_meaning_search() -> Option<Library> {
         .expect("link this instance's model directory at the shared one");
 
     let first = json!({
-        "name": "Aurélien",
+        "name": "Stéphane",
         "password": "a password only its person knows",
         "session_name": "test browser",
     });
@@ -246,9 +246,11 @@ async fn meaning_finds_what_words_cannot_and_a_title_still_wins() {
             "The Best Moules Marinières (Sailor-Style Mussels)",
         ),
         ("something with shellfish", "Camarones al Ajillo"),
+        // The real title opens with its cook's name, which no committed file
+        // spells (#217), so this one is known by how it ends.
         (
             "a comforting bowl of noodle soup",
-            "Aurélien’s Creamy Miso Shin Ramyun with Mushrooms and Cheddar",
+            "Creamy Miso Shin Ramyun with Mushrooms and Cheddar",
         ),
         ("what can I make with leftover rice", "Avocado Rice"),
         ("a rich beef stew cooked in wine", "Beef Bourguignon"),
@@ -270,7 +272,7 @@ async fn meaning_finds_what_words_cannot_and_a_title_still_wins() {
         let found = library.search(json!({ "query": asked }));
         let shown = titles(found["recipes"].as_array().unwrap());
         assert!(
-            shown.iter().any(|title| title == wanted),
+            shown.iter().any(|title| title.ends_with(wanted)),
             "searching {asked:?} did not reach {wanted:?} — got {shown:#?}"
         );
         assert_eq!(

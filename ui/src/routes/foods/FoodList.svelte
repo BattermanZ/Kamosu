@@ -30,7 +30,7 @@
 	0044), drawn by `Foods.svelte`. It is 300 wide and stays where it is while
 	one Food after another is opened: its title and search box at the top, its
 	rows scrolling under them. A row there is the name with the number of lines
-	at its right, and the open Food's row is marked. Aurélien chose this on 6
+	at its right, and the open Food's row is marked. This was chosen on 6
 	October 2026 over the rows the phone has, which need a list 420 wide.
 
 	**The arrows walk it.** Up and down open the Food above or below the open

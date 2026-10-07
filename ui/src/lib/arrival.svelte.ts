@@ -1,7 +1,7 @@
 /**
  * What bringing a recipe file in just said (#93).
  *
- * Aurélien chose that a recipe file does not end on the Import Report the way a
+ * The choice was that a recipe file does not end on the Import Report the way a
  * Crouton library does: one file is one recipe, so it opens the recipe and says
  * one line above it (option C, 21 September 2026). That line has to survive one
  * `goto`, so it is held here rather than passed through the URL — the note is a

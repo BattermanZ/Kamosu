@@ -117,8 +117,8 @@
   /* The Step, and the recipe title under it. Both moved by #88, together and
      for one reason: the cooking screen ran out of vertical budget once Safari's
      URL bar was counted, and the identity record of 26 August fitted 33px
-     against a 844px phone that does not exist. The real room on Aurélien's
-     phone is ~700px.
+     against a 844px phone that does not exist. The real room on the
+     phone it was measured on is ~700px.
 
      33 → 26 takes the share of the corpus's 579 Steps that fit without
      scrolling from 53% to 92% on a step naming two amounts. The title follows
@@ -167,7 +167,7 @@
   --spacing-8: 32px;
   --spacing-12: 48px;
   --spacing-gutter: 20px;       /* the screen gutter */
-  /* The sidebar's width on the wide layout: the indigo rail Aurélien chose
+  /* The sidebar's width on the wide layout: the indigo rail chosen
      on 5 October 2026 (#194, ADR 0044), narrow so that an upright tablet
      keeps almost all of its width for the page. */
   --spacing-rail: 88px;
@@ -180,8 +180,8 @@
   /* Layout constants from the identity record (no utility namespace). */
   --tile-w: 168px;              /* shelf tile width */
   /* The recipe hero. The identity record of 26 August fitted 282px against a
-     hero nothing sat on; #81 put the title ON it and Aurélien chose the taller,
-     nearer-square crop over the landscape band, which is what 320px is. The
+     hero nothing sat on; #81 put the title ON it and the taller,
+     nearer-square crop was chosen over the landscape band, which is 320px. The
      record is dated and stays as written — this file is what is current. */
   --hero-h: 320px;
   --rule-w: 1px;                /* rule weight */
@@ -190,12 +190,12 @@
      tokenised here rather than written as an arbitrary utility, because the
      spacing scale above is deliberately the whole of what exists (#61). */
   --noren-h: 3px;
-  /* A cooking's photograph in the diary, square. 72px is Aurélien's choice on
+  /* A cooking's photograph in the diary, square. 72px is the choice on
      #77 (option A, the diary's Photographs row): big enough to tell one plate
      from another, small enough that a row of them is a glance. */
   --photo-thumb: 72px;
   /* A Step's photograph at the stove, square, at the top right of the Step's
-     words, which wrap around it. 96px is the size Aurélien saw and chose on
+     words, which wrap around it. 96px is the size seen and chosen on
      #110 (K3): larger than --photo-thumb because it sits in the largest type
      in the app. The recipe page's Step photograph is --photo-thumb (R2). */
   --step-photo: 96px;
@@ -209,8 +209,8 @@
      with the spacing scale (`h-8`, `min-h-12`), and the screen names them
      where it uses them, behind `wide:`.
 
-     Aurélien chose these on prototypes on 5 October 2026, with the next Step
-     shown small beside the one he is on, over the same screen without it.
+     These were chosen on prototypes on 5 October 2026, with the next Step
+     shown small beside the one the cook is on, over the same screen without it.
      They were fitted as #88
      fitted the phone's: every Step in the library, each with its own amounts,
      at the iPad Pro 11"'s height in the installed app. The figures are on #197.
@@ -241,15 +241,15 @@
   /* A recipe and its editor where the window is roomy (#198, ADR 0044): the
      width the page's column grows to, from the 672 every other page keeps.
      Two fifths of it hold the Ingredients and three fifths the Method, which
-     leaves a Step about 590 wide, a line that can still be read. Aurélien
-     chose the layout on prototypes on 5 October 2026. On a tablet on its side
+     leaves a Step about 590 wide, a line that can still be read. The layout
+     was chosen on prototypes on 5 October 2026. On a tablet on its side
      it leaves a margin too narrow for the back arrow, so the page starts
      below the arrow there. */
   --recipe-column: 1040px;
 
   /* A list that stays beside what is open, on the wide layout (#199, ADR
-     0044). Foods is the first and #200's Imports follows it. Aurélien chose
-     the widths on prototypes on 6 October 2026. At 300 the list shows a Food's
+     0044). Foods is the first and #200's Imports follows it. The widths
+     were chosen on prototypes on 6 October 2026. At 300 the list shows a Food's
      name and the number of lines on one row, and leaves an upright iPad Pro
      11" 446 for the Food, which is more than a phone gives it. What is open
      is a card whose column is no wider than 600, so its buttons do not stretch across a
@@ -259,8 +259,8 @@
 
   /* The browsing screens on the wide layout (#201, ADR 0044). Home, Recipes
      and Cooked run to the window's right edge, and these
-     are the narrowest a card gets before a row takes one fewer. Aurélien chose
-     them on prototypes on 6 October 2026, over cards at least 224 and 320.
+     are the narrowest a card gets before a row takes one fewer. They were
+     chosen on prototypes on 6 October 2026, over cards at least 224 and 320.
      160 keeps a recipe's card the size it has on the phone, so an upright
      iPad Pro 11" shows 4 across, one on its side 6 and a MacBook 14" 8. A
      cooking's card holds words and no photograph, so it is wider: 3, 4 and 5
@@ -586,7 +586,7 @@
 }
 
 /* A sheet on the wide layout: a window in the middle of the room (#196, ADR
-   0044). Aurélien chose it on the prototype on 5 October 2026 over a window
+   0044). It was chosen on the prototype on 5 October 2026 over a window
    as wide as the page's column: 480 wide, since a confirmation is two
    sentences and two buttons, as tall as what it holds, and centred both ways.
    A long one stops at four fifths of the window's height, or at 704 on a
@@ -806,7 +806,7 @@
 }
 
 /* Shopping on the wide layout (#202, ADR 0044): the recipes chosen beside what
-   to buy. Aurélien chose the layout on prototypes on 6 October 2026. The page
+   to buy. The layout was chosen on prototypes on 6 October 2026. The page
    is as wide as a recipe's where it is roomy, and the recipes take the two
    fifths a recipe's Ingredients take. Unlike a recipe it is two columns on an
    upright tablet too, where the recipes get about 270, which holds a title and
@@ -847,7 +847,7 @@
 
 /* − and + beside how much of a chosen recipe is being shopped for (#202).
    Round and 40 across, a quiet outline on the card's white, which is what
-   Aurélien chose on the prototype and asked for again when they were first
+   was chosen on the prototype and asked for again when they were first
    built square and 48 like the recipe page's. Five recipes carry ten of them
    in a narrow column, where the recipe page has one pair. The radius is
    written here because every radius token is near-square on purpose. */
@@ -898,8 +898,8 @@
 }
 
 /* ── Under the pointer (ADR 0044, #203) ────────────────────────────────────
-   What a control looks like with the pointer over it. Aurélien chose "the
-   paper darkens" on 6 October 2026 over drawing an indigo line: whatever is
+   What a control looks like with the pointer over it. "The
+   paper darkens" was chosen on 6 October 2026 over drawing an indigo line: whatever is
    under the pointer changes shade and nothing else, because an indigo border
    already means "this one is chosen" and a line drawn in passing read as
    that.

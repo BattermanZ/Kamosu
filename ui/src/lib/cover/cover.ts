@@ -18,7 +18,7 @@
  * Photograph, is in no fingerprint and travels in no Bundle — there is nothing
  * to store, because this file *is* the Cover.
  *
- * Chosen by Aurélien on 2026-08-28 after four rounds of options; the reasoning
+ * Chosen on 2026-08-28 after four rounds of options; the reasoning
  * is recorded on issue #46.
  */
 import { PASTA_SHAPES, type PastaShape } from './shapes';
@@ -132,7 +132,7 @@ export interface Cover {
  * The one function. Same Lineage id in, same Cover out, for ever.
  *
  * The scale and placement ranges were fitted by eye against the twelve real
- * photograph-less recipes in Aurélien's Crouton export: large enough that a
+ * photograph-less recipes in the real Crouton export: large enough that a
  * drawn curve is allowed to be a curve, contained enough that you can still
  * tell which pasta it is. Some Covers bleed off an edge; most do not.
  */

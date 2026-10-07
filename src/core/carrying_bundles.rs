@@ -368,7 +368,7 @@ impl Core {
     }
 
     /// **What importing a shared recipe would do**, said before anything is
-    /// written (#170, Aurélien's choices 1 and 3 of 26 September 2026).
+    /// written (#170, choices 1 and 3 of 26 September 2026).
     ///
     /// Reads the Bundle a Share Link served and answers the recipe it is about
     /// — its title, its Source, who wrote it, how many Versions it carries, a
@@ -1359,7 +1359,7 @@ fn write_carried_readings(
         }
         // Left as the reader's (`by_hand` 0), so a re-read may improve it:
         // the Bundle does not say which Readings the sender corrected, and
-        // the re-read reports every change it makes (#166, Aurélien's choice).
+        // the re-read reports every change it makes (#166, chosen there).
         conn.execute(
             "INSERT OR IGNORE INTO readings \
              (version_id, line_index, amount, unit, target, lineage_id, food_id) \

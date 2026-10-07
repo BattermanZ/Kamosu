@@ -1,5 +1,5 @@
 /**
- * When Kamosu itself goes wrong (#98, option C — Aurélien, 22 September 2026).
+ * When Kamosu itself goes wrong (#98, option C, chosen 22 September 2026).
  *
  * What these guard: a mistake raised from behind the screen seam reaches the
  * cook; a refusal the Core meant to send still reaches nothing, because it is

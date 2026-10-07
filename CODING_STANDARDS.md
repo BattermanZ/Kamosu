@@ -27,3 +27,19 @@ and 48 to match the recipe page, and both had to be redone.
 
 A review that cannot reach the prototype folder says so in its report, and
 leaves the point open.
+
+## Committed prose names a role, never a person
+
+The files in this repository are for anyone who runs Kamosu, so none of them
+names the person who made a decision, owns a device or supplied a library. Say
+what was chosen and where that is recorded: "the rail chosen on #194". Where a
+sentence needs somebody, write a role: "the person who chose", or "the
+Operator" where the Operator of an instance is meant (`GLOSSARY.md`).
+
+A test needs a cook with a name. That cook is invented, and where one stands
+for "you" it is Stéphane: `Stéphane Dupont`, `p_stephane`, `stephane.example`.
+A finding is any first name in a comment, a record or a message that belongs
+to somebody real.
+
+This covers what is committed. `AGENTS.local.md`, `.env` and `.dev/` stay on
+one machine and may say who works there.
