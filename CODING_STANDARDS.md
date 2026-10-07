@@ -8,20 +8,22 @@ that gains a check there leaves this file.
 
 ## The chosen prototype is the contract
 
-When a ticket's comments record Aurélien's choice of a prototype option, that
-option's page is part of the spec, on a par with the ticket's own words. On the
-dev host it is under `.dev/prototypes/<issue>-<slug>/`, with the rules that draw
-it in `proto.css`. The comment recording the choice names the page.
+When a ticket's comments record the choice of a prototype option, that option's
+page is part of the spec, on a par with the ticket's own words. On the machine
+that built it, the page is under `.dev/prototypes/<issue>-<slug>/`, with the
+rules that draw it in `proto.css`. The comment recording the choice names the
+page.
 
 Compare the built screen with that page at the same size, control by control:
 its shape, its size, where it sits, and what it says. Each difference is a
-finding, unless a later comment on the ticket records that Aurélien agreed to it.
+finding, unless a later comment on the ticket records that the person who chose
+agreed to it.
 
 Where the chosen page breaks a house rule (a radius token, the 48px control),
-the finding is the clash itself, to be put to Aurélien. Building the house
-rule's version in the page's place is the fault this rule exists for. On #202
-the chosen page drew − and + round and 40 across. They were built square and 48
-to match the recipe page, and both had to be redone.
+the finding is the clash itself, to be put to the person who chose. Building the
+house rule's version in the page's place is the fault this rule exists for. On
+#202 the chosen page drew − and + round and 40 across. They were built square
+and 48 to match the recipe page, and both had to be redone.
 
 A review that cannot reach the prototype folder says so in its report, and
 leaves the point open.
