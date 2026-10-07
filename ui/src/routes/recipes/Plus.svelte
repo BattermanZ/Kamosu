@@ -31,6 +31,10 @@
 	keeps Attempts and the shopping list, never a new recipe (ADR 0013). The
 	rows are drawn here rather than with `NeedsServer`, whose button holds one
 	line of words and no icon.
+
+	**A PDF, a Kamosu zip file or a link can be dropped on Recipes instead**
+	(#204), and is the same act as its row here: `DropARecipe` holds no act of
+	its own, only this +'s `adding`, and offline it says what the row says.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -43,6 +47,8 @@
 	import PasteSheet from '$lib/adding/PasteSheet.svelte';
 	import FilePicker from '$lib/adding/FilePicker.svelte';
 	import Said from '$lib/adding/Said.svelte';
+	import { ICON, WAITS_FOR_SERVER } from '$lib/adding/sources';
+	import DropARecipe from './DropARecipe.svelte';
 
 	interface Props {
 		/** What sits beside the +: the search field. */
@@ -77,47 +83,23 @@
 		}
 	}
 
-	const sources: { act: Act; label: () => string; why: () => string; icon: string }[] = [
-		{
-			act: 'link',
-			label: m.plus_link,
-			why: m.plus_link_why,
-			icon: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
-		},
-		{
-			act: 'file',
-			label: m.plus_file,
-			why: m.plus_file_why,
-			icon: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5',
-		},
-		{
-			act: 'pdf',
-			label: m.plus_pdf,
-			why: m.plus_pdf_why,
-			icon: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4',
-		},
-		{
-			act: 'paste',
-			label: m.plus_paste,
-			why: m.plus_paste_why,
-			icon: 'M9 4h6v3H9zM8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2M8 12h8M8 16h5',
-		},
-		{
-			act: 'write',
-			label: m.plus_write,
-			why: m.plus_write_why,
-			icon: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
-		},
+	const sources: { act: Act; label: () => string; why: () => string }[] = [
+		{ act: 'link', label: m.plus_link, why: m.plus_link_why },
+		{ act: 'file', label: m.plus_file, why: m.plus_file_why },
+		{ act: 'pdf', label: m.plus_pdf, why: m.plus_pdf_why },
+		{ act: 'paste', label: m.plus_paste, why: m.plus_paste_why },
+		{ act: 'write', label: m.plus_write, why: m.plus_write_why },
 	];
 
-	/** What an act says offline instead of its label. */
-	const waiting: Record<Act, () => string> = {
-		link: m.offline_waits_import_link,
-		file: m.offline_waits_bring_in,
-		pdf: m.offline_waits_pdf,
-		write: m.offline_waits_write,
-		paste: m.offline_waits_paste,
-	};
+	/**
+	 * Something was dropped on Recipes (#204). It is a new choice, as tapping
+	 * a row is, so the list and whatever field was open make way for what it
+	 * says under the search row.
+	 */
+	function dropped() {
+		open = false;
+		showing = null;
+	}
 </script>
 
 <svelte:window
@@ -131,6 +113,7 @@
 
 <FilePicker {adding} bind:this={picker} />
 <FilePicker {adding} kind="pdf" bind:this={pdfPicker} />
+<DropARecipe {adding} offline={!online.current} ondrop={dropped} />
 
 <div class="flex items-stretch gap-2">
 	<div class="min-w-0 flex-1">{@render children()}</div>
@@ -172,7 +155,7 @@
 				</p>
 				<ul>
 					{#each sources as source (source.act)}
-						{@const waits = online.current ? null : waiting[source.act]}
+						{@const waits = online.current ? null : WAITS_FOR_SERVER[source.act]}
 						<li class="border-b border-rule last:border-b-0">
 							<button
 								type="button"
@@ -191,7 +174,7 @@
 										stroke="currentColor"
 										stroke-width="1.5"
 										stroke-linecap="round"
-										stroke-linejoin="round"><path d={source.icon} /></svg
+										stroke-linejoin="round"><path d={ICON[source.act]} /></svg
 									>
 								</span>
 								<span class="min-w-0">
@@ -235,6 +218,9 @@
 	<p class="mt-2 text-read text-ink-2" role="status">{m.bring_in_file_working()}</p>
 {:else if adding.working === 'pdf'}
 	<p class="mt-2 text-read text-ink-2" role="status">{m.plus_pdf_working()}</p>
+{:else if adding.working === 'link' && showing !== 'link'}
+	<!-- A link that was dropped (#204): the address field, whose button says this, is not open. -->
+	<p class="mt-2 text-read text-ink-2" role="status">{m.recipes_import_working()}</p>
 {/if}
 
 <!-- A PDF, read, is checked on the sheet a paste is checked on (#176). -->

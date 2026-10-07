@@ -28,6 +28,7 @@ import {
 	writtenByMe,
 } from '../../testing/recipes';
 import { went } from '../../testing/navigation';
+import { carrying } from '../../testing/drops';
 import { takePaste } from '$lib/pasted.svelte';
 
 const kitchen = kitchenAnswer('k_home', {
@@ -1359,6 +1360,283 @@ describe('the + for every new recipe (#174)', () => {
 		expect(
 			screen.getByRole('button', { name: 'Writing a recipe waits for the server' }),
 		).toBeDisabled();
+	});
+
+	describe('dropping a recipe onto Recipes (#204)', () => {
+		const aPdf = () => new File(['%PDF-1.4'], 'biscuit.pdf', { type: 'application/pdf' });
+
+		/** A Job that is done, as `get_job` answers it. */
+		const finished = (operation: string, result: object) => ({
+			id: 'j_1',
+			operation,
+			status: 'completed',
+			progress: {},
+			error: null,
+			errorCode: null,
+			created_at: '2026-10-07T10:00:00.000Z',
+			updated_at: '2026-10-07T10:00:01.000Z',
+			result,
+		});
+
+		/** The shelf drawn, an uploader, and what each drop goes through. */
+		async function shelf(answers: object = {}) {
+			const upload = vi.fn(async () => 'u_dropped');
+			const kamosu = standIn({ ...fullShelf, ...answers });
+			render(ShelfTestHarness, { props: { client: kamosu.client, upload } });
+			await screen.findByText('Chicken katsu curry');
+			const asked = () => kamosu.calls.map((call) => call.operation);
+			return { upload, kamosu, started: asked().length, asked };
+		}
+
+		it('says a PDF held over it will be read, and reads it as the + does', async () => {
+			const { upload, kamosu } = await shelf({ read_recipe_pdf: BISCUIT });
+			const dataTransfer = carrying({ files: [aPdf()] });
+
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			expect(screen.getByText('Drop to read this PDF')).toBeInTheDocument();
+			expect(screen.getByText(/You check it before the recipe is made/)).toBeInTheDocument();
+			// Holding it there is what lets a browser send the drop at all.
+			expect(await fireEvent.dragOver(document.body, { dataTransfer })).toBe(false);
+
+			expect(await fireEvent.drop(document.body, { dataTransfer })).toBe(false);
+			expect(screen.queryByText('Drop to read this PDF')).not.toBeInTheDocument();
+			await screen.findByRole('dialog', { name: 'From a PDF' });
+			expect(upload).toHaveBeenCalledWith(dataTransfer.files[0]);
+			expect(kamosu.calls.find((call) => call.operation === 'read_recipe_pdf')?.input).toEqual({
+				upload_id: 'u_dropped',
+			});
+		});
+
+		it('brings in a dropped Kamosu zip file as the + does', async () => {
+			const { upload, kamosu } = await shelf({
+				import_bundle: { job_id: 'j_1' },
+				get_job: finished('import_bundle', {
+					import_id: 'i_1',
+					kitchen_id: 'k_home',
+					source_kind: 'bundle',
+					arrived: [
+						{
+							foreign_id: 'b_theirs',
+							status: 'created',
+							lineage_id: 'l_soba',
+							branch_id: 'b_soba',
+							title: 'Soba with walnut miso',
+							subject: true,
+						},
+					],
+					offered: [],
+					unreadable: [],
+					left_out: [],
+					related_candidates: [],
+				}),
+			});
+			// What Windows calls a zip.
+			const zip = new File(['PK'], 'soba.zip', { type: 'application/x-zip-compressed' });
+			const dataTransfer = carrying({ files: [zip] });
+
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			expect(screen.getByText('Drop to bring in this recipe')).toBeInTheDocument();
+			await fireEvent.drop(document.body, { dataTransfer });
+
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_soba'));
+			expect(upload).toHaveBeenCalledWith(zip);
+			expect(kamosu.calls.find((call) => call.operation === 'import_bundle')?.input).toEqual({
+				upload_id: 'u_dropped',
+			});
+		});
+
+		it('imports a link dragged from another tab as the + does, and says it is reading', async () => {
+			const { upload, kamosu } = await shelf({
+				import_web_link: { job_id: 'j_1' },
+				get_job: finished('import_web_link', {
+					import_id: 'i_1',
+					cookbook_id: 'c_1',
+					source_kind: 'web',
+					arrived: [
+						{
+							branch_id: 'b_landed',
+							lineage_id: 'l_landed',
+							foreign_id: 'https://example.test/chicken-curry',
+							status: 'created',
+							title: 'Chicken curry',
+						},
+					],
+					offered: [],
+					unreadable: [],
+				}),
+			});
+			const dataTransfer = carrying({ link: 'https://example.test/chicken-curry' });
+
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			expect(screen.getByText('Drop to import this page')).toBeInTheDocument();
+			await fireEvent.drop(document.body, { dataTransfer });
+			// The address field is not open, so the line under the search box says it.
+			expect(screen.getByText('Reading the page…')).toBeInTheDocument();
+
+			await vi.waitFor(() => expect(went).toHaveBeenCalledWith('/recipes/b_landed'));
+			expect(upload).not.toHaveBeenCalled();
+			expect(kamosu.calls.find((call) => call.operation === 'import_web_link')?.input).toEqual({
+				url: 'https://example.test/chicken-curry',
+			});
+		});
+
+		it.each([
+			[
+				'a photograph',
+				[new File(['x'], 'tarte.jpg', { type: 'image/jpeg' })],
+				"A photograph doesn't go here",
+			],
+			[
+				'a spreadsheet',
+				[new File(['x'], 'courses.csv', { type: 'text/csv' })],
+				"This doesn't go here",
+			],
+			['two PDFs at once', [aPdf(), aPdf()], "This doesn't go here"],
+		])(
+			'refuses %s in words, before and after it is let go, and starts nothing',
+			async (_, files, headline) => {
+				const { upload, started, asked } = await shelf();
+				const dataTransfer = carrying({ files });
+
+				await fireEvent.dragEnter(document.body, { dataTransfer });
+				expect(screen.getByText(headline)).toBeInTheDocument();
+				expect(
+					screen.getByText('Recipes takes a PDF, a Kamosu zip file, or a link to a web page.'),
+				).toBeInTheDocument();
+
+				// Still turned away from the browser, which would open the file.
+				expect(await fireEvent.drop(document.body, { dataTransfer })).toBe(false);
+				expect(screen.getByRole('alert')).toHaveTextContent(
+					"That didn't go anywhere. Recipes takes a PDF, a Kamosu zip file, or a link to a web page.",
+				);
+				expect(screen.queryByText(headline)).not.toBeInTheDocument();
+				expect(upload).not.toHaveBeenCalled();
+				expect(asked()).toHaveLength(started);
+			},
+		);
+
+		it('refuses a link that is no web address', async () => {
+			const { started, asked } = await shelf();
+			await fireEvent.dragEnter(document.body, {
+				dataTransfer: carrying({ link: 'file:///etc/hosts' }),
+			});
+			await fireEvent.drop(document.body, {
+				dataTransfer: carrying({ link: 'file:///etc/hosts' }),
+			});
+			expect(screen.getByRole('alert')).toHaveTextContent("That didn't go anywhere.");
+			expect(asked()).toHaveLength(started);
+		});
+
+		it('asks only for a recipe where the browser cannot name the file yet, and judges it by name once dropped', async () => {
+			const { kamosu } = await shelf({ read_recipe_pdf: BISCUIT });
+			const unnamed = new File(['%PDF-1.4'], 'biscuit.PDF', { type: '' });
+			const dataTransfer = carrying({ files: [unnamed] });
+
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			expect(screen.getByText('Drop a recipe here')).toBeInTheDocument();
+			await fireEvent.drop(document.body, { dataTransfer });
+			await screen.findByRole('dialog', { name: 'From a PDF' });
+			expect(kamosu.calls.some((call) => call.operation === 'read_recipe_pdf')).toBe(true);
+		});
+
+		it('takes the words away when the drag leaves, and not while it moves from one thing to the next', async () => {
+			await shelf();
+			const dataTransfer = carrying({ files: [aPdf()] });
+			const card = screen.getByText('Miso Soup');
+
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			// A browser says the next thing was entered before the last was left.
+			await fireEvent.dragEnter(card, { dataTransfer });
+			await fireEvent.dragLeave(document.body, { dataTransfer });
+			expect(screen.getByText('Drop to read this PDF')).toBeInTheDocument();
+
+			await fireEvent.dragLeave(card, { dataTransfer });
+			expect(screen.queryByText('Drop to read this PDF')).not.toBeInTheDocument();
+		});
+
+		it.each([
+			['a PDF', { files: [aPdf()] }, 'Reading a PDF waits for the server'],
+			[
+				'a Kamosu zip file',
+				{ files: [new File(['PK'], 'soba.zip', { type: 'application/zip' })] },
+				'Bringing a recipe in waits for the server',
+			],
+			[
+				'a link',
+				{ link: 'https://example.test/curry' },
+				'Importing from a link waits for the server',
+			],
+		])('says offline of %s what the + says offline, and sends nothing', async (_, what, waits) => {
+			Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+			const { upload, started, asked } = await shelf();
+			const dataTransfer = carrying(what);
+
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			expect(screen.getByText(waits)).toBeInTheDocument();
+			expect(screen.queryByText(/^Drop to/)).not.toBeInTheDocument();
+
+			await fireEvent.drop(document.body, { dataTransfer });
+			// Once, and as the line under the search box: the cover is gone.
+			expect(screen.getByText(waits)).toHaveAttribute('role', 'status');
+			expect(upload).not.toHaveBeenCalled();
+			expect(asked()).toHaveLength(started);
+		});
+
+		it('says a refusal under the search box even where the box for pasted text was open', async () => {
+			await shelf();
+			await openThePlus();
+			await fireEvent.click(screen.getByRole('button', { name: /From pasted text/ }));
+			const dataTransfer = carrying({ files: [new File(['x'], 'a.jpg', { type: 'image/jpeg' })] });
+
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			await fireEvent.drop(document.body, { dataTransfer });
+			expect(screen.getByRole('alert')).toHaveTextContent("That didn't go anywhere.");
+			// The drop was a new choice, so the box made way for it.
+			expect(screen.queryByLabelText('The recipe, pasted as text')).not.toBeInTheDocument();
+		});
+
+		it('takes the words away by itself when a drag stops saying it is there', async () => {
+			await shelf();
+			vi.useFakeTimers();
+			try {
+				await fireEvent.dragEnter(document.body, { dataTransfer: carrying({ files: [aPdf()] }) });
+				expect(screen.getByText('Drop to read this PDF')).toBeInTheDocument();
+				// No leave ever comes from an element redrawn away under the pointer.
+				await vi.advanceTimersByTimeAsync(1500);
+				expect(screen.queryByText('Drop to read this PDF')).not.toBeInTheDocument();
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it('takes no drop while the sheet a PDF is checked on is open', async () => {
+			const { upload } = await shelf({ read_recipe_pdf: BISCUIT });
+			await fireEvent.drop(document.body, { dataTransfer: carrying({ files: [aPdf()] }) });
+			expect(upload).not.toHaveBeenCalled();
+
+			await fireEvent.dragEnter(document.body, { dataTransfer: carrying({ files: [aPdf()] }) });
+			await fireEvent.drop(document.body, { dataTransfer: carrying({ files: [aPdf()] }) });
+			await screen.findByRole('dialog', { name: 'From a PDF' });
+			expect(upload).toHaveBeenCalledTimes(1);
+
+			await fireEvent.dragEnter(document.body, { dataTransfer: carrying({ files: [aPdf()] }) });
+			expect(screen.queryByText('Drop to read this PDF')).not.toBeInTheDocument();
+			await fireEvent.drop(document.body, { dataTransfer: carrying({ files: [aPdf()] }) });
+			expect(upload).toHaveBeenCalledTimes(1);
+		});
+
+		it('leaves a recipe card dragged across the shelf alone', async () => {
+			const { started, asked } = await shelf();
+			const card = screen.getByText('Miso Soup');
+			const dataTransfer = carrying({ link: 'https://kamosu.example/recipes/b_2' });
+
+			await fireEvent.dragStart(card, { dataTransfer });
+			await fireEvent.dragEnter(document.body, { dataTransfer });
+			expect(screen.queryByText('Drop to import this page')).not.toBeInTheDocument();
+			await fireEvent.drop(document.body, { dataTransfer });
+			await fireEvent.dragEnd(card, { dataTransfer });
+			expect(asked()).toHaveLength(started);
+		});
 	});
 });
 

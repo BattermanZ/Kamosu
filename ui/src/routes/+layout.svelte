@@ -18,6 +18,7 @@
 	import { realOutbox } from '$lib/offline/outbox';
 	import { m } from '$lib/paraglide/messages';
 	import { WindowRoom } from '$lib/room.svelte';
+	import { keepDropsOut } from '$lib/drop.svelte';
 	import { noteArrival } from '$lib/shell/way-back';
 
 	let { children } = $props();
@@ -85,6 +86,11 @@
 	// throws after an await, which Svelte awaits neither for an event handler nor
 	// for a fire-and-forget `$effect`.
 	$effect(() => watchForMistakes());
+
+	// A file or a link dropped where nothing takes it does nothing (#204). Left
+	// to itself a browser opens the file in place of Kamosu. Here and not in the
+	// shell, so the cooking screen and the sign-in pages are covered too.
+	$effect(() => keepDropsOut());
 
 	// What was written with no network goes as soon as the server answers
 	// again (#77): on opening, whenever the server is found again, and when the

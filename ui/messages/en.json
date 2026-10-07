@@ -1196,5 +1196,16 @@
   "plus_cancel": "Cancel",
   "share_file_failed": "The file could not be saved. Try again in a moment.",
   "share_file_getting": "Getting the file…",
-  "share_file_share": "Share the file"
+  "share_file_share": "Share the file",
+  "drop_recipes_pdf": "Drop to read this PDF",
+  "drop_recipes_pdf_then": "Kamosu sorts it into title, ingredients and method. You check it before the recipe is made.",
+  "drop_recipes_bundle": "Drop to bring in this recipe",
+  "drop_recipes_bundle_then": "A Kamosu zip file, shared from another Kamosu. The recipe opens once it is in.",
+  "drop_recipes_link": "Drop to import this page",
+  "drop_recipes_link_then": "Kamosu reads the recipe on the web page the link leads to.",
+  "drop_recipes_unsure": "Drop a recipe here",
+  "drop_recipes_takes": "Recipes takes a PDF, a Kamosu zip file, or a link to a web page.",
+  "drop_recipes_photo": "A photograph doesn't go here",
+  "drop_recipes_no": "This doesn't go here",
+  "drop_recipes_refused": "That didn't go anywhere. Recipes takes a PDF, a Kamosu zip file, or a link to a web page."
 }

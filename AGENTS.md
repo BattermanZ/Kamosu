@@ -197,6 +197,14 @@ nothing to do with the **Sheet** of `GLOSSARY.md`, a recipe set for paper. The f
 coming back, and Enter. A screen hands it content and never writes
 `role="dialog"` itself; a screen test fails if one does.
 
+**A file or a link is dropped only where a drop has one meaning, and both halves
+of that are in `ui/src/lib/drop.svelte.ts`** (#204, ADR 0044). `DropZone` is one
+place that takes a drop: it says what is held over it and hands over what was let
+go. `keepDropsOut`, started once by the root layout, turns away every drop no
+zone took, so a browser never opens a dropped file in place of Kamosu. A drop is
+the act a button already does, run through that button's own code, and it says
+offline what the button says. Never read `dataTransfer` on a screen.
+
 **`svelte-check` runs strict and its warnings are failures**, Svelte's
 accessibility warnings included (ADR 0012). **Paraglide compiles every phrase to
 a function**, so a misspelt key is a build error; messages live in

@@ -1,5 +1,6 @@
 <!--
-	What an act that landed nothing says, where it was asked (#93, #117).
+	What an act that landed nothing says, where it was asked (#93, #117), and
+	what a dropped file that started none says (#204).
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -14,6 +15,8 @@
 
 {#if adding.failed}
 	<p class="mt-2 text-read text-support" role="alert">{adding.failed}</p>
+{:else if adding.waiting}
+	<p class="mt-2 text-read text-ink-2" role="status">{adding.waiting}</p>
 {:else if adding.stillGoing}
 	<p class="mt-2 text-read text-ink-2" role="status">
 		{m.bring_in_still_going({ where: `${m.settings_title()} › ${m.settings_imports()}` })}

@@ -44,6 +44,12 @@ export class Adding {
 	 * the sheet a paste is checked on, and made the same way.
 	 */
 	fromPdf = $state<ReadPastedRecipeOutput | null>(null);
+	/**
+	 * What an act is waiting for, said where it was asked (#204). A button
+	 * says this in its own label and cannot be pressed; a file dropped while
+	 * the server is out of reach has no label to read, so it is said here.
+	 */
+	waiting = $state<string | undefined>(undefined);
 
 	#kamosu: KamosuClient;
 	#upload: Uploader;
@@ -128,6 +134,26 @@ export class Adding {
 		});
 
 	/**
+	 * Say why nothing was started, where an act would have said it (#204):
+	 * something was dropped that is no recipe. Never over an act that is
+	 * running, whose own answer is still to come.
+	 */
+	refuse(words: string) {
+		if (this.working) return;
+		this.stillGoing = false;
+		this.waiting = undefined;
+		this.failed = words;
+	}
+
+	/** Say what a dropped recipe waits for, while the server is out of reach (#204). */
+	waitFor(words: string) {
+		if (this.working) return;
+		this.stillGoing = false;
+		this.failed = undefined;
+		this.waiting = words;
+	}
+
+	/**
 	 * Every act starts and ends through here. An act answers the sentence to
 	 * say where it was asked when nothing landed, or nothing once it has gone
 	 * to the recipe.
@@ -142,6 +168,7 @@ export class Adding {
 		if (this.working) return;
 		this.working = act;
 		this.failed = undefined;
+		this.waiting = undefined;
 		this.stillGoing = false;
 		try {
 			this.failed = await perform();

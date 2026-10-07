@@ -9,19 +9,7 @@
 
 import type { Attachment } from 'svelte/attachments';
 import { goto } from '$app/navigation';
-
-/** The inputs a person types words into. A tick box is none of them. */
-const NOT_TYPED_INTO = new Set([
-	'button',
-	'checkbox',
-	'color',
-	'file',
-	'image',
-	'radio',
-	'range',
-	'reset',
-	'submit',
-]);
+import { typedInto, underASheet } from '$lib/page';
 
 /** The search box on Recipes, while Recipes is on screen. */
 let box: HTMLInputElement | undefined;
@@ -42,14 +30,6 @@ export const recipeSearchBox: Attachment<HTMLInputElement> = (node) => {
 	};
 };
 
-/** Whether a slash pressed here belongs to what holds the caret. */
-function typesASlash(target: EventTarget | null): boolean {
-	if (!(target instanceof HTMLElement)) return false;
-	if (target.isContentEditable || target.closest('textarea, select') !== null) return true;
-	const input = target.closest('input');
-	return input !== null && !NOT_TYPED_INTO.has(input.type);
-}
-
 /**
  * The key handler. Only `/` by itself is taken, and never from a field, from
  * a word being composed, or while a sheet is open over the page: a sheet is
@@ -60,8 +40,8 @@ function typesASlash(target: EventTarget | null): boolean {
 export function slashToSearch(event: KeyboardEvent): void {
 	if (event.key !== '/' || event.defaultPrevented || event.isComposing || event.repeat) return;
 	if (event.altKey || event.ctrlKey || event.metaKey) return;
-	if (typesASlash(event.target)) return;
-	if (document.querySelector('[role="dialog"]') !== null) return;
+	if (typedInto(event.target)) return;
+	if (underASheet()) return;
 	event.preventDefault();
 	if (box?.isConnected) {
 		box.focus();
