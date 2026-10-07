@@ -13,6 +13,11 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
 - **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 - **Close**: `gh issue close <number> --comment "..."`
+- **`ready-for-agent` goes on a ticket to build, never on a parent spec.** A spec
+  whose work is its child tickets (each child names it under `## Parent`) is read
+  when a child needs it and closed when its last child closes. Labelled, it is
+  the oldest open issue in the queue, so every session fetches it whole before
+  passing it over (#192 was, for eight sessions running).
 
 Infer the repo from `git remote -v` — `gh` does this automatically when run inside a clone.
 
