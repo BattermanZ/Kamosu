@@ -256,6 +256,42 @@
   .visible {
     visibility: visible;
   }
+  .shelf-arrow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--color-rule);
+    border-radius: 50%;
+    background: var(--color-card);
+    color: var(--color-accent);
+    &::after {
+      content: "";
+      position: absolute;
+      inset: -8px;
+    }
+  }
+  .quiet-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 var(--spacing-3);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-sm);
+    background: var(--color-card);
+    font-size: var(--text-read);
+    font-weight: 500;
+    white-space: nowrap;
+    &::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
+    }
+  }
   .tap-out {
     position: relative;
     &::after {
@@ -537,30 +573,6 @@
     &.text-support::after {
       border-color: currentColor;
     }
-  }
-  .shelf-arrow {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border: 1px solid var(--color-rule);
-    border-radius: 50%;
-    background: var(--color-card);
-    color: var(--color-accent);
-  }
-  .quiet-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 40px;
-    padding: 0 var(--spacing-3);
-    border: 1px solid var(--color-rule);
-    border-radius: var(--radius-sm);
-    background: var(--color-card);
-    font-size: var(--text-read);
-    font-weight: 500;
-    white-space: nowrap;
   }
   @media (min-width: 700px) and (min-height: 560px) {
     .diary-grid {

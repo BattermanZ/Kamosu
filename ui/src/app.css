@@ -906,8 +906,14 @@
    another page; a thing that does something is a button. Sign out, Rename,
    Save, Keep it, Change your name and their kind were 12.5px underlined words
    until the audit of 9 October 2026 found them hard to hit and hard to tell
-   from a link. No colour here, so a beni one and an indigo one share it. */
+   from a link. No colour here, so a beni one and an indigo one share it.
+
+   Drawn at 40 and tapped at 48 (ADR 0044, 10 October 2026): a secondary
+   control may be drawn smaller than 48, never tapped smaller. The 4px round
+   it is invisible and wins the hit test, as `tap-out` does at the stove, so
+   two side by side keep a gap of 12 or more. */
 @utility quiet-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -919,13 +925,22 @@
   font-size: var(--text-read);
   font-weight: 500;
   white-space: nowrap;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+  }
 }
 
 /* The earlier and later buttons on a shelf (#223): round and 32 across, as the
    prototype page chosen on 9 October 2026 drew them, a quiet outline on the
    card's white. Round is a clash with the near-square house rule, raised on
-   the ticket; the shopping list's − and + (#202) are the precedent. */
+   the ticket; the shopping list's − and + (#202) are the precedent. Drawn at
+   32 and tapped at 48, like `quiet-button`: the 8px round each one is
+   invisible, so the two stand 16 apart. */
 @utility shelf-arrow {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -935,6 +950,12 @@
   border-radius: 50%;
   background: var(--color-card);
   color: var(--color-accent);
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
 }
 
 /* Drawn only where there is a pointer (#223): the earlier and later buttons

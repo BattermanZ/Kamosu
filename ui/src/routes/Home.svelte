@@ -162,7 +162,7 @@
 								shift-wheel. `pointer-only` is the hover block's gate (#203),
 								so an iPad gets them with a trackpad and not before.
 							-->
-							<span class="pointer-only gap-1">
+							<span class="pointer-only gap-4">
 								<button
 									type="button"
 									class="shelf-arrow"

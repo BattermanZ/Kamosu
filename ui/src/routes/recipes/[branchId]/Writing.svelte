@@ -1075,9 +1075,11 @@
 	/**
 	 * A tool beside a line or a Step, as a mark and no word (#225): twenty lines
 	 * carried forty words of button. The word is the accessible name, and the
-	 * title says it under a pointer.
+	 * title says it under a pointer. Drawn at 32 and tapped at 48 through
+	 * `tap-out` (ADR 0044, 10 October 2026), so the tools in a row stand 16
+	 * apart.
 	 */
-	const TOOL = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border';
+	const TOOL = 'tap-out flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border';
 	/**
 	 * The way in to the library, in matcha — the colour of a Reading that points
 	 * at a recipe everywhere else (#50). `Correcting.svelte` wears the same one
@@ -1317,7 +1319,7 @@
 									class={row.kind === 'section' ? HEADING_FIELD : FIELD}
 									onfocus={() => (cursor = { list: 'lines', index })}
 									onkeydown={(event) => onKey(event, 'lines', index)}></textarea>
-								<div class="flex flex-wrap items-center gap-2 pt-1">
+								<div class="flex flex-wrap items-center gap-4 pt-1">
 									<!--
 							THE ONE PART OF THE READING THAT IS EDITED HERE (#87):
 							whether this line names a Recipe rather than a Food.
@@ -1477,7 +1479,7 @@
 								class={row.kind === 'section' ? HEADING_FIELD : FIELD}
 								onfocus={() => (cursor = { list: 'steps', index })}
 								onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
-							<div class="flex flex-wrap items-center gap-2 pt-1">
+							<div class="flex flex-wrap items-center gap-4 pt-1">
 								{#if row.kind === 'step'}
 									<label
 										class="{TOOL} relative cursor-pointer border-rule text-accent"

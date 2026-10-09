@@ -773,7 +773,7 @@
 						)}
 					{/each}
 				</ul>
-				<button type="button" class="mt-3 quiet-button text-accent" onclick={rejoin}>
+				<button type="button" class="quiet-button mt-3 text-accent" onclick={rejoin}>
 					{m.settings_reading_language_rejoin()}
 				</button>
 			{/if}
@@ -976,7 +976,7 @@
 											})} · {whenLastUsed(session.last_used_at)}
 										</p>
 									</div>
-									<div class="flex shrink-0 items-center gap-2">
+									<div class="flex shrink-0 items-center gap-3">
 										<button
 											type="button"
 											class="quiet-button text-accent"
@@ -1354,7 +1354,7 @@
 						{:else}
 							<button
 								type="button"
-								class="mt-3 quiet-button text-accent"
+								class="quiet-button mt-3 text-accent"
 								onclick={() => inviteToKitchen(kitchen.id)}
 							>
 								{m.kitchen_invite()}
@@ -1531,7 +1531,7 @@
 				-->
 				<button
 					type="button"
-					class="mt-3 quiet-button text-accent"
+					class="quiet-button mt-3 text-accent"
 					onclick={() => meaning.turnOff()}
 				>
 					{m.settings_meaning_turn_off()}
@@ -1546,7 +1546,7 @@
 				</p>
 				<button
 					type="button"
-					class="mt-3 quiet-button text-accent"
+					class="quiet-button mt-3 text-accent"
 					onclick={() => meaning.turnOn()}
 				>
 					{m.recipes_nothing_meaning_turn_on()}
