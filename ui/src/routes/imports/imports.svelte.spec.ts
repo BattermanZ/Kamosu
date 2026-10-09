@@ -16,6 +16,7 @@ import type { ListImportsOutput } from '$lib/api/catalogue';
 import ImportsTestHarness from './ImportsTestHarness.svelte';
 import type { Room } from '$lib/room.svelte';
 import { m } from '$lib/paraglide/messages';
+import { aDate } from '$lib/dates';
 
 type Import = ListImportsOutput['imports'][number];
 type Arrival = Import['arrivals'][number];
@@ -68,21 +69,11 @@ function draw(answers: Answers, room?: Room) {
 }
 
 describe('the list of what has been brought in', () => {
-	it('names the way back to Settings under its title on the phone', async () => {
+	it("draws no way back of its own on either layout: the shell's arrow is the way back (#219)", async () => {
 		draw({ list_imports: { imports: LIBRARY } });
 		await screen.findByRole('link', { name: /Crouton/ });
 
-		expect(screen.getByRole('link', { name: `‹ ${m.imports_back()}` })).toHaveAttribute(
-			'href',
-			'/settings',
-		);
-	});
-
-	it('leaves that line out on the wide layout, where the back arrow is the way back (#195)', async () => {
-		draw({ list_imports: { imports: LIBRARY } }, 'wide');
-		await screen.findByRole('link', { name: /Crouton/ });
-
-		expect(screen.queryByRole('link', { name: `‹ ${m.imports_back()}` })).toBeNull();
+		expect(screen.queryByRole('link', { name: /‹/ })).toBeNull();
 	});
 
 	it('lists every source, whichever importer made it', async () => {
@@ -111,7 +102,7 @@ describe('the list of what has been brought in', () => {
 		expect(crouton).toHaveTextContent('89 recipes remembered');
 		expect(crouton).toHaveTextContent('2 arrivals');
 		// The newest arrival, not the date the channel was opened in August.
-		expect(crouton).toHaveTextContent('Last September 19, 2026');
+		expect(crouton).toHaveTextContent(`Last ${aDate('2026-09-19T12:00:00Z')}`);
 	});
 
 	it('still lists a source whose ledger has been forgotten', async () => {
@@ -226,7 +217,7 @@ describe('on the wide layout', () => {
 		beside();
 
 		const [again, first, lost] = await reports();
-		expect(first).toHaveTextContent('September 19, 2026');
+		expect(first).toHaveTextContent(aDate('2026-09-19T12:00:00Z'));
 		expect(first).toHaveTextContent('86 recipes, all new');
 		expect(again).toHaveTextContent('86 recipes, already had them all');
 		expect(lost).toHaveTextContent('Nothing arrived · 1 could not be read');

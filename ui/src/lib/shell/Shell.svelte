@@ -7,7 +7,8 @@
 	  keeps its own column, centred in what is left beside the sidebar, until
 	  its own ticket widens it.
 	  A page the sidebar does not list carries a back arrow (#195), since a
-	  tablet's installed app has no browser button to go back with.
+	  tablet's installed app has no browser button to go back with. The phone
+	  carries the same arrow on the same pages since #219.
 	- **Bare:** nothing, on any layout. The cooking screen (ADR 0011) is one Step
 	  filling the window, used with wet hands, and a way to Shopping one stray
 	  touch from the Step is the one thing it may not cost. The story (#158)
@@ -74,10 +75,11 @@
 
 	const sidebar = $derived(room.wide && !bare && !outside);
 	const masthead = $derived(room.wide && !bare && outside);
-	const headerAndTabs = $derived(!room.wide && !bare);
+	const header = $derived(!room.wide && !bare);
+	const tabs = $derived(header && !outside);
 
 	/** Where this page's back arrow goes with nothing behind it, on a page that carries one. */
-	const backTo = $derived(sidebar ? parentOf(pathname) : undefined);
+	const backTo = $derived(sidebar || tabs ? parentOf(pathname) : undefined);
 
 	function onKey(event: KeyboardEvent) {
 		if (!bare && !outside) slashToSearch(event);
@@ -86,8 +88,8 @@
 
 <svelte:window onkeydown={onKey} />
 
-{#if headerAndTabs}
-	<Header onSettings={pathname.startsWith('/settings')} />
+{#if header}
+	<Header onSettings={pathname.startsWith('/settings')} bare={outside} />
 {:else if sidebar}
 	<Sidebar {pathname} />
 {:else if masthead}
@@ -96,11 +98,11 @@
 
 <div class={[sidebar && 'beside-rail', backTo && 'clears-back-arrow']}>
 	{#if backTo}
-		<BackArrow parent={backTo} />
+		<BackArrow parent={backTo} layout={sidebar ? 'wide' : 'phone'} />
 	{/if}
 	{@render screen(bare)}
 </div>
 
-{#if headerAndTabs}
+{#if tabs}
 	<TabBar {pathname} />
 {/if}

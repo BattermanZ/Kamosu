@@ -13,6 +13,7 @@
 	the count is the household's, never the reader's.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import type { GetRecipeOutput } from '$lib/api/catalogue';
@@ -34,7 +35,7 @@
 	{#if cooked.count === 0 || !cooked.last_cooked_at}
 		<p class="text-read text-ink-2">{m.recipe_cooked_never()}</p>
 	{:else}
-		{@const when = new Date(cooked.last_cooked_at).toLocaleDateString()}
+		{@const when = aDate(cooked.last_cooked_at)}
 		<p class="text-read text-ink-2">
 			{cooked.count === 1
 				? m.recipe_cooked_once({ when })

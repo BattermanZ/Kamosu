@@ -10,6 +10,7 @@
  * shape.
  */
 
+import { aDate } from '$lib/dates';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { standIn, type Answers, type StandIn } from '$lib/api/stand-in';
@@ -17,7 +18,6 @@ import type { AuthClient } from '$lib/auth';
 import type { PreviewSharedRecipeOutput } from '$lib/api/catalogue';
 import { forgetArrival, noteArrival, theArrival } from '$lib/arrival.svelte';
 import { signingIn } from '$lib/shell/signing-in.svelte';
-import { getLocale } from '$lib/paraglide/runtime';
 import { outlivingTheWait, withTheClockFaked } from '../testing/jobs';
 import { went } from '../testing/navigation';
 import ImportSharedTestHarness from './import/ImportSharedTestHarness.svelte';
@@ -116,11 +116,7 @@ function open(options: {
 }
 
 /** The held copy's date, as the app writes a date in its own Language. */
-const ON_THE_20TH = new Date('2026-09-20T09:00:00.000Z').toLocaleDateString(getLocale(), {
-	day: 'numeric',
-	month: 'long',
-	year: 'numeric',
-});
+const ON_THE_20TH = aDate('2026-09-20T09:00:00.000Z');
 
 const operations = (kamosu: StandIn) => kamosu.calls.map((call) => call.operation);
 

@@ -29,6 +29,7 @@
 	kept its address has none to show, and the screen says so and how to get one.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -294,7 +295,7 @@
 			<p class="mt-1 text-read text-ink-2">
 				{m.share_shared_by({
 					name: link.shared_by,
-					when: new Date(link.created_at).toLocaleDateString(),
+					when: aDate(link.created_at),
 				})}
 			</p>
 		{/if}

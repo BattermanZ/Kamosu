@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { m } from '$lib/paraglide/messages';
 
 	interface Props {
 		title: string;
@@ -43,6 +44,11 @@
 		children,
 	}: Props = $props();
 </script>
+
+<!-- The tab, the history and a bookmark read the page's name (#224). -->
+<svelte:head>
+	<title>{title} · {m.app_name()}</title>
+</svelte:head>
 
 <div
 	class={card

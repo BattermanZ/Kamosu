@@ -113,6 +113,18 @@ const rowFor = (name: string): HTMLElement => {
 };
 
 describe('Shopping', () => {
+	it('gives a chosen recipe its title on a row of its own, with the amount and TAKE OFF under it (#226)', async () => {
+		renderScreen(Page, { get_shopping_list: list() });
+		const title = await screen.findByRole('link', { name: 'Korean Fried Chicken' });
+
+		const row = title.closest('li') as HTMLElement;
+		expect(row.className).toContain('flex-wrap');
+		expect(title.parentElement?.className).toContain('w-full');
+		const under = row.children[1] as HTMLElement;
+		expect(under.className).toContain('w-full');
+		expect(under.className).toContain('justify-between');
+	});
+
 	it('says what the list is for when there is nothing on it', async () => {
 		renderScreen(Page, { get_shopping_list: { chosen: [], rows: [] } });
 		expect(await screen.findByText(/Choose the recipes you'll cook/)).toBeInTheDocument();

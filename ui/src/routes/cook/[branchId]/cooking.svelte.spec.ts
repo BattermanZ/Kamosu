@@ -404,6 +404,8 @@ describe('the cooking screen', () => {
 		// Starting counts as a cooking (ADR 0010), so opening the steps out of
 		// curiosity would register as one. This is the counterweight, and it is
 		// here at the stove where the false start happened.
+		// Under the ⋯ since #222, with the screen's sleep.
+		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('delete_attempt');
 
@@ -416,6 +418,7 @@ describe('the cooking screen', () => {
 		await cook();
 		// jsdom has none, which is the honest case this must handle: no fallback
 		// hack, no silent video trick — the screen says what is true.
+		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
 		const toggle = await screen.findByRole('button', { name: /screen may sleep/i });
 		expect(toggle).toBeDisabled();
 	});
@@ -909,9 +912,10 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 
 		const mark = await screen.findByRole('button', { name: 'Kamosu went wrong' });
 		expect(mark).toHaveTextContent('Went wrong');
-		// On the row with the other ways off the step, not above the Step.
+		// On the row with the other ways off the step, not above the Step. The
+		// false start is under the ⋯ since #222; the ⋯ is on the row.
 		expect(mark.closest('header')).toBe(
-			screen.getByRole('button', { name: /not really cooking/i }).closest('header'),
+			screen.getByRole('button', { name: /^more$/i }).closest('header'),
 		);
 		// Said aloud as well as shown: a screen reader hears it without finding it.
 		expect(screen.getByRole('alert')).toHaveTextContent('Kamosu went wrong');
@@ -969,6 +973,7 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 
 	it('draws the card over a cooking thrown away, beside the way back it has', async () => {
 		const kamosu = await cook();
+		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: /throw it away/i }));
 		await screen.findByRole('status');

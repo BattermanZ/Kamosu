@@ -413,7 +413,7 @@
 			     right pushed the whole shelf sideways, 615px wide on a 390px phone,
 			     as soon as a Tag carried a Language mark (#112). -->
 			<div
-				class="relative -mx-gutter mt-2 flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto px-gutter"
+				class="relative -mx-gutter mt-2 flex [scrollbar-width:none] flex-nowrap gap-2 overflow-x-auto px-gutter wide:mx-0 wide:flex-wrap wide:overflow-visible wide:px-0"
 			>
 				{#each chips as held (held.id)}
 					{@const word = tagWord(held)}

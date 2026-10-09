@@ -6,8 +6,8 @@
 	The sidebar is where a wide window reads the name, and these pages have
 	none, so without this the name stood nowhere on them. It was asked for
 	on 5 October 2026, on the same objection the first rail met. The phone
-	layout keeps its header on these pages until #214 gives both layouts one
-	signed-out page.
+	layout draws its own header bare on these pages (#218); #214 holds what
+	is still open about one signed-out page for both.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';

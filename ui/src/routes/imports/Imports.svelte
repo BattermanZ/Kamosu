@@ -35,15 +35,14 @@
 	reaches each source's heading and one row.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import { untrack } from 'svelte';
 	import { useKamosu } from '$lib/kamosu';
 	import { useRoom } from '$lib/room.svelte';
 	import { openInPlace, stepInList, typingInAField } from '$lib/shell/walk';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
-	import WayBackLine from '$lib/shell/WayBackLine.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import { sourceName, sourceSummary, whatHappened, whenArrived, type Import } from '$lib/imports';
@@ -105,12 +104,7 @@
 		};
 	});
 
-	const when = (at: string) =>
-		new Date(at).toLocaleDateString(getLocale(), {
-			day: 'numeric',
-			month: 'long',
-			year: 'numeric',
-		});
+	const when = (at: string) => aDate(at);
 
 	/** The newest arrival's date, which is what "last" on the card means. */
 	const lastArrival = (source: Import) => source.arrivals[0]?.created_at;
@@ -150,6 +144,13 @@
 		<Empty>{m.imports_none()}</Empty>
 	{/if}
 {/snippet}
+
+<!-- The list beside what is open draws no Screen, so it names the tab itself (#224). -->
+<svelte:head>
+	{#if room.wide}
+		<title>{m.imports_title()} · {m.app_name()}</title>
+	{/if}
+</svelte:head>
 
 {#if room.wide}
 	<div class="list-column">
@@ -209,11 +210,7 @@
 		</div>
 	</div>
 {:else}
-	<!-- The blurb is drawn here rather than passed to `Screen`, so the way back sits
-	     directly under the title as it does on the Report (#68) and everywhere else.
-	     Screen puts its own `blurb` between the two, which left the link floating. -->
 	<Screen title={m.imports_title()}>
-		<WayBackLine href="/settings" label={m.imports_back()} />
 		<p class="mt-2 text-read text-ink-2">{m.imports_blurb()}</p>
 
 		<Section heading={m.imports_sources()}>

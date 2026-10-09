@@ -2,13 +2,18 @@
 	The tab bar: Home · Recipes · Shopping · Cooked.
 
 	Four sections, fixed to the bottom of the screen, sized for a thumb at arm's
-	length with wet hands. Settings are not here — they live behind the *You*
-	card in the header (#102), because they are not somewhere you go while
+	length with wet hands. Settings are not here — they live behind the gear in
+	the header (#102, #218), because they are not somewhere you go while
 	cooking. A fifth tab would cost the four that matter for a room nobody
 	reaches mid-recipe (ADR 0011).
+
+	Since #218 it wears the rail's look (#194): indigo, each place an icon over
+	its word, the current one lit. `PlaceLink.svelte` draws a place for both,
+	so the phone and the tablet read as one app at the bottom of the screen.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import PlaceLink from './PlaceLink.svelte';
 	import { isCurrent, places } from './places';
 
 	interface Props {
@@ -19,34 +24,11 @@
 	let { pathname }: Props = $props();
 </script>
 
-<nav
-	aria-label={m.nav_sections()}
-	class="fixed inset-x-0 bottom-0 z-20 border-t border-rule bg-card pb-safe"
->
+<nav aria-label={m.nav_sections()} class="fixed inset-x-0 bottom-0 z-20 bg-accent pb-safe">
 	<ul class="mx-auto flex max-w-2xl">
 		{#each places as place (place.href)}
-			{@const current = isCurrent(place.href, pathname)}
-			<li class="flex-1">
-				<a
-					href={place.href}
-					aria-current={current ? 'page' : undefined}
-					class="flex min-h-12 flex-col items-center justify-center gap-1 pt-2 text-label uppercase
-						{current ? 'text-accent' : 'text-ink-2'}"
-				>
-					<svg
-						viewBox="0 0 24 24"
-						aria-hidden="true"
-						class="h-6 w-6"
-						fill="none"
-						stroke="currentColor"
-						stroke-width={current ? 2 : 1.5}
-						stroke-linecap="round"
-						stroke-linejoin="round"
-					>
-						<path d={place.path} />
-					</svg>
-					{place.label()}
-				</a>
+			<li class="flex flex-1 flex-col">
+				<PlaceLink {place} current={isCurrent(place.href, pathname)} edge="top" />
 			</li>
 		{/each}
 	</ul>

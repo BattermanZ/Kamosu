@@ -283,12 +283,17 @@
 							<ul>
 								{#each list.chosen as entry (entry.branch_id)}
 									{@const countable = room.wide && !entry.gone && steps(entry)}
+									<!--
+										The title on a row of its own, on both layouts (#226). On the
+										phone it shared its row with "shopping for 4 servings" and
+										TAKE OFF THE LIST, which left it 70px and four lines.
+									-->
 									<li
-										class="flex border-b border-rule py-3 {room.wide
-											? 'flex-wrap items-center gap-x-3 gap-y-1'
-											: 'items-baseline justify-between gap-3'}"
+										class="flex flex-wrap border-b border-rule py-3 {room.wide
+											? 'items-center gap-x-3 gap-y-1'
+											: 'items-center gap-y-2'}"
 									>
-										<div class="min-w-0 {room.wide ? 'w-full' : ''}">
+										<div class="w-full min-w-0">
 											{#if entry.gone}
 												<span class="block text-line text-ink-2">{entry.title}</span>
 											{:else}
@@ -300,7 +305,7 @@
 										<div
 											class="flex gap-3 {room.wide
 												? 'min-w-0 flex-1 flex-wrap items-center gap-y-1'
-												: 'shrink-0 items-baseline'}"
+												: 'w-full items-center justify-between'}"
 										>
 											{#if entry.gone}
 												<span class="text-read text-support">{m.shopping_gone()}</span>
@@ -352,7 +357,7 @@
 									-->
 												<button
 													type="button"
-													class="text-read text-ink-2 underline decoration-rule underline-offset-4"
+													class="quiet-button text-ink-2"
 													aria-label={m.shopping_yield_label({ recipe: entry.title })}
 													onclick={() => sizeUp(entry)}
 												>
@@ -442,9 +447,7 @@
 					choosing a recipe by its title alone is choosing a Branch
 					blind — and a Branch is exactly what this list holds.
 				-->
-							<a class="mt-3 block text-read text-accent" href="/recipes"
-								>{m.shopping_add_recipe()}</a
-							>
+							<a class="mt-3 quiet-button text-accent" href="/recipes">{m.shopping_add_recipe()}</a>
 						</Section>
 					</div>
 				</div>
@@ -591,8 +594,11 @@
 									</button>
 								</form>
 							{:else}
-								<button type="button" class="text-read text-accent" onclick={() => (typing = true)}>
-									{m.shopping_add_loose()}
+								<button
+									type="button"
+									class="quiet-button text-accent"
+									onclick={() => (typing = true)}
+									>{m.shopping_add_loose()}
 								</button>
 							{/if}
 						</li>
@@ -613,7 +619,7 @@
 			-->
 					{#if list.rows.length > 0}
 						<div class="mt-6 border-t border-rule pt-6">
-							<button type="button" class="text-body text-accent" onclick={send}>
+							<button type="button" class="quiet-button text-accent" onclick={send}>
 								{m.shopping_send()}
 							</button>
 

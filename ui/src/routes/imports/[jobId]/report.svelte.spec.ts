@@ -116,13 +116,13 @@ function open(answers: Answers) {
 }
 
 describe('the Import Report', () => {
-	it('names the source it is reporting, and goes back where you came from', async () => {
-		// A Crouton library: Settings is where you started it.
+	it('names the source it is reporting, and draws no way back of its own (#219)', async () => {
+		// A Crouton library. The way back is the shell's arrow since #219.
 		open({ get_job: job() });
 		expect(
 			await screen.findByRole('heading', { name: 'Your Crouton library' }),
 		).toBeInTheDocument();
-		expect(screen.getByRole('link', { name: /Settings/ })).toHaveAttribute('href', '/settings');
+		expect(screen.queryByRole('link', { name: /‹/ })).toBeNull();
 	});
 
 	it('does not call one recipe file a Crouton library', async () => {
@@ -146,7 +146,6 @@ describe('the Import Report', () => {
 			await screen.findByRole('heading', { name: 'The recipe file you brought in' }),
 		).toBeInTheDocument();
 		expect(screen.queryByRole('heading', { name: 'Your Crouton library' })).not.toBeInTheDocument();
-		expect(screen.getByRole('link', { name: /Recipes/ })).toHaveAttribute('href', '/recipes');
 	});
 
 	it('is already a page while the import runs, and becomes the Report when it ends', async () => {

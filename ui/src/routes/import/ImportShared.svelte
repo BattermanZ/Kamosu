@@ -23,13 +23,13 @@
 	upload: the recipe is fetched once, and what lands is what was shown.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import { goto } from '$app/navigation';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { StillRunning, waitForJob } from '$lib/api/job';
 	import { receiveStaged } from '$lib/receive';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import Screen from '$lib/shell/Screen.svelte';
 	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import type { PreviewSharedRecipeOutput } from '$lib/api/catalogue';
@@ -204,12 +204,7 @@
 	}
 
 	/** A date as the rest of Kamosu writes one, in the app's own Language. */
-	const since = (when: string) =>
-		new Date(when).toLocaleDateString(getLocale(), {
-			day: 'numeric',
-			month: 'long',
-			year: 'numeric',
-		});
+	const since = (when: string) => aDate(when);
 </script>
 
 {#snippet card(preview: PreviewSharedRecipeOutput)}

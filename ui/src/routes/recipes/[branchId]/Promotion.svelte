@@ -43,8 +43,8 @@
 	would say it had.
 -->
 <script lang="ts">
+	import { aDay } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { goto } from '$app/navigation';
@@ -120,14 +120,7 @@
 		pending !== undefined && versions.at(-1)?.version_id !== pending.version_id,
 	);
 
-	const when = $derived(
-		pending
-			? new Date(pending.created_at).toLocaleDateString(getLocale(), {
-					day: 'numeric',
-					month: 'long',
-				})
-			: '',
-	);
+	const when = $derived(pending ? aDay(pending.created_at) : '');
 
 	/**
 	 * The lines this cooking did not leave alone, in the recipe's own order —

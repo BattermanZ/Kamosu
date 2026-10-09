@@ -13,6 +13,9 @@
 	from a Share Link must not meet a wall (ADR 0013).
 -->
 <script lang="ts">
+	import { useRoom } from '$lib/room.svelte';
+	import { signingIn } from '$lib/shell/signing-in.svelte';
+	import { aDate } from '$lib/dates';
 	import { untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import Notice from './Notice.svelte';
@@ -30,6 +33,7 @@
 	let { device = thisDevice() }: Props = $props();
 
 	const online = new Online();
+	const room = useRoom();
 	const library = useLibrary();
 
 	/** The spell offline whose card was put away. */
@@ -53,11 +57,20 @@
 		if (!device.secure) return insecureAway ? undefined : 'insecure';
 		if (library.phase === 'filling') return 'filling';
 		if (library.phase === 'absent' && !libraryLater) return 'library';
-		if (!device.installed && !install.accepted && !installAway) return 'install';
+		// Not on the wide layout, where "keep Kamosu on your phone" means nothing
+		// to a laptop, and not before anyone is signed in (#226, #214).
+		if (
+			!device.installed &&
+			!install.accepted &&
+			!installAway &&
+			!room.wide &&
+			signingIn.signedIn === true
+		)
+			return 'install';
 		return undefined;
 	});
 
-	const when = (date: Date) => date.toLocaleDateString();
+	const when = (date: Date) => aDate(date);
 </script>
 
 {#if card === 'offline'}
@@ -68,9 +81,9 @@
 		{#if standing.branchId && library.onlyOpened(standing.branchId) && standing.keptAt}
 			<p>{m.offline_cached({ date: when(standing.keptAt) })}</p>
 		{:else if library.filledAt}
-			<p>{m.offline_held()}</p>
+			<p>{room.wide ? m.offline_held_device() : m.offline_held()}</p>
 		{:else}
-			<p>{m.offline_unfilled()}</p>
+			<p>{room.wide ? m.offline_unfilled_device() : m.offline_unfilled()}</p>
 		{/if}
 	</Notice>
 {:else if card === 'insecure'}
@@ -87,11 +100,11 @@
 			},
 		]}
 	>
-		<p>{m.offline_insecure_body()}</p>
+		<p>{room.wide ? m.offline_insecure_body_device() : m.offline_insecure_body()}</p>
 	</Notice>
 {:else if card === 'library'}
 	<Notice
-		title={m.offline_library_title()}
+		title={room.wide ? m.offline_library_title_device() : m.offline_library_title()}
 		tone="pause"
 		actions={[
 			{ label: m.offline_library_fetch(), act: () => void library.fill(), primary: true },
@@ -103,7 +116,10 @@
 		</p>
 	</Notice>
 {:else if card === 'filling'}
-	<Notice title={m.offline_library_title()} tone="pause">
+	<Notice
+		title={room.wide ? m.offline_library_title_device() : m.offline_library_title()}
+		tone="pause"
+	>
 		<p>{m.offline_library_filling({ done: library.done, total: library.total })}</p>
 	</Notice>
 {:else if card === 'install'}

@@ -8,6 +8,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
+import { aDate } from '$lib/dates';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
 import type { GetRecipeOutput } from '$lib/api/catalogue';
@@ -129,6 +131,8 @@ function setOnline(value: boolean) {
 }
 
 beforeEach(() => {
+	// The install card is for somebody in the app (#226); the tests are.
+	heardWhetherSignedIn(true);
 	localStorage.clear();
 	fetched.length = 0;
 	standing.branchId = undefined;
@@ -153,9 +157,13 @@ afterEach(() => {
 	Reflect.deleteProperty(navigator, 'serviceWorker');
 });
 
-function show(answers: Answers = library(), on: Device = device()) {
+function show(
+	answers: Answers = library(),
+	on: Device = device(),
+	room: 'phone' | 'wide' = 'phone',
+) {
 	const kamosu = standIn(answers);
-	render(NoticesTestHarness, { props: { client: kamosu.client, device: on } });
+	render(NoticesTestHarness, { props: { client: kamosu.client, device: on, room } });
 	return kamosu;
 }
 
@@ -308,7 +316,7 @@ describe('offline', () => {
 		show();
 		expect(
 			await screen.findByText(
-				new RegExp(`copy kept when you opened it on ${new Date(2026, 8, 12).toLocaleDateString()}`),
+				new RegExp(`copy kept when you opened it on ${aDate(new Date(2026, 8, 12))}`),
 			),
 		).toBeInTheDocument();
 	});
@@ -363,6 +371,21 @@ describe('over plain http://', () => {
 });
 
 describe('in a browser tab', () => {
+	it('offers no install on the wide layout, where "keep Kamosu on your phone" means nothing to a laptop (#226)', async () => {
+		filled(['b_1']);
+		show(library(), device({ apple: true }), 'wide');
+		await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+		expect(screen.queryByText(/Keep Kamosu on/)).not.toBeInTheDocument();
+	});
+
+	it('offers no install before anyone is signed in (#226, #214)', async () => {
+		filled(['b_1']);
+		heardWhetherSignedIn(false);
+		show(library(), device({ apple: true }));
+		await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+		expect(screen.queryByText('Keep Kamosu on your phone')).not.toBeInTheDocument();
+	});
+
 	it('explains how to add it to the Home Screen on an iPhone, and never refuses', async () => {
 		filled(['b_1']);
 		show(library(), device({ apple: true }));

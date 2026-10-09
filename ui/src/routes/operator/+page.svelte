@@ -26,6 +26,7 @@
 	(ADR 0040). It does not render an explanation of what it would have held.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
@@ -274,7 +275,7 @@
 	/** Megabytes, to one place. An archive is never small enough for bytes. */
 	const weight = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
-	const when = (at: string) => new Date(at).toLocaleDateString();
+	const when = (at: string) => aDate(at);
 
 	// ── Photographs, and reading the library's lines ──────────────────────────
 

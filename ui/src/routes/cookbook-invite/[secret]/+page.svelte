@@ -89,7 +89,7 @@
 				return;
 			}
 			// Settings, where the joined Cookbook's card now names you both.
-			await goto('/settings');
+			await goto('/settings/kitchens');
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = error.message;
@@ -98,6 +98,14 @@
 		}
 	}
 </script>
+
+<svelte:head>
+	<title
+		>{typeof invite === 'object'
+			? m.cookbook_invite_title({ names: invite.invited_by.name })
+			: m.app_name()}</title
+	>
+</svelte:head>
 
 {#if invite === 'sign-in'}
 	<Account onSignedIn={() => (asked += 1)} />
@@ -110,7 +118,7 @@
 			<a class="mt-4 inline-block text-label text-accent underline" href="/">{m.home_title()}</a>
 		{:else if invite.already_yours}
 			<p class="text-body text-ink">{m.cookbook_invite_already()}</p>
-			<a class="mt-4 inline-block text-label text-accent underline" href="/settings"
+			<a class="mt-4 inline-block text-label text-accent underline" href="/settings/kitchens"
 				>{m.settings_title()}</a
 			>
 		{:else}
@@ -134,7 +142,7 @@
 				<p class="mt-3 text-body text-ink" role="status">
 					{m.cookbook_invite_waiting_on({ names: others })}
 				</p>
-				<a class="mt-4 inline-block text-label text-accent underline" href="/settings"
+				<a class="mt-4 inline-block text-label text-accent underline" href="/settings/kitchens"
 					>{m.settings_title()}</a
 				>
 			{:else}

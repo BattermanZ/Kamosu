@@ -1073,6 +1073,12 @@
 		'min-h-12 w-full min-w-0 rounded-sm border border-rule bg-card px-2 text-body text-ink';
 	const QUIET = 'rounded-sm border border-rule px-2 py-1 text-read text-ink-2';
 	/**
+	 * A tool beside a line or a Step, as a mark and no word (#225): twenty lines
+	 * carried forty words of button. The word is the accessible name, and the
+	 * title says it under a pointer.
+	 */
+	const TOOL = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border';
+	/**
 	 * The way in to the library, in matcha — the colour of a Reading that points
 	 * at a recipe everywhere else (#50). `Correcting.svelte` wears the same one
 	 * on the same act, which is what "one control on both screens" means (#83).
@@ -1334,17 +1340,45 @@
 												{m.write_line_not_recipe()}
 											</button>
 										{:else}
-											<button type="button" class={MATCHA} onclick={() => (picking = row.id)}>
-												{m.write_line_recipe()}
+											<button
+												type="button"
+												class="{TOOL} border-support-2 text-support-2"
+												aria-label={m.write_line_recipe()}
+												title={m.write_line_recipe()}
+												onclick={() => (picking = row.id)}
+											>
+												<svg
+													viewBox="0 0 24 24"
+													aria-hidden="true"
+													class="h-4 w-4"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													><path
+														d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"
+													/></svg
+												>
 											</button>
 										{/if}
 									{/if}
 									<button
 										type="button"
-										class="{QUIET} text-support"
+										class="{TOOL} border-rule text-support"
+										aria-label={m.write_remove()}
+										title={m.write_remove()}
 										onclick={() => remove('lines', index)}
 									>
-										{m.write_remove()}
+										<svg
+											viewBox="0 0 24 24"
+											aria-hidden="true"
+											class="h-4 w-4"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.75"
+											stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
+										>
 									</button>
 								</div>
 							</div>
@@ -1445,7 +1479,10 @@
 								onkeydown={(event) => onKey(event, 'steps', index)}></textarea>
 							<div class="flex flex-wrap items-center gap-2 pt-1">
 								{#if row.kind === 'step'}
-									<label class="{QUIET} relative cursor-pointer text-accent">
+									<label
+										class="{TOOL} relative cursor-pointer border-rule text-accent"
+										title={row.photo ? m.write_photo_change() : m.write_step_photo()}
+									>
 										{#if place?.held}
 											{@const number = stepNumbers[index] ?? 0}
 											<DropHere
@@ -1460,7 +1497,21 @@
 												}}
 											/>
 										{/if}
-										{row.photo ? m.write_photo_change() : m.write_step_photo()}
+										<svg
+											viewBox="0 0 24 24"
+											aria-hidden="true"
+											class="h-4 w-4"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<path d="M4 7h3l2-2h6l2 2h3v12H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
+										</svg>
+										<span class="sr-only"
+											>{row.photo ? m.write_photo_change() : m.write_step_photo()}</span
+										>
 										<input
 											type="file"
 											accept="image/*"
@@ -1471,19 +1522,39 @@
 									{#if row.photo}
 										<button
 											type="button"
-											class="{QUIET} text-support"
+											class="{TOOL} border-rule text-support"
+											aria-label={m.write_step_photo_remove()}
+											title={m.write_step_photo_remove()}
 											onclick={() => (row.photo = null)}
 										>
-											{m.write_step_photo_remove()}
+											<svg
+												viewBox="0 0 24 24"
+												aria-hidden="true"
+												class="h-4 w-4"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="1.75"
+												stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
+											>
 										</button>
 									{/if}
 								{/if}
 								<button
 									type="button"
-									class="{QUIET} text-support"
+									class="{TOOL} border-rule text-support"
+									aria-label={m.write_remove()}
+									title={m.write_remove()}
 									onclick={() => remove('steps', index)}
 								>
-									{m.write_remove()}
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg
+									>
 								</button>
 							</div>
 							{#if place?.refused}

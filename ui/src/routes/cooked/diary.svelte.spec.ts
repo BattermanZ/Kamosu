@@ -179,8 +179,9 @@ describe('the cooking diary', () => {
 
 		// The date the cooking happened, beside the recipe it was of — its own
 		// on every line, since two cookings in one month is the ordinary case.
-		expect(await screen.findByText('August 20')).toBeInTheDocument();
-		expect(screen.getByText('August 14')).toBeInTheDocument();
+		// Day-first, as every date in Kamosu is written since #224.
+		expect(await screen.findByText('20 August')).toBeInTheDocument();
+		expect(screen.getByText('14 August')).toBeInTheDocument();
 		expect(screen.getByText('Again')).toBeInTheDocument();
 
 		// A rating is optional and its absence says nothing at all — there is

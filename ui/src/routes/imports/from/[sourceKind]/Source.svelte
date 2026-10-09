@@ -32,7 +32,6 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import Screen from '$lib/shell/Screen.svelte';
-	import WayBackLine from '$lib/shell/WayBackLine.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import Confirm from '$lib/Confirm.svelte';
@@ -108,8 +107,6 @@
 </script>
 
 <Screen title={source ? sourceName(source.source_kind) : sourceName(sourceKind)}>
-	<WayBackLine href="/imports" label={m.imports_from_back()} />
-
 	{#if said && !asking}
 		<p class="mt-4 border-l-3 border-support bg-card px-3 py-2 text-body" role="alert">{said}</p>
 	{/if}

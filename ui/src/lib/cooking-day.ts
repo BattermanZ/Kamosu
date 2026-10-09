@@ -3,8 +3,6 @@
  * everywhere a cooking is named by when it was, so a picture on the recipe
  * page is dated exactly as it is in the diary (#110).
  */
+import { aDay } from '$lib/dates';
 
-import { getLocale } from '$lib/paraglide/runtime';
-
-export const cookingDay = (when: string): string =>
-	new Date(when).toLocaleDateString(getLocale(), { day: 'numeric', month: 'long' });
+export const cookingDay = (when: string): string => aDay(when);

@@ -53,7 +53,7 @@
 	{m.how_much_question()}
 </p>
 {#if counts(written) && written}
-	<div class="flex items-center gap-4 py-3">
+	<div class="flex items-center gap-4 py-3 wide:max-w-[360px]">
 		<button
 			type="button"
 			class="min-h-12 w-12 rounded-sm border font-display text-title disabled:opacity-40

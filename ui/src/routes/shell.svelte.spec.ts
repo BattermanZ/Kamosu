@@ -178,20 +178,78 @@ describe('on the wide layout, before anybody has answered who is here', () => {
 	});
 });
 
+describe('the tab', () => {
+	it("reads the page's name, so history and a bookmark say what they hold (#224)", async () => {
+		shell('/recipes', 'phone', 'shelf');
+
+		await waitFor(() => expect(document.title).toBe(`${m.recipes_title()} · ${m.app_name()}`));
+	});
+});
+
 describe('on the phone layout', () => {
 	it('keeps the header and the four tabs, and lists no Settings among them', () => {
 		shell('/', 'phone');
 
 		expect(places()).toEqual(TABS);
-		expect(screen.getByRole('banner')).toHaveTextContent(m.header_you());
+		expect(screen.getByRole('banner')).toHaveTextContent(m.app_name());
 	});
 
-	it('keeps them on the account form and the link pages, as it always has', async () => {
-		heardWhetherSignedIn(false);
-		shell('/invite/abc', 'phone', 'account');
+	it('reaches Settings by a gear in the header, named for a reader who cannot see it (#218)', () => {
+		shell('/', 'phone');
 
-		await waitFor(() => expect(screen.getByRole('banner')).toBeInTheDocument());
-		expect(places()).toEqual(TABS);
+		const gear = within(screen.getByRole('banner')).getByRole('link', { name: m.open_settings() });
+		expect(gear).toHaveAttribute('href', '/settings');
+	});
+
+	it("draws the bar in the rail's look, the current place lit (#218)", () => {
+		shell('/recipes', 'phone');
+
+		const nav = navigation();
+		expect(nav?.className).toContain('bg-accent');
+		const current = within(nav!).getByRole('link', { current: 'page' });
+		expect(current).toHaveAttribute('href', '/recipes');
+		expect(current.className).toContain('bg-cook-ground');
+		expect(current.className).toContain('border-t-3');
+	});
+
+	it.each([
+		['/', 'account' as const],
+		['/invite/abc', 'account' as const],
+		['/recover/abc', 'account' as const],
+		['/cookbook-invite/abc', 'account' as const],
+	])(
+		'draws no tabs and no gear at %s for somebody not yet in the app, only the name (#218)',
+		async (pathname, holds) => {
+			heardWhetherSignedIn(false);
+			shell(pathname, 'phone', holds);
+
+			await waitFor(() => expect(screen.getByRole('banner')).toBeInTheDocument());
+			expect(navigation()).toBeNull();
+			expect(screen.getByRole('banner')).toHaveTextContent(m.app_name());
+			expect(within(screen.getByRole('banner')).queryByRole('link')).toBeNull();
+		},
+	);
+
+	it('draws none at / on a device that has heard nothing, so a stranger never sees them', () => {
+		signingIn.signedIn = undefined;
+		shell('/', 'phone');
+
+		expect(navigation()).toBeNull();
+		expect(within(screen.getByRole('banner')).queryByRole('link')).toBeNull();
+	});
+
+	it('brings the tabs and the gear back once the form is gone', async () => {
+		const { rerender } = render(ShellTestHarness, {
+			props: { pathname: '/import', room: 'phone', holds: 'account' },
+		});
+
+		await waitFor(() => expect(navigation()).toBeNull());
+
+		await rerender({ pathname: '/import', room: 'phone', holds: undefined });
+		await waitFor(() => expect(places()).toEqual(TABS));
+		expect(
+			within(screen.getByRole('banner')).getByRole('link', { name: m.open_settings() }),
+		).toBeInTheDocument();
 	});
 
 	it('draws neither on the cooking screen', () => {
@@ -211,8 +269,8 @@ describe('on the phone layout', () => {
 });
 
 /**
- * The back arrow on a page reached from another page (ADR 0044, #195): on the
- * wide layout only, on every page the sidebar does not list.
+ * The back arrow on a page reached from another page (ADR 0044, #195, #219):
+ * on every page the navigation does not list, on both layouts.
  */
 describe('the back arrow', () => {
 	const arrow = () => screen.queryByRole('link', { name: m.shell_back() });
@@ -249,9 +307,10 @@ describe('the back arrow', () => {
 		['a Food', '/foods/f_flour', '/foods'],
 		['a Report', '/imports/j_1', '/imports'],
 		['what one source brought in', '/imports/from/crouton', '/imports'],
-		['Foods', '/foods', '/settings'],
-		['Brought in', '/imports', '/settings'],
-		['the Operator screen', '/operator', '/settings'],
+		['Foods', '/foods', '/settings/kitchens'],
+		['Brought in', '/imports', '/settings/instance'],
+		['the Operator screen', '/operator', '/settings/instance'],
+		["one of Settings' pages", '/settings/account', '/settings'],
 	])('is on %s, and leads to its parent when nothing is behind it', async (_, pathname, parent) => {
 		shell(pathname, 'wide');
 
@@ -268,14 +327,39 @@ describe('the back arrow', () => {
 		},
 	);
 
-	it.each([['/recipes/b_soba'], ['/foods/f_flour'], ['/imports/j_1']])(
-		'is not on the phone layout at %s',
+	it.each([
+		['/recipes/b_soba', '/recipes'],
+		['/foods/f_flour', '/foods'],
+		['/imports/j_1', '/imports'],
+		['/imports', '/settings/instance'],
+		['/settings/device', '/settings'],
+	])(
+		"is on the phone layout too at %s, in the page's flow and sticking to the top (#219)",
+		(pathname, parent) => {
+			shell(pathname, 'phone');
+
+			expect(arrow()).toHaveAttribute('href', parent);
+			expect(arrow()?.className).toContain('back-arrow-phone');
+			expect(arrow()?.className).not.toContain('fixed');
+		},
+	);
+
+	it.each([['/'], ['/recipes'], ['/shopping'], ['/cooked'], ['/settings']])(
+		"is not on %s on the phone either, one of the bar's places or the gear's",
 		(pathname) => {
 			shell(pathname, 'phone');
 
 			expect(arrow()).toBeNull();
 		},
 	);
+
+	it('is not on the phone for somebody not yet in the app', async () => {
+		heardWhetherSignedIn(false);
+		shell('/invite/abc', 'phone', 'account');
+
+		await waitFor(() => expect(screen.getByRole('banner')).toBeInTheDocument());
+		expect(arrow()).toBeNull();
+	});
 
 	it.each([['/cook/b_soba'], ['/invite/abc'], ['/recover/abc'], ['/cookbook-invite/abc']])(
 		'is not at %s, where the wide layout draws no sidebar',

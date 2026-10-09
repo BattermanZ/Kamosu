@@ -20,6 +20,7 @@
 	prototypes, 25 September 2026; the issue holds the record.
 -->
 <script lang="ts">
+	import { useRoom } from '$lib/room.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocale, locales, setLocale, type Locale } from '$lib/paraglide/runtime';
 	import { story } from './showing.svelte';
@@ -120,6 +121,8 @@
 			go(at + 1);
 		}
 	}
+
+	const room = useRoom();
 </script>
 
 <svelte:window {onkeydown} />
@@ -257,7 +260,7 @@
 									</div>
 									<div class="ev ev-off">
 										<span class="nowifi"></span>
-										<b>{m.story_offline({}, L)}</b>
+										<b>{(room.wide ? m.story_offline_device : m.story_offline)({}, L)}</b>
 									</div>
 								{:else}
 									{@render phone('waiting', false)}

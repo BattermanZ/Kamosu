@@ -275,6 +275,13 @@
 	{/if}
 {/snippet}
 
+<!-- The list beside what is open draws no Screen, so it names the tab itself (#224). -->
+<svelte:head>
+	{#if room.wide}
+		<title>{m.foods_title()} · {m.app_name()}</title>
+	{/if}
+</svelte:head>
+
 {#if room.wide}
 	<div class="list-column">
 		<div class="border-b border-rule px-gutter pb-3">

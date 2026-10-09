@@ -11,6 +11,7 @@
  * wrong.
  */
 
+import { aDate } from '$lib/dates';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { tick, type ComponentProps } from 'svelte';
@@ -930,7 +931,7 @@ describe('the way into the Thread', () => {
 				versions,
 			},
 		} as Answers);
-	const day = (iso: string) => new Date(iso).toLocaleDateString();
+	const day = (iso: string) => aDate(iso);
 	const button = () => screen.findByRole('link', { name: /^History/ });
 	/** The line under the button, once the Thread it counts has been read. */
 	const saying = async (text: string) => {
@@ -2546,7 +2547,7 @@ describe('on the phone (#76)', () => {
 		localStorage.setItem('kamosu.library', JSON.stringify({ held: ['another'] }));
 		offlineWithKeptCopy();
 		renderRecipe();
-		expect(await screen.findByText(`Kept from ${kept.toLocaleDateString()}`)).toBeInTheDocument();
+		expect(await screen.findByText(`Kept from ${aDate(kept)}`)).toBeInTheDocument();
 	});
 
 	it('says nothing of the kind before the phone knows what its library holds', async () => {
@@ -2613,17 +2614,30 @@ describe('deleting a recipe', () => {
 		expect(screen.queryByRole('button', { name: 'Delete this recipe' })).toBeNull();
 	});
 
-	it('is set apart from the actions rather than standing among them', async () => {
+	it('is the last row of the acts, marked out by its colour rather than its shape (#220)', async () => {
 		renderRecipe(forked({ get_share_link: shareLink(false) }));
 		const affordance = await screen.findByRole('button', { name: 'Delete this recipe' });
 
-		// Every action above it is a full-width row in one column. This one is
-		// not shaped like them, which is the whole of why a thumb reaching for
-		// `Add to shopping list` cannot land on it.
+		// Every act at the foot is the same plain row (option 3 of the audit of
+		// 9 October 2026). This one is in beni, and it comes last.
 		const shopping = screen.getByRole('button', { name: /shopping list/i });
-		expect(shopping.className).toContain('w-[calc(100%-2*var(--spacing-gutter))]');
-		expect(affordance.className).not.toContain('w-[calc(100%-2*var(--spacing-gutter))]');
-		expect(affordance.className).toContain('underline');
+		expect(shopping.className).toContain('list-row');
+		expect(affordance.className).toContain('list-row');
+		expect(affordance.className).toContain('text-support');
+		expect(
+			shopping.compareDocumentPosition(affordance) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+
+	it('leaves Cook this under the servings, before the Ingredients, where a cook looks first (#220)', async () => {
+		renderRecipe(forked({ get_share_link: shareLink(false) }));
+		const cook = await screen.findByRole('link', { name: 'Cook this' });
+		const ingredients = screen.getByRole('heading', { name: /ingredients/i });
+
+		expect(
+			cook.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(cook.className).toContain('bg-accent');
 	});
 
 	it('asks before it does anything, and asking alone deletes nothing', async () => {

@@ -5,7 +5,8 @@
 	when the list is next read.
 
 	Whether the recipe is on the list is the recipe screen's to know, since the
-	list's amount is what the page opens at (#109); this only changes it.
+	list's amount is what the page opens at (#109); this only changes it. One
+	row of the acts at the foot of the recipe (`list-row`, #220).
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -49,9 +50,7 @@
 <button
 	type="button"
 	disabled={shopping}
-	class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] border border-rule p-4 text-center font-display text-body {onTheList
-		? 'text-ink-2'
-		: 'text-accent'}"
+	class="list-row {onTheList ? 'text-ink-2' : 'text-ink'}"
 	onclick={toggle}
 >
 	{onTheList ? m.shopping_on_your_list() : m.shopping_add_this()}

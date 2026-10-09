@@ -6,7 +6,12 @@
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { m } from '$lib/paraglide/messages';
 	import Story from '$lib/story/Story.svelte';
 </script>
+
+<svelte:head>
+	<title>{m.app_name()}</title>
+</svelte:head>
 
 <Story ending="about" onClose={() => goto('/')} />

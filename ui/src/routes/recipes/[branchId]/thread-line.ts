@@ -9,6 +9,7 @@
  * label this one's button.
  */
 import { m } from '$lib/paraglide/messages';
+import { aDate } from '$lib/dates';
 import type { GetThreadOutput } from '$lib/api/catalogue';
 
 export function threadLine(versions: GetThreadOutput['versions'], branchId: string): string | null {
@@ -18,7 +19,7 @@ export function threadLine(versions: GetThreadOutput['versions'], branchId: stri
 		(latest, each) => (each.created_at > latest ? each.created_at : latest),
 		own[0]!.created_at,
 	);
-	const when = new Date(last).toLocaleDateString();
+	const when = aDate(last);
 	if (own.length === 1) return m.recipe_thread_saved_once({ when });
 	if (own.length === 2) return m.recipe_thread_saved_twice({ when });
 	return m.recipe_thread_saved_times({ count: own.length, when });

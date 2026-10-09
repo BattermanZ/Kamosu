@@ -11,6 +11,7 @@
 	other screen here is tested against the Catalogue-derived stand-in.
 -->
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import SheetFrame from '$lib/SheetFrame.svelte';
@@ -129,7 +130,7 @@
 
 	/** What an Attempt's sheet is called, and what it says first. */
 	const whenCooked = (attempt: Attempt) =>
-		m.thread_attempt_cooked({ when: new Date(attempt.created_at).toLocaleDateString() });
+		m.thread_attempt_cooked({ when: aDate(attempt.created_at) });
 
 	function closeSheets() {
 		openVersion = undefined;

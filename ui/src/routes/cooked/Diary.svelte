@@ -15,8 +15,8 @@
 	nothing to say about whose diary it is: it is yours, and there is no other.
 -->
 <script lang="ts">
+	import { aMonth } from '$lib/dates';
 	import { m } from '$lib/paraglide/messages';
-	import { getLocale } from '$lib/paraglide/runtime';
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { ratingLabel } from '$lib/rating';
@@ -89,10 +89,7 @@
 			} else {
 				grouped.push({
 					key,
-					heading: when.toLocaleDateString(getLocale(), {
-						month: 'long',
-						year: 'numeric',
-					}),
+					heading: aMonth(when),
 					of: [entry],
 				});
 			}
@@ -323,8 +320,11 @@
 							</button>
 
 							{#if opened === entry.id}
+								<!-- Inside a card on the wide layout it is the card's own body under a
+							     hairline, not a second box: boxed and tinted it read as the card
+							     having ended where the body began (#227). -->
 								<div
-									class="mt-3 rounded-sm border border-rule bg-ground-2 p-3 wide:mx-4 wide:mt-0 wide:mb-3"
+									class="mt-3 rounded-sm border border-rule bg-ground-2 p-3 wide:mx-4 wide:mt-0 wide:mb-3 wide:rounded-none wide:border-0 wide:border-t wide:bg-transparent wide:px-0 wide:pt-3"
 								>
 									{#if entry.recipe.branch_id}
 										<a

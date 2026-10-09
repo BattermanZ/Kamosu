@@ -49,6 +49,19 @@
 
 	type ShelfName = HomeShelvesOutput['shelves'][number]['name'];
 
+	/** Each shelf's rail, for the earlier and later buttons a pointer gets (#223). */
+	let rails = $state<Partial<Record<ShelfName, HTMLUListElement>>>({});
+
+	/**
+	 * Most of a window of tiles, so the last one seen is still in view after
+	 * the move, and never less than one tile.
+	 */
+	function scroll(name: ShelfName, by: 1 | -1) {
+		const rail = rails[name];
+		if (rail)
+			rail.scrollBy({ left: by * Math.max(rail.clientWidth - 80, 168), behavior: 'smooth' });
+	}
+
 	/**
 	 * What each shelf is called, and the sentence under it. The sentence does
 	 * the explaining so the heading can stay two words, with the longer phrase
@@ -85,6 +98,10 @@
 		},
 	};
 </script>
+
+<svelte:head>
+	<title>{m.home_title()} · {m.app_name()}</title>
+</svelte:head>
 
 <div class="pt-6 pb-tabbar">
 	<div class="mx-auto max-w-2xl px-gutter wide:max-w-none">
@@ -138,7 +155,51 @@
 							not by *cooked most*, so a link there would land you on the
 							whole library having promised this shelf.
 						-->
-						<span class="text-read text-ink-2">{on.recipes.length}</span>
+						<span class="flex items-center gap-3">
+							<!--
+								Earlier and later, for a pointer only (#223): a finger flicks
+								the rail, and a mouse has no way to scroll one sideways but
+								shift-wheel. `pointer-only` is the hover block's gate (#203),
+								so an iPad gets them with a trackpad and not before.
+							-->
+							<span class="pointer-only gap-1">
+								<button
+									type="button"
+									class="shelf-arrow"
+									aria-label={m.shelf_earlier()}
+									onclick={() => scroll(on.name, -1)}
+								>
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"
+										stroke-linejoin="round"><path d="m15 5-7 7 7 7" /></svg
+									>
+								</button>
+								<button
+									type="button"
+									class="shelf-arrow"
+									aria-label={m.shelf_later()}
+									onclick={() => scroll(on.name, 1)}
+								>
+									<svg
+										viewBox="0 0 24 24"
+										aria-hidden="true"
+										class="h-4 w-4"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.75"
+										stroke-linecap="round"
+										stroke-linejoin="round"><path d="m9 5 7 7-7 7" /></svg
+									>
+								</button>
+							</span>
+							<span class="text-read text-ink-2">{on.recipes.length}</span>
+						</span>
 					</div>
 					<p class="text-read text-ink-2">{shelf[on.name].why()}</p>
 				</div>
@@ -160,6 +221,7 @@
 					wider cards showed one and a half.
 				-->
 				<ul
+					bind:this={rails[on.name]}
 					class="mx-auto mt-3 flex max-w-2xl snap-x snap-mandatory scroll-pl-gutter gap-3 overflow-x-auto px-gutter wide:max-w-none [&>li]:w-[var(--tile-w)] [&>li]:shrink-0 [&>li]:snap-start"
 				>
 					{#each on.recipes as entry (entry.lineage_id)}

@@ -36,7 +36,6 @@
 	import { waitForJob } from '$lib/api/job';
 	import type { GetJobOutput, ImportCroutonOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
-	import WayBackLine from '$lib/shell/WayBackLine.svelte';
 	import Section from '$lib/shell/Section.svelte';
 	import { useEnded } from '../ended.svelte';
 
@@ -229,11 +228,6 @@
 </script>
 
 <Screen {card} title={ofABundle ? m.report_title_file() : m.report_title()}>
-	<WayBackLine
-		href={ofABundle ? '/recipes' : '/settings'}
-		label={ofABundle ? m.report_back_recipes() : m.report_back()}
-	/>
-
 	{#if unreachable}
 		<p class={['mt-4 border-l-3 border-support px-3 py-2 text-body', panel]} role="alert">
 			{unreachable}

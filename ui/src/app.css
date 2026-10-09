@@ -151,7 +151,10 @@
   --text-read: 12.5px;          /* a reading, subordinate under its line */
   --text-step-reading: 15px;    /* a reading inside the 26px Step at the stove (#150, option A) */
   --text-step-reading--letter-spacing: 0em; /* undoes the Step's tightening around it */
-  --text-label: 10.5px;         /* uppercase labels */
+  /* 10.5 until #225: the audit of 9 October 2026 found it at the edge of
+     legibility on a phone (TAGS, INGREDIENTS, the bar's words), and the record
+     of 26 August asked for the fitted sizes to be ratified, not inherited. */
+  --text-label: 12px;           /* uppercase labels */
   --text-label--letter-spacing: 0.15em;
 
   /* ── Spacing — seven steps and a gutter, nothing else exists ──────────────
@@ -286,6 +289,13 @@
    existed. They are to be fitted against the real devices, the way #88
    fitted the cooking screen; whatever moves them, say so here. */
 @custom-variant wide (@media (min-width: 700px) and (min-height: 560px));
+/* A phone turned sideways (#222): landscape, and shorter than the floor
+   `wide` asks for, so still the phone layout (ADR 0044). The cooking screen
+   lays its amounts beside the Step there, since at 390 tall there is no room
+   for one under the other. The 560 is the same floor as the line above, in
+   the range form so that this is the window `wide` refuses and no other;
+   `room.svelte.spec.ts` fails if the two numbers part. */
+@custom-variant sideways (@media (orientation: landscape) and (height < 560px));
 @custom-variant roomy {
   @variant wide {
     @media (min-width: 1000px) {
@@ -409,6 +419,17 @@
     color: var(--color-ink);
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A caret you can see (#225): the browser's own blue ring clashed with
+     indigo on paper and was lost on a chip. In the app's colour, and in
+     kinari on the cooking screen's ground. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  [class*="bg-cook-ground"] :focus-visible {
+    outline-color: var(--color-cook-accent);
   }
 }
 
@@ -630,6 +651,18 @@
   top: calc(var(--spacing-4) + env(safe-area-inset-top));
   left: calc(var(--spacing-rail) + var(--spacing-4));
   border-radius: 50%;
+}
+
+/* The same arrow on the phone (#219): in the page's flow at the top left, a
+   step below the header, and sticking to the top of the window once the page
+   has scrolled past it. In flow rather than fixed so the page's first card
+   starts below it and nothing is ever covered. */
+@utility back-arrow-phone {
+  position: sticky;
+  top: calc(var(--spacing-3) + env(safe-area-inset-top));
+  margin: var(--spacing-3) 0 0 var(--spacing-3);
+  border-radius: 50%;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 
 /* A page that carries the back arrow (#195). The arrow is fixed over the
@@ -864,6 +897,89 @@
 
   &:disabled {
     opacity: 0.4;
+  }
+}
+
+/* A word that does something, drawn as a small button (#225): a hairline on
+   the card's ground, 40px tall, in the colour the caller gives its words.
+   The rule it enforces: an underlined word goes somewhere, a link into
+   another page; a thing that does something is a button. Sign out, Rename,
+   Save, Keep it, Change your name and their kind were 12.5px underlined words
+   until the audit of 9 October 2026 found them hard to hit and hard to tell
+   from a link. No colour here, so a beni one and an indigo one share it. */
+@utility quiet-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 var(--spacing-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  font-size: var(--text-read);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The earlier and later buttons on a shelf (#223): round and 32 across, as the
+   prototype page chosen on 9 October 2026 drew them, a quiet outline on the
+   card's white. Round is a clash with the near-square house rule, raised on
+   the ticket; the shopping list's − and + (#202) are the precedent. */
+@utility shelf-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-rule);
+  border-radius: 50%;
+  background: var(--color-card);
+  color: var(--color-accent);
+}
+
+/* Drawn only where there is a pointer (#223): the earlier and later buttons
+   on a shelf. A finger flicks a rail; a mouse has no way to scroll one
+   sideways. The gate is the hover block's (#203), so an iPad gets them the
+   moment a trackpad is attached and not before. */
+@utility pointer-only {
+  display: none;
+  @media (hover: hover) {
+    display: inline-flex;
+  }
+}
+
+/* A row of a list that leads somewhere or does something: a plain line with
+   a chevron at its right, in a list ruled by hairlines. First drawn for the
+   acts at the foot of a recipe (#220, option 3 of the audit of 9 October
+   2026), where seven stacked full-width buttons stood; Settings' menu of four
+   pages (#221) is the same row. Named once here so the components that draw
+   one each cannot drift. The chevron is drawn, not typed, so a screen reader
+   never reads it out. */
+@utility list-row {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  padding: 6px 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  text-align: left;
+
+  /* The chevron in the quiet ink, and in the row's own colour where the
+     row is beni. */
+  &::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    flex-shrink: 0;
+    border-right: 1.75px solid var(--color-ink-2);
+    border-bottom: 1.75px solid var(--color-ink-2);
+    transform: rotate(-45deg);
+  }
+  &.text-support::after {
+    border-color: currentColor;
   }
 }
 

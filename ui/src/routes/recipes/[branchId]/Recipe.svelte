@@ -116,6 +116,7 @@
 </script>
 
 <script lang="ts">
+	import { aDate } from '$lib/dates';
 	// What the page is made of. The screen keeps its own state — the recipe it
 	// is reading, the Thread around it, the Divergence, how much it is read at,
 	// and what the last save did — and composes the rest. Each concern that
@@ -875,6 +876,22 @@
 			{/each}
 
 			<!--
+			Into the cooking screen (#61, ADR 0011), directly under the servings
+			(#220, option 3 of the audit of 9 October 2026). It stood at the foot
+			of the page among the other acts, five screens down on a phone, and
+			it is the one act a cook opened the page for. A link rather than a
+			button that starts something: opening the screen IS starting the
+			Attempt, and one already In Progress is handed back rather than
+			doubled — so there is nothing here to press twice by mistake.
+		-->
+			<a
+				href="/cook/{branchId}{toSearch(pageScaledTo)}"
+				class="mx-gutter mt-4 flex min-h-12 items-center justify-center bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
+			>
+				{m.recipe_cook_this()}
+			</a>
+
+			<!--
 			What this Kitchen says about the dish, above the dish itself (#104).
 			The row is drawn on every recipe, tagged or not, by choice,
 			and `Tags.svelte` holds why.
@@ -898,7 +915,7 @@
 
 			{#if phone.onlyKept && phone.keptOn}
 				<p class="mt-3 px-gutter text-read text-ink-2">
-					{m.offline_kept_from({ date: phone.keptOn.toLocaleDateString() })}
+					{m.offline_kept_from({ date: aDate(phone.keptOn) })}
 				</p>
 			{/if}
 
@@ -1316,13 +1333,7 @@
 				{/if}
 
 				<!--
-			Into the cooking screen (#61, ADR 0011). It is a link rather than a
-			button that starts something: opening the screen IS starting the
-			Attempt, and one already In Progress is handed back rather than
-			doubled — so there is nothing here to press twice by mistake.
-		-->
-				<!--
-			Promotion (#58, ADR 0005). Above `Cook this` because it is a question
+			Promotion (#58, ADR 0005). Above the acts because it is a question
 			about the recipe you are standing in, and drawn at all only where a
 			cooking departed from these words and nobody has decided about it yet.
 			A recipe nobody cooked differently carries nothing here — which is
@@ -1339,119 +1350,131 @@
 				{/if}
 
 				<!--
-			Writing (#83). Drawn with `NeedsServer` because editing is on the
-			server's side of the line and is never queued: an offline edit
-			queue is a merge, and Kamosu does not merge (ADR 0013, #76). The
-			phrase it wears offline was written for this button before the
-			button existed.
+			THE OTHER ACTS, as a list of rows (#220, option 3 of the audit of
+			9 October 2026). Seven stacked full-width buttons stood here, with
+			Cook this among them; Cook this is under the servings now, and what
+			is left is read, not hunted. Each row is `list-row` in app.css, and
+			every component below draws its one with it.
 		-->
-				<NeedsServer
-					label={m.write_edit()}
-					waiting={m.offline_waits_edit()}
-					onclick={() => (writing = true)}
-					shapeClass="mx-gutter mt-6 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-					lookClass="border border-rule text-accent"
-				/>
+				<ul class="mx-gutter mt-6 border-t border-rule">
+					<!--
+				Writing (#83). Drawn with `NeedsServer` because editing is on the
+				server's side of the line and is never queued: an offline edit
+				queue is a merge, and Kamosu does not merge (ADR 0013, #76). The
+				phrase it wears offline was written for this button before the
+				button existed.
+			-->
+					<li class="border-b border-rule">
+						<NeedsServer
+							label={m.write_edit()}
+							waiting={m.offline_waits_edit()}
+							onclick={() => (writing = true)}
+							shapeClass="list-row"
+							lookClass="text-ink"
+							idleClass="text-ink-2 opacity-55"
+						/>
+					</li>
+					<!--
+				Into the Thread, under the word a cook already knows for it (#133,
+				choice A of 24 September 2026). The screen keeps the
+				Thread's name in the code and the docs; the row says History
+				because "The thread" told nobody what was behind it. It never says
+				"version": on this page that word already means one of the recipe's
+				versions in the strip at the top.
 
-				<a
-					href="/cook/{branchId}{toSearch(pageScaledTo)}"
-					class="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] bg-accent p-4 text-center font-display text-body text-on-accent"
-				>
-					{m.recipe_cook_this()}
-				</a>
-				<!--
-			Into the Thread, under the word a cook already knows for it (#133,
-			choice A of 24 September 2026). The screen keeps the
-			Thread's name in the code and the docs; the button says History
-			because "The thread" told nobody what was behind it. It never says
-			"version": on this page that word already means one of the recipe's
-			versions in the strip at the top.
+				The line beside it is built like the Cooked line: how many saves, and
+				when the last was. On a recipe straight from an import it says one,
+				which is the honest answer to "is anything back there?".
+			-->
+					<li class="border-b border-rule">
+						<a href="/recipes/{branchId}/thread" class="list-row text-ink">
+							{m.recipe_the_thread()}
+							{#if historyLine}
+								<span class="ml-auto text-right text-read text-ink-2">{historyLine}</span>
+							{/if}
+						</a>
+					</li>
+					<!--
+				Saying what Language this recipe is in, and translating it (#106).
+				Here among the acts rather than up beside the Tags row, because
+				both mint a Version and the Tags row is explicitly the place where
+				nothing does (ADR 0035, ADR 0006).
 
-			The line under it is built like the Cooked line: how many saves, and
-			when the last was. On a recipe straight from an import it says one,
-			which is the honest answer to "is anything back there?".
-		-->
-				<a
-					href="/recipes/{branchId}/thread"
-					class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
-				>
-					{m.recipe_the_thread()}
-					{#if historyLine}
-						<span class="mt-1 block font-sans text-read text-ink-2">{historyLine}</span>
+				`NeedsServer` for the reason editing is: both Operations are on the
+				server's side of the line and neither is ever queued. An offline
+				queue for a Language would be two Kitchens disagreeing about what a
+				recipe is written in, and Kamosu does not merge (ADR 0013, #76).
+
+				Drawn only in your own Branch, as the Tags row and the Related
+				strip are: it changes the recipe, and the recipe you are standing
+				in across a Divergence is not yours to change.
+			-->
+					{#if recipe}
+						<li class="border-b border-rule">
+							<NeedsServer
+								label={m.recipe_language_title()}
+								waiting={m.offline_waits_edit()}
+								onclick={() => (sayingLanguage = true)}
+								shapeClass="list-row"
+								lookClass="text-ink"
+								idleClass="text-ink-2 opacity-55"
+							/>
+						</li>
 					{/if}
-				</a>
-				<!--
-			Saying what Language this recipe is in, and translating it (#106).
-			Here among the acts rather than up beside the Tags row, because
-			both mint a Version and the Tags row is explicitly the place where
-			nothing does (ADR 0035, ADR 0006).
+					<!--
+				Naming this version (#134, choice B of 24 September 2026):
+				a row among the acts, directly below Language, opening a small
+				sheet. `RenameSheet.svelte` holds why it says "version" and what it
+				promises about the History.
 
-			`NeedsServer` for the reason editing is: both Operations are on the
-			server's side of the line and neither is ever queued. An offline
-			queue for a Language would be two Kitchens disagreeing about what a
-			recipe is written in, and Kamosu does not merge (ADR 0013, #76).
-
-			Drawn only in your own Branch, as the Tags row and the Related
-			strip are: it changes the recipe, and the recipe you are standing
-			in across a Divergence is not yours to change.
-		-->
-				{#if recipe}
-					<NeedsServer
-						label={m.recipe_language_title()}
-						waiting={m.offline_waits_edit()}
-						onclick={() => (sayingLanguage = true)}
-						shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-						lookClass="border border-rule text-accent"
-					/>
-				{/if}
-				<!--
-			Naming this version (#134, choice B of 24 September 2026):
-			a line among the acts, directly below Language, opening a small
-			sheet. `RenameSheet.svelte` holds why it says "version" and what it
-			promises about the History.
-
-			`NeedsServer` because a Branch's name is on the server's side of the
-			line and never queued, like every change to what a recipe is.
-		-->
-				{#if offersRename && recipe}
-					<NeedsServer
-						label={renameLabel}
-						waiting={m.offline_waits_version_name()}
-						onclick={() => (renaming = true)}
-						shapeClass="mx-gutter mt-2 block w-[calc(100%-2*var(--spacing-gutter))] p-4 text-center font-display text-body"
-						lookClass="border border-rule text-accent"
-					/>
-				{/if}
-				<!--
-			Into the share screen (#65, ADR 0026). A link rather than a switch
-			here on purpose: turning sharing on is one deliberate act taken on a
-			screen that says what it means, not a toggle brushed past on the way
-			to cooking.
-		-->
-				<a
-					href="/recipes/{branchId}/share"
-					class="mx-gutter mt-2 block border border-rule p-4 text-center font-display text-body text-accent"
-				>
-					{m.share_title()}
-				</a>
-				<!--
+				`NeedsServer` because a Branch's name is on the server's side of the
+				line and never queued, like every change to what a recipe is.
+			-->
+					{#if offersRename && recipe}
+						<li class="border-b border-rule">
+							<NeedsServer
+								label={renameLabel}
+								waiting={m.offline_waits_version_name()}
+								onclick={() => (renaming = true)}
+								shapeClass="list-row"
+								lookClass="text-ink"
+								idleClass="text-ink-2 opacity-55"
+							/>
+						</li>
+					{/if}
+					<!--
+				Into the share screen (#65, ADR 0026). A link rather than a switch
+				here on purpose: turning sharing on is one deliberate act taken on a
+				screen that says what it means, not a toggle brushed past on the way
+				to cooking.
+			-->
+					<li class="border-b border-rule">
+						<a href="/recipes/{branchId}/share" class="list-row text-ink">{m.share_title()}</a>
+					</li>
+					<!--
 				At the amount on screen: the page is what a Sheet prints (ADR 0023).
 				Not while a Divergence is shown, where the amounts on screen are
 				`divergence`'s and the scaler is not offered (`pageScaledTo`).
 			-->
-				<SheetAction
-					sheet={paper}
-					print={() => void paper.print(branchId, divergence ? undefined : named)}
-				/>
-				<ShoppingListButton {branchId} scaledTo={pageScaledTo} bind:onTheList />
-
-				{#if recipe?.writes}
-					<DeleteRecipe
-						{branchId}
-						title={recipe.versions.at(-1)?.content.title ?? ''}
-						cookings={recipe.cooked.count}
-					/>
-				{/if}
+					<li class="border-b border-rule">
+						<SheetAction
+							sheet={paper}
+							print={() => void paper.print(branchId, divergence ? undefined : named)}
+						/>
+					</li>
+					<li class="border-b border-rule">
+						<ShoppingListButton {branchId} scaledTo={pageScaledTo} bind:onTheList />
+					</li>
+					{#if recipe?.writes}
+						<li class="border-b border-rule">
+							<DeleteRecipe
+								{branchId}
+								title={recipe.versions.at(-1)?.content.title ?? ''}
+								cookings={recipe.cooked.count}
+							/>
+						</li>
+					{/if}
+				</ul>
 			</div>
 		{/if}
 
@@ -1466,6 +1489,11 @@
 	patched in, so the chip and the line under the title say what the Core now
 	holds.
 -->
+<!-- The tab, the history and a bookmark read the recipe's name (#224). -->
+<svelte:head>
+	<title>{content ? `${content.title} · ` : ''}{m.app_name()}</title>
+</svelte:head>
+
 {#if renaming && recipe}
 	<RenameSheet
 		branchId={recipe.branch_id}

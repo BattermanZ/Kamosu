@@ -1,13 +1,11 @@
 <!--
-	Deleting this recipe (#120). Set apart from the stack above, below a rule
-	and a gap, as small underlined text rather than a seventh full-width
-	button — the choice of 22 September 2026, over putting it in the stack.
-
-	The reasoning is about the thumb, not the look. Everything above is the
-	same shape in the same column, and *Add to shopping list* is the one people
-	tap most often without reading; a destructive row directly beneath it is a
-	mis-tap waiting to happen. Something that is not button-shaped, past the
-	end of the actions, cannot be reached by the habit that reaches for those.
+	Deleting this recipe (#120). The last row of the acts, in beni (#220,
+	option 3 of the audit of 9 October 2026, chosen with that row in view).
+	It was small underlined text apart from the stack from 22 September 2026,
+	on the thought that a destructive row under *Add to shopping list* was a
+	mis-tap waiting to happen; the rows are plain words now rather than
+	button shapes a habit reaches for, the colour marks this one out, and the
+	confirmation below is what stands between a tap and the deed.
 
 	NOT in Writing, where the mockup drew it: that screen holds an unsaved
 	draft the whole time it is open, and a screen that can both lose your
@@ -112,16 +110,14 @@
 	}
 </script>
 
-<div class="mx-gutter mt-8 border-t border-rule pt-4 text-center">
-	<NeedsServer
-		label={m.recipe_delete()}
-		waiting={m.offline_waits_delete()}
-		onclick={ask}
-		shapeClass="inline-block px-3 py-2 text-read"
-		lookClass="text-support underline underline-offset-4"
-		idleClass="text-ink-2 opacity-55"
-	/>
-</div>
+<NeedsServer
+	label={m.recipe_delete()}
+	waiting={m.offline_waits_delete()}
+	onclick={ask}
+	shapeClass="list-row"
+	lookClass="text-support"
+	idleClass="text-ink-2 opacity-55"
+/>
 
 <!--
 	The confirmation, in the one sheet Kamosu asks every irreversible thing

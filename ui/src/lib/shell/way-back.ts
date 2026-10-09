@@ -18,8 +18,11 @@ const PARENTS: [RegExp, string][] = [
 	[/^\/foods\/./, '/foods'],
 	// A Report, and what one source brought in.
 	[/^\/imports\/./, '/imports'],
-	// Reached from Settings, which is where each of them is listed.
-	[/^\/(foods|imports|operator)$/, '/settings'],
+	// Reached from the Settings page that lists each of them (#221).
+	[/^\/foods$/, '/settings/kitchens'],
+	[/^\/(imports|operator)$/, '/settings/instance'],
+	// One of Settings' four pages, reached from its menu.
+	[/^\/settings\/./, '/settings'],
 ];
 
 /**

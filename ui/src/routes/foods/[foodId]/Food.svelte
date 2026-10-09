@@ -318,7 +318,7 @@
 			{/each}
 
 			{#if nameCount <= 1}
-				<p class="mt-3 text-read text-support">{m.food_keeps_one_name()}</p>
+				<p class="mt-3 text-read text-ink-2">{m.food_keeps_one_name()}</p>
 			{/if}
 			<p class="mt-3 text-read text-ink-2">{m.food_names_not_a_translation()}</p>
 		</Section>

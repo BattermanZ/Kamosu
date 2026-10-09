@@ -126,9 +126,18 @@ describe('the thresholds, written once in the stylesheet', () => {
 
 	it('writes no threshold anywhere else in the stylesheet', () => {
 		const source = readFileSync(SOURCE, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-		const widths = source.match(/min-(width|height)\s*:/g) ?? [];
+		// A media feature, in its parentheses: a control's own min-height is no threshold.
+		const widths = source.match(/\(min-(width|height)\s*:/g) ?? [];
 		// 700 wide, 560 tall and 1000 wide, each once.
 		expect(widths).toHaveLength(3);
+	});
+
+	it('turns a phone sideways at the same floor wide stands on (#222)', () => {
+		const source = readFileSync(SOURCE, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+		const floor = source.match(/\(min-height:\s*(\d+)px\)/)?.[1];
+		const sideways = source.match(/\(height\s*<\s*(\d+)px\)/)?.[1];
+		expect(floor).toBeDefined();
+		expect(sideways).toBe(floor);
 	});
 });
 

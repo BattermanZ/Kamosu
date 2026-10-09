@@ -167,6 +167,30 @@ describe('a Cookbook join waiting on you (#135)', () => {
 });
 
 describe('Home', () => {
+	it('gives each shelf an earlier and a later button that a pointer sees and a finger does not (#223)', async () => {
+		const scrollBy = vi.fn();
+		Element.prototype.scrollBy = scrollBy;
+		renderScreen(Page, {
+			get_cookbook: ALONE,
+			home_shelves: home([{ name: 'cooked_most', recipes: [card({ title: 'Katsu Curry' })] }]),
+		});
+		await screen.findByRole('heading', { name: 'Cooked most' });
+
+		const later = screen.getByRole('button', { name: 'Later' });
+		const earlier = screen.getByRole('button', { name: 'Earlier' });
+		// Hidden until `(hover: hover)` holds, which only a pointer answers; jsdom
+		// cannot say, so what is pinned is the gate, not the showing.
+		expect(later.parentElement?.className).toContain('pointer-only');
+		expect(earlier.parentElement?.className).toContain('pointer-only');
+		expect(later.className).toContain('shelf-arrow');
+
+		await fireEvent.click(later);
+		expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'smooth' }));
+		expect(scrollBy.mock.calls[0]?.[0].left).toBeGreaterThan(0);
+		await fireEvent.click(earlier);
+		expect(scrollBy.mock.calls[1]?.[0].left).toBeLessThan(0);
+	});
+
 	it('shows each shelf the Core sent, under its own heading', async () => {
 		renderScreen(Page, {
 			get_cookbook: ALONE,
