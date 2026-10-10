@@ -691,7 +691,9 @@ describe('the settings screen', () => {
 			...anonymous,
 		});
 		// The test browser is not a secure page, so this device can keep nothing.
-		expect(await screen.findByRole('heading', { level: 2, name: 'This device' })).toBeInTheDocument();
+		expect(
+			await screen.findByRole('heading', { level: 2, name: 'This device' }),
+		).toBeInTheDocument();
 		expect(screen.getByText(/Kamosu is on http:\/\//)).toBeInTheDocument();
 	});
 

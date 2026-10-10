@@ -447,7 +447,7 @@
 					choosing a recipe by its title alone is choosing a Branch
 					blind — and a Branch is exactly what this list holds.
 				-->
-							<a class="mt-3 quiet-button text-accent" href="/recipes">{m.shopping_add_recipe()}</a>
+							<a class="quiet-button mt-3 text-accent" href="/recipes">{m.shopping_add_recipe()}</a>
 						</Section>
 					</div>
 				</div>
