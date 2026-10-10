@@ -969,39 +969,34 @@
   }
 }
 
-/* A row of a list that leads somewhere or does something: a plain line with
-   a chevron at its right, in a list ruled by hairlines. First drawn for the
-   acts at the foot of a recipe (#220, option 3 of the audit of 9 October
-   2026), where seven stacked full-width buttons stood; Settings' menu of four
-   pages (#221) is the same row. Named once here so the components that draw
-   one each cannot drift. The chevron is drawn, not typed, so a screen reader
-   never reads it out. */
-@utility list-row {
+/* One of the acts at the foot of a recipe (#220; option 1 of the audit of
+   9 October 2026, chosen on 10 October over the list of rows first built):
+   a small outlined button in a grid of two, its words in the sans face, where
+   seven stacked full-width buttons stood. Cook this and Edit are buttons of
+   their own under the servings; these are the rest. Four components draw one
+   each, so the tile is named once here and none of them can drift. A tile
+   whose act has happened (the recipe is on the list, the Sheet is ready to
+   share) wears `act-tile-done`, and `bg-accent` with it so the under-pointer
+   block (#203) knows the fill. */
+@utility act-tile {
   display: flex;
-  width: 100%;
-  min-height: 52px;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-3);
-  padding: 6px 0;
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  text-align: left;
+  justify-content: center;
+  min-height: var(--spacing-12);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  font-size: var(--text-read);
+  font-weight: 500;
+  text-align: center;
+}
 
-  /* The chevron in the quiet ink, and in the row's own colour where the
-     row is beni. */
-  &::after {
-    content: "";
-    width: 8px;
-    height: 8px;
-    flex-shrink: 0;
-    border-right: 1.75px solid var(--color-ink-2);
-    border-bottom: 1.75px solid var(--color-ink-2);
-    transform: rotate(-45deg);
-  }
-  &.text-support::after {
-    border-color: currentColor;
-  }
+@utility act-tile-done {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 /* The wash under a recipe's title, over its photograph. Indigo rather than a

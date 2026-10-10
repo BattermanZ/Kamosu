@@ -6,7 +6,8 @@
 
 	Whether the recipe is on the list is the recipe screen's to know, since the
 	list's amount is what the page opens at (#109); this only changes it. One
-	row of the acts at the foot of the recipe (`list-row`, #220).
+	of the acts at the foot of the recipe (`act-tile`, #220), filled while the
+	recipe is on the list so the state is read at a glance.
 -->
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
@@ -50,7 +51,7 @@
 <button
 	type="button"
 	disabled={shopping}
-	class="list-row {onTheList ? 'text-ink-2' : 'text-ink'}"
+	class="act-tile {onTheList ? 'act-tile-done bg-accent text-on-accent' : 'text-accent'}"
 	onclick={toggle}
 >
 	{onTheList ? m.shopping_on_your_list() : m.shopping_add_this()}

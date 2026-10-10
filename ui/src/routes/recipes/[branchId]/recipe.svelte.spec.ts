@@ -2170,8 +2170,10 @@ describe('correcting a Reading beside a Divergence', () => {
 			branch_id: 'mine',
 		});
 
-		// What it stores is the choosing, so the button now offers the way back.
+		// What it stores is the choosing, so the button now offers the way back,
+		// and wears the done fill so the state is read at a glance (#220).
 		const on = await screen.findByRole('button', { name: /On your shopping list/i });
+		expect(on.className).toContain('act-tile-done');
 		await fireEvent.click(on);
 		expect(
 			kamosu.calls.find((call) => call.operation === 'remove_from_shopping_list')?.input,
@@ -2614,30 +2616,37 @@ describe('deleting a recipe', () => {
 		expect(screen.queryByRole('button', { name: 'Delete this recipe' })).toBeNull();
 	});
 
-	it('is the last row of the acts, marked out by its colour rather than its shape (#220)', async () => {
+	it('is set apart from the grid of acts rather than standing among them (#220)', async () => {
 		renderRecipe(forked({ get_share_link: shareLink(false) }));
 		const affordance = await screen.findByRole('button', { name: 'Delete this recipe' });
 
-		// Every act at the foot is the same plain row (option 3 of the audit of
-		// 9 October 2026). This one is in beni, and it comes last.
+		// Every act at the foot is a tile in a grid (option 1 of the audit of
+		// 9 October 2026, chosen on 10 October). This one is not shaped like
+		// them, which is the whole of why a thumb reaching for *Add to shopping
+		// list* cannot land on it, and it comes after them all.
 		const shopping = screen.getByRole('button', { name: /shopping list/i });
-		expect(shopping.className).toContain('list-row');
-		expect(affordance.className).toContain('list-row');
-		expect(affordance.className).toContain('text-support');
+		expect(shopping.className).toContain('act-tile');
+		expect(affordance.className).not.toContain('act-tile');
+		expect(affordance.className).toContain('underline');
 		expect(
 			shopping.compareDocumentPosition(affordance) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 	});
 
-	it('leaves Cook this under the servings, before the Ingredients, where a cook looks first (#220)', async () => {
+	it('puts Cook this and Edit under the servings, before the Ingredients, where a cook looks first (#220)', async () => {
 		renderRecipe(forked({ get_share_link: shareLink(false) }));
 		const cook = await screen.findByRole('link', { name: 'Cook this' });
+		const edit = screen.getByRole('button', { name: 'Edit this recipe' });
 		const ingredients = screen.getByRole('heading', { name: /ingredients/i });
 
 		expect(
 			cook.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
+		expect(
+			edit.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
 		expect(cook.className).toContain('bg-accent');
+		expect(cook.parentElement).toBe(edit.parentElement);
 	});
 
 	it('asks before it does anything, and asking alone deletes nothing', async () => {
