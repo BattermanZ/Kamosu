@@ -220,6 +220,19 @@ pub const UNITS: &[Unit] = &[
             "cuil a cafe",
             "cuill à café",
             "cuill a cafe",
+            // The same spoon as Quebec names it. `thé` is a word of a Food's
+            // name everywhere else, so the reader needs the whole Unit to
+            // know this one is not (#213).
+            "cuillère à thé",
+            "cuillere a the",
+            "cuillères à thé",
+            "cuilleres a the",
+            "c à thé",
+            "c a the",
+            "cuil à thé",
+            "cuil a the",
+            "cuill à thé",
+            "cuill a the",
             "c à c",
             "càc",
             "cac",

@@ -3367,6 +3367,92 @@ async fn reading_the_library_again_corrects_a_misreading_and_keeps_a_correction(
     assert_eq!(again["result"]["older_versions_changed"], 0, "{again}");
 }
 
+/// **Reading the library again gives a tea its name back** (#213). A reader
+/// that took `thé` for the article named the Food after what followed it; the
+/// lines it read that way are reported as changed. The line a person set to
+/// *jambon* stays *jambon*, though today's reader would say *dés de jambon*.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reading_the_library_again_gives_a_tea_its_name_back() {
+    let app = support::spawn_app();
+    let (key, _) = operator_with_kitchen(&app);
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Thé glacé",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 thé vert" },
+                { "kind": "ingredient", "text": "2 sachets de thé noir" },
+                { "kind": "ingredient", "text": "100 g de dés de jambon" },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // What the older reader made of each line. The last is a person's own.
+    for (line_index, amount, unit, target) in [
+        (0, "1", None, "vert"),
+        (1, "2", Some("sachets"), "noir"),
+        (2, "100", Some("g"), "jambon"),
+    ] {
+        let (status, set) = app.post_op(
+            "set_reading",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id, "line_index": line_index,
+                "amount": amount, "unit": unit, "target": target,
+            })
+            .to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+    }
+    as_if_the_reader_wrote(&app, &branch_id, 0);
+    as_if_the_reader_wrote(&app, &branch_id, 1);
+
+    let (status, asked) = app.post_op("reread_ingredient_lines", Some(&key), "{}");
+    assert_eq!(status, 200, "{asked}");
+    let finished = support::wait_terminal(
+        &app,
+        Some(&key),
+        asked["result"]["job_id"].as_str().expect("a job id"),
+    );
+    assert_eq!(finished["status"], "completed", "{finished}");
+    let report = &finished["result"];
+    let changed: Vec<_> = report["changed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|change| {
+            (
+                change["line"].as_str().unwrap(),
+                change["before"]["target"].as_str().unwrap(),
+                change["after"]["target"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        changed,
+        [
+            ("1 thé vert", "vert", "thé vert"),
+            ("2 sachets de thé noir", "noir", "thé noir"),
+        ],
+        "{report}"
+    );
+    assert_eq!(report["kept_by_hand"], 1, "{report}");
+
+    let (_, fetched) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let readings = &fetched["result"]["versions"][0]["readings"];
+    assert_eq!(readings[0]["target"], "thé vert", "{readings}");
+    assert_eq!(readings[1]["target"], "thé noir", "{readings}");
+    assert_eq!(readings[2]["target"], "jambon", "{readings}");
+}
+
 /// **A change made only in an older Version is listed too** (#166). The line
 /// was reworded since, so the head read it fresh; the misreading lives on in
 /// the history alone, and the report must still say what it changed there.

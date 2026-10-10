@@ -382,9 +382,21 @@ const WARMTH: &[&[&str]] = &[
 /// `l'`, which [`split_elisions`] leaves carrying their apostrophe and
 /// [`is_glue`] recognises by that apostrophe — because a bare `l` is a litre,
 /// and `1 l milk` is a real line in the corpus.
+///
+/// Ask [`listed_as_glue`] whether a word is one of these, never [`listed`]:
+/// [`ACCENTED_NAMES`] fold onto three of them and are not glue (#213).
 const GLUE: &[&str] = &[
     "of", "de", "du", "des", "la", "le", "les", "un", "une", "el", "los", "las", "al", "the", "a",
 ];
+
+/// Words that fold onto a [`GLUE`] word and are no such thing: French for
+/// tea, for diced pieces and for one of them. Each is glue once [`folded`]
+/// throws its accent away, which named a tea after its colour, `1 thé vert`
+/// as *vert*, and left `200 ml de thé` naming nothing (#213).
+///
+/// Only the accented spelling is kept. `1 the vert` is what an English
+/// article looks like, and goes on reading as *vert*.
+const ACCENTED_NAMES: &[&str] = &["thé", "dés", "dé"];
 
 /// Words that open a line to say *a few* or *about*. Kamosu can do no
 /// arithmetic on *a few*, so one is never the amount; left standing it hid the
@@ -596,7 +608,20 @@ const ELISIONS: &[&str] = &["d'", "l'", "qu'", "n'"];
 /// thrown away — combining marks included — so neither punctuation nor an
 /// accent can make one spelling two. `pincée`, `pincee` and `Pincée` are one
 /// word here, which is what lets each list be written once.
+///
+/// [`ACCENTED_NAMES`] is the one list an accent does tell apart, and it is
+/// compared through [`folded_keeping_accents`].
 fn folded(word: &str) -> String {
+    fold(word, false)
+}
+
+/// [`folded`], with the accents left on: `Thé,` and `thé` are one word here,
+/// and `the` is another.
+fn folded_keeping_accents(word: &str) -> String {
+    fold(word, true)
+}
+
+fn fold(word: &str, keep_accents: bool) -> String {
     use caseless::Caseless;
     use unicode_normalization::UnicodeNormalization;
     use unicode_normalization::char::is_combining_mark;
@@ -604,7 +629,7 @@ fn folded(word: &str) -> String {
         .nfd()
         .default_case_fold()
         .nfd()
-        .filter(|c| c.is_alphanumeric() && !is_combining_mark(*c))
+        .filter(|c| c.is_alphanumeric() || (keep_accents && is_combining_mark(*c)))
         .collect()
 }
 
@@ -615,7 +640,24 @@ fn folded(word: &str) -> String {
 /// punctuation away and `l'` and `l` would otherwise be one word — one of
 /// which is a litre.
 fn is_glue(word: &str) -> bool {
-    word.ends_with('\'') || word.ends_with('\u{2019}') || listed(GLUE, word) || listed(SIZES, word)
+    word.ends_with('\'')
+        || word.ends_with('\u{2019}')
+        || listed_as_glue(word)
+        || listed(SIZES, word)
+}
+
+/// Whether a word is one of [`GLUE`], which a word of [`ACCENTED_NAMES`] is
+/// not, whatever [`folded`] makes of it.
+fn listed_as_glue(word: &str) -> bool {
+    listed(GLUE, word) && !is_an_accented_name(word)
+}
+
+/// Whether a word is one of [`ACCENTED_NAMES`], accent and all.
+fn is_an_accented_name(word: &str) -> bool {
+    let word = folded_keeping_accents(word);
+    ACCENTED_NAMES
+        .iter()
+        .any(|name| folded_keeping_accents(name) == word)
 }
 
 fn listed(list: &[&str], word: &str) -> bool {
@@ -1640,7 +1682,7 @@ pub fn names_its_kind(word: &str) -> bool {
 /// begins or ends on one (#184).
 pub fn only_joins(word: &str) -> bool {
     let bare = word.trim_end_matches(['\'', '\u{2019}']);
-    listed(GLUE, bare)
+    listed_as_glue(bare)
         || listed(DESCRIBING_JOINS, bare)
         || listed(CHOICE_WORDS, bare)
         || listed(FOOD_ENDS, bare)
@@ -3133,6 +3175,110 @@ mod tests {
                 ("200 g", Some("farine".into())),
                 ("1 1/2 cup", Some("lait".into())),
             ]
+        );
+    }
+
+    #[test]
+    fn an_accented_word_spelt_like_a_joining_word_is_part_of_the_name() {
+        // Tea, and diced pieces, in French (#213).
+        assert_eq!(read("1 thé vert"), parts(Some("1"), None, Some("thé vert")));
+        assert_eq!(read("thé matcha"), parts(None, None, Some("thé matcha")));
+        assert_eq!(
+            read("1 Thé Earl Grey"),
+            parts(Some("1"), None, Some("Thé Earl Grey"))
+        );
+        assert_eq!(
+            read("2 sachets de thé noir"),
+            parts(Some("2"), Some("sachets"), Some("thé noir"))
+        );
+        assert_eq!(
+            read("200 ml de thé"),
+            parts(Some("200"), Some("ml"), Some("thé"))
+        );
+        assert_eq!(
+            read("1 sachet de thé"),
+            parts(Some("1"), Some("sachet"), Some("thé"))
+        );
+        assert_eq!(read("thé"), parts(None, None, Some("thé")));
+        assert_eq!(
+            read("1 c. à c. thé de kombu"),
+            parts(Some("1"), Some("c. à c."), Some("thé de kombu"))
+        );
+        assert_eq!(
+            read("100 g de dés de jambon"),
+            parts(Some("100"), Some("g"), Some("dés de jambon"))
+        );
+        assert_eq!(
+            read("1 boîte de dés de tomates"),
+            parts(Some("1"), Some("boîte"), Some("dés de tomates"))
+        );
+        assert_eq!(
+            read("1 dé de beurre"),
+            parts(Some("1"), None, Some("dé de beurre"))
+        );
+        // Capitals and punctuation change nothing.
+        assert_eq!(
+            read("2 sachets de THÉ, bio"),
+            parts(Some("2"), Some("sachets"), Some("THÉ"))
+        );
+    }
+
+    #[test]
+    fn a_spoon_for_tea_is_a_teaspoon() {
+        // What Quebec calls the teaspoon. Its `thé` is part of the Unit, and
+        // was dropped as an article until #213 kept it.
+        for (line, unit) in [
+            ("1 cuillère à thé de sel", "cuillère à thé"),
+            ("1 cuillere a the de sel", "cuillere a the"),
+            ("1 c. à thé de sel", "c. à thé"),
+        ] {
+            assert_eq!(read(line), parts(Some("1"), Some(unit), Some("sel")));
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some("teaspoon"));
+        }
+        assert_eq!(
+            read("2 cuillères à thé de vanille"),
+            parts(Some("2"), Some("cuillères à thé"), Some("vanille"))
+        );
+    }
+
+    #[test]
+    fn a_joining_word_without_the_accent_is_still_dropped() {
+        // An unaccented `the` is what an English article looks like, so a
+        // cook who leaves the accent off tea corrects the line (#213).
+        assert_eq!(read("the salt"), parts(None, None, Some("salt")));
+        assert_eq!(read("1 the vert"), parts(Some("1"), None, Some("vert")));
+        assert_eq!(
+            read("100 g des tomates"),
+            parts(Some("100"), Some("g"), Some("tomates"))
+        );
+        assert_eq!(
+            read("2 cups of the flour"),
+            parts(Some("2"), Some("cups"), Some("flour"))
+        );
+        // `à` joins only because its accent is folded away, and still does.
+        assert_eq!(
+            read("2 à 3 tomates"),
+            parts(Some("2 à 3"), None, Some("tomates"))
+        );
+        assert_eq!(
+            read("1 pâte à tarte"),
+            parts(Some("1"), None, Some("pâte à tarte"))
+        );
+    }
+
+    #[test]
+    fn a_unit_and_a_size_match_with_their_accents_or_without() {
+        assert_eq!(
+            read("1 pincée de sel"),
+            parts(Some("1"), Some("pincée"), Some("sel"))
+        );
+        assert_eq!(
+            read("1 pincee de sel"),
+            parts(Some("1"), Some("pincee"), Some("sel"))
+        );
+        assert_eq!(
+            read("1 gros dé de beurre"),
+            parts(Some("1"), None, Some("dé de beurre"))
         );
     }
 
