@@ -10,6 +10,7 @@ import { standIn, type Answers } from '$lib/api/stand-in';
 import type { AuthClient } from '$lib/auth';
 import { went } from '../testing/navigation';
 import LinkTestHarness from './LinkTestHarness.svelte';
+import { signingIn } from '$lib/shell/signing-in.svelte';
 import CookbookInviteRoute from './cookbook-invite/[secret]/+page.svelte';
 
 const ALREADY = {
@@ -225,5 +226,47 @@ describe('a Cookbook Invite link', () => {
 				name: 'Stéphane asks you to write one Cookbook together',
 			}),
 		).toBeInTheDocument();
+	});
+
+	// The shell keeps a signed-in Person's navigation on this page and draws
+	// none for anybody else (#214), by what the page says it heard.
+	describe('tells the shell whether a Person is signed in', () => {
+		it('says one is when the link is read', async () => {
+			signingIn.signedIn = undefined;
+			open({
+				read_cookbook_invite: {
+					cookbook: ALREADY,
+					invited_by: { person_id: 'p_1', name: 'Stéphane' },
+					their_recipes: 87,
+					your_recipes: 12,
+					together_recipes: 99,
+					already_yours: false,
+					asks: [],
+					waiting: false,
+				},
+			});
+
+			await screen.findByRole('button', { name: 'Write together' });
+			expect(signingIn.signedIn).toBe(true);
+		});
+
+		it('says one is when the link is gone and it is a Person asking', async () => {
+			signingIn.signedIn = undefined;
+			open({ read_cookbook_invite: { refuse: 'unauthorized' }, get_cookbook: ALREADY });
+
+			await screen.findByText('This invite has been used or ended. Ask for a new one.');
+			expect(signingIn.signedIn).toBe(true);
+		});
+
+		it('says nobody is when the sign-in form is what it draws', async () => {
+			signingIn.signedIn = true;
+			open({
+				read_cookbook_invite: { refuse: 'unauthorized' },
+				get_cookbook: { refuse: 'unauthorized' },
+			});
+
+			await screen.findByRole('heading', { name: 'Welcome back' });
+			expect(signingIn.signedIn).toBe(false);
+		});
 	});
 });

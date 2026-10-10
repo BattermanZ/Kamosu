@@ -26,11 +26,19 @@ const PARENTS: [RegExp, string][] = [
 ];
 
 /**
+ * A Cookbook Invite is opened from a link somebody sent, and no page of
+ * Kamosu leads to it. Its own two buttons are the ways on (#214).
+ */
+const OPENED_FROM_A_LINK = /^\/cookbook-invite\//;
+
+/**
  * Where a page's back arrow goes when there is nothing behind it. The
- * sidebar's own destinations have no parent and so carry no arrow.
+ * sidebar's own destinations have no parent and so carry no arrow, and
+ * neither does a page opened from a link.
  */
 export function parentOf(pathname: string): string | undefined {
 	if ([...places, settings].some((place) => place.href === pathname)) return undefined;
+	if (OPENED_FROM_A_LINK.test(pathname)) return undefined;
 	return PARENTS.find(([page]) => page.test(pathname))?.[1] ?? '/';
 }
 

@@ -96,7 +96,7 @@ describe('on the wide layout', () => {
 		expect(screen.queryByRole('banner')).toBeNull();
 	});
 
-	it.each([['/invite/abc'], ['/recover/abc'], ['/cookbook-invite/abc']])(
+	it.each([['/invite/abc'], ['/recover/abc']])(
 		'draws no sidebar at %s, and writes Kamosu above the page with no way into Settings',
 		(pathname) => {
 			shell(pathname, 'roomy');
@@ -106,6 +106,34 @@ describe('on the wide layout', () => {
 			expect(within(screen.getByRole('banner')).queryByRole('link')).toBeNull();
 		},
 	);
+
+	it('keeps the sidebar on a Cookbook Invite for a Person who is signed in, with no place lit (#214)', () => {
+		shell('/cookbook-invite/abc', 'roomy');
+
+		expect(places()).toEqual(SIDEBAR);
+		expect(screen.queryByRole('banner')).toBeNull();
+		expect(within(navigation()!).queryByRole('link', { current: 'page' })).toBeNull();
+	});
+
+	it.each([[undefined], [false]])(
+		'draws none on a Cookbook Invite for anybody else (heard %s), and writes Kamosu above the page (#214)',
+		(heard) => {
+			if (heard === false) heardWhetherSignedIn(false);
+			else signingIn.signedIn = undefined;
+			shell('/cookbook-invite/abc', 'roomy');
+
+			expect(navigation()).toBeNull();
+			expect(screen.getByRole('banner')).toHaveTextContent(m.app_name());
+			expect(within(screen.getByRole('banner')).queryByRole('link')).toBeNull();
+		},
+	);
+
+	it('draws none beside the account form on a Cookbook Invite, whatever the device heard (#214)', async () => {
+		shell('/cookbook-invite/abc', 'roomy', 'account');
+
+		await waitFor(() => expect(navigation()).toBeNull());
+		expect(screen.getByRole('banner')).toHaveTextContent(m.app_name());
+	});
 
 	it('draws no sidebar under the story, wherever the story is shown', async () => {
 		shell('/', 'wide', 'story');
@@ -214,6 +242,7 @@ describe('on the phone layout', () => {
 
 	it.each([
 		['/', 'account' as const],
+		['/import', 'account' as const],
 		['/invite/abc', 'account' as const],
 		['/recover/abc', 'account' as const],
 		['/cookbook-invite/abc', 'account' as const],
@@ -227,6 +256,60 @@ describe('on the phone layout', () => {
 			expect(navigation()).toBeNull();
 			expect(screen.getByRole('banner')).toHaveTextContent(m.app_name());
 			expect(within(screen.getByRole('banner')).queryByRole('link')).toBeNull();
+		},
+	);
+
+	it('keeps the tabs and the gear on a Cookbook Invite for a Person who is signed in (#214)', () => {
+		shell('/cookbook-invite/abc', 'phone');
+
+		expect(places()).toEqual(TABS);
+		expect(within(navigation()!).queryByRole('link', { current: 'page' })).toBeNull();
+		const gear = within(screen.getByRole('banner')).getByRole('link', { name: m.open_settings() });
+		expect(gear).not.toHaveAttribute('aria-current');
+	});
+
+	it.each([['/invite/abc'], ['/recover/abc']])(
+		'draws no tabs and no gear at %s even for a Person who is signed in (#214)',
+		(pathname) => {
+			shell(pathname, 'phone');
+
+			expect(navigation()).toBeNull();
+			expect(screen.getByRole('banner')).toHaveTextContent(m.app_name());
+			expect(within(screen.getByRole('banner')).queryByRole('link')).toBeNull();
+		},
+	);
+
+	it.each([[undefined], [false]])(
+		'draws none on a Cookbook Invite before the page has heard who is here (heard %s) (#214)',
+		(heard) => {
+			if (heard === false) heardWhetherSignedIn(false);
+			else signingIn.signedIn = undefined;
+			shell('/cookbook-invite/abc', 'phone');
+
+			expect(navigation()).toBeNull();
+			expect(screen.getByRole('banner')).toHaveTextContent(m.app_name());
+			expect(within(screen.getByRole('banner')).queryByRole('link')).toBeNull();
+		},
+	);
+
+	it.each([['/'], ['/import'], ['/cookbook-invite/abc']])(
+		'brings the tabs and the gear back at %s once the account form has signed somebody in (#214)',
+		async (pathname) => {
+			heardWhetherSignedIn(false);
+			const { rerender } = render(ShellTestHarness, {
+				props: { pathname, room: 'phone', holds: 'account' },
+			});
+			await waitFor(() => expect(screen.getByRole('banner')).toBeInTheDocument());
+			expect(navigation()).toBeNull();
+
+			// What the form does when it succeeds, and the page then puts it away.
+			heardWhetherSignedIn(true);
+			await rerender({ pathname, room: 'phone', holds: undefined });
+
+			await waitFor(() => expect(places()).toEqual(TABS));
+			expect(
+				within(screen.getByRole('banner')).getByRole('link', { name: m.open_settings() }),
+			).toBeInTheDocument();
 		},
 	);
 
@@ -361,7 +444,17 @@ describe('the back arrow', () => {
 		expect(arrow()).toBeNull();
 	});
 
-	it.each([['/cook/b_soba'], ['/invite/abc'], ['/recover/abc'], ['/cookbook-invite/abc']])(
+	it.each<Room>(['phone', 'roomy'])(
+		'is not on a Cookbook Invite in a %s window, a page opened from a link with nothing of Kamosu above it (#214)',
+		(room) => {
+			shell('/cookbook-invite/abc', room);
+
+			expect(navigation()).not.toBeNull();
+			expect(arrow()).toBeNull();
+		},
+	);
+
+	it.each([['/cook/b_soba'], ['/invite/abc'], ['/recover/abc']])(
 		'is not at %s, where the wide layout draws no sidebar',
 		(pathname) => {
 			shell(pathname, 'roomy');

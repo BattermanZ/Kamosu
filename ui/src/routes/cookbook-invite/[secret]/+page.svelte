@@ -16,6 +16,10 @@
 	a Kitchen Invite's job. So a reader who is not signed in gets the ordinary
 	sign-in form here, and the same question once they are.
 
+	A Person who is signed in keeps their navigation on this page, and nobody
+	else is shown any (#214, choice of 11 October 2026). The shell decides that
+	by what this page says it heard, as it does on `/`.
+
 	The secret arrives as the `params` prop, as on `/invite/<secret>`, so a test
 	can render this route itself with a secret of its choosing.
 -->
@@ -25,6 +29,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { joinedNames } from '$lib/cookbook';
+	import { heardWhetherSignedIn } from '$lib/shell/signing-in.svelte';
 	import type { ReadCookbookInviteOutput } from '$lib/api/catalogue';
 	import Account from '../../Account.svelte';
 	import type { PageProps } from './$types';
@@ -51,6 +56,8 @@
 		kamosu
 			.readCookbookInvite({ secret })
 			.then((answer) => {
+				// The shell keeps a Person's navigation on this answer (#214).
+				heardWhetherSignedIn(true);
 				if (current) invite = answer;
 			})
 			.catch(async (error: unknown) => {
@@ -71,6 +78,8 @@
 						return false;
 					},
 				);
+				// And draws none for a reader it has to sign in first.
+				heardWhetherSignedIn(signedIn);
 				if (current) invite = signedIn ? 'gone' : 'sign-in';
 			});
 		return () => {

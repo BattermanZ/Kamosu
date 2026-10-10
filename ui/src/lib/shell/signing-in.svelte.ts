@@ -1,6 +1,7 @@
 /**
  * What the shell knows about whether somebody is in the app, which is what
- * decides whether the wide layout may draw its sidebar (ADR 0044, #194). The
+ * decides whether the shell may draw its navigation: the sidebar on the wide
+ * layout (ADR 0044, #194), the tab bar and the gear on the phone (#214). The
  * pages a stranger reads (setup, login, an Invite, a recovery link) get none,
  * so that nothing suggests somebody is in the app before they are.
  *
@@ -11,9 +12,9 @@
  *   to an Operation tells the two apart.
  * - `signedIn`: what that answer was the last time this device heard one. It
  *   covers the moment before the form is drawn, while the question is still
- *   out: without it a stranger opening `/` or a Share Link's `/import` would
- *   see the sidebar come and go. Every screen that draws the form on a
- *   refusal says what it heard, and so does signing out.
+ *   out: without it a stranger opening `/`, a Share Link's `/import` or a
+ *   Cookbook Invite would see the navigation come and go. Every screen that
+ *   draws the form on a refusal says what it heard, and so does signing out.
  *   Kept between visits, because the Session cookie that would say so cannot
  *   be read from here. It is a hint for drawing and nothing more: who is
  *   signed in is only ever decided by the Core.

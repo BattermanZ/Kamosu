@@ -14,10 +14,14 @@
 	  touch from the Step is the one thing it may not cost. The story (#158)
 	  covers the whole window with corners of its own, so navigation drawn under
 	  it would still be read out and tabbed through behind a page that hides it.
-	- **Signing in, an Invite, a Cookbook Invite, a recovery link:** no sidebar
-	  on the wide layout, so nothing suggests somebody is in the app before they
-	  are. The mark and the name stand above the page in its place. The phone
-	  layout draws these pages as it always has.
+	- **Signing in, an Invite, a recovery link:** no sidebar on the wide layout
+	  and no tab bar or gear on the phone, so nothing suggests somebody is in
+	  the app before they are (#214). The mark and the name stand on the page
+	  all the same: centred above it on the wide layout, in the header's place
+	  on the phone. One answer, `outside`, decides it for both layouts.
+	- **A Cookbook Invite:** the same for somebody not signed in. A Person who
+	  is signed in is in the app, and keeps their navigation there (#214,
+	  choice of 11 October 2026).
 
 	The Room decides, not a style rule, so a screen test sees which one is drawn.
 
@@ -53,24 +57,28 @@
 
 	/**
 	 * A page somebody may be reading before they are in the app: the account
-	 * form wherever it is drawn, and the three link routes whoever opens them.
+	 * form wherever it is drawn, and an Invite or a recovery link whoever
+	 * opens it, since each of those makes or mends an account.
 	 *
 	 * The form is only drawn once an Operation has refused, so the moment
-	 * before it goes by what this device last heard. That matters at the two
-	 * addresses a stranger arrives at and where the form may follow: `/`, and
-	 * `/import`, where a Share Link sends its reader. There the sidebar waits
-	 * for a device that knows a Person is signed in.
+	 * before it goes by what this device last heard. That matters at the
+	 * addresses a stranger arrives at and where the form may follow: `/`,
+	 * `/import`, where a Share Link sends its reader, and a Cookbook Invite,
+	 * which is for a Person and asks anybody else to sign in. There the
+	 * navigation waits for a device that knows a Person is signed in.
 	 *
 	 * Everywhere else it is drawn whatever the device last heard. A page that
 	 * could not be read for want of a Session is no sign-in page, and without
-	 * the sidebar a wide window would hold no way from it to `/`, where the
+	 * its navigation a window would hold no way from it to `/`, where the
 	 * form is.
 	 */
-	const arriving = $derived(pathname === '/' || pathname === '/import');
+	const arriving = $derived(
+		pathname === '/' || pathname === '/import' || pathname.startsWith('/cookbook-invite/'),
+	);
 	const outside = $derived(
 		signingIn.showing ||
 			(arriving && signingIn.signedIn !== true) ||
-			/^\/(invite|recover|cookbook-invite)\//.test(pathname),
+			/^\/(invite|recover)\//.test(pathname),
 	);
 
 	const sidebar = $derived(room.wide && !bare && !outside);
