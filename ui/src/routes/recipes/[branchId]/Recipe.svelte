@@ -133,7 +133,7 @@
 	//   · `my-pictures.svelte.ts` and `MyPictures`: your pictures of the
 	//     dish (#110);
 	//   · `HowMuchRow`, `ShoppingListButton`, `MetaStrip`, `Cooked`,
-	//     `language-family.ts`, `sharing-a-chain.ts` and `thread-line.ts`:
+	//     `language-family.ts` and `sharing-a-chain.ts`:
 	//     the rest.
 	//
 	// The sheets a component raises — deleting's confirmation, the save of
@@ -192,7 +192,6 @@
 	import { marking } from './marking.svelte';
 	import { myPictures } from './my-pictures.svelte';
 	import { languageFamily } from './language-family';
-	import { threadLine } from './thread-line';
 	import { sharingAChain } from './sharing-a-chain';
 
 	interface Props {
@@ -233,14 +232,6 @@
 	 * (#106, ADR 0006): see `language-family.ts`.
 	 */
 	let lineageBranches = $state<GetThreadOutput['branches']>([]);
-	/**
-	 * Every Version on every Branch of this Lineage, which the Thread answers
-	 * anyway. The button into it says how many are this Branch's own and when
-	 * the last was saved (#133), so a cook can tell before tapping whether
-	 * anything is behind it.
-	 */
-	let lineageVersions = $state<GetThreadOutput['versions']>([]);
-	const historyLine = $derived(threadLine(lineageVersions, branchId));
 	/** Bumped after a Promotion, to read the recipe back with its new Version. */
 	let reread = $state(0);
 
@@ -569,7 +560,6 @@
 				if (!current) return;
 				attempts = thread.attempts;
 				lineageBranches = thread.branches;
-				lineageVersions = thread.versions;
 				// Every Copy and variation of it, and never a Translation: see
 				// `sharing-a-chain.ts` for why a Translation cannot be paired.
 				versions = sharingAChain(thread, branchId);
@@ -876,33 +866,21 @@
 			{/each}
 
 			<!--
-			Into the cooking screen (#61, ADR 0011) and into the editor (#83),
-			directly under the servings (#220; option 1 of the audit of
-			9 October 2026, chosen on 10 October). They stood at the foot of the
-			page among the other acts, five screens down on a phone, and Cook
-			this is the one act a cook opened the page for. Cook is a link
-			rather than a button that starts something: opening the screen IS
-			starting the Attempt, and one already In Progress is handed back
-			rather than doubled — so there is nothing here to press twice by
-			mistake. Edit is drawn with `NeedsServer` because editing is on the
-			server's side of the line and is never queued: an offline edit queue
-			is a merge, and Kamosu does not merge (ADR 0013, #76).
+			Into the cooking screen (#61, ADR 0011), alone, directly under the
+			servings (#220, 10 October 2026). It stood at the foot of the page
+			among the other acts, five screens down on a phone, and it is the
+			one act a cook opened the page for; every other act, Edit included,
+			is in the grid at the foot. A link rather than a button that starts
+			something: opening the screen IS starting the Attempt, and one
+			already In Progress is handed back rather than doubled — so there is
+			nothing here to press twice by mistake.
 		-->
-			<div class="mx-gutter mt-4 grid grid-cols-[3fr_2fr] gap-2">
-				<a
-					href="/cook/{branchId}{toSearch(pageScaledTo)}"
-					class="flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
-				>
-					{m.recipe_cook_this()}
-				</a>
-				<NeedsServer
-					label={m.write_edit()}
-					waiting={m.offline_waits_edit()}
-					onclick={() => (writing = true)}
-					shapeClass="flex min-h-12 items-center justify-center rounded-sm border px-4 text-center font-display text-body font-semibold"
-					lookClass="border-rule bg-card text-accent"
-				/>
-			</div>
+			<a
+				href="/cook/{branchId}{toSearch(pageScaledTo)}"
+				class="mx-gutter mt-4 flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 text-center font-display text-body font-semibold text-on-accent"
+			>
+				{m.recipe_cook_this()}
+			</a>
 
 			<!--
 			What this Kitchen says about the dish, above the dish itself (#104).
@@ -1370,6 +1348,21 @@
 		-->
 				<div class="mx-gutter mt-6 grid grid-cols-2 gap-2">
 					<!--
+				Writing (#83). Drawn with `NeedsServer` because editing is on the
+				server's side of the line and is never queued: an offline edit
+				queue is a merge, and Kamosu does not merge (ADR 0013, #76). The
+				phrase it wears offline was written for this button before the
+				button existed.
+			-->
+					<NeedsServer
+						label={m.write_edit()}
+						waiting={m.offline_waits_edit()}
+						onclick={() => (writing = true)}
+						shapeClass="act-tile"
+						lookClass="text-accent"
+						idleClass="text-ink-2 opacity-55"
+					/>
+					<!--
 				Into the Thread, under the word a cook already knows for it (#133,
 				choice A of 24 September 2026). The screen keeps the
 				Thread's name in the code and the docs; the button says History
@@ -1377,16 +1370,13 @@
 				"version": on this page that word already means one of the recipe's
 				versions in the strip at the top.
 
-				The line under it is built like the Cooked line: how many saves, and
-				when the last was. On a recipe straight from an import it says one,
-				which is the honest answer to "is anything back there?".
+				One line, like every tile beside it: a second line under History
+				made it taller than its neighbours (10 October 2026). How many saves
+				there are, and when the last was, is the History page's own first line.
 			-->
-					<a href="/recipes/{branchId}/thread" class="act-tile text-accent">
-						{m.recipe_the_thread()}
-						{#if historyLine}
-							<span class="block font-normal text-ink-2">{historyLine}</span>
-						{/if}
-					</a>
+					<a href="/recipes/{branchId}/thread" class="act-tile text-accent"
+						>{m.recipe_the_thread()}</a
+					>
 					<!--
 				Saying what Language this recipe is in, and translating it (#106).
 				Here among the acts rather than up beside the Tags row, because

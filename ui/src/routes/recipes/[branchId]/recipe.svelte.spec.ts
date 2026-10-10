@@ -914,64 +914,18 @@ describe('the Cooked section', () => {
 
 /**
  * The way into the Thread (#133, choice A). The button says
- * *History* rather than the Thread's own name, and carries a line built like
- * the Cooked line above it: how many saves are behind it and when the last
- * was. It never says "version", which on this page already means one of the
- * recipe's versions in the strip.
+ * *History* rather than the Thread's own name. It never says "version", which
+ * on this page already means one of the recipe's versions in the strip. The
+ * line it carried under the word, how many saves and when the last was, went
+ * on 10 October 2026: it made the button taller than its neighbours.
  */
 describe('the way into the Thread', () => {
-	const at = (occurrence: ReturnType<typeof occurrenceOf>, created_at: string) => ({
-		...occurrence,
-		created_at,
-	});
-	const withSaves = (versions: ReturnType<typeof occurrenceOf>[]) =>
-		forked({
-			get_thread: {
-				...(forked().get_thread as Record<string, unknown>),
-				versions,
-			},
-		} as Answers);
-	const day = (iso: string) => aDate(iso);
 	const button = () => screen.findByRole('link', { name: /^History/ });
-	/** The line under the button, once the Thread it counts has been read. */
-	const saying = async (text: string) => {
-		const line = await screen.findByText(text);
-		expect(line.closest('a')).toBe(await button());
-	};
 
 	it('says History and leads to the Thread', async () => {
 		renderRecipe();
 		expect((await button()).getAttribute('href')).toBe('/recipes/mine/thread');
 		expect(screen.queryByText(/the thread/i)).not.toBeInTheDocument();
-	});
-
-	it('counts the saves on this recipe’s own chain and dates the last', async () => {
-		renderRecipe(
-			withSaves([
-				at(occurrenceOf('mine', 1, 'v_root', null), '2026-08-01T10:00:00Z'),
-				at(occurrenceOf('mine', 2, 'v_mine', 'v_root'), '2026-08-09T10:00:00Z'),
-				at(occurrenceOf('theirs', 1, 'v_root', null), '2026-08-01T10:00:00Z'),
-				// Marc's save is later, and is his: it is neither counted nor dated.
-				at(occurrenceOf('theirs', 2, 'v_theirs', 'v_root'), '2026-09-02T10:00:00Z'),
-			]),
-		);
-		await saying(`Saved twice · last on ${day('2026-08-09T10:00:00Z')}`);
-	});
-
-	it('says one save plainly, which is every recipe straight from an import', async () => {
-		renderRecipe(withSaves([at(occurrenceOf('mine', 1, 'v_mine', null), '2026-09-23T16:00:00Z')]));
-		await saying(`Saved once · on ${day('2026-09-23T16:00:00Z')}`);
-	});
-
-	it('counts past two in figures', async () => {
-		renderRecipe(
-			withSaves([
-				at(occurrenceOf('mine', 1, 'v_1', null), '2026-08-01T10:00:00Z'),
-				at(occurrenceOf('mine', 2, 'v_2', 'v_1'), '2026-08-05T10:00:00Z'),
-				at(occurrenceOf('mine', 3, 'v_mine', 'v_2'), '2026-08-20T10:00:00Z'),
-			]),
-		);
-		await saying(`Saved 3 times · last on ${day('2026-08-20T10:00:00Z')}`);
 	});
 });
 
@@ -2633,7 +2587,7 @@ describe('deleting a recipe', () => {
 		).toBeTruthy();
 	});
 
-	it('puts Cook this and Edit under the servings, before the Ingredients, where a cook looks first (#220)', async () => {
+	it('puts Cook this alone under the servings, before the Ingredients, and Edit among the acts at the foot (#220)', async () => {
 		renderRecipe(forked({ get_share_link: shareLink(false) }));
 		const cook = await screen.findByRole('link', { name: 'Cook this' });
 		const edit = screen.getByRole('button', { name: 'Edit this recipe' });
@@ -2643,10 +2597,10 @@ describe('deleting a recipe', () => {
 			cook.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 		expect(
-			edit.compareDocumentPosition(ingredients) & Node.DOCUMENT_POSITION_FOLLOWING,
+			ingredients.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 		expect(cook.className).toContain('bg-accent');
-		expect(cook.parentElement).toBe(edit.parentElement);
+		expect(edit.className).toContain('act-tile');
 	});
 
 	it('asks before it does anything, and asking alone deletes nothing', async () => {
@@ -3102,10 +3056,12 @@ describe('naming a version (#134)', () => {
 				},
 			});
 
-		renderRecipe(alone(null));
-		// The count under History comes from the same read of the Thread that
-		// says how many versions there are, so the page knows by then.
-		expect(await screen.findByText(/^Saved once/)).toBeInTheDocument();
+		const { kamosu } = renderRecipe(alone(null));
+		// Whether a name is offered is read off the Thread, so wait for that read.
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'get_thread')).toBe(true),
+		);
+		await tick();
 		expect(screen.queryByRole('button', { name: 'Name this version' })).toBeNull();
 		cleanup();
 
