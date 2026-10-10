@@ -13559,6 +13559,32 @@ async fn the_convertible_set_knows_three_languages_and_the_named_regional_spoons
         );
     }
 
+    // The shortest French spoons, and the lone letter an American recipe
+    // writes: `t` a teaspoon and `T` a tablespoon, the one Unit whose case
+    // matters (#208).
+    for (spelling, measured) in [
+        ("cs", "about 45 ml"),
+        ("c.s.", "about 45 ml"),
+        ("T", "about 45 ml"),
+        ("T.", "about 45 ml"),
+        ("cc", "about 15 ml"),
+        ("c.c.", "about 15 ml"),
+        ("t", "about 15 ml"),
+        ("t.", "about 15 ml"),
+    ] {
+        let branch_id = recipe_with_readings(
+            &app,
+            &key,
+            &format!("Soy in a spoon written {spelling}"),
+            &[("3 spoons soy sauce", "3", spelling, "soy sauce")],
+        );
+        assert_eq!(
+            measured_ingredients(&app, &key, &branch_id),
+            json!([measured]),
+            "'{spelling}' is worth what its long spelling is"
+        );
+    }
+
     // The regional variants are ordinary members of the set, so a recipe that
     // names one gets it right without anybody being asked anything.
     let named = recipe_with_readings(

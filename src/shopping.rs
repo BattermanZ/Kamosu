@@ -213,6 +213,12 @@ struct AsWritten {
 /// puts it after a sibilant (`pinch` · `pinches`), and nothing else. Two-letter
 /// stems are left whole, so `os` stays `os`.
 pub fn unit_key(word: &str) -> String {
+    // A lone `t` is a teaspoon and a lone `T` a tablespoon (#208), the one
+    // pair the fold would add together. A capital can be no other key, since
+    // every other key is folded.
+    if let Some(letter) = units::lone_spoon(word) {
+        return letter.to_string();
+    }
     let folded = units::fold(word);
     let sibilant = |stem: &str| {
         stem.ends_with(['s', 'x', 'z']) || stem.ends_with("ch") || stem.ends_with("sh")
@@ -682,6 +688,13 @@ mod tests {
         // `os` is a word, not a plural: two letters are left alone.
         assert_eq!(unit_key("os"), "os");
         assert_eq!(unit_key("choux"), "chou");
+
+        // A lone `t` is a teaspoon and a lone `T` a tablespoon, so the two
+        // never add, with or without the full stop (#208).
+        assert_eq!(unit_key("t"), unit_key("t."));
+        assert_eq!(unit_key("T"), unit_key("T."));
+        assert_ne!(unit_key("t"), unit_key("T"));
+        assert_eq!(unit_key("Tbsp"), unit_key("tbsp"));
     }
 
     #[test]

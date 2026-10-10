@@ -412,11 +412,14 @@ async fn the_real_library_is_read_as_well_as_it_was_measured_and_an_unread_line_
         "every Unit the export names is a Unit Kamosu reads (ADR 0036)"
     );
     let unit_share = unit_right as f64 / scored as f64;
+    // The floor falls each time Kamosu learns a Unit Crouton filed as a bare
+    // count. #208 taught it `cs`, `c.s.`, `cc`, `c.c.` and `pince`, which
+    // seven lines here write, and took the share from 95.5% to 94.7%.
     assert!(
-        unit_share >= 0.95,
+        unit_share >= 0.94,
         "Units agreed with the export on 96.4% of lines when this was measured \
-         (ADR 0036), every disagreement being a Unit Crouton had no word for; \
-         got {:.1}%",
+         (ADR 0036) and on 94.7% after #208, every disagreement being a Unit \
+         Crouton had no word for; got {:.1}%",
         unit_share * 100.0
     );
     // Every line that names something nameable names a Food, which is what

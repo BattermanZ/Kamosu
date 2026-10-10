@@ -223,6 +223,10 @@ pub const UNITS: &[Unit] = &[
             "c à c",
             "càc",
             "cac",
+            // *Cuillère à café*, never a cubic centimetre. The accepted cost
+            // is an English `5 cc`, which reads five times too big (#208).
+            "cc",
+            "c.c.",
             "cucharadita",
             "cucharaditas",
             "cdta",
@@ -256,6 +260,8 @@ pub const UNITS: &[Unit] = &[
             "c à s",
             "càs",
             "cas",
+            "cs",
+            "c.s.",
             "cucharada",
             "cucharadas",
             "cda",
@@ -438,11 +444,40 @@ impl Unit {
 /// The Unit a written word names, or nothing — which is not an error. A word
 /// outside the closed set is no less real a Unit; it simply never converts.
 pub fn recognise(word: &str) -> Option<&'static Unit> {
+    if let Some(letter) = lone_spoon(word) {
+        let id = if letter == "t" {
+            "teaspoon"
+        } else {
+            "tablespoon"
+        };
+        return Some(unit_by_id(id));
+    }
     let folded = fold(word);
     if folded.is_empty() {
         return None;
     }
     BY_SPELLING.get(&folded).copied()
+}
+
+/// **The one Unit whose case matters** (#208). American recipes write a
+/// teaspoon as a lone `t` and a tablespoon as a lone `T`, with or without a
+/// full stop, and [`fold`] would make the two one word. So this is asked
+/// before anything is folded, and every other spelling stays blind to case:
+/// `Tbsp` and `TBSP` are the same tablespoon.
+///
+/// [`recognise`] asks it first, so reading a line and working out what a
+/// stored `T` is worth cannot answer differently.
+///
+/// The answer is the letter with its full stop gone, `t` or `T`. Two callers
+/// need more than the Unit: the reader, because a single letter is a Unit
+/// only where an amount stands before it, and the shopping list, because the
+/// letter's case has to survive where two Units are compared by spelling.
+pub fn lone_spoon(word: &str) -> Option<&'static str> {
+    match word.trim().trim_end_matches('.') {
+        "t" => Some("t"),
+        "T" => Some("T"),
+        _ => None,
+    }
 }
 
 // --- Reading a quantity ------------------------------------------------------

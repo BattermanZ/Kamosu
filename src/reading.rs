@@ -152,6 +152,9 @@ const OPEN_UNITS: &[&str] = &[
     "boites",
     "pincee",
     "pincees",
+    // The accepted cost is `2 pinces de crabe`, two pinches of crab (#208).
+    "pince",
+    "pinces",
     "bouquet",
     "bouquets",
     "tranche",
@@ -392,6 +395,20 @@ const GLUE: &[&str] = &[
 /// never as [`GLUE`]: `unos 200 g de harina` is Spanish for *about* 200 g, and
 /// the 200 has to reach the amount rather than the Food.
 const A_FEW: &[&str] = &["quelques", "unos", "unas"];
+
+/// The ways a line opens to say *a little*, each written as its words. Like
+/// [`A_FEW`] it is no amount, and left standing its second word opened the
+/// Food: `un peu de sirop d'érable` named *peu de sirop d'érable* (#208).
+///
+/// Only the whole phrase, and only at the start of the line. `peu de sel` and
+/// `1 little gem lettuce` read as they always have.
+const A_LITTLE: &[&[&str]] = &[
+    &["un", "peu", "de"],
+    &["un", "peu", "d'"],
+    &["a", "little"],
+    &["a", "bit", "of"],
+    &["un", "poco", "de"],
+];
 
 /// The ways a recipe says *as much as you like*, each written as its words.
 /// Such a phrase measures nothing and names nothing, so it is dropped from the
@@ -634,7 +651,17 @@ fn read_split(line: &str) -> (Option<Reading>, bool) {
     match past_the_colon(rest) {
         // `Eau : 800 ml` is read as `800 ml Eau`, so it cannot read otherwise
         // than its amount-first twin does.
-        PastTheColon::Measure(measure) => read_clauses(&format!("{measure} {before}")),
+        PastTheColon::Measure(measure) => {
+            // The Food before the colon may open with `un peu de`, which is
+            // dropped only at the start of what is read (#208).
+            let opening = split_elisions(before);
+            let opening: Vec<&str> = opening.split_whitespace().collect();
+            let food = match a_few_or_a_little_at(&opening) {
+                0 => before.to_string(),
+                dropped => opening[dropped..].join(" "),
+            };
+            read_clauses(&format!("{measure} {food}"))
+        }
         PastTheColon::Aside => read_clauses(before),
         PastTheColon::Unplaced => read_clauses(line),
         // What ends as a sentence does is a step under its heading and not a
@@ -701,10 +728,9 @@ fn at_the_colon(line: &str) -> Option<(&str, &str)> {
         (!ratio && !rest.starts_with("//")).then_some((before, rest))
     })?;
     let opening = split_elisions(split_clauses(before)[0]);
-    let opening: Vec<&str> = opening
-        .split_whitespace()
-        .skip_while(|word| listed(A_FEW, word))
-        .collect();
+    let mut opening: Vec<&str> = opening.split_whitespace().collect();
+    opening.drain(..a_few_or_a_little_at(&opening));
+    stand_the_unit_apart(&mut opening, 0);
     let cuts = rest.chars().any(char::is_alphanumeric) && amount_words(&opening).is_none();
     cuts.then_some((before, rest))
 }
@@ -724,8 +750,9 @@ fn at_the_colon(line: &str) -> Option<(&str, &str)> {
 /// enough to drop what stood before the colon.
 fn past_the_colon(rest: &str) -> PastTheColon {
     let head = split_elisions(split_clauses(rest)[0]);
-    let tokens: Vec<&str> = head.split_whitespace().collect();
-    let a_few = tokens.iter().take_while(|word| listed(A_FEW, word)).count();
+    let mut tokens: Vec<&str> = head.split_whitespace().collect();
+    let a_few = a_few_or_a_little_at(&tokens);
+    stand_the_unit_apart(&mut tokens, a_few);
     let words = without_to_taste(&tokens[a_few..]);
     if only_describing(words) || without_warmth_or_size(words).is_empty() {
         return PastTheColon::Aside;
@@ -737,7 +764,7 @@ fn past_the_colon(rest: &str) -> PastTheColon {
     let measure = [strip_glue(measured), without_praise(measured)]
         .into_iter()
         .find_map(|after| {
-            let unit = unit_at(after, after.len());
+            let unit = unit_at(after, after.len(), amount.is_some());
             let mut left = &after[unit..];
             while amount.is_some() && unit > 0 {
                 match restated(left) {
@@ -758,7 +785,7 @@ fn past_the_colon(rest: &str) -> PastTheColon {
     // sauce : 2 c. à soupe de miel`. With no word joining them, nothing says
     // which side of the colon the measure belongs to.
     let after = strip_glue(measured);
-    let unit = unit_at(after, after.len().saturating_sub(1));
+    let unit = unit_at(after, after.len().saturating_sub(1), amount.is_some());
     let joined = after.get(unit).is_some_and(|word| is_glue(word));
     match measure {
         None if amount.is_some() && unit > 0 && !joined => PastTheColon::Unplaced,
@@ -781,8 +808,7 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     let mut clauses = split_clauses(line).into_iter();
     let head = split_elisions(clauses.next().unwrap_or_default());
     let mut tokens: Vec<&str> = head.split_whitespace().collect();
-    let a_few = tokens.iter().take_while(|word| listed(A_FEW, word)).count();
-    tokens.drain(..a_few);
+    tokens.drain(..a_few_or_a_little_at(&tokens));
     // `to taste` goes before anything else is read, so a line reads exactly
     // as it would without the phrase: `cloves to taste` as `cloves` (#163).
     let to_taste = to_taste_at(&tokens, End::Start);
@@ -792,10 +818,18 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     if tokens.is_empty() {
         return (None, false);
     }
+    stand_the_unit_apart(&mut tokens, 0);
     // A measure written after the Food is read where a measure is always
     // read, at the start: `Pâtes orzo 200 g` as `200 g Pâtes orzo` (#207).
-    if let Some(at) = measure_at_the_end(&tokens) {
-        tokens.rotate_left(at);
+    // Its amount may stand against its Unit, `Pâtes orzo 200g`, and the two
+    // are parted only where they are that measure (#208).
+    let mut turned = tokens.clone();
+    if let Some((amount, unit)) = tokens.last().and_then(|word| against_its_unit(word)) {
+        turned.splice(tokens.len() - 1.., [amount, unit]);
+    }
+    if let Some(at) = measure_at_the_end(&turned) {
+        turned.rotate_left(at);
+        tokens = turned;
     }
     // What follows the first comma is ordinarily the cook's aside, never part
     // of the Reading: in `garlic, minced` the cook is talking *about* the
@@ -831,14 +865,16 @@ fn read_clauses(line: &str) -> (Option<Reading>, bool) {
     } else {
         rest.len().saturating_sub(1)
     };
-    let mut unit_taken = unit_at(rest, longest);
+    let after_an_amount = reading.amount.is_some();
+    let mut unit_taken = unit_at(rest, longest, after_an_amount);
     // Failing that, a Unit behind a word that only praises it: `good pinch`
     // is a pinch (#186). The praise is skipped only when a Unit follows, with
     // or without an amount before it, so `bonne pincée de sel` is a pinch
     // too, while a name that opens with such a word keeps it.
     let praised = without_praise(rest);
     if unit_taken == 0 && praised.len() < rest.len() {
-        unit_taken = unit_at(praised, longest.saturating_sub(rest.len() - praised.len()));
+        let longest = longest.saturating_sub(rest.len() - praised.len());
+        unit_taken = unit_at(praised, longest, after_an_amount);
         if unit_taken > 0 {
             rest = praised;
         }
@@ -904,7 +940,7 @@ fn measure_at_the_end(words: &[&str]) -> Option<usize> {
             let measure = &words[at..];
             amount_words(measure).is_some_and(|amount| {
                 let unit = &measure[amount..];
-                !unit.is_empty() && unit_at(unit, unit.len()) == unit.len()
+                !unit.is_empty() && unit_at(unit, unit.len(), true) == unit.len()
             })
         })
         .filter(|&at| !is_glue(words[at - 1]))
@@ -1420,14 +1456,9 @@ fn restated(words: &[&str]) -> Option<usize> {
         return None;
     }
     let words = &words[1..];
-    if let Some(first) = words.first() {
-        let digits = first.find(|c: char| c.is_alphabetic()).filter(|&at| at > 0);
-        if let Some(at) = digits {
-            let (amount, unit) = first.split_at(at);
-            if units::parse_amount(amount).is_some() && units::recognise(unit).is_some() {
-                return Some(2);
-            }
-        }
+    let glued = words.first().and_then(|first| against_its_unit(first));
+    if glued.is_some_and(|(amount, _)| units::parse_amount(amount).is_some()) {
+        return Some(2);
     }
     let amount = amount_words(words)?;
     let after = &words[amount..];
@@ -1438,6 +1469,45 @@ fn restated(words: &[&str]) -> Option<usize> {
             units::recognise(&candidate).is_some() || (take == 1 && listed(OPEN_UNITS, after[0]))
         })
         .map(|take| 1 + amount + take)
+}
+
+/// **A word cut where its number ends and a Unit of the closed set begins**,
+/// `100g` into `100` and `g` (#208). Only the closed set counts, so a number
+/// against anything else is part of a name and is not cut: `7up`, `3D`,
+/// `3oeufs`, `2cm`, `2sachets`. Whether the number is an amount is the
+/// caller's to ask.
+fn against_its_unit(word: &str) -> Option<(&str, &str)> {
+    let at = word.find(char::is_alphabetic).filter(|&at| at > 0)?;
+    let (number, unit) = word.split_at(at);
+    units::recognise(unit).map(|_| (number, unit))
+}
+
+/// **An amount written against its Unit stood apart as two words**, so
+/// `100g Crème` reads exactly as `100 g Crème` does (#208). `words` are read
+/// from `from` on.
+///
+/// The cut is made only where an amount is read. The number has to end the
+/// amount the words open with, alone or after others: `1 1/2tsp`, `2 to
+/// 3tbsp`. `1 400g tin tomatoes` is therefore one tin, as it always was,
+/// because `1 400` is no amount.
+fn stand_the_unit_apart(words: &mut Vec<&str>, from: usize) {
+    let end = words.len().min(from + LONGEST_RANGE);
+    let found = (from..end).find_map(|at| {
+        let (number, unit) = against_its_unit(words[at])?;
+        let mut amount = words[from..at].to_vec();
+        amount.push(number);
+        (amount_words(&amount) == Some(amount.len())).then_some((at, number, unit))
+    });
+    if let Some((at, number, unit)) = found {
+        words.splice(at..=at, [number, unit]);
+    }
+}
+
+/// How many words open a line only to say *a few* or *a little*: any of
+/// [`A_FEW`], then one [`A_LITTLE`] phrase.
+fn a_few_or_a_little_at(words: &[&str]) -> usize {
+    let a_few = words.iter().take_while(|word| listed(A_FEW, word)).count();
+    a_few + phrase_at(A_LITTLE, &words[a_few..], End::Start)
 }
 
 /// How many leading words read as one amount: a range if one opens the line,
@@ -1539,12 +1609,17 @@ fn offers_a_choice(words: &[&str]) -> bool {
 /// How many words at the start of `words` are a Unit, looking at no more than
 /// `longest` of them: the longest window the closed set recognises, and
 /// failing that one word from the [`OPEN_UNITS`]. Nothing is a Unit at 0.
-fn unit_at(words: &[&str], longest: usize) -> usize {
+///
+/// A lone `t` or `T` is a spoon only after an amount (#208). With none
+/// before it a single letter opens a name, `T bone steak`.
+fn unit_at(words: &[&str], longest: usize, after_an_amount: bool) -> usize {
     (1..=longest.min(3))
         .rev()
         .find(|&take| {
-            units::recognise(&words[..take].join(" ")).is_some()
-                || (take == 1 && listed(OPEN_UNITS, words[0]))
+            let written = words[..take].join(" ");
+            let known = units::recognise(&written).is_some()
+                && (after_an_amount || units::lone_spoon(&written).is_none());
+            known || (take == 1 && listed(OPEN_UNITS, words[0]))
         })
         .unwrap_or(0)
 }
@@ -3017,11 +3092,12 @@ mod tests {
                 Some("EACH: Dijon Mustard and Honey")
             )
         );
-        // A measure the reader cannot place is no reason to drop the Food:
-        // the glued `180g` is #208's to read.
+        // A measure the reader cannot place is no reason to drop the Food.
+        // A number against a Unit of the open set is one: only the closed
+        // set is read glued (#208).
         assert_eq!(
-            read("Poitrine fumée : 180g"),
-            parts(None, None, Some("Poitrine fumée : 180g"))
+            read("Levure : 2sachets"),
+            parts(None, None, Some("Levure : 2sachets"))
         );
         assert_eq!(
             read("https://example.com/recipe"),
@@ -3123,6 +3199,175 @@ mod tests {
         assert_eq!(
             read("Oeufs de 60 g"),
             parts(None, None, Some("Oeufs de 60 g"))
+        );
+    }
+
+    #[test]
+    fn an_amount_written_against_its_unit_reads_as_it_does_with_a_space() {
+        // The three lines a cook retyped amount-first and still lost (#208).
+        assert_eq!(
+            read("100g Crème"),
+            parts(Some("100"), Some("g"), Some("Crème"))
+        );
+        assert_eq!(
+            read("180g de Poitrine fumée"),
+            parts(Some("180"), Some("g"), Some("Poitrine fumée"))
+        );
+        assert_eq!(
+            read("800ml d'Eau"),
+            parts(Some("800"), Some("ml"), Some("Eau"))
+        );
+        for (glued, spaced) in [
+            ("100g flour", "100 g flour"),
+            ("2L water", "2 L water"),
+            ("250mL milk", "250 mL milk"),
+            ("1.5kg potatoes", "1.5 kg potatoes"),
+            ("1,5kg de pommes de terre", "1,5 kg de pommes de terre"),
+            ("1/2tsp salt", "1/2 tsp salt"),
+            ("½tsp salt", "½ tsp salt"),
+            ("100gr de farine", "100 gr de farine"),
+            ("2càs d'huile", "2 càs d'huile"),
+            ("1cup sugar", "1 cup sugar"),
+            ("2tbsp honey", "2 tbsp honey"),
+            // The twin is followed even where it reads imperfectly.
+            ("400g can tomatoes", "400 g can tomatoes"),
+            // An amount of several words, its last one against the Unit.
+            ("1 1/2tsp salt", "1 1/2 tsp salt"),
+            ("200-250g de farine", "200-250 g de farine"),
+            ("2 to 3tbsp oil", "2 to 3 tbsp oil"),
+            ("quelques 200g de farine", "quelques 200 g de farine"),
+            // With a measure restated after a slash (#182).
+            ("400g/0.9lb onion", "400 g/0.9lb onion"),
+            // After a colon and at the end of a line (#207).
+            ("Poitrine fumée : 180g", "Poitrine fumée : 180 g"),
+            ("Crème : 100g", "Crème : 100 g"),
+            ("Eau : 800ml, tiède", "Eau : 800 ml, tiède"),
+            ("Pâtes orzo 200g", "Pâtes orzo 200 g"),
+            ("Placard : Sel 2g", "Placard : Sel 2 g"),
+        ] {
+            let twin = read(spaced);
+            assert!(
+                twin.as_ref().is_some_and(|(_, unit, _)| unit.is_some()),
+                "{spaced}"
+            );
+            assert_eq!(read(glued), twin, "{glued}");
+        }
+        assert_eq!(
+            read("Poitrine fumée : 180g"),
+            parts(Some("180"), Some("g"), Some("Poitrine fumée"))
+        );
+    }
+
+    #[test]
+    fn a_number_against_anything_but_a_convertible_unit_stays_in_the_name() {
+        // Only the closed set counts, so a name that opens with a number is
+        // left whole (#208).
+        for name in [
+            "7up",
+            "3D pasta",
+            "100% rye flour",
+            "3oeufs",
+            "2x eggs",
+            "2cm piece ginger",
+            "2sachets de levure",
+            "T45 flour",
+        ] {
+            assert_eq!(read(name), parts(None, None, Some(name)), "{name}");
+        }
+        // A size that is not where an amount is read is left alone.
+        assert_eq!(
+            read("1 400g tin tomatoes"),
+            parts(Some("1"), None, Some("400g tin tomatoes"))
+        );
+        assert_eq!(
+            read("1 tin tomatoes 400g"),
+            parts(Some("1"), Some("tin"), Some("tomatoes 400g"))
+        );
+        assert_eq!(
+            read("Oeufs de 60g"),
+            parts(None, None, Some("Oeufs de 60g"))
+        );
+    }
+
+    #[test]
+    fn the_short_french_spoons_and_a_pinch_are_units() {
+        for (line, amount, unit, food, twin) in [
+            ("2 cs de crme fraiche", "2", "cs", "crme fraiche", "c. à s."),
+            ("1 c.s. d'huile", "1", "c.s.", "huile", "c. à s."),
+            ("2 cc de sucre", "2", "cc", "sucre", "c. à c."),
+            // `the` is dropped as a joining word, which is #213's fault.
+            ("1 c.c. the de kombu", "1", "c.c.", "kombu", "c. à c."),
+        ] {
+            assert_eq!(read(line), parts(Some(amount), Some(unit), Some(food)));
+            let (short, long) = (units::recognise(unit), units::recognise(twin));
+            assert_eq!(short.map(|u| u.id), long.map(|u| u.id), "{line}");
+            assert!(short.is_some(), "{line}");
+        }
+        assert_eq!(
+            read("1 pince de piment doux"),
+            parts(Some("1"), Some("pince"), Some("piment doux"))
+        );
+        // The accepted cost: a crab's claws are pinches of crab.
+        assert_eq!(
+            read("2 pinces de crabe"),
+            parts(Some("2"), Some("pinces"), Some("crabe"))
+        );
+    }
+
+    #[test]
+    fn a_lone_t_after_an_amount_is_a_spoon_and_its_case_says_which() {
+        for (line, unit, food, spoon) in [
+            ("1 t Instant Yeast", "t", "Instant Yeast", "teaspoon"),
+            ("1 t. salt", "t.", "salt", "teaspoon"),
+            ("1 T sugar", "T", "sugar", "tablespoon"),
+            ("1 T. sugar", "T.", "sugar", "tablespoon"),
+            ("1T sugar", "T", "sugar", "tablespoon"),
+        ] {
+            assert_eq!(read(line), parts(Some("1"), Some(unit), Some(food)));
+            assert_eq!(units::recognise(unit).map(|u| u.id), Some(spoon), "{line}");
+        }
+        // Every other spelling stays blind to case.
+        for (line, unit, food) in [
+            ("1 Tbsp sugar", "Tbsp", "sugar"),
+            ("1 TBSP sugar", "TBSP", "sugar"),
+            ("1 tasse de lait", "tasse", "lait"),
+        ] {
+            assert_eq!(read(line), parts(Some("1"), Some(unit), Some(food)));
+        }
+        // With no amount before it the letter is part of a name.
+        assert_eq!(
+            read("T bone steak"),
+            parts(None, None, Some("T bone steak"))
+        );
+        assert_eq!(
+            read("Viande : un T bone"),
+            parts(None, None, Some("T bone"))
+        );
+    }
+
+    #[test]
+    fn a_little_opening_a_line_is_dropped() {
+        for (line, food) in [
+            ("un peu de sirop d'érable", "sirop d'érable"),
+            ("un peu d'huile", "huile"),
+            ("Un peu d\u{2019}huile", "huile"),
+            ("a little maple syrup", "maple syrup"),
+            ("a bit of salt", "salt"),
+            ("un poco de sal", "sal"),
+        ] {
+            assert_eq!(read(line), read(food), "{line}");
+            assert_eq!(read(line), parts(None, None, Some(food)), "{line}");
+        }
+        // Only the whole phrase, at the start, with no amount before it.
+        assert_eq!(
+            read("1 little gem lettuce"),
+            parts(Some("1"), None, Some("little gem lettuce"))
+        );
+        assert_eq!(read("peu de sel"), parts(None, None, Some("peu de sel")));
+        // Before a colon it opens the line too.
+        assert_eq!(
+            read("un peu de sel : 2 g"),
+            parts(Some("2"), Some("g"), Some("sel"))
         );
     }
 }
