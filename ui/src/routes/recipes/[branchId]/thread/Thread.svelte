@@ -1,8 +1,8 @@
 <!--
 	The Thread (issue #53): a recipe's whole life on one screen, forking at the
 	Branch Point, Attempts hanging off it. Reading, never editing (GLOSSARY.md,
-	"Thread") — a past Version opens here to be read in full and cooked from,
-	never changed. The one thing written here is a Version's name, by the cook
+	"Thread") — a past Version opens from here as a page of its own, to be
+	read in full and cooked from (#211), never changed. The one thing written here is a Version's name, by the cook
 	who saved it (#115, ADR 0015): it is outside the fingerprint, so naming
 	moves no id and mints no Version.
 
@@ -11,6 +11,7 @@
 	other screen here is tested against the Catalogue-derived stand-in.
 -->
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { aDate } from '$lib/dates';
 	import type { Snippet } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -21,16 +22,17 @@
 	import Screen from '$lib/shell/Screen.svelte';
 	import ThreadGraph from './ThreadGraph.svelte';
 	import { languageSaidAt, type ThreadVersion } from './tree';
-	import type { GetThreadOutput, GetRecipeOutput } from '$lib/api/catalogue';
+	import type { GetThreadOutput } from '$lib/api/catalogue';
 
 	type Attempt = GetThreadOutput['attempts'][number];
-	type VersionContent = GetRecipeOutput['versions'][number]['content'];
 
 	interface Props {
 		branchId: string;
+		/** Going to another page. A test hands in its own. */
+		navigate?: (to: string) => Promise<void>;
 	}
 
-	let { branchId }: Props = $props();
+	let { branchId, navigate = goto }: Props = $props();
 
 	const kamosu = useKamosu();
 
@@ -110,33 +112,19 @@
 		return map;
 	});
 
-	// ---- reading a past Version in full, and cooking from it -----------------
-
-	let openVersion = $state<ThreadVersion | undefined>(undefined);
-	let openContent = $state<VersionContent | undefined>(undefined);
-	let cooking = $state<'idle' | 'starting' | 'started' | 'failed'>('idle');
-
-	async function openVersionDetail(version: ThreadVersion) {
-		openVersion = version;
-		openContent = undefined;
-		cooking = 'idle';
-		const recipe = await kamosu.getRecipe({ branch_id: version.branch_id });
-		openContent = recipe.versions.find((v) => v.sequence === version.sequence)?.content;
-	}
-
-	async function cookThisVersion() {
-		if (!openVersion) return;
-		cooking = 'starting';
-		try {
-			await kamosu.startAttempt({
-				branch_id: openVersion.branch_id,
-				version_id: openVersion.version_id,
-			});
-			cooking = 'started';
-		} catch (error) {
-			if (!(error instanceof OperationError)) throw error;
-			cooking = 'failed';
-		}
+	/**
+	 * A past Version opens as a recipe page of its own, with what has changed
+	 * since marked on it (#211). The newest Version of a Branch is the recipe,
+	 * so it opens the recipe.
+	 */
+	function openVersion(version: ThreadVersion) {
+		const newest = thread?.versions.filter((each) => each.branch_id === version.branch_id).at(-1);
+		const recipe = `/recipes/${version.branch_id}`;
+		void navigate(
+			newest?.version_id === version.version_id
+				? recipe
+				: `${recipe}/versions/${version.version_id}`,
+		);
 	}
 
 	let openAttempt = $state<Attempt | undefined>(undefined);
@@ -146,8 +134,6 @@
 		m.thread_attempt_cooked({ when: aDate(attempt.created_at) });
 
 	function closeSheets() {
-		openVersion = undefined;
-		openContent = undefined;
 		openAttempt = undefined;
 	}
 </script>
@@ -163,14 +149,14 @@
 			{me}
 			{attemptsByVersion}
 			{languageSaid}
-			onOpenVersion={openVersionDetail}
+			onOpenVersion={openVersion}
 			onOpenAttempt={(attempt) => (openAttempt = attempt)}
 			onRenamed={reread}
 		/>
 	{/if}
 </Screen>
 
-{#snippet sheet(called: string, scrollable: boolean, children: Snippet)}
+{#snippet sheet(called: string, children: Snippet)}
 	<!-- Not one of the twelve #196 counted, since it never called itself a
 	     dialog, but a bottom sheet all the same, and ADR 0044 makes every one
 	     of those a window. On the phone it keeps its darker dimming, and on
@@ -178,9 +164,8 @@
 	<SheetFrame
 		label={called}
 		dim="ink"
-		tall={scrollable ? 70 : undefined}
 		safe={false}
-		class="rounded-sm bg-card p-4 {scrollable ? 'overflow-y-auto' : ''}"
+		class="rounded-sm bg-card p-4"
 		onclose={closeSheets}
 	>
 		<button type="button" class="float-right text-label text-ink-2 uppercase" onclick={closeSheets}>
@@ -190,44 +175,8 @@
 	</SheetFrame>
 {/snippet}
 
-{#if openVersion}
-	{@render sheet(openContent?.title ?? m.loading(), true, versionDetail)}
-{/if}
-{#snippet versionDetail()}
-	<p class="font-display text-title font-semibold text-ink">
-		{openContent?.title ?? m.loading()}
-	</p>
-	{#if openContent}
-		<h2 class="mt-4 text-label text-accent uppercase">{m.thread_ingredients()}</h2>
-		<ul class="mt-2 grid gap-1">
-			{#each openContent.ingredients as line, index (index)}
-				<li class="text-line text-ink">{line.text}</li>
-			{/each}
-		</ul>
-		<h2 class="mt-4 text-label text-accent uppercase">{m.thread_method()}</h2>
-		<ol class="mt-2 grid gap-1">
-			{#each openContent.steps as step, index (index)}
-				<li class="text-body text-ink">{step.text}</li>
-			{/each}
-		</ol>
-	{/if}
-	<button
-		type="button"
-		class="mt-4 min-h-12 w-full rounded-sm bg-accent px-4 font-display text-body font-semibold text-on-accent disabled:opacity-60"
-		disabled={cooking === 'starting'}
-		onclick={cookThisVersion}
-	>
-		{m.thread_cook_this_version()}
-	</button>
-	{#if cooking === 'started'}
-		<p class="mt-2 text-read text-ink-2">{m.thread_cooking_started()}</p>
-	{:else if cooking === 'failed'}
-		<p class="mt-2 text-read text-accent" role="alert">{m.thread_cooking_failed()}</p>
-	{/if}
-{/snippet}
-
 {#if openAttempt}
-	{@render sheet(whenCooked(openAttempt), false, attemptDetail)}
+	{@render sheet(whenCooked(openAttempt), attemptDetail)}
 {/if}
 {#snippet attemptDetail()}
 	<p class="font-display text-body font-semibold text-ink">

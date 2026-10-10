@@ -381,118 +381,50 @@ describe('the Thread screen', () => {
 		expect(screen.getByText('Translated into French')).toBeInTheDocument();
 	});
 
-	it('opens a past Version in full and cooks from it', async () => {
-		const { kamosu } = renderThread('b_mine', {
+	it('opens a past Version as a page of its own, and the newest as the recipe (#211)', async () => {
+		const went: string[] = [];
+		const version = (sequence: number, change_note: string) => ({
+			branch_id: 'b_mine',
+			sequence,
+			version_id: `v_${sequence}`,
+			parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
+			hand_id: 'h_stephane',
+			hand_name: 'Stéphane',
+			name: null,
+			change_note,
+			created_at: `2026-03-0${sequence}T00:00:00Z`,
+			translates_version_id: null,
+			language: 'en',
+		});
+		const kamosu = standIn({
+			get_person: NOBODY,
 			get_thread: {
 				lineage_id: 'l_1',
 				branches: [
-					{
-						branch_id: 'b_mine',
+					threadBranch('b_mine', {
 						cookbook: cookbookLabel('c_1', ['Stéphane']),
-						name: null,
-						mine: true,
-						arrived: false,
-						hand_id: 'h_stephane',
-						hand_name: 'Stéphane',
-						language: 'en',
-						head_version_id: 'v_1',
-						translation: null,
-					},
+						head_version_id: 'v_2',
+					}),
 				],
-				versions: [
-					{
-						branch_id: 'b_mine',
-						sequence: 1,
-						version_id: 'v_1',
-						parent_version_id: null,
-						hand_id: 'h_stephane',
-						hand_name: 'Stéphane',
-						name: null,
-						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z',
-						translates_version_id: null,
-						language: 'en',
-					},
-				],
+				versions: [version(1, 'Imported'), version(2, 'Less sugar')],
 				attempts: [],
 			},
-			get_recipe: {
-				branch_id: 'b_mine',
-				lineage_id: 'l_1',
-				cookbook: cookbookLabel('c_1', ['Stéphane']),
-				name: null,
-				writes: true,
-				mine: true,
-				arrived: false,
-				hand_id: 'h_stephane',
-				language: 'en',
-				origin_address: null,
-				head_version_id: 'v_1',
-				translation: null,
-				versions: [
-					{
-						sequence: 1,
-						scaled_to: null,
-						version_id: 'v_1',
-						parent_version_id: null,
-						hand_id: 'h_stephane',
-						name: null,
-						change_note: 'Imported',
-						created_at: '2026-03-03T00:00:00Z',
-						translates_version_id: null,
-						language: 'en',
-						// A recipe that composes nothing, which is nearly all of them (#50).
-						components: [],
-						content: {
-							title: 'Korean Fried Chicken',
-							yield: null,
-							prep_time_minutes: null,
-							cook_time_minutes: null,
-							note: null,
-							main_photo: null,
-							nutrition: null,
-							source: null,
-							ingredients: [{ kind: 'ingredient', text: '1.4 kg whole chicken' }],
-							steps: [{ kind: 'step', text: 'Marinate the chicken.', photo: null }],
-						},
-						readings: [null],
-						measured: { ingredients: [null], steps: [null] },
-						cooking: { steps: [{ uses: [], timer_seconds: null }] },
-					},
-				],
-				tags: [],
-				related_recipes: [],
-				cooked: { count: 0, last_cooked_at: null, ratings: [] },
-			},
-			start_attempt: {
-				id: 'at_2',
-				lineage_id: 'l_1',
-				person_id: 'p_1',
-				version_id: 'v_1',
-				current_step_index: 0,
-				ticked_ingredients: [],
-				cooking_yield: null,
-				note: null,
-				rating: null,
-				finished_at: null,
-				resumable: true,
-				created_at: '2026-08-28T00:00:00Z',
-				last_action_at: '2026-08-28T00:00:00Z',
-				as_cooked: null,
-				photographs: [],
+		});
+		render(ThreadTestHarness, {
+			props: {
+				client: kamosu.client,
+				branchId: 'b_mine',
+				navigate: async (to: string) => void went.push(to),
 			},
 		});
 
 		await fireEvent.click(await screen.findByText('Imported'));
-		expect(await screen.findByText('Korean Fried Chicken')).toBeInTheDocument();
-		expect(screen.getByText('1.4 kg whole chicken')).toBeInTheDocument();
-		expect(screen.getByText('Marinate the chicken.')).toBeInTheDocument();
-		expect(kamosu.calls.map((call) => call.operation)).toContain('get_recipe');
+		expect(went).toEqual(['/recipes/b_mine/versions/v_1']);
+		// No sheet over the Thread: the Version is a page.
+		expect(screen.queryByRole('dialog')).toBeNull();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Cook this Version' }));
-		expect(await screen.findByText(/Started/)).toBeInTheDocument();
-		const startCall = kamosu.calls.find((call) => call.operation === 'start_attempt');
-		expect(startCall?.input).toEqual({ branch_id: 'b_mine', version_id: 'v_1' });
+		await fireEvent.click(screen.getByText('Less sugar'));
+		expect(went.at(-1)).toBe('/recipes/b_mine');
 	});
 
 	it('collapses a run of four or more quiet saves, and expands it on request', async () => {

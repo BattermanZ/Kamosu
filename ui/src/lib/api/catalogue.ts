@@ -3078,6 +3078,320 @@ export type DivergenceOutput = {
 	};
 };
 
+/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
+export type ChangedSinceInput = {
+	branch_id: string;
+	version_id: string;
+};
+/** What changed_since answers. */
+export type ChangedSinceOutput = {
+	branch_point_version_id: string;
+	fields: {
+		cook_time_minutes: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		main_photo: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		note: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		nutrition: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		prep_time_minutes: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		source: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		title: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+		yield: {
+			mine: unknown;
+			same: boolean;
+			theirs: unknown;
+		};
+	};
+	ingredients: {
+		from_branch_point: boolean;
+		kind: string;
+		mine: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+		state: "same" | "changed" | "only-mine" | "only-theirs";
+		theirs: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+	}[];
+	lineage_id: string;
+	mine: {
+		arrived: boolean;
+		branch_id: string;
+		components: {
+			branch_id: string | null;
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			} | null;
+			held: boolean;
+			lineage_id: string;
+			measured: {
+				ingredients: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
+			} | null;
+			path: number[];
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[] | null;
+			said: string;
+			share: number | null;
+			stopped: boolean;
+			title: string | null;
+		}[];
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		cookbook: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		hand_id: string;
+		hand_name: string | null;
+		head_version_id: string;
+		language: string;
+		measured: {
+			ingredients: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
+		};
+		mine: boolean;
+		name: string | null;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+	};
+	steps: {
+		from_branch_point: boolean;
+		kind: string;
+		mine: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+		state: "same" | "changed" | "only-mine" | "only-theirs";
+		theirs: {
+			index: number;
+			kind: string;
+			text: string;
+		} | null;
+	}[];
+	theirs: {
+		arrived: boolean;
+		branch_id: string;
+		components: {
+			branch_id: string | null;
+			content: {
+				cook_time_minutes: number | null;
+				ingredients: {
+					kind: "section" | "ingredient";
+					text: string;
+				}[];
+				main_photo: string | null;
+				note: string | null;
+				nutrition: {
+					basis: "per_serving" | "per_100g";
+					calories: number;
+				} | null;
+				prep_time_minutes: number | null;
+				source: {
+					link: string | null;
+					text: string;
+				} | null;
+				steps: {
+					kind: "section" | "step";
+					photo: string | null;
+					text: string;
+				}[];
+				title: string;
+				yield: {
+					amount: string;
+					noun: string;
+				} | null;
+			} | null;
+			held: boolean;
+			lineage_id: string;
+			measured: {
+				ingredients: (string | null)[];
+				steps: ({
+					measured: string;
+					written: string;
+				}[] | null)[];
+			} | null;
+			path: number[];
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[] | null;
+			said: string;
+			share: number | null;
+			stopped: boolean;
+			title: string | null;
+		}[];
+		content: {
+			cook_time_minutes: number | null;
+			ingredients: {
+				kind: "section" | "ingredient";
+				text: string;
+			}[];
+			main_photo: string | null;
+			note: string | null;
+			nutrition: {
+				basis: "per_serving" | "per_100g";
+				calories: number;
+			} | null;
+			prep_time_minutes: number | null;
+			source: {
+				link: string | null;
+				text: string;
+			} | null;
+			steps: {
+				kind: "section" | "step";
+				photo: string | null;
+				text: string;
+			}[];
+			title: string;
+			yield: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
+		cookbook: {
+			authors: {
+				name: string;
+				person_id: string;
+			}[];
+			id: string;
+			name: string | null;
+		};
+		hand_id: string;
+		hand_name: string | null;
+		head_version_id: string;
+		language: string;
+		measured: {
+			ingredients: (string | null)[];
+			steps: ({
+				measured: string;
+				written: string;
+			}[] | null)[];
+		};
+		mine: boolean;
+		name: string | null;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
+	};
+	version: {
+		change_note: string | null;
+		created_at: string;
+		hand_id: string;
+		hand_name: string | null;
+		name: string | null;
+		newest: boolean;
+		sequence: number;
+		version_id: string;
+	};
+	writes: boolean;
+};
+
 /** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 export type SetReadingInput = {
 	amount?: string | null;
@@ -5025,6 +5339,12 @@ export interface Operations {
 	divergence: {
 		input: DivergenceInput;
 		output: DivergenceOutput;
+		kind: 'immediate';
+		permission: 'person';
+	};
+	changed_since: {
+		input: ChangedSinceInput;
+		output: ChangedSinceOutput;
 		kind: 'immediate';
 		permission: 'person';
 	};
@@ -20692,6 +21012,1717 @@ export const CATALOGUE = [
 		}
 	},
 	{
+		"name": "changed_since",
+		"summary": "See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch.",
+		"permission": "person",
+		"kind": "immediate",
+		"input_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_id": {
+					"type": "string"
+				},
+				"version_id": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"branch_id",
+				"version_id"
+			],
+			"type": "object"
+		},
+		"output_schema": {
+			"additionalProperties": false,
+			"properties": {
+				"branch_point_version_id": {
+					"type": "string"
+				},
+				"fields": {
+					"additionalProperties": false,
+					"properties": {
+						"cook_time_minutes": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"main_photo": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"note": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"nutrition": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"prep_time_minutes": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"source": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"title": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						},
+						"yield": {
+							"additionalProperties": false,
+							"properties": {
+								"mine": {},
+								"same": {
+									"type": "boolean"
+								},
+								"theirs": {}
+							},
+							"required": [
+								"same",
+								"mine",
+								"theirs"
+							],
+							"type": "object"
+						}
+					},
+					"required": [
+						"title",
+						"yield",
+						"prep_time_minutes",
+						"cook_time_minutes",
+						"source",
+						"note",
+						"nutrition",
+						"main_photo"
+					],
+					"type": "object"
+				},
+				"ingredients": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"from_branch_point": {
+								"type": "boolean"
+							},
+							"kind": {
+								"type": "string"
+							},
+							"mine": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"state": {
+								"enum": [
+									"same",
+									"changed",
+									"only-mine",
+									"only-theirs"
+								]
+							},
+							"theirs": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"kind",
+							"state",
+							"from_branch_point",
+							"mine",
+							"theirs"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"lineage_id": {
+					"type": "string"
+				},
+				"mine": {
+					"additionalProperties": false,
+					"properties": {
+						"arrived": {
+							"type": "boolean"
+						},
+						"branch_id": {
+							"type": "string"
+						},
+						"components": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"branch_id": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"content": {
+										"additionalProperties": false,
+										"properties": {
+											"cook_time_minutes": {
+												"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"ingredients": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"ingredient"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"main_photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"note": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"nutrition": {
+												"additionalProperties": false,
+												"properties": {
+													"basis": {
+														"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+														"enum": [
+															"per_serving",
+															"per_100g"
+														]
+													},
+													"calories": {
+														"description": "Calories, zero or more.",
+														"minimum": 0,
+														"type": "number"
+													}
+												},
+												"required": [
+													"calories",
+													"basis"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"prep_time_minutes": {
+												"description": "Whole minutes of active preparation.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"source": {
+												"additionalProperties": false,
+												"properties": {
+													"link": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"text",
+													"link"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"steps": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"step"
+															]
+														},
+														"photo": {
+															"type": [
+																"string",
+																"null"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text",
+														"photo"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"title": {
+												"type": "string"
+											},
+											"yield": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": "string"
+													},
+													"noun": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"amount",
+													"noun"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"title",
+											"yield",
+											"prep_time_minutes",
+											"cook_time_minutes",
+											"note",
+											"main_photo",
+											"source",
+											"nutrition",
+											"ingredients",
+											"steps"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"held": {
+										"type": "boolean"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"measured": {
+										"additionalProperties": false,
+										"properties": {
+											"ingredients": {
+												"items": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"type": "array"
+											},
+											"steps": {
+												"items": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"measured": {
+																"type": "string"
+															},
+															"written": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"written",
+															"measured"
+														],
+														"type": "object"
+													},
+													"type": [
+														"array",
+														"null"
+													]
+												},
+												"type": "array"
+											}
+										},
+										"required": [
+											"ingredients",
+											"steps"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"path": {
+										"items": {
+											"type": "integer"
+										},
+										"type": "array"
+									},
+									"readings": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"amount": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"lineage_id": {
+													"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"target": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"unit": {
+													"type": [
+														"string",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"amount",
+												"unit",
+												"target",
+												"lineage_id"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": [
+											"array",
+											"null"
+										]
+									},
+									"said": {
+										"type": "string"
+									},
+									"share": {
+										"type": [
+											"number",
+											"null"
+										]
+									},
+									"stopped": {
+										"type": "boolean"
+									},
+									"title": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"path",
+									"lineage_id",
+									"held",
+									"stopped",
+									"branch_id",
+									"title",
+									"share",
+									"said",
+									"content",
+									"readings",
+									"measured"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"cookbook": {
+							"additionalProperties": false,
+							"properties": {
+								"authors": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"type": "string"
+											},
+											"person_id": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"person_id",
+											"name"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"id": {
+									"type": "string"
+								},
+								"name": {
+									"type": [
+										"string",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"id",
+								"name",
+								"authors"
+							],
+							"type": "object"
+						},
+						"hand_id": {
+							"type": "string"
+						},
+						"hand_name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"head_version_id": {
+							"type": "string"
+						},
+						"language": {
+							"type": "string"
+						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"measured": {
+													"type": "string"
+												},
+												"written": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"written",
+												"measured"
+											],
+											"type": "object"
+										},
+										"type": [
+											"array",
+											"null"
+										]
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"mine": {
+							"type": "boolean"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"branch_id",
+						"cookbook",
+						"name",
+						"mine",
+						"arrived",
+						"hand_id",
+						"hand_name",
+						"language",
+						"head_version_id",
+						"content",
+						"readings",
+						"measured",
+						"components"
+					],
+					"type": "object"
+				},
+				"steps": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"from_branch_point": {
+								"type": "boolean"
+							},
+							"kind": {
+								"type": "string"
+							},
+							"mine": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"state": {
+								"enum": [
+									"same",
+									"changed",
+									"only-mine",
+									"only-theirs"
+								]
+							},
+							"theirs": {
+								"additionalProperties": false,
+								"properties": {
+									"index": {
+										"type": "integer"
+									},
+									"kind": {
+										"type": "string"
+									},
+									"text": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"kind",
+									"text",
+									"index"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							}
+						},
+						"required": [
+							"kind",
+							"state",
+							"from_branch_point",
+							"mine",
+							"theirs"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"theirs": {
+					"additionalProperties": false,
+					"properties": {
+						"arrived": {
+							"type": "boolean"
+						},
+						"branch_id": {
+							"type": "string"
+						},
+						"components": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"branch_id": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"content": {
+										"additionalProperties": false,
+										"properties": {
+											"cook_time_minutes": {
+												"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"ingredients": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"ingredient"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"main_photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"note": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"nutrition": {
+												"additionalProperties": false,
+												"properties": {
+													"basis": {
+														"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+														"enum": [
+															"per_serving",
+															"per_100g"
+														]
+													},
+													"calories": {
+														"description": "Calories, zero or more.",
+														"minimum": 0,
+														"type": "number"
+													}
+												},
+												"required": [
+													"calories",
+													"basis"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"prep_time_minutes": {
+												"description": "Whole minutes of active preparation.",
+												"type": [
+													"integer",
+													"null"
+												]
+											},
+											"source": {
+												"additionalProperties": false,
+												"properties": {
+													"link": {
+														"type": [
+															"string",
+															"null"
+														]
+													},
+													"text": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"text",
+													"link"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											},
+											"steps": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"enum": [
+																"section",
+																"step"
+															]
+														},
+														"photo": {
+															"type": [
+																"string",
+																"null"
+															]
+														},
+														"text": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"text",
+														"photo"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"title": {
+												"type": "string"
+											},
+											"yield": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": "string"
+													},
+													"noun": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"amount",
+													"noun"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"title",
+											"yield",
+											"prep_time_minutes",
+											"cook_time_minutes",
+											"note",
+											"main_photo",
+											"source",
+											"nutrition",
+											"ingredients",
+											"steps"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"held": {
+										"type": "boolean"
+									},
+									"lineage_id": {
+										"type": "string"
+									},
+									"measured": {
+										"additionalProperties": false,
+										"properties": {
+											"ingredients": {
+												"items": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"type": "array"
+											},
+											"steps": {
+												"items": {
+													"items": {
+														"additionalProperties": false,
+														"properties": {
+															"measured": {
+																"type": "string"
+															},
+															"written": {
+																"type": "string"
+															}
+														},
+														"required": [
+															"written",
+															"measured"
+														],
+														"type": "object"
+													},
+													"type": [
+														"array",
+														"null"
+													]
+												},
+												"type": "array"
+											}
+										},
+										"required": [
+											"ingredients",
+											"steps"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"path": {
+										"items": {
+											"type": "integer"
+										},
+										"type": "array"
+									},
+									"readings": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"amount": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"lineage_id": {
+													"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"target": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"unit": {
+													"type": [
+														"string",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"amount",
+												"unit",
+												"target",
+												"lineage_id"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": [
+											"array",
+											"null"
+										]
+									},
+									"said": {
+										"type": "string"
+									},
+									"share": {
+										"type": [
+											"number",
+											"null"
+										]
+									},
+									"stopped": {
+										"type": "boolean"
+									},
+									"title": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"path",
+									"lineage_id",
+									"held",
+									"stopped",
+									"branch_id",
+									"title",
+									"share",
+									"said",
+									"content",
+									"readings",
+									"measured"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"content": {
+							"additionalProperties": false,
+							"properties": {
+								"cook_time_minutes": {
+									"description": "Whole minutes of cooking, including resting, proving, marinating and chilling.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"ingredients": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"ingredient"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"main_photo": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"note": {
+									"type": [
+										"string",
+										"null"
+									]
+								},
+								"nutrition": {
+									"additionalProperties": false,
+									"properties": {
+										"basis": {
+											"description": "What the figure counts: one serving of the Yield as written, or 100 g.",
+											"enum": [
+												"per_serving",
+												"per_100g"
+											]
+										},
+										"calories": {
+											"description": "Calories, zero or more.",
+											"minimum": 0,
+											"type": "number"
+										}
+									},
+									"required": [
+										"calories",
+										"basis"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"prep_time_minutes": {
+									"description": "Whole minutes of active preparation.",
+									"type": [
+										"integer",
+										"null"
+									]
+								},
+								"source": {
+									"additionalProperties": false,
+									"properties": {
+										"link": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"text": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"text",
+										"link"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								},
+								"steps": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"kind": {
+												"enum": [
+													"section",
+													"step"
+												]
+											},
+											"photo": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"text": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"kind",
+											"text",
+											"photo"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"title": {
+									"type": "string"
+								},
+								"yield": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"title",
+								"yield",
+								"prep_time_minutes",
+								"cook_time_minutes",
+								"note",
+								"main_photo",
+								"source",
+								"nutrition",
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"cookbook": {
+							"additionalProperties": false,
+							"properties": {
+								"authors": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"name": {
+												"type": "string"
+											},
+											"person_id": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"person_id",
+											"name"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"id": {
+									"type": "string"
+								},
+								"name": {
+									"type": [
+										"string",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"id",
+								"name",
+								"authors"
+							],
+							"type": "object"
+						},
+						"hand_id": {
+							"type": "string"
+						},
+						"hand_name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"head_version_id": {
+							"type": "string"
+						},
+						"language": {
+							"type": "string"
+						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"steps": {
+									"items": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"measured": {
+													"type": "string"
+												},
+												"written": {
+													"type": "string"
+												}
+											},
+											"required": [
+												"written",
+												"measured"
+											],
+											"type": "object"
+										},
+										"type": [
+											"array",
+											"null"
+										]
+									},
+									"type": "array"
+								}
+							},
+							"required": [
+								"ingredients",
+								"steps"
+							],
+							"type": "object"
+						},
+						"mine": {
+							"type": "boolean"
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"branch_id",
+						"cookbook",
+						"name",
+						"mine",
+						"arrived",
+						"hand_id",
+						"hand_name",
+						"language",
+						"head_version_id",
+						"content",
+						"readings",
+						"measured",
+						"components"
+					],
+					"type": "object"
+				},
+				"version": {
+					"additionalProperties": false,
+					"properties": {
+						"change_note": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"created_at": {
+							"type": "string"
+						},
+						"hand_id": {
+							"type": "string"
+						},
+						"hand_name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"name": {
+							"type": [
+								"string",
+								"null"
+							]
+						},
+						"newest": {
+							"type": "boolean"
+						},
+						"sequence": {
+							"type": "integer"
+						},
+						"version_id": {
+							"type": "string"
+						}
+					},
+					"required": [
+						"version_id",
+						"sequence",
+						"name",
+						"change_note",
+						"created_at",
+						"hand_id",
+						"hand_name",
+						"newest"
+					],
+					"type": "object"
+				},
+				"writes": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"lineage_id",
+				"branch_point_version_id",
+				"mine",
+				"theirs",
+				"ingredients",
+				"steps",
+				"fields",
+				"version",
+				"writes"
+			],
+			"type": "object"
+		}
+	},
+	{
 		"name": "set_reading",
 		"summary": "Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line.",
 		"permission": "person",
@@ -27963,6 +29994,7 @@ export const READS: readonly OperationName[] = [
 	'read_shared_recipe',
 	'branch_point',
 	'divergence',
+	'changed_since',
 	'get_current_attempt',
 	'list_attempts',
 	'get_shopping_list',
@@ -28064,6 +30096,7 @@ export const METHOD_NAMES = {
 	read_shared_recipe: 'readSharedRecipe',
 	branch_point: 'branchPoint',
 	divergence: 'divergence',
+	changed_since: 'changedSince',
 	set_reading: 'setReading',
 	read_ingredient_lines: 'readIngredientLines',
 	reread_ingredient_lines: 'rereadIngredientLines',
@@ -28274,6 +30307,8 @@ export interface KamosuClient {
 	branchPoint(input: BranchPointInput): Promise<Answer<'branch_point'>>;
 	/** Lay two Branches of one Lineage over each other. That lets a screen show two whole recipes with a switch between them rather than a difference (ADR 0014). Every row carries both sides' own words; a line only one side has is a Ghost. Which line is which is read against the Branch Point, never by an id stapled to a line (ADR 0019), and an uncertain reading declines to pair rather than claiming a connection. */
 	divergence(input: DivergenceInput): Promise<Answer<'divergence'>>;
+	/** See what changed on a recipe since an older Version. That Version of a Branch is laid over the newest Version of the same Branch. The answer is a divergence's, two whole recipes and the rows between them (ADR 0014). `mine` is the Branch as it stands and `theirs` is the Branch at the Version named. A row only `theirs` has is a line taken out since; a row only `mine` has is a line written since. The newest Version answers with every row the same and `newest` true. `writes` says whether the caller may save onto this Branch. */
+	changedSince(input: ChangedSinceInput): Promise<Answer<'changed_since'>>;
 	/** Correct the Reading on one Ingredient Line. The line is on a Recipe's current state; the Reading is an amount, a Unit and a target, sent together as the whole new Reading (never a per-field patch, the same convention save_recipe_version uses for the whole recipe). Mints no Version and appears in no history (ADR 0021). All of them left out together clears the Reading, taking the line back to fully unread. The target is either a Food's written word or — as `lineage_id` — the Recipe this line names, which makes the Ingredient a Component (ADR 0008); never both, and a Lineage this instance does not hold is accepted, because a Component goes on naming its recipe when the recipe is gone. A save carries the Reading of each line left word for word as it was, in the same place, onto the new Version and never reads that line again, so this is how to correct a misreading without rewording the line. */
 	setReading(input: SetReadingInput): Promise<Answer<'set_reading'>>;
 	/** Read every Ingredient Line nothing has read yet, as a Job. It covers every such line in the library, laying a Reading over each one Kamosu can make sense of. Touches no written line and makes no Version. A line already carrying a Reading is left alone, so a correction is never overwritten, and a line Kamosu cannot read is left unread, which is an ordinary state for a line rather than a failure. Kamosu also reads the lines of every recipe as it is written or imported, so this is for a library that predates it. */

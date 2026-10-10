@@ -124,6 +124,57 @@ export function offer(row: Row, taken: Taken | undefined): Taken | 'undo' | null
 }
 
 /**
+ * Everything a marked row and the bar under the page say, for one pair of
+ * recipes. Two Branches are worded by `between`; an older Version read
+ * against the recipe as it stands has its own (#211, `versions/older.ts`).
+ * The rows, the marks and the carrying are the same either way.
+ */
+export interface Words {
+	/** What a marked line or a Ghost says at rest. */
+	caption(seen: Seen, side: Side, taken: Taken | undefined): string;
+	/** What heads the panel a tapped row unfolds. */
+	heading(seen: Seen, side: Side): string;
+	/** What that panel says. */
+	sentence(seen: Seen, side: Side): string;
+	/** What may be carried from this row, if anything. */
+	offer(row: Row, taken: Taken | undefined): Taken | 'undo' | null;
+	offerLabel(row: Row, what: Taken | 'undo'): string;
+	/** Said in the panel where nothing is offered, or nothing at all. */
+	nothingToCarry: string | null;
+	/** The bar that holds what was carried and is not saved. */
+	unsaved(count: number): string;
+	/** Under the *what changed* field of the save. */
+	saveHint: string;
+}
+
+/** The words between two Branches, named for whose the other one is. */
+export function between(kitchen: string): Words {
+	return {
+		caption: (seen, side) => caption(seen, side, kitchen),
+		heading: (seen, side) =>
+			seen.ghost
+				? m.divergence_what_happened()
+				: side === 'theirs'
+					? m.divergence_your_line()
+					: m.divergence_their_line({ kitchen }),
+		sentence: (seen, side) => sentence(seen, side, kitchen),
+		offer,
+		offerLabel: (_row, what) =>
+			what === 'undo'
+				? m.divergence_untake()
+				: what === 'remove'
+					? m.divergence_take_remove()
+					: m.divergence_take_write(),
+		nothingToCarry: m.divergence_nothing_to_carry(),
+		unsaved: (count) =>
+			count === 1
+				? m.divergence_unsaved_one({ kitchen })
+				: m.divergence_unsaved({ count, kitchen }),
+		saveHint: m.divergence_save_hint({ kitchen }),
+	};
+}
+
+/**
  * A line you have carried across, as it now reads on YOUR recipe — the new
  * words in place, and what they replaced (ADR 0014: "writes it into your recipe
  * and leaves it unsaved, marked in place with what it replaced, until you
@@ -223,6 +274,13 @@ export function draftList(
 	taken: Map<string, Taken>,
 	/** Your own lines, so a Step you keep keeps its Photograph. */
 	ownSteps: { photo: string | null }[] = [],
+	/**
+	 * The other recipe's Steps, given only where it is an older Version of
+	 * this same Branch (#211). Its Photographs are then this Cookbook's own:
+	 * a Step reworded from it keeps the picture it has, and a Step put back
+	 * comes back with the picture it had.
+	 */
+	olderSteps: { photo: string | null }[] | undefined = undefined,
 ) {
 	const out: {
 		kind: 'section' | 'ingredient' | 'step';
@@ -246,7 +304,10 @@ export function draftList(
 		}
 		// Carrying a line across carries its WORDS. Their Step's Photograph is
 		// held by their Cookbook and is not yours to write into your recipe.
-		if (decision === 'write' && row.theirs) out.push({ kind, text: row.theirs.text, photo: null });
+		if (decision === 'write' && row.theirs) {
+			const from = row.mine ? ownSteps[row.mine.index] : olderSteps?.[row.theirs.index];
+			out.push({ kind, text: row.theirs.text, photo: olderSteps ? (from?.photo ?? null) : null });
+		}
 		// `remove` writes nothing: that is what taking a removal across means.
 	});
 	return out;
@@ -257,6 +318,8 @@ export function draftVersion(
 	divergence: DivergenceOutput,
 	taken: Map<string, Taken>,
 	changeNote: string,
+	/** `theirs` is an older Version of this same Branch (#211): see `draftList`. */
+	sameBranch = false,
 ): SaveRecipeVersionInput {
 	const content = divergence.mine.content;
 	return {
@@ -276,7 +339,13 @@ export function draftVersion(
 			kind,
 			text,
 		})) as { kind: 'section' | 'ingredient'; text: string }[],
-		steps: draftList(divergence.steps, 'steps', taken, content.steps) as {
+		steps: draftList(
+			divergence.steps,
+			'steps',
+			taken,
+			content.steps,
+			sameBranch ? divergence.theirs.content.steps : undefined,
+		) as {
 			kind: 'section' | 'step';
 			text: string;
 			photo: string | null;
@@ -331,6 +400,22 @@ export function carried(divergence: DivergenceOutput, taken: Map<string, Taken>)
  */
 export function prose(divergence: DivergenceOutput, taken: Map<string, Taken>): string {
 	const kitchen = branchPlainName(divergence.theirs);
+	return proseOf(divergence, taken, {
+		took: (what) => m.divergence_prose_took({ what, kitchen }),
+		tookOut: (what) => m.divergence_prose_took_out({ what, kitchen }),
+	});
+}
+
+/**
+ * The same sentences, worded by the caller: what was written in, and what
+ * was taken out. An older Version says where its lines came from in its own
+ * words (#211).
+ */
+export function proseOf(
+	divergence: DivergenceOutput,
+	taken: Map<string, Taken>,
+	wording: { took: (what: string) => string; tookOut: (what: string) => string },
+): string {
 	const items = carried(divergence, taken);
 	const say = (item: Carried) =>
 		item.isStep
@@ -350,8 +435,8 @@ export function prose(divergence: DivergenceOutput, taken: Map<string, Taken>): 
 	const removed = items.filter((item) => item.kind === 'remove').map(say);
 
 	const sentences: string[] = [];
-	if (wrote.length) sentences.push(m.divergence_prose_took({ what: join(wrote), kitchen }));
-	if (removed.length) sentences.push(m.divergence_prose_took_out({ what: join(removed), kitchen }));
+	if (wrote.length) sentences.push(wording.took(join(wrote)));
+	if (removed.length) sentences.push(wording.tookOut(join(removed)));
 	return sentences.join(' ');
 }
 

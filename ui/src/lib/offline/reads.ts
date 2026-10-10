@@ -58,6 +58,11 @@ const EXCEPTIONS: Partial<Record<OperationName, Policy>> = {
 	// still counted beside the very sentence saying it is gone. Found in live
 	// acceptance, where a new source did not appear until the second load.
 	list_imports: 'server-first',
+	// An older Version against the recipe as it stands (#211). A line written
+	// back from it is saved as the whole recipe, built from the newest
+	// Version this answer holds, so a kept answer from before an edit would
+	// save over that edit.
+	changed_since: 'server-first',
 	// Which Kitchens you cook in, and whose Cookbooks each sees. Settings shows
 	// it beside the buttons that change it, and a kept answer is wrong at
 	// exactly the moment it matters: a Kitchen joined or left on another

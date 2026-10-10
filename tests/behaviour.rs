@@ -11392,6 +11392,141 @@ async fn a_divergence_is_two_whole_recipes_with_the_unshared_lines_marked() {
     );
 }
 
+/// #211: an older Version is read against the newest Version of its own
+/// Branch, and the Core does the pairing. Asked at both Doors.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_older_version_is_laid_over_the_newest_of_its_branch() {
+    let app = support::spawn_app();
+    let (_, key, _) = person_with_kitchen(&app, "Stéphane");
+    let (status, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Korean Fried Chicken",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1.4 kg whole chicken" },
+                { "kind": "ingredient", "text": "¾ cup potato starch" },
+                { "kind": "ingredient", "text": "1 Tbsp rice vinegar" }
+            ],
+            "steps": [{ "kind": "step", "text": "Deep fry at 175 C until golden." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{created}");
+    let branch = created["result"]["branch_id"].as_str().unwrap().to_string();
+
+    // A later save, far enough on to be a Version of its own: the starch
+    // changes, the vinegar goes and sesame oil arrives.
+    backdate_branch_head(&app, &branch);
+    let (status, saved) = app.post_op(
+        "save_recipe_version",
+        Some(&key),
+        &json!({
+            "branch_id": branch,
+            "title": "Korean Fried Chicken",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1.4 kg whole chicken" },
+                { "kind": "ingredient", "text": "1 cup potato starch" },
+                { "kind": "ingredient", "text": "1 Tbsp sesame oil" }
+            ],
+            "steps": [{ "kind": "step", "text": "Deep fry at 175 C until golden." }],
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["result"]["collapsed"], json!(false), "{saved}");
+    let (_, recipe) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch }).to_string(),
+    );
+    let version = |at: usize| {
+        recipe["result"]["versions"][at]["version_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let (first, newest) = (version(0), version(1));
+
+    let asked = json!({ "branch_id": branch, "version_id": first });
+    let (status, answer) = app.post_op("changed_since", Some(&key), &asked.to_string());
+    assert_eq!(status, 200, "{answer}");
+    let result = &answer["result"];
+
+    // Two whole recipes: the Branch as it stands, and as it stood.
+    assert_eq!(result["mine"]["head_version_id"], json!(newest));
+    assert_eq!(result["theirs"]["head_version_id"], json!(first));
+    assert_eq!(
+        result["theirs"]["content"]["ingredients"][1]["text"],
+        json!("¾ cup potato starch")
+    );
+    assert_eq!(result["version"]["sequence"], json!(1));
+    assert_eq!(result["version"]["newest"], json!(false));
+    assert_eq!(result["version"]["hand_name"], json!("Stéphane"));
+
+    let ingredients = rows_of(&answer, "ingredients");
+    assert_eq!(
+        row_saying(ingredients, "1.4 kg whole chicken")["state"],
+        json!("same")
+    );
+    // Changed: one row holding both wordings, never a removal and an addition.
+    let starch = row_saying(ingredients, "¾ cup potato starch");
+    assert_eq!(starch["state"], json!("changed"));
+    assert_eq!(starch["mine"]["text"], json!("1 cup potato starch"));
+    // Taken out since: only the older Version has it.
+    let vinegar = row_saying(ingredients, "1 Tbsp rice vinegar");
+    assert_eq!(vinegar["state"], json!("only-theirs"));
+    assert_eq!(vinegar["mine"], Value::Null);
+    // Written since: a Ghost on the older Version's page.
+    let oil = row_saying(ingredients, "1 Tbsp sesame oil");
+    assert_eq!(oil["state"], json!("only-mine"));
+    assert_eq!(oil["theirs"], Value::Null);
+    assert_eq!(
+        row_saying(rows_of(&answer, "steps"), "Deep fry at 175 C until golden.")["state"],
+        json!("same")
+    );
+
+    // The MCP door answers the same rows.
+    let payload = json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": { "name": "changed_since", "arguments": asked },
+    });
+    let (status, mcp) = app.post_mcp(&payload.to_string(), Some(&key));
+    assert_eq!(status, 200, "{mcp}");
+    assert_eq!(
+        mcp["result"]["structuredContent"]["ingredients"], result["ingredients"],
+        "the two doors disagree"
+    );
+
+    // The newest Version is the recipe: nothing to mark.
+    let (status, answer) = app.post_op(
+        "changed_since",
+        Some(&key),
+        &json!({ "branch_id": branch, "version_id": newest }).to_string(),
+    );
+    assert_eq!(status, 200, "{answer}");
+    assert_eq!(answer["result"]["version"]["newest"], json!(true));
+    assert!(
+        rows_of(&answer, "ingredients")
+            .iter()
+            .all(|row| row["state"] == json!("same")),
+        "{answer}"
+    );
+
+    // A Version of no Branch of this recipe is refused, as cooking one is.
+    let (status, refused) = app.post_op(
+        "changed_since",
+        Some(&key),
+        &json!({ "branch_id": branch, "version_id": "v_nothing" }).to_string(),
+    );
+    assert_eq!(status, 400, "{refused}");
+
+    // Somebody who may not see the Branch is told it is not there.
+    let (_, stranger, _) = person_with_kitchen(&app, "Marc");
+    let (status, refused) = app.post_op("changed_since", Some(&stranger), &asked.to_string());
+    assert_eq!(status, 404, "{refused}");
+}
+
 /// ADR 0019's load-bearing claim. Select-all-delete-retype is how a line gets
 /// fixed on a phone; if it manufactured a divergence, nothing else here works.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

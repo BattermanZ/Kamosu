@@ -1046,65 +1046,173 @@ impl Core {
                     ))
                 })?;
 
-            let base = version_content(conn, branch_point_id)?;
-            let content_mine = version_content(conn, &mine.head_version_id)?;
-            let content_theirs = version_content(conn, &theirs.head_version_id)?;
-
-            let rows = |field: &str| -> Vec<Value> {
-                crate::pairing::read(
-                    &crate::pairing::Line::list_from(&base, field),
-                    &crate::pairing::Line::list_from(&content_mine, field),
-                    &crate::pairing::Line::list_from(&content_theirs, field),
-                )
-                .iter()
-                .map(crate::pairing::Row::to_json)
-                .collect()
-            };
-
-            // The marking covers the whole recipe, not only the two lists
-            // (ADR 0019). These are single values: same or not, with nothing to
-            // pair and nothing to get wrong. Tags are deliberately absent —
-            // what one Kitchen means by "quick" is its own business (ADR 0035).
-            let field = |name: &str| {
-                crate::pairing::compare_field(
-                    content_mine.get(name).unwrap_or(&Value::Null),
-                    content_theirs.get(name).unwrap_or(&Value::Null),
-                )
-            };
-
-            Ok(json!({
-                "lineage_id": mine.lineage_id,
-                "branch_point_version_id": branch_point_id,
-                // Each side scales to its OWN written Yield: the two Branches
-                // may disagree about it, and the cook is making one number of
-                // servings either way.
-                "mine": mine.to_json(
-                    conn,
-                    &content_mine,
-                    person_id,
-                    cooking_scale(conn, &mine.lineage_id, person_id, &content_mine)?,
-                )?,
-                "theirs": theirs.to_json(
-                    conn,
-                    &content_theirs,
-                    person_id,
-                    cooking_scale(conn, &theirs.lineage_id, person_id, &content_theirs)?,
-                )?,
-                "ingredients": rows("ingredients"),
-                "steps": rows("steps"),
-                "fields": {
-                    "title": field("title"),
-                    "yield": field("yield"),
-                    "prep_time_minutes": field("prep_time_minutes"),
-                    "cook_time_minutes": field("cook_time_minutes"),
-                    "source": field("source"),
-                    "note": field("note"),
-                    "nutrition": field("nutrition"),
-                    "main_photo": field("main_photo"),
-                },
-            }))
+            two_whole_recipes(conn, person_id, branch_point_id, &mine, &theirs)
         })
     }
+
+    /// **An older Version read against the newest Version of its Branch**
+    /// (#211): the same two whole recipes a Divergence answers (ADR 0014),
+    /// where the two are one Branch at two moments. `mine` is the Branch as it
+    /// stands and `theirs` is the Branch at the Version named, so a screen
+    /// standing in the older Version reads the rows from the `theirs` side.
+    ///
+    /// The older Version is the point the two share, so it is what both are
+    /// read against (ADR 0019). A row only `theirs` has is a line taken out
+    /// since; a row only `mine` has is a line written since.
+    ///
+    /// The newest Version answers too, with every row the same and `newest`
+    /// true: it is the recipe, and there is nothing to mark.
+    pub fn changed_since(
+        &self,
+        person_id: &str,
+        branch_id: &str,
+        version_id: &str,
+    ) -> Result<Value, OpError> {
+        self.db().with_conn(|conn| {
+            // `ordered_chain` checks the caller may see the Branch.
+            let chain = ordered_chain(conn, branch_id, person_id)?;
+            if !chain.iter().any(|each| each == version_id) {
+                return Err(OpError::bad_request(
+                    "version_id is not a Version of this Branch",
+                ));
+            }
+
+            let now = branch_head(conn, branch_id)?;
+            // The same content can recur on one Branch. The last time it was
+            // saved is the one the Thread shows nearest the head.
+            let (sequence, hand_id, name, change_note, created_at, hand_name): (
+                i64,
+                String,
+                Option<String>,
+                Option<String>,
+                String,
+                Option<String>,
+            ) = conn
+                .query_row(
+                    &format!(
+                        "SELECT sequence, hand_id, name, change_note, created_at, {} \
+                           FROM branch_versions WHERE branch_id = ?1 AND version_id = ?2 \
+                          ORDER BY sequence DESC LIMIT 1",
+                        hand_name_sql("branch_versions.hand_id"),
+                    ),
+                    params![branch_id, version_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                        ))
+                    },
+                )
+                .map_err(|e| OpError::internal(format!("cannot read Version: {e}")))?;
+            let then = BranchHead {
+                branch_id: branch_id.to_string(),
+                lineage_id: now.lineage_id.clone(),
+                cookbook_id: now.cookbook_id.clone(),
+                name: now.name.clone(),
+                arrived: now.arrived,
+                hand_id: hand_id.clone(),
+                language: now.language.clone(),
+                head_version_id: version_id.to_string(),
+            };
+
+            let mut answer = two_whole_recipes(conn, person_id, version_id, &now, &then)?;
+            answer["version"] = json!({
+                "version_id": version_id,
+                "sequence": sequence,
+                "name": name,
+                "change_note": change_note,
+                "created_at": created_at,
+                "hand_id": hand_id,
+                "hand_name": hand_name,
+                "newest": version_id == now.head_version_id,
+            });
+            // Whether the reader writes this Branch, as `get_recipe` says it:
+            // only then can a line be written back into the recipe.
+            answer["writes"] = json!(cookbook_writes_branch(
+                conn,
+                &cookbook_of_person(conn, person_id)?,
+                branch_id,
+            )?);
+            Ok(answer)
+        })
+    }
+}
+
+/// **Two whole recipes and the rows between them** (ADR 0014): what a
+/// Divergence answers, and what an older Version read against its own Branch
+/// answers too (#211). Both sides are read against `shared_version_id`, the
+/// last Version the two have in common (ADR 0019). For two Branches that is
+/// their Branch Point. For one Branch at two moments it is the older Version
+/// itself, and the answer still calls it `branch_point_version_id`, the one
+/// name a screen reads either answer by.
+fn two_whole_recipes(
+    conn: &Connection,
+    person_id: &str,
+    shared_version_id: &str,
+    mine: &BranchHead,
+    theirs: &BranchHead,
+) -> Result<Value, OpError> {
+    let base = version_content(conn, shared_version_id)?;
+    let content_mine = version_content(conn, &mine.head_version_id)?;
+    let content_theirs = version_content(conn, &theirs.head_version_id)?;
+
+    let rows = |field: &str| -> Vec<Value> {
+        crate::pairing::read(
+            &crate::pairing::Line::list_from(&base, field),
+            &crate::pairing::Line::list_from(&content_mine, field),
+            &crate::pairing::Line::list_from(&content_theirs, field),
+        )
+        .iter()
+        .map(crate::pairing::Row::to_json)
+        .collect()
+    };
+
+    // The marking covers the whole recipe, not only the two lists
+    // (ADR 0019). These are single values: same or not, with nothing to
+    // pair and nothing to get wrong. Tags are deliberately absent —
+    // what one Kitchen means by "quick" is its own business (ADR 0035).
+    let field = |name: &str| {
+        crate::pairing::compare_field(
+            content_mine.get(name).unwrap_or(&Value::Null),
+            content_theirs.get(name).unwrap_or(&Value::Null),
+        )
+    };
+
+    Ok(json!({
+        "lineage_id": mine.lineage_id,
+        "branch_point_version_id": shared_version_id,
+        // Each side scales to its OWN written Yield: the two may disagree
+        // about it, and the cook is making one number of servings either
+        // way.
+        "mine": mine.to_json(
+            conn,
+            &content_mine,
+            person_id,
+            cooking_scale(conn, &mine.lineage_id, person_id, &content_mine)?,
+        )?,
+        "theirs": theirs.to_json(
+            conn,
+            &content_theirs,
+            person_id,
+            cooking_scale(conn, &theirs.lineage_id, person_id, &content_theirs)?,
+        )?,
+        "ingredients": rows("ingredients"),
+        "steps": rows("steps"),
+        "fields": {
+            "title": field("title"),
+            "yield": field("yield"),
+            "prep_time_minutes": field("prep_time_minutes"),
+            "cook_time_minutes": field("cook_time_minutes"),
+            "source": field("source"),
+            "note": field("note"),
+            "nutrition": field("nutrition"),
+            "main_photo": field("main_photo"),
+        },
+    }))
 }
 
 /// Carry a Reading forward onto a freshly saved Version wherever the

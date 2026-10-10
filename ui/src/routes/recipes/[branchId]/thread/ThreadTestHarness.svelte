@@ -13,11 +13,12 @@
 	interface Props {
 		client: KamosuClient;
 		branchId: string;
+		navigate?: (to: string) => Promise<void>;
 	}
 
-	let { client, branchId }: Props = $props();
+	let { client, branchId, navigate }: Props = $props();
 </script>
 
 <Kamosu {client}>
-	<Thread {branchId} />
+	<Thread {branchId} {navigate} />
 </Kamosu>

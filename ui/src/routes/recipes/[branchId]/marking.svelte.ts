@@ -56,12 +56,26 @@ export interface Marking {
 export function marking(page: {
 	kamosu: KamosuClient;
 	divergence: () => DivergenceOutput | undefined;
-	/** Whose the other version is, named plainly for the marks' own sentences. */
-	otherKitchen: () => string;
+	/**
+	 * Whose the other version is, named plainly for the marks' own sentences.
+	 * Left out where the other recipe is nobody else's (`older`).
+	 */
+	otherKitchen?: () => string;
 	/** The marks were put away or brought back. */
 	onToggled: () => void;
 	/** What was carried was saved as a Version. */
 	onSaved: () => void;
+	/**
+	 * Given where the other recipe is an older Version of this same Branch
+	 * (#211), and left out for two Branches. It words the two things said
+	 * here: a single value the recipe now holds differently, and the *what
+	 * changed* line of the save. And since both recipes are then one Branch,
+	 * a Step reworded from the older one keeps its Photograph (`draftList`).
+	 */
+	older?: {
+		field(name: Field, value: string): string;
+		prose(divergence: DivergenceOutput, taken: Map<string, Taken>): string;
+	};
 }): Marking {
 	let side = $state<Side>('mine');
 	let marks = $state(true);
@@ -136,6 +150,7 @@ export function marking(page: {
 			if (field.same) return null;
 			// A Note is a block of prose; "{kitchen} has {value}" reads as nonsense
 			// against one, so it is introduced as the note it is.
+			if (page.older) return page.older.field(name, markText(name, field.mine));
 			if (side === 'theirs') {
 				// Their value is the page, so the mark says what YOURS has (#131):
 				// naming them beside your value would say something false about
@@ -146,7 +161,7 @@ export function marking(page: {
 					: m.divergence_field_yours({ value });
 			}
 			const value = markText(name, field.theirs);
-			const kitchen = page.otherKitchen();
+			const kitchen = page.otherKitchen?.() ?? '';
 			return name === 'note'
 				? m.divergence_field_note({ kitchen, value })
 				: m.divergence_field_differs({ kitchen, value });
@@ -181,14 +196,16 @@ export function marking(page: {
 		startSaving() {
 			const divergence = page.divergence();
 			if (!divergence) return;
-			changeNote = prose(divergence, taken);
+			changeNote = (page.older?.prose ?? prose)(divergence, taken);
 			saving = true;
 		},
 		async save() {
 			const divergence = page.divergence();
 			if (!divergence) return;
 			try {
-				await page.kamosu.saveRecipeVersion(draftVersion(divergence, taken, changeNote));
+				await page.kamosu.saveRecipeVersion(
+					draftVersion(divergence, taken, changeNote, page.older !== undefined),
+				);
 				taken = new Map();
 				saving = false;
 				saved = 'yes';

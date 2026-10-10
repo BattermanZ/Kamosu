@@ -17,20 +17,27 @@
 	import type { StepConversions } from '$lib/step-conversions';
 	import {
 		see,
-		caption,
-		sentence,
-		offer,
+		between,
 		carriedInPlace,
 		type Row,
 		type Side,
 		type Taken,
+		type Words,
 	} from './divergence';
 
 	interface Props {
 		row: Row;
 		side: Side;
-		/** Always the Kitchen you are NOT in: every caption is written about them. */
-		otherKitchen: string;
+		/**
+		 * Always the Kitchen you are NOT in: every caption is written about
+		 * them. Left out where `words` says everything instead.
+		 */
+		otherKitchen?: string;
+		/**
+		 * What the row says, where the other recipe is not another Kitchen's:
+		 * an older Version's page hands in its own (#211).
+		 */
+		words?: Words;
 		/** A Step's number, or null for a Ghost step — it is not a step of this recipe. */
 		number?: number | null;
 		/**
@@ -68,7 +75,8 @@
 	let {
 		row,
 		side,
-		otherKitchen,
+		otherKitchen = '',
+		words = undefined,
 		number = undefined,
 		beneath = '',
 		conversions = [],
@@ -90,7 +98,8 @@
 	const carried = $derived(side === 'mine' ? carriedInPlace(row, taken) : null);
 	const shown = $derived(carried?.text ?? seen.own?.text ?? seen.other?.text ?? '');
 	const struck = $derived(carried ? carried.leaving : seen.ghost);
-	const what = $derived(offer(row, taken));
+	const say = $derived(words ?? between(otherKitchen));
+	const what = $derived(say.offer(row, taken));
 </script>
 
 <li class="border-b border-rule py-3 pl-3 {struck ? 'mark-ghost' : 'mark-diff'}">
@@ -129,7 +138,7 @@
 					{#if carried}
 						{carried.leaving ? m.divergence_leaving() : m.divergence_carried()}
 					{:else}
-						{caption(seen, side, otherKitchen)}
+						{say.caption(seen, side, taken)}
 					{/if}
 				</span>
 			</span>
@@ -145,16 +154,8 @@
 
 	{#if open}
 		<div class="mt-2 border border-rule bg-card p-3">
-			<p class="text-label text-ink-2 uppercase">
-				{#if seen.ghost}
-					{m.divergence_what_happened()}
-				{:else if side === 'theirs'}
-					{m.divergence_your_line()}
-				{:else}
-					{m.divergence_their_line({ kitchen: otherKitchen })}
-				{/if}
-			</p>
-			<p class="mt-1 text-body">{sentence(seen, side, otherKitchen)}</p>
+			<p class="text-label text-ink-2 uppercase">{say.heading(seen, side)}</p>
+			<p class="mt-1 text-body">{say.sentence(seen, side)}</p>
 			{#if what}
 				<button
 					type="button"
@@ -163,16 +164,10 @@
 						? 'border border-rule text-ink-2'
 						: 'bg-accent text-on-accent'}"
 				>
-					{#if what === 'undo'}
-						{m.divergence_untake()}
-					{:else if what === 'remove'}
-						{m.divergence_take_remove()}
-					{:else}
-						{m.divergence_take_write()}
-					{/if}
+					{say.offerLabel(row, what)}
 				</button>
-			{:else}
-				<p class="mt-2 text-read text-ink-2">{m.divergence_nothing_to_carry()}</p>
+			{:else if say.nothingToCarry}
+				<p class="mt-2 text-read text-ink-2">{say.nothingToCarry}</p>
 			{/if}
 
 			<!--

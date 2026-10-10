@@ -2338,6 +2338,35 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             handler: crate::operations::divergence,
         },
         Operation {
+            name: "changed_since",
+            summary: "See what changed on a recipe since an older Version. \
+                      That Version of a Branch is laid over the newest Version \
+                      of the same Branch. The answer is a divergence's, two \
+                      whole recipes and the rows between them (ADR 0014). \
+                      `mine` is the Branch as it stands and `theirs` is the \
+                      Branch at the Version named. A row only `theirs` has is \
+                      a line taken out since; a row only `mine` has is a line \
+                      written since. The newest Version answers with every \
+                      row the same and `newest` true. `writes` says whether \
+                      the caller may save onto this Branch.",
+            permission: Permission::Person,
+            kind: Kind::Immediate,
+            write: false,
+            session_only: false,
+            job_lane: JobLane::ByCaller,
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "branch_id": { "type": "string" },
+                    "version_id": { "type": "string" },
+                },
+                "required": ["branch_id", "version_id"],
+                "additionalProperties": false,
+            }),
+            output_schema: changed_since_schema(),
+            handler: crate::operations::changed_since,
+        },
+        Operation {
             name: "set_reading",
             // A save never re-reading an unchanged line is #166: the last
             // sentence goes when that issue is fixed.
@@ -4313,6 +4342,36 @@ fn divergence_schema() -> Value {
         ],
         "additionalProperties": false,
     })
+}
+
+/// A divergence, and which Version of the Branch `theirs` is (#211).
+fn changed_since_schema() -> Value {
+    let mut schema = divergence_schema();
+    schema["properties"]["version"] = json!({
+        "type": "object",
+        "properties": {
+            "version_id": { "type": "string" },
+            "sequence": { "type": "integer" },
+            "name": { "type": ["string", "null"] },
+            "change_note": { "type": ["string", "null"] },
+            "created_at": { "type": "string" },
+            "hand_id": { "type": "string" },
+            "hand_name": { "type": ["string", "null"] },
+            // The Version named is the Branch's head: the recipe itself.
+            "newest": { "type": "boolean" },
+        },
+        "required": [
+            "version_id", "sequence", "name", "change_note", "created_at",
+            "hand_id", "hand_name", "newest",
+        ],
+        "additionalProperties": false,
+    });
+    schema["properties"]["writes"] = json!({ "type": "boolean" });
+    schema["required"]
+        .as_array_mut()
+        .expect("a divergence declares what it requires")
+        .extend([json!("version"), json!("writes")]);
+    schema
 }
 
 /// A Version's content exactly as stored and read back: every field above,

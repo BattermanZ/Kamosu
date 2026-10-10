@@ -1580,6 +1580,20 @@ pub fn divergence(core: &Core, invocation: &Invocation, input: Value) -> Result<
     core.divergence(&caller.person_id, branch_id, other_branch_id)
 }
 
+pub fn changed_since(core: &Core, invocation: &Invocation, input: Value) -> Result<Value, OpError> {
+    let takes = "changed_since takes { branch_id, version_id }";
+    let branch_id = input
+        .get("branch_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let version_id = input
+        .get("version_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| OpError::bad_request(takes))?;
+    let caller = caller_of(invocation)?;
+    core.changed_since(&caller.person_id, branch_id, version_id)
+}
+
 pub fn advance_attempt(
     core: &Core,
     invocation: &Invocation,

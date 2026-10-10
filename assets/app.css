@@ -812,6 +812,9 @@
   .w-\[72px\] {
     width: 72px;
   }
+  .w-\[calc\(100\%-2\*var\(--spacing-gutter\)\)\] {
+    width: calc(100% - 2 * var(--spacing-gutter));
+  }
   .w-\[var\(--photo-thumb\)\] {
     width: var(--photo-thumb);
   }
@@ -1196,6 +1199,9 @@
       background-color: color-mix(in oklab, var(--color-ground) 90%, transparent);
     }
   }
+  .bg-ink {
+    background-color: var(--color-ink);
+  }
   .bg-ink\/40 {
     background-color: color-mix(in srgb, #1a1a1c 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -1259,6 +1265,9 @@
   .px-8 {
     padding-inline: var(--spacing-8);
   }
+  .px-\[10px\] {
+    padding-inline: 10px;
+  }
   .px-gutter {
     padding-inline: var(--spacing-gutter);
   }
@@ -1279,6 +1288,9 @@
   }
   .py-12 {
     padding-block: var(--spacing-12);
+  }
+  .py-\[6px\] {
+    padding-block: 6px;
   }
   .py-\[10px\] {
     padding-block: 10px;
