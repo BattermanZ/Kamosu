@@ -1951,7 +1951,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
             summary: "Read the Thread: every Branch of one Lineage you may \
                       see. It holds every Version of every Branch of the \
                       Lineage this Person can see, oldest first per Branch, \
-                      with every Attempt hanging off it. branch_id is only the \
+                      with every Attempt hanging off it. An Attempt's \
+                      eaten_version_id is the Version its rating is about: the \
+                      As Cooked once that was kept as a Version, otherwise the \
+                      Version it started from. branch_id is only the \
                       entry point — any Branch of the Lineage answers the same \
                       Thread.",
             permission: Permission::Person,
@@ -4071,7 +4074,7 @@ fn thread_schema() -> Value {
             "lineage_id": { "type": "string" },
             "branches": { "type": "array", "items": thread_branch_schema() },
             "versions": { "type": "array", "items": thread_version_schema() },
-            "attempts": { "type": "array", "items": attempt_schema() },
+            "attempts": { "type": "array", "items": thread_attempt_schema() },
         },
         "required": ["lineage_id", "branches", "versions", "attempts"],
         "additionalProperties": false,
@@ -5434,6 +5437,32 @@ fn attempt_or_null_schema() -> Value {
     schema
 }
 
+/// A cooking as the Thread hangs it off a Version (#209): an ordinary Attempt,
+/// plus the Version it counts for.
+///
+/// `version_id` goes on saying which Version the cooking started from, and
+/// Promotion leaves it alone on purpose. `eaten_version_id` is the one to file
+/// a cooking and its rating under: the As Cooked's, once that As Cooked has
+/// been kept and is a Version on this Thread, and otherwise the same as
+/// `version_id`. It is served for every cook, a Kitchen-mate whose As Cooked
+/// is withheld included, and it only ever names a Version already on the
+/// Thread.
+fn thread_attempt_schema() -> Value {
+    attempt_schema_with("eaten_version_id", json!({ "type": "string" }))
+}
+
+/// `attempt_schema` with one more required field. How the Thread and the
+/// diary each grow their own Attempt from the one declared shape.
+fn attempt_schema_with(field: &str, declared: Value) -> Value {
+    let mut schema = attempt_schema();
+    schema["properties"][field] = declared;
+    schema["required"]
+        .as_array_mut()
+        .expect("attempt_schema declares its required fields as an array")
+        .push(json!(field));
+    schema
+}
+
 /// One line of the cooking diary (#60): an ordinary Attempt, plus the recipe
 /// it was cooked from.
 ///
@@ -5447,32 +5476,29 @@ fn attempt_or_null_schema() -> Value {
 /// still offered is In Progress, not finished and no longer offered is a
 /// cooking somebody walked away from — which happened all the same (ADR 0010).
 fn diary_entry_schema() -> Value {
-    let mut schema = attempt_schema();
-    schema["properties"]["recipe"] = json!({
-        "type": "object",
-        "properties": {
-            // The Branch this entry opens, chosen the way the shelf chooses
-            // which Branch a card opens. **Null** where the recipe has left
-            // the caller's shelf — they left the Kitchen holding it, say. The
-            // Attempt is theirs and stays; the pointer is the part that goes
-            // (the rule #52 settled for Related Recipes).
-            "branch_id": { "type": ["string", "null"] },
-            // The name the recipe goes by now where it is still on the shelf,
-            // and the name it was known by — off the Version actually cooked —
-            // where it is not. Text is better than a broken pointer.
-            "title": { "type": "string" },
-            // What the Version cooked says it makes, so a cooking at another
-            // amount can say both (#109).
-            "written_yield": yield_schema(),
-        },
-        "required": ["branch_id", "title", "written_yield"],
-        "additionalProperties": false,
-    });
-    schema["required"]
-        .as_array_mut()
-        .expect("attempt_schema declares its required fields as an array")
-        .push(json!("recipe"));
-    schema
+    attempt_schema_with(
+        "recipe",
+        json!({
+            "type": "object",
+            "properties": {
+                // The Branch this entry opens, chosen the way the shelf chooses
+                // which Branch a card opens. **Null** where the recipe has left
+                // the caller's shelf — they left the Kitchen holding it, say. The
+                // Attempt is theirs and stays; the pointer is the part that goes
+                // (the rule #52 settled for Related Recipes).
+                "branch_id": { "type": ["string", "null"] },
+                // The name the recipe goes by now where it is still on the shelf,
+                // and the name it was known by — off the Version actually cooked —
+                // where it is not. Text is better than a broken pointer.
+                "title": { "type": "string" },
+                // What the Version cooked says it makes, so a cooking at another
+                // amount can say both (#109).
+                "written_yield": yield_schema(),
+            },
+            "required": ["branch_id", "title", "written_yield"],
+            "additionalProperties": false,
+        }),
+    )
 }
 
 /// **The whole Shopping List** — the only shape any of its six Operations

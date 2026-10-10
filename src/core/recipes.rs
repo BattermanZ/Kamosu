@@ -1932,6 +1932,12 @@ fn parse_step_list(value: Option<&Value>) -> Result<Value, OpError> {
 /// (ADR 0010). The count, the date and the rating travel; the recipe they
 /// wrote at their own stove does not. Stripped in the Core rather than left to
 /// a screen to omit, because a second Door would omit it differently.
+///
+/// **`eaten_version_id` says which Version a cooking counts for** (#209), as
+/// `thread_attempt_schema` declares it. Worked out here, before the strip,
+/// because a Kitchen-mate's screen is never handed the As Cooked to work it
+/// out from. An As Cooked nobody kept is on no Branch, so its fingerprint
+/// never leaves this way.
 fn attempts_for_lineage(
     conn: &Connection,
     lineage_id: &str,
@@ -1955,18 +1961,23 @@ fn attempts_for_lineage(
         .map_err(|e| OpError::internal(format!("cannot read Attempts: {e}")))?;
     Ok(rows
         .into_iter()
-        .filter(|attempt| {
-            visible_version_ids.contains(
-                attempt["version_id"]
-                    .as_str()
-                    .expect("version_id is always a string"),
-            )
-        })
-        .map(|mut attempt| {
+        .filter_map(|mut attempt| {
+            let on_the_thread = |id: &Value| {
+                id.as_str()
+                    .filter(|id| visible_version_ids.contains(*id))
+                    .map(|id| json!(id))
+            };
+            // A cooking is on the Thread where the Version it counts for is.
+            // Asked of what was eaten first, since a Promotion inside the
+            // collapse window folds away the very Version the cooking started
+            // from and leaves only the one it was kept as.
+            let eaten = on_the_thread(&attempt["as_cooked"]["version_id"])
+                .or_else(|| on_the_thread(&attempt["version_id"]))?;
+            attempt["eaten_version_id"] = eaten;
             if attempt["person_id"] != json!(viewer_person_id) {
                 attempt["as_cooked"] = Value::Null;
             }
-            attempt
+            Some(attempt)
         })
         .collect())
 }

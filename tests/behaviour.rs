@@ -20952,6 +20952,165 @@ async fn another_cooks_as_cooked_never_leaves_the_core() {
     );
 }
 
+/// A cooking counts for the recipe that was eaten (#209). The Thread says
+/// which Version that is, so a rating is never read as a verdict on a recipe
+/// nobody ate that day.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_tweaked_cooking_kept_as_a_version_counts_for_that_version() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, kitchen_id) = recipe_ready_to_cook(&app, "Stéphane");
+
+    // Camille cooks in the same Kitchen, so Stéphane's cookings are on the
+    // Thread she reads, with the words he cooked stripped.
+    let (_camille, camille_key, _her_kitchen) = person_with_kitchen(&app, "Camille");
+    let (_, minted) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let secret = minted["result"]["secret"].as_str().unwrap().to_string();
+    let (status, joined) = app.post_op(
+        "accept_kitchen_invite",
+        Some(&camille_key),
+        &json!({ "secret": secret }).to_string(),
+    );
+    assert_eq!(status, 200, "{joined}");
+
+    let on_the_thread = |reader: &str, attempt_id: &str| {
+        let (_, thread) = app.post_op(
+            "get_thread",
+            Some(reader),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        thread["result"]["attempts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|attempt| attempt["id"] == json!(attempt_id))
+            .expect("the cooking is on the Thread")
+            .clone()
+    };
+
+    // Cooked as written: what was eaten is the Version it started from.
+    let as_written = cooking_katsu(&app, &key, &branch_id);
+    let seen = on_the_thread(&key, &as_written);
+    assert_eq!(seen["eaten_version_id"], seen["version_id"]);
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": as_written }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    // Tweaked and rated, and not kept yet.
+    let tweaked = cooking_katsu(&app, &key, &branch_id);
+    assert_ne!(tweaked, as_written);
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": tweaked, "as_cooked": cooked }).to_string(),
+    );
+    let as_cooked_version_id = deviated["result"]["as_cooked"]["version_id"].clone();
+    let (status, finished) = app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": tweaked, "rating": "again" }).to_string(),
+    );
+    assert_eq!(status, 200, "{finished}");
+
+    for reader in [&key, &camille_key] {
+        let seen = on_the_thread(reader, &tweaked);
+        assert_eq!(
+            seen["eaten_version_id"], seen["version_id"],
+            "an As Cooked nobody kept is no Version on the Thread, so the \
+             cooking stays under the one it started from"
+        );
+    }
+
+    // Kept. The cooking now counts for the Version that is word for word what
+    // was eaten, for him and for the Kitchen-mate who cannot read his As Cooked.
+    age_branch_head(&app, &branch_id);
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": tweaked, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+
+    for reader in [&key, &camille_key] {
+        let seen = on_the_thread(reader, &tweaked);
+        assert_eq!(seen["eaten_version_id"], as_cooked_version_id);
+        assert_ne!(
+            seen["version_id"], as_cooked_version_id,
+            "the Attempt still says which Version it started from"
+        );
+        assert_eq!(seen["rating"], json!("again"));
+    }
+    assert_eq!(
+        on_the_thread(&camille_key, &tweaked)["as_cooked"],
+        json!(null),
+        "saying which Version a cooking counts for hands over none of its words"
+    );
+
+    // The cooking that followed the recipe has not moved.
+    let seen = on_the_thread(&key, &as_written);
+    assert_eq!(seen["eaten_version_id"], seen["version_id"]);
+}
+
+/// Keeping a cooking within the hour of the recipe's last save folds into that
+/// Version rather than appending one, so the Version the cooking started from
+/// leaves the Thread. The cooking must not leave with it (#209): what was
+/// eaten is on the Thread, and that is the Version it counts for.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cooking_kept_by_a_collapsing_save_stays_on_the_thread() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let attempt_id = cooking_katsu(&app, &key, &branch_id);
+
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("150 g de riz");
+    let (_, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    let started_from = deviated["result"]["version_id"].clone();
+    let as_cooked_version_id = deviated["result"]["as_cooked"]["version_id"].clone();
+
+    // No ageing of the head: this Promotion lands inside the collapse window.
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(
+        promoted["result"]["collapsed"],
+        json!(true),
+        "the test is about a collapsing Promotion, and this one was not"
+    );
+
+    let (_, thread) = app.post_op(
+        "get_thread",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let versions = thread["result"]["versions"].as_array().unwrap();
+    assert!(
+        versions.iter().all(|v| v["version_id"] != started_from),
+        "the Version it started from was folded away"
+    );
+    let attempts = thread["result"]["attempts"].as_array().unwrap();
+    let seen = attempts
+        .iter()
+        .find(|attempt| attempt["id"] == json!(attempt_id))
+        .expect("the cooking is still on the Thread");
+    assert_eq!(seen["eaten_version_id"], as_cooked_version_id);
+    assert_eq!(seen["version_id"], started_from);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_promotion_declined_stays_declined_and_keeps_what_was_cooked() {
     let app = support::spawn_app();

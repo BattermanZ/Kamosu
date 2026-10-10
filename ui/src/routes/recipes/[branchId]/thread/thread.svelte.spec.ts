@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers } from '$lib/api/stand-in';
+import type { GetThreadOutput } from '$lib/api/catalogue';
 import ThreadTestHarness from './ThreadTestHarness.svelte';
 import { cookbookLabel, threadBranch } from '../../../../testing/recipes';
 
@@ -94,6 +95,7 @@ describe('the Thread screen', () => {
 						created_at: '2026-03-21T00:00:00Z',
 						last_action_at: '2026-03-21T00:00:00Z',
 						as_cooked: null,
+						eaten_version_id: 'v_1',
 						photographs: [],
 					},
 				],
@@ -536,6 +538,93 @@ describe('the Thread screen', () => {
 		await fireEvent.click(showButton);
 		expect(screen.getAllByText('Saved with nothing written down.')).toHaveLength(4);
 		expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+	});
+});
+
+describe('a cooking that changed the recipe, in the Thread (#209)', () => {
+	const version = (sequence: number, change_note: string) => ({
+		branch_id: 'b_mine',
+		sequence,
+		version_id: `v_${sequence}`,
+		parent_version_id: sequence === 1 ? null : `v_${sequence - 1}`,
+		hand_id: 'h_stephane',
+		hand_name: 'Stéphane',
+		name: null,
+		change_note,
+		created_at: `2026-03-0${sequence}T00:00:00Z`,
+		translates_version_id: null,
+		language: 'en',
+	});
+
+	/** A cooking that started from the first Version and was rated Again. */
+	const tweaked = (eaten_version_id: string) => ({
+		id: 'at_1',
+		lineage_id: 'l_1',
+		person_id: 'p_1',
+		version_id: 'v_1',
+		eaten_version_id,
+		current_step_index: 0,
+		ticked_ingredients: [],
+		cooking_yield: null,
+		note: null,
+		rating: 'again' as const,
+		finished_at: '2026-03-02T00:00:00Z',
+		resumable: false,
+		created_at: '2026-03-02T00:00:00Z',
+		last_action_at: '2026-03-02T00:00:00Z',
+		as_cooked: null,
+		photographs: [],
+	});
+
+	/** Two Versions on one Branch, and whichever cookings a test hangs off them. */
+	const threadWith = <Cooking>(attempts: Cooking[]) => ({
+		lineage_id: 'l_1',
+		branches: [threadBranch('b_mine', { head_version_id: 'v_2' })],
+		versions: [version(1, 'As it came'), version(2, 'Less five-spice')],
+		attempts,
+	});
+
+	function renderCooked(eaten_version_id: string) {
+		renderThread('b_mine', { get_thread: threadWith([tweaked(eaten_version_id)]) });
+	}
+
+	const rowOf = async (changeNote: string) =>
+		(await screen.findByText(changeNote)).closest('li') as HTMLElement;
+
+	it('shows the cooking and its rating under the Version it was kept as, and nowhere else', async () => {
+		renderCooked('v_2');
+
+		const keptAs = await rowOf('Less five-spice');
+		expect(within(keptAs).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		const startedFrom = await rowOf('As it came');
+		expect(within(startedFrom).queryByRole('button', { name: /🍲/ })).not.toBeInTheDocument();
+	});
+
+	it('leaves a cooking nobody kept under the Version it started from', async () => {
+		renderCooked('v_1');
+
+		const startedFrom = await rowOf('As it came');
+		expect(within(startedFrom).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
+		const newer = await rowOf('Less five-spice');
+		expect(within(newer).queryByRole('button', { name: /🍲/ })).not.toBeInTheDocument();
+	});
+
+	it('keeps a cooking on the History where a Thread kept on the phone names no eaten Version', async () => {
+		// Built by hand, past the stand-in's check: this is the shape an answer
+		// kept before #209 has, and the Catalogue no longer declares it.
+		const before: Partial<ReturnType<typeof tweaked>> = tweaked('v_1');
+		delete before.eaten_version_id;
+		const onThePhone = threadWith([before]) as GetThreadOutput;
+		const { client } = standIn({ get_person: NOBODY });
+		render(ThreadTestHarness, {
+			props: {
+				client: { ...client, getThread: () => Promise.resolve(onThePhone) },
+				branchId: 'b_mine',
+			},
+		});
+
+		const startedFrom = await rowOf('As it came');
+		expect(within(startedFrom).getByRole('button', { name: /🍲 Again/ })).toBeInTheDocument();
 	});
 });
 

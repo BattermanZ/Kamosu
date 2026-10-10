@@ -87,12 +87,25 @@
 	 */
 	const languageSaid = $derived(languageSaidAt(thread?.versions ?? []));
 
+	/**
+	 * Each cooking under the Version that was eaten (#209), which the Core
+	 * names: the As Cooked once it was kept as a Version, otherwise the
+	 * Version the cooking started from. A rating is a verdict on what was on
+	 * the plate, so filing it by `version_id` would hang it on a recipe nobody
+	 * ate that day and leave the Version that earned it looking untried.
+	 *
+	 * A Thread this phone kept from before the Core said so carries no such
+	 * id. Its cookings stay where they were shown until the read is fresh,
+	 * rather than dropping off the History for one visit.
+	 */
 	const attemptsByVersion = $derived.by(() => {
 		const map = new Map<string, Attempt[]>();
 		for (const attempt of thread?.attempts ?? []) {
-			const list = map.get(attempt.version_id) ?? [];
+			const fromThisPhone: Partial<Attempt> = attempt;
+			const eaten = fromThisPhone.eaten_version_id ?? attempt.version_id;
+			const list = map.get(eaten) ?? [];
 			list.push(attempt);
-			map.set(attempt.version_id, list);
+			map.set(eaten, list);
 		}
 		return map;
 	});
