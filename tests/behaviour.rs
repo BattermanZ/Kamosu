@@ -15380,6 +15380,91 @@ async fn a_step_names_a_food_as_a_whole_word_and_never_as_a_fragment() {
     );
 }
 
+/// A Step links a Food by the main word of its name, and which end of the
+/// name that sits at is the Branch's Language (#212): the last word in
+/// English, the first in French. *Steamed rice* is no mention of the rice
+/// vinegar in either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_links_a_food_by_its_main_word_in_the_language_of_the_branch() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    let recipes = [
+        (
+            "en",
+            "Char siu chicken",
+            ["1½ lb chicken thighs", "2 tbsp rice vinegar"],
+            ["chicken thighs", "rice vinegar"],
+            [
+                "Serve the chicken with steamed rice.",
+                "Stir in the vinegar.",
+            ],
+        ),
+        (
+            "fr",
+            "Poulet char siu",
+            [
+                "700 g de hauts de cuisse de poulet",
+                "2 c. à s. de vinaigre de riz",
+            ],
+            ["hauts de cuisse de poulet", "vinaigre de riz"],
+            [
+                "Servez le poulet avec du riz vapeur.",
+                "Ajoutez le vinaigre.",
+            ],
+        ),
+    ];
+    for (language, title, lines, targets, steps) in recipes {
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({
+                "title": title,
+                "ingredients": lines.map(|text| json!({ "kind": "ingredient", "text": text })),
+                "steps": steps.map(|text| json!({ "kind": "step", "text": text })),
+            })
+            .to_string(),
+        );
+        let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+        for (line_index, target) in targets.iter().enumerate() {
+            let (status, read) = app.post_op(
+                "set_reading",
+                Some(&key),
+                &json!({ "branch_id": branch_id, "line_index": line_index, "target": target })
+                    .to_string(),
+            );
+            assert_eq!(status, 200, "{read}");
+        }
+        let (status, set) = app.post_op(
+            "set_recipe_language",
+            Some(&key),
+            &json!({ "branch_id": branch_id, "language": language }).to_string(),
+        );
+        assert_eq!(status, 200, "{set}");
+
+        let (_, fetched) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({ "branch_id": branch_id }).to_string(),
+        );
+        let head = fetched["result"]["versions"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap();
+        assert_eq!(head["language"], json!(language));
+        assert_eq!(
+            head["cooking"]["steps"][0]["uses"],
+            json!([0]),
+            "{language}: the chicken is the thighs, and the rice is not the vinegar"
+        );
+        assert_eq!(
+            head["cooking"]["steps"][1]["uses"],
+            json!([1]),
+            "{language}: the vinegar is the rice vinegar"
+        );
+    }
+}
+
 /// A duration is read out of the Step's own text and stored nowhere — and a
 /// Step with no duration offers no timer, which is three Steps in four.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

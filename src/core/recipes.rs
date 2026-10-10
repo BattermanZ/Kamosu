@@ -769,7 +769,11 @@ impl Core {
                 // every read, so nothing about which Ingredients a Step uses is
                 // ever stored — and so both Doors say the same thing.
                 let readings = version["readings"].as_array().cloned().unwrap_or_default();
-                version["cooking"] = cooking_for_version(&version["content"], &readings);
+                version["cooking"] = cooking_for_version(
+                    &version["content"],
+                    &readings,
+                    version["language"].as_str(),
+                );
                 // A Component unfolded (ADR 0008): the inner recipe, already
                 // scaled by how much of it this line asks for, to whatever
                 // depth the composition goes. Empty for nearly every recipe.
@@ -1642,10 +1646,10 @@ fn held_from(
 /// It is worked out in the Core rather than on the screen so that both Doors
 /// get it: an agent asked to read out the next step names the same amounts the
 /// phone on the worktop is showing (ADR 0001, ADR 0010).
-fn cooking_for_version(content: &Value, readings: &[Value]) -> Value {
+fn cooking_for_version(content: &Value, readings: &[Value], language: Option<&str>) -> Value {
     let no_lines = Vec::new();
     let step_lines = content["steps"].as_array().unwrap_or(&no_lines);
-    let uses = crate::step_uses::step_uses(step_lines, readings);
+    let uses = crate::step_uses::step_uses(step_lines, readings, language);
 
     let steps: Vec<Value> = step_lines
         .iter()

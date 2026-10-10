@@ -5,10 +5,12 @@
 //! A recipe names an ingredient in full once, in its list, and shortens it
 //! from then on. *Maple syrup* is *the syrup* by the second Step and *cacao en
 //! poudre* is *le cacao*, so a Step that had to repeat the whole name linked
-//! almost nothing (#184). Here any run of words inside the name counts, as
+//! almost nothing (#184). Here a run of words inside the name counts, as
 //! long as it holds a word a cook would call the food by
-//! ([`reading::names_nothing_alone`] is the rest). Three rules then keep that
-//! looseness from linking what the Step never adds:
+//! ([`reading::names_nothing_alone`] is the rest) and the name's main word,
+//! the thing the Food is (#212): *vinegar* stands for *rice vinegar*, and
+//! *rice* does not. Three rules then keep that looseness from linking what
+//! the Step never adds:
 //!
 //! - **The longer mention wins.** *The vegetable oil* is one mention of the
 //!   vegetable oil, not also one of the sesame oil's *oil*. A match on an
@@ -26,6 +28,8 @@
 //! Whole words only, as always: *rice* is never found in *price*, nor *ail* in
 //! half the French language. One trailing `s` on a word is forgiven, so a line
 //! read as *egg* is used by a Step that says *eggs*.
+
+use std::ops::Range;
 
 use serde_json::Value;
 
@@ -51,12 +55,16 @@ struct Word {
     until: bool,
 }
 
+/// What sets two foods apart inside one name, as *salt & pepper* and
+/// *thyme, basil* are written. A word that joins two foods does the same
+/// ([`reading::joins_two_foods`]).
+const NAME_BREAKS: &[char] = &[',', '&', '/', '+', ';', '(', ')'];
+
 /// The folded words of `text`, split at anything that is not a letter or a
-/// digit, each marked with whether an [`UNTIL`] clause holds it.
-fn words_of(text: &str) -> Vec<Word> {
-    // Each word, and the clause it sits in.
+/// digit, each with the number of `breaks` that came before it.
+fn split_words(text: &str, breaks: &[char]) -> Vec<(String, usize)> {
     let mut words: Vec<(String, usize)> = Vec::new();
-    let mut clause = 0;
+    let mut part = 0;
     let mut current = String::new();
     for c in folded_for_search(text).chars() {
         if c.is_alphanumeric() {
@@ -64,15 +72,23 @@ fn words_of(text: &str) -> Vec<Word> {
             continue;
         }
         if !current.is_empty() {
-            words.push((std::mem::take(&mut current), clause));
+            words.push((std::mem::take(&mut current), part));
         }
-        if CLAUSE_ENDS.contains(&c) {
-            clause += 1;
+        if breaks.contains(&c) {
+            part += 1;
         }
     }
     if !current.is_empty() {
-        words.push((current, clause));
+        words.push((current, part));
     }
+    words
+}
+
+/// The folded words of a Step, each marked with whether an [`UNTIL`] clause
+/// holds it.
+fn words_of(text: &str) -> Vec<Word> {
+    // Each word, and the clause it sits in.
+    let words = split_words(text, CLAUSE_ENDS);
 
     let mut marked = Vec::with_capacity(words.len());
     let mut until_in: Option<usize> = None;
@@ -121,22 +137,99 @@ struct Line {
     food: String,
 }
 
+/// The folded words of a name, and where each food in it begins and ends: a
+/// name is one food unless a [`NAME_BREAKS`] mark or a word that
+/// [`reading::joins_two_foods`] sets two apart, as in *fresh thyme and basil*.
+/// A split made in error only loosens: it gives a name one main word more.
+fn name_words(target: &str) -> (Vec<String>, Vec<Range<usize>>) {
+    let mut words = Vec::new();
+    let mut foods: Vec<Range<usize>> = Vec::new();
+    let mut last_part = None;
+    for (at, (word, part)) in split_words(target, NAME_BREAKS).into_iter().enumerate() {
+        let joins = reading::joins_two_foods(&word);
+        if joins || last_part != Some(part) {
+            foods.push(at..at);
+        }
+        last_part = Some(part);
+        foods.last_mut().expect("just pushed").end = at + 1;
+        words.push(word);
+    }
+    (words, foods)
+}
+
+/// Which words of a name are its **main words**: the thing the Food is, which
+/// a part of the name must hold to stand for it (#212). *Vinegar* in *rice
+/// vinegar*, so a Step's *steamed rice* is no mention of it.
+///
+/// Which end the main word sits at is the Language's: the last word in
+/// English, the first in French and Spanish (*vinaigre de riz*, *vinagre de
+/// arroz*). Two things move it in English. A name written with *of* is read
+/// from the front, *bicarbonate of soda* being *the bicarbonate*. And what
+/// follows a word that [`reading::opens_a_tail`] is no part of the name, so
+/// *oil for frying* is *the oil*. A Branch with no Language, or one stated
+/// Unknown, is read from both ends.
+///
+/// From that end, a word that [`reading::gives_way`] is a main word and so is
+/// the next one in: *thighs* and *chicken* in *chicken thighs*, *hauts*,
+/// *cuisse* and *poulet* in *hauts de cuisse de poulet*. Words that only join
+/// are stepped over. A word that [`reading::names_its_kind`] is a main word
+/// wherever it sits. A name holding two foods has the main words of each.
+fn main_words(words: &[String], foods: &[Range<usize>], language: Option<&str>) -> Vec<bool> {
+    let mut main: Vec<bool> = words
+        .iter()
+        .map(|word| reading::names_its_kind(word))
+        .collect();
+    let mut walk = |inward: &mut dyn Iterator<Item = usize>| {
+        for at in inward {
+            if reading::only_joins(&words[at]) {
+                continue;
+            }
+            main[at] = true;
+            if !reading::gives_way(&words[at]) {
+                break;
+            }
+        }
+    };
+    for food in foods {
+        // The food as English reads it: up to the first word that opens a tail.
+        let tail = food
+            .clone()
+            .find(|&at| at > food.start && reading::opens_a_tail(&words[at]))
+            .unwrap_or(food.end);
+        let headed = food.start..tail;
+        let written_with_of = words[headed.clone()].iter().any(|word| word == "of");
+        match language {
+            Some("fr" | "es") => walk(&mut food.clone()),
+            Some("en") if written_with_of => walk(&mut headed.clone()),
+            Some("en") => walk(&mut headed.rev()),
+            _ => {
+                walk(&mut food.clone());
+                walk(&mut headed.rev());
+            }
+        }
+    }
+    main
+}
+
 /// The runs of a name's words a Step may name it by: the whole name, and
-/// every shorter run [`names_the_food`] allows. Worked out once per line
-/// rather than once per Step, since it depends on nothing a Step says.
-fn runs_of(words: &[String]) -> Vec<(Vec<String>, bool)> {
+/// every shorter run that [`names_the_food`] allows and that holds one of the
+/// name's [`main_words`]. Worked out once per line rather than once per Step,
+/// since it depends on nothing a Step says.
+fn runs_of(target: &str, language: Option<&str>) -> (Vec<String>, Vec<(Vec<String>, bool)>) {
+    let (words, foods) = name_words(target);
     let n = words.len();
+    let main = main_words(&words, &foods, language);
     let mut runs = Vec::new();
     for from in 0..n {
         for to in (from + 1)..=n {
             let run = &words[from..to];
             let whole = from == 0 && to == n;
-            if whole || names_the_food(run) {
+            if whole || (main[from..to].contains(&true) && names_the_food(run)) {
                 runs.push((run.to_vec(), whole));
             }
         }
     }
-    runs
+    (words, runs)
 }
 
 /// One place a Step names a line: the words `start..start + len`, and whether
@@ -203,14 +296,19 @@ fn mentions_of(line: &Line, step: &[Word]) -> Vec<Mention> {
 
 /// **Which Ingredient Lines each Step uses**: one slot per row of `steps`,
 /// `None` on a row that is not a Step, and otherwise the lines' indices in
-/// order. `readings` is one slot per Ingredient Line, a Reading or null.
-pub fn step_uses(steps: &[Value], readings: &[Value]) -> Vec<Option<Vec<usize>>> {
+/// order. `readings` is one slot per Ingredient Line, a Reading or null, and
+/// `language` is the Branch's, which says where a name's main word sits.
+pub fn step_uses(
+    steps: &[Value],
+    readings: &[Value],
+    language: Option<&str>,
+) -> Vec<Option<Vec<usize>>> {
     let lines: Vec<Line> = readings
         .iter()
         .enumerate()
         .filter_map(|(index, reading)| {
             let target = reading.get("target")?.as_str()?;
-            let words: Vec<String> = words_of(target).into_iter().map(|w| w.text).collect();
+            let (words, runs) = runs_of(target, language);
             (!words.is_empty()).then(|| Line {
                 index,
                 food: words
@@ -218,7 +316,7 @@ pub fn step_uses(steps: &[Value], readings: &[Value]) -> Vec<Option<Vec<usize>>>
                     .map(|w| singular(w))
                     .collect::<Vec<_>>()
                     .join(" "),
-                runs: runs_of(&words),
+                runs,
             })
         })
         .collect();
@@ -286,6 +384,15 @@ mod tests {
     /// Step (a `#` prefix makes a Section), and every target a Reading (an
     /// empty one leaves the line unread).
     fn uses(steps: &[&str], targets: &[&str]) -> Vec<Option<Vec<usize>>> {
+        uses_in(None, steps, targets)
+    }
+
+    /// The same, on a Branch written in `language`.
+    fn uses_in(
+        language: Option<&str>,
+        steps: &[&str],
+        targets: &[&str],
+    ) -> Vec<Option<Vec<usize>>> {
         let steps: Vec<Value> = steps
             .iter()
             .map(|text| match text.strip_prefix('#') {
@@ -303,7 +410,7 @@ mod tests {
                 }
             })
             .collect();
-        step_uses(&steps, &readings)
+        step_uses(&steps, &readings, language)
     }
 
     fn step(indices: &[usize]) -> Option<Vec<usize>> {
@@ -353,31 +460,33 @@ mod tests {
         );
     }
 
+    /// The cake's French Translation.
+    const FRENCH_CAKE_TARGETS: &[&str] = &[
+        "œufs",
+        "sirop d'érable",
+        "yaourt grec",
+        "extrait de vanille",
+        "farine d'amande",
+        "noix de coco râpée non sucrée",
+        "cacao en poudre",
+        "cassonade",
+        "bicarbonate de soude",
+        "sel",
+        "espresso en poudre",
+    ];
+    const FRENCH_CAKE_STEPS: &[&str] = &[
+        "Préchauffez le four à 350°F. Chemisez un moule carré de 7×7 pouces de papier sulfurisé.",
+        "Dans un grand saladier, fouettez les œufs, le sirop, le yaourt et la vanille jusqu'à obtenir un mélange lisse.",
+        "Ajoutez la farine d'amande, la noix de coco râpée, le cacao, la cassonade, le bicarbonate, le sel et l'espresso en poudre, puis mélangez jusqu'à ce que tout soit incorporé.",
+        "Versez la pâte dans le moule et étalez-la uniformément.",
+        "Enfournez pour 25-30 minutes, jusqu'à ce qu'un cure-dent en ressorte propre.",
+        "Parsemez de noix de coco râpée.",
+    ];
+
     #[test]
     fn a_french_step_links_le_cacao_and_le_bicarbonate() {
-        let targets = [
-            "œufs",
-            "sirop d'érable",
-            "yaourt grec",
-            "extrait de vanille",
-            "farine d'amande",
-            "noix de coco râpée non sucrée",
-            "cacao en poudre",
-            "cassonade",
-            "bicarbonate de soude",
-            "sel",
-            "espresso en poudre",
-        ];
-        let steps = [
-            "Préchauffez le four à 350°F. Chemisez un moule carré de 7×7 pouces de papier sulfurisé.",
-            "Dans un grand saladier, fouettez les œufs, le sirop, le yaourt et la vanille jusqu'à obtenir un mélange lisse.",
-            "Ajoutez la farine d'amande, la noix de coco râpée, le cacao, la cassonade, le bicarbonate, le sel et l'espresso en poudre, puis mélangez jusqu'à ce que tout soit incorporé.",
-            "Versez la pâte dans le moule et étalez-la uniformément.",
-            "Enfournez pour 25-30 minutes, jusqu'à ce qu'un cure-dent en ressorte propre.",
-            "Parsemez de noix de coco râpée.",
-        ];
         assert_eq!(
-            uses(&steps, &targets),
+            uses(FRENCH_CAKE_STEPS, FRENCH_CAKE_TARGETS),
             [
                 step(&[]),
                 step(&[0, 1, 2, 3]),
@@ -461,51 +570,53 @@ mod tests {
         );
     }
 
+    /// The dumplings' French Translation.
+    const FRENCH_DUMPLING_TARGETS: &[&str] = &[
+        "",
+        "porc haché",
+        "sauce soja",
+        "huile de sésame",
+        "sel",
+        "oignons nouveaux",
+        "gingembre",
+        "ail",
+        "huile végétale",
+        "feuilles à gyoza",
+        "oignon nouveau",
+        "",
+        "fécule de maïs",
+        "farine",
+        "eau",
+        "",
+        "sauce soja",
+        "vinaigre noir chinois",
+        "chili crisp",
+    ];
+    const FRENCH_DUMPLING_STEPS: &[&str] = &[
+        "#Préparer la farce",
+        "Dans un saladier moyen, mélangez le porc haché, la sauce soja, l'huile de sésame, le sel, les oignons nouveaux, le gingembre et l'ail jusqu'à ce que le mélange soit homogène et collant. La farce reste ainsi juteuse et tendre.",
+        "#Déposer et saisir",
+        "Faites chauffer l'huile végétale à feu moyen-vif dans une grande poêle antiadhésive (environ 25 cm ou 10 pouces) munie d'un couvercle.",
+        "À l'aide d'une petite cuillère à glace ou de deux cuillères, déposez des boules de farce (environ 1 cuillère à soupe chacune) directement dans la poêle, en cercle, en laissant un peu d'espace entre elles.",
+        "Faites cuire 2-3 minutes sans les bouger, jusqu'à ce que le dessous soit légèrement doré.",
+        "Posez rapidement une feuille à gyoza sur chaque boule de farce, en appuyant doucement pour qu'elle adhère.",
+        "#Faire la jupe croustillante",
+        "Dans un pichet, fouettez la fécule de maïs, la farine et l'eau pour obtenir l'appareil.",
+        "Versez l'appareil sur tous les raviolis dans la poêle. Il doit bouillonner immédiatement.",
+        "Couvrez, baissez le feu et laissez cuire à la vapeur 5-7 minutes, jusqu'à ce que le porc soit cuit et que l'essentiel de l'eau se soit évaporé.",
+        "Retirez le couvercle, montez légèrement le feu et poursuivez la cuisson 2-3 minutes, jusqu'à ce que la jupe soit dorée et croustillante. Vérifiez en soulevant délicatement un bord avec une spatule.",
+        "#Le démoulage",
+        "Éteignez le feu et passez une spatule tout autour de la poêle pour que rien n'accroche.",
+        "Posez une grande assiette de service sur la poêle. Une main bien à plat sur l'assiette, l'autre sur le manche, retournez la poêle d'un geste sûr et rapide.",
+        "Soulevez la poêle pour découvrir la base croustillante.",
+        "Mélangez la sauce soja, le vinaigre et le chili crisp pour la sauce.",
+        "Arrosez-en les raviolis et parsemez d'oignon nouveau. Servez aussitôt.",
+    ];
+
     #[test]
     fn the_french_dumplings_link_the_same_lines() {
-        let targets = [
-            "",
-            "porc haché",
-            "sauce soja",
-            "huile de sésame",
-            "sel",
-            "oignons nouveaux",
-            "gingembre",
-            "ail",
-            "huile végétale",
-            "feuilles à gyoza",
-            "oignon nouveau",
-            "",
-            "fécule de maïs",
-            "farine",
-            "eau",
-            "",
-            "sauce soja",
-            "vinaigre noir chinois",
-            "chili crisp",
-        ];
-        let steps = [
-            "#Préparer la farce",
-            "Dans un saladier moyen, mélangez le porc haché, la sauce soja, l'huile de sésame, le sel, les oignons nouveaux, le gingembre et l'ail jusqu'à ce que le mélange soit homogène et collant. La farce reste ainsi juteuse et tendre.",
-            "#Déposer et saisir",
-            "Faites chauffer l'huile végétale à feu moyen-vif dans une grande poêle antiadhésive (environ 25 cm ou 10 pouces) munie d'un couvercle.",
-            "À l'aide d'une petite cuillère à glace ou de deux cuillères, déposez des boules de farce (environ 1 cuillère à soupe chacune) directement dans la poêle, en cercle, en laissant un peu d'espace entre elles.",
-            "Faites cuire 2-3 minutes sans les bouger, jusqu'à ce que le dessous soit légèrement doré.",
-            "Posez rapidement une feuille à gyoza sur chaque boule de farce, en appuyant doucement pour qu'elle adhère.",
-            "#Faire la jupe croustillante",
-            "Dans un pichet, fouettez la fécule de maïs, la farine et l'eau pour obtenir l'appareil.",
-            "Versez l'appareil sur tous les raviolis dans la poêle. Il doit bouillonner immédiatement.",
-            "Couvrez, baissez le feu et laissez cuire à la vapeur 5-7 minutes, jusqu'à ce que le porc soit cuit et que l'essentiel de l'eau se soit évaporé.",
-            "Retirez le couvercle, montez légèrement le feu et poursuivez la cuisson 2-3 minutes, jusqu'à ce que la jupe soit dorée et croustillante. Vérifiez en soulevant délicatement un bord avec une spatule.",
-            "#Le démoulage",
-            "Éteignez le feu et passez une spatule tout autour de la poêle pour que rien n'accroche.",
-            "Posez une grande assiette de service sur la poêle. Une main bien à plat sur l'assiette, l'autre sur le manche, retournez la poêle d'un geste sûr et rapide.",
-            "Soulevez la poêle pour découvrir la base croustillante.",
-            "Mélangez la sauce soja, le vinaigre et le chili crisp pour la sauce.",
-            "Arrosez-en les raviolis et parsemez d'oignon nouveau. Servez aussitôt.",
-        ];
         assert_eq!(
-            uses(&steps, &targets),
+            uses(FRENCH_DUMPLING_STEPS, FRENCH_DUMPLING_TARGETS),
             [
                 None,
                 step(&[1, 2, 3, 4, 5, 6, 7]),
@@ -641,6 +752,192 @@ mod tests {
                 &["egg", "rice", "ail"]
             ),
             [step(&[0]), step(&[]), step(&[2]), step(&[])],
+        );
+    }
+
+    #[test]
+    fn an_english_step_links_a_food_by_its_main_word_and_not_by_a_qualifier() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Serve the chicken with steamed rice.",
+                    "Add the chicken.",
+                    "Shred the beef, sprinkle over almonds and add the vegetables.",
+                    "Add the vinegar, then the broth.",
+                ],
+                &[
+                    "chicken thighs",
+                    "rice vinegar",
+                    "chicken broth",
+                    "beef stock",
+                    "almond meal",
+                    "vegetable oil",
+                ]
+            ),
+            [step(&[0]), step(&[0]), step(&[]), step(&[1, 2])],
+        );
+    }
+
+    #[test]
+    fn a_french_or_spanish_step_links_a_food_by_the_first_word_of_its_name() {
+        assert_eq!(
+            uses_in(
+                Some("fr"),
+                &[
+                    "Servez le poulet avec du riz vapeur.",
+                    "Ajoutez le vinaigre et le bouillon.",
+                ],
+                &[
+                    "hauts de cuisse de poulet",
+                    "vinaigre de riz",
+                    "bouillon de poulet",
+                ]
+            ),
+            [step(&[0]), step(&[1, 2])],
+        );
+        assert_eq!(
+            uses_in(
+                Some("es"),
+                &["Sirve el pollo con arroz.", "Añade el vinagre y el caldo."],
+                &["muslos de pollo", "vinagre de arroz", "caldo de pollo"]
+            ),
+            [step(&[0]), step(&[1, 2])],
+        );
+    }
+
+    #[test]
+    fn a_step_still_links_a_food_it_names_without_its_cut_or_its_form() {
+        let targets = [
+            "chicken thighs",
+            "chicken breast",
+            "chicken drumsticks",
+            "garlic cloves",
+            "kale leaves",
+            "salmon fillet",
+            "pork mince",
+            "vanilla extract",
+            "miso paste",
+            "Parmesan cheese",
+            "cheddar cheese",
+            "soy sauce",
+            "bicarbonate of soda",
+        ];
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Brown the chicken.",
+                    "Add the garlic, kale, salmon and pork.",
+                    "Stir in the vanilla and the miso.",
+                    "Grate over the parmesan.",
+                    "Melt the cheese.",
+                    "Sear the thighs, then add the soy and the bicarbonate.",
+                ],
+                &targets
+            ),
+            [
+                step(&[0, 1, 2]),
+                step(&[3, 4, 5, 6]),
+                step(&[7, 8]),
+                step(&[9]),
+                step(&[9, 10]),
+                step(&[0, 12]),
+            ],
+            "the cut by itself still links its line; *the soy* no longer \
+             links soy sauce, the one loss accepted on #212"
+        );
+    }
+
+    #[test]
+    fn the_recipes_of_184_link_the_same_lines_read_in_their_own_language() {
+        let cases: &[(&str, &[&str], &[&str])] = &[
+            ("en", CAKE_STEPS, CAKE_TARGETS),
+            ("fr", FRENCH_CAKE_STEPS, FRENCH_CAKE_TARGETS),
+            ("en", DUMPLING_STEPS, DUMPLING_TARGETS),
+            ("fr", FRENCH_DUMPLING_STEPS, FRENCH_DUMPLING_TARGETS),
+        ];
+        for (language, steps, targets) in cases {
+            assert_eq!(
+                uses_in(Some(language), steps, targets),
+                uses(steps, targets),
+                "{language}: {}",
+                targets[1]
+            );
+        }
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Grate the ginger."],
+                &["fresh ginger", "ginger beer"]
+            ),
+            [step(&[0])],
+        );
+    }
+
+    #[test]
+    fn a_branch_with_no_language_reads_a_name_from_both_ends() {
+        let steps = ["Serve with rice.", "Ajoutez le vinaigre, puis le sel."];
+        let targets = ["rice vinegar", "vinaigre de riz", "sel de mer"];
+        for language in [None, Some("unknown")] {
+            assert_eq!(
+                uses_in(language, &steps, &targets),
+                [step(&[0]), step(&[1, 2])],
+                "with no Language to say which end the main word sits at, \
+                 either end stands for the name"
+            );
+        }
+        assert_eq!(
+            uses_in(Some("en"), &steps, &targets),
+            [step(&[]), step(&[])]
+        );
+    }
+
+    /// Names the reader left untidy on a development library, each of which
+    /// lost a right link to the first cut of the main-word rule (#212).
+    #[test]
+    fn a_name_holding_two_foods_an_amount_or_a_tail_keeps_its_main_words() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Season with a pinch of salt, then the thyme.",
+                    "Slice the chicken.",
+                    "Add sherry and toss the panko with the oil. Serve with udon noodles.",
+                ],
+                &[
+                    "salt & freshly ground black pepper",
+                    "fresh thyme and basil",
+                    "chicken drumsticks and bone-in thigh pieces",
+                    "dry sherry such as Amontillado",
+                    "panko bread crumbs",
+                    "vegetable oil for frying",
+                    "pouches ready to wok udon noodles",
+                    "chicken or vegetable stock",
+                ]
+            ),
+            [step(&[0, 1]), step(&[2]), step(&[3, 4, 5, 6])],
+        );
+        assert_eq!(
+            uses_in(
+                Some("fr"),
+                &["Disposez les tomates, puis les enoki.", "Chauffez l'huile."],
+                &[
+                    "3 paquets d'Enoki",
+                    "peu huile pour la cuisson",
+                    "pâte à pizza",
+                    "pâte de miso"
+                ]
+            ),
+            [step(&[0]), step(&[1])],
+        );
+        assert_eq!(
+            uses_in(
+                Some("fr"),
+                &["Garnissez la pizza.", "Délayez le miso."],
+                &["pâte à pizza", "pâte de miso"]
+            ),
+            [step(&[]), step(&[1])],
         );
     }
 

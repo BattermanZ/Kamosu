@@ -1332,6 +1332,7 @@ const NAMES_NOTHING_ALONE: &[&str] = &[
     "bon",
     "bonne",
     "demi",
+    "peu",
     "écrémé",
     "écrémée",
     "extrait",
@@ -1415,6 +1416,223 @@ pub fn names_nothing_alone(word: &str) -> bool {
         || WARMTH
             .iter()
             .any(|phrase| phrase.iter().any(|part| folded(part) == folded(bare)))
+}
+
+/// Words for a cut, a part or a form of a food, which a recipe writes beside
+/// the food and a Step leaves off: *chicken thighs* is *the chicken* by the
+/// second Step, and *hauts de cuisse de poulet* is *le poulet* (#212). Where a
+/// name's main word would be one of these, the word beside it is a main word
+/// too.
+///
+/// A word belongs here only when what is left without it is still the same
+/// food. *Meal*, *stock*, *juice* and *zest* do not: almond meal is not
+/// almonds and lemon juice is not a lemon. A word listed here by mistake links
+/// a Step to one line too many, and a word missing from here leaves a Step
+/// linking only by the cut. The forms [`NAMES_NOTHING_ALONE`] already holds
+/// (*extract*, *powder*, *paste*, *fillet*) and the measures (*cloves*,
+/// *leaves*, *gousses*) give way the same way and are not repeated.
+///
+/// French *pâte* and Spanish *pasta* are left out on purpose. *Pâte de miso*
+/// is a form of miso, but *pâte à pizza* is no form of a pizza, and one list
+/// cannot tell them apart.
+const CUTS_AND_PARTS: &[&str] = &[
+    // English
+    "thigh",
+    "thighs",
+    "breast",
+    "breasts",
+    "drumstick",
+    "drumsticks",
+    "wing",
+    "wings",
+    "leg",
+    "legs",
+    "tender",
+    "tenders",
+    "tenderloin",
+    "tenderloins",
+    "loin",
+    "shoulder",
+    "belly",
+    "rib",
+    "ribs",
+    "chop",
+    "chops",
+    "steak",
+    "steaks",
+    "cutlet",
+    "cutlets",
+    "rasher",
+    "rashers",
+    "mince",
+    "meat",
+    "floret",
+    "florets",
+    "bulb",
+    "bulbs",
+    "root",
+    "pod",
+    "pods",
+    "kernel",
+    "kernels",
+    "nut",
+    "nuts",
+    "half",
+    "halves",
+    "heart",
+    "hearts",
+    "tip",
+    "tips",
+    "spear",
+    "spears",
+    "nib",
+    "nibs",
+    "thread",
+    "threads",
+    "granule",
+    "granules",
+    // French
+    "haut",
+    "hauts",
+    "cuisse",
+    "cuisses",
+    "filet",
+    "filets",
+    "aile",
+    "ailes",
+    "pilon",
+    "pilons",
+    "escalope",
+    "escalopes",
+    "aiguillette",
+    "aiguillettes",
+    "côte",
+    "côtes",
+    "côtelette",
+    "côtelettes",
+    "épaule",
+    "branche",
+    "branches",
+    "brin",
+    "brins",
+    "tige",
+    "tiges",
+    "fleurette",
+    "fleurettes",
+    "tête",
+    "têtes",
+    "grain",
+    "grains",
+    "graine",
+    "graines",
+    "bâton",
+    "bâtons",
+    "cerneau",
+    "cerneaux",
+    "copeau",
+    "copeaux",
+    "pousse",
+    "pousses",
+    "cœur",
+    "cœurs",
+    "pointe",
+    "pointes",
+    // Spanish
+    "muslo",
+    "muslos",
+    "contramuslo",
+    "contramuslos",
+    "pechuga",
+    "pechugas",
+    "filete",
+    "filetes",
+    "ala",
+    "alas",
+    "alita",
+    "alitas",
+    "costilla",
+    "costillas",
+    "chuleta",
+    "chuletas",
+    "carne",
+    "diente",
+    "dientes",
+    "rama",
+    "ramas",
+    "ramita",
+    "ramitas",
+    "tallo",
+    "tallos",
+    "cabeza",
+    "cabezas",
+    "grano",
+    "granos",
+    "semilla",
+    "semillas",
+];
+
+/// Foods whose own name is all a Step needs, though the list writes the kind
+/// of thing after it: *Parmesan cheese* is *the parmesan* (#212). Such a word
+/// is a main word of its name wherever it sits.
+const NAMED_KINDS: &[&str] = &[
+    "parmesan",
+    "cheddar",
+    "mozzarella",
+    "feta",
+    "ricotta",
+    "mascarpone",
+    "halloumi",
+    "gruyère",
+    "pecorino",
+    "gouda",
+    "emmental",
+    "manchego",
+    "basmati",
+    "shiitake",
+    "chorizo",
+    "panko",
+    "miso",
+];
+
+/// **Whether a word gives way to the word beside it as a name's main word**:
+/// a cut, a part or a form of a food, or a word that names nothing alone.
+/// *Thighs* gives way to *chicken*, *extrait* to *vanille*, and *fresh* to
+/// whatever it describes (#212).
+///
+/// An amount left in a name gives way too: *3 paquets d'Enoki* is *les
+/// enoki*.
+pub fn gives_way(word: &str) -> bool {
+    listed(CUTS_AND_PARTS, word)
+        || names_nothing_alone(word)
+        || word.starts_with(|c: char| c.is_ascii_digit())
+}
+
+/// **Whether a word sets two foods apart inside one name**: *and* in *fresh
+/// thyme and basil*. Each side has a main word of its own (#212).
+///
+/// *Or* does not: a choice the reader kept whole is as often between two
+/// kinds of one food, and *chicken or vegetable stock* is no chicken.
+pub fn joins_two_foods(word: &str) -> bool {
+    listed(DESCRIBING_JOINS, word)
+}
+
+/// The words after which an English name says what the food is for, or gives
+/// an example of it, and no longer names it: *oil for frying*, *dry sherry
+/// such as Amontillado*, *a neutral oil like canola*. Kept to these three:
+/// *to* sits inside *ready to wok udon noodles*, and *in* and *on* inside
+/// *bone-in* and *skin-on*, all before the food they describe.
+const NAME_TAILS: &[&str] = &["for", "such", "like"];
+
+/// **Whether a word opens the tail of an English name**, which holds no main
+/// word (#212).
+pub fn opens_a_tail(word: &str) -> bool {
+    listed(NAME_TAILS, word)
+}
+
+/// **Whether a word names its food whatever kind-word follows it**, as
+/// *parmesan* does in *Parmesan cheese* (#212).
+pub fn names_its_kind(word: &str) -> bool {
+    listed(NAMED_KINDS, word)
 }
 
 /// **Whether a word only joins two others**: an article, a preposition, a
