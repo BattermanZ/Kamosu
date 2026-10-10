@@ -708,6 +708,10 @@ export class Outbox implements Keeping {
 			byId.set(id, {
 				...held.attempt,
 				recipe: byId.get(id)?.recipe ?? (await this.#named(held.recipe, held.attempt.version_id)),
+				// Whether there are changes still to keep is the server's to
+				// say (#210), and keeping them needs it. Until it has spoken
+				// about this cooking, nothing is offered.
+				unkept: byId.get(id)?.unkept ?? null,
 			});
 		}
 		const attempts = [...byId.values()].sort((a, b) =>

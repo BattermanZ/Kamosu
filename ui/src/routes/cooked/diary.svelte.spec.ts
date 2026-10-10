@@ -51,6 +51,7 @@ const attempt = (over: Record<string, unknown> = {}) => ({
 const entry = (over: Record<string, unknown> = {}) => ({
 	...attempt(),
 	recipe: { branch_id: 'b_1', title: 'Miso Soup', written_yield: null },
+	unkept: null,
 	...over,
 });
 
@@ -554,5 +555,239 @@ describe('dropping a photograph on a cooking (#205)', () => {
 			"That didn't go anywhere. A cooking's photograph has to be a picture.",
 		);
 		expect(kamosu.calls.some((call) => call.operation === 'edit_attempt')).toBe(false);
+	});
+});
+
+describe('keeping a tweaked cooking as a Version, from the diary (#210)', () => {
+	const line = (kind: string, text: string, index: number) => ({ kind, text, index });
+
+	/** A cooking with more panko than the recipe says, and the water left out. */
+	const AS_COOKED = {
+		version_id: 'v_cooked',
+		content: {
+			title: 'Chicken Katsu Curry',
+			yield: null,
+			prep_time_minutes: null,
+			cook_time_minutes: null,
+			note: null,
+			main_photo: null,
+			nutrition: null,
+			source: null,
+			ingredients: [{ kind: 'ingredient' as const, text: '2 cups panko' }],
+			steps: [{ kind: 'step' as const, text: 'Coat the chicken in panko.', photo: null }],
+		},
+		against: {
+			ingredients: [
+				{
+					kind: 'ingredient',
+					state: 'changed' as const,
+					from_branch_point: true,
+					mine: line('ingredient', '1 cup panko', 0),
+					theirs: line('ingredient', '2 cups panko', 0),
+				},
+				{
+					kind: 'ingredient',
+					state: 'only-mine' as const,
+					from_branch_point: true,
+					mine: line('ingredient', '800 ml water', 1),
+					theirs: null,
+				},
+			],
+			steps: [
+				{
+					kind: 'step',
+					state: 'same' as const,
+					from_branch_point: true,
+					mine: line('step', 'Coat the chicken in panko.', 0),
+					theirs: line('step', 'Coat the chicken in panko.', 0),
+				},
+			],
+		},
+		promotion_declined: false,
+	};
+
+	/** Where the Core says the changes would be kept: the cook's own recipe. */
+	const UNKEPT = {
+		branch_id: 'b_1',
+		moved_on: false,
+		writes: true,
+		mine: true,
+		arrived: false,
+		cookbook: { id: 'c_1', name: null, authors: [{ person_id: 'p_1', name: 'Stéphane' }] },
+	};
+
+	const tweaked = (over: Record<string, unknown> = {}) =>
+		entry({
+			recipe: { branch_id: 'b_1', title: 'Chicken Katsu Curry', written_yield: null },
+			as_cooked: AS_COOKED,
+			unkept: UNKEPT,
+			...over,
+		});
+
+	const openTweaked = async (answers: Record<string, unknown> = {}, over = {}) => {
+		const rendered = renderScreen(Cooked, {
+			list_attempts: { attempts: [tweaked(over)] },
+			promote_as_cooked: PROMOTED,
+			...answers,
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: /chicken katsu curry/i }));
+		return rendered;
+	};
+
+	it('shows what the cooking changed, and offers to keep it', async () => {
+		await openTweaked();
+
+		const section = screen.getByRole('heading', { name: 'What you changed' }).parentElement!;
+		expect(within(section).getByText('2 cups panko')).toBeInTheDocument();
+		expect(within(section).getByText('1 cup panko')).toHaveClass('line-through');
+		expect(within(section).getByText('You left this out')).toBeInTheDocument();
+		expect(within(section).getByText('800 ml water')).toHaveClass('line-through');
+		expect(
+			within(section).getByRole('button', { name: 'Keep it as a new Version' }),
+		).toBeInTheDocument();
+	});
+
+	it('keeps nothing on the first tap, and the same Version the recipe page would on the second', async () => {
+		const { kamosu } = await openTweaked();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it as a new Version' }));
+		expect(kamosu.calls.some((call) => call.operation === 'promote_as_cooked')).toBe(false);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Save as a new Version' }));
+		await vi.waitFor(() => {
+			expect(kamosu.calls.find((call) => call.operation === 'promote_as_cooked')?.input).toEqual({
+				attempt_id: 'at_1',
+				branch_id: 'b_1',
+			});
+		});
+
+		// Kept: the entry says so and links to the recipe, and offers nothing more.
+		const said = await screen.findByText(/Kept\. It's a new Version of the recipe now\./);
+		expect(within(said).getByRole('link', { name: 'Open the recipe' })).toHaveAttribute(
+			'href',
+			'/recipes/b_1',
+		);
+		expect(screen.queryByRole('button', { name: 'Keep it as a new Version' })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Save as a new Version' })).toBeNull();
+	});
+
+	it('keeps two cookings in one visit, each saying so and neither offered again', async () => {
+		const { kamosu } = renderScreen(Cooked, {
+			list_attempts: {
+				attempts: [
+					tweaked({ id: 'at_2', created_at: '2026-08-21T18:00:00.000Z' }),
+					tweaked({
+						id: 'at_1',
+						recipe: { branch_id: 'b_1', title: 'Miso Soup', written_yield: null },
+					}),
+				],
+			},
+			promote_as_cooked: PROMOTED,
+		});
+		for (const name of [/chicken katsu curry/i, /miso soup/i]) {
+			await fireEvent.click(await screen.findByRole('button', { name }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Keep it as a new Version' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Save as a new Version' }));
+			expect(await screen.findByText(/Kept\. It's a new Version/)).toBeInTheDocument();
+		}
+		expect(
+			kamosu.calls
+				.filter((call) => call.operation === 'promote_as_cooked')
+				.map((call) => (call.input as { attempt_id: string }).attempt_id),
+		).toEqual(['at_2', 'at_1']);
+
+		// Back on the first: it still says it was kept, and offers nothing.
+		await fireEvent.click(screen.getByRole('button', { name: /chicken katsu curry/i }));
+		expect(screen.getByText(/Kept\. It's a new Version/)).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Keep it as a new Version' })).toBeNull();
+	});
+
+	it('answers nothing with Not now: the offer is still there (the choice of 10 October 2026)', async () => {
+		const { kamosu } = await openTweaked();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it as a new Version' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
+
+		expect(screen.getByRole('button', { name: 'Keep it as a new Version' })).toBeInTheDocument();
+		expect(kamosu.calls.some((call) => call.operation === 'decline_promotion')).toBe(false);
+		expect(kamosu.calls.some((call) => call.operation === 'promote_as_cooked')).toBe(false);
+	});
+
+	it('still offers a cooking left in the diary from the recipe page', async () => {
+		await openTweaked({}, { as_cooked: { ...AS_COOKED, promotion_declined: true } });
+		expect(screen.getByRole('button', { name: 'Keep it as a new Version' })).toBeInTheDocument();
+	});
+
+	it('says first that the recipe has changed since, where it has', async () => {
+		await openTweaked({}, { unkept: { ...UNKEPT, moved_on: true } });
+		expect(screen.queryByText(/recipe has changed since you cooked it/i)).toBeNull();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it as a new Version' }));
+		expect(screen.getByText(/recipe has changed since you cooked it/i)).toBeInTheDocument();
+	});
+
+	it('starts a copy on a recipe that was sent, saying so first, and links to the copy', async () => {
+		const { kamosu } = await openTweaked(
+			{ promote_as_cooked: { ...PROMOTED, branch_id: 'b_copy', copied: true } },
+			{ unkept: { ...UNKEPT, writes: false, arrived: true } },
+		);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it as your own copy' }));
+		expect(screen.getByText(/will start your own copy/i)).toBeInTheDocument();
+		expect(screen.getByText(/You were sent this recipe/)).toHaveTextContent('Chicken Katsu Curry');
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Start my own copy' }));
+		await vi.waitFor(() => {
+			expect(kamosu.calls.some((call) => call.operation === 'promote_as_cooked')).toBe(true);
+		});
+		const said = await screen.findByText(/Kept, on your own copy of the recipe\./);
+		expect(within(said).getByRole('link', { name: 'Open your copy' })).toHaveAttribute(
+			'href',
+			'/recipes/b_copy',
+		);
+	});
+
+	it('shows no offer on a cooking that followed the recipe, or whose changes are kept', async () => {
+		renderScreen(Cooked, {
+			list_attempts: {
+				attempts: [
+					entry({
+						id: 'at_2',
+						recipe: { branch_id: 'b_2', title: 'Miso Soup', written_yield: null },
+					}),
+					// Changed and already a Version: the Core answers nothing unkept.
+					tweaked({ unkept: null }),
+				],
+			},
+		});
+		for (const name of [/miso soup/i, /chicken katsu curry/i]) {
+			await fireEvent.click(await screen.findByRole('button', { name }));
+			expect(screen.queryByRole('heading', { name: 'What you changed' })).toBeNull();
+			expect(screen.queryByRole('button', { name: /keep it as/i })).toBeNull();
+		}
+	});
+
+	it('waits for the server in words when there is none', async () => {
+		Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+		try {
+			await openTweaked();
+			expect(
+				screen.getByRole('button', { name: /keeping it waits for the server/i }),
+			).toBeDisabled();
+			expect(screen.queryByRole('button', { name: 'Keep it as a new Version' })).toBeNull();
+			// What was changed is on the phone and is shown all the same.
+			expect(screen.getByText('2 cups panko')).toBeInTheDocument();
+		} finally {
+			Reflect.deleteProperty(navigator, 'onLine');
+		}
+	});
+
+	it('says so and keeps the offer when the Core refuses', async () => {
+		await openTweaked({ promote_as_cooked: { refuse: 'not_found' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Keep it as a new Version' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Save as a new Version' }));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent(/could not keep it/i);
+		expect(screen.getByRole('button', { name: 'Save as a new Version' })).toBeInTheDocument();
 	});
 });

@@ -802,6 +802,7 @@ impl Core {
                         found
                     }
                 };
+                entry["unkept"] = diary_unkept(conn, person_id, entry, &recipe["branch_id"])?;
                 entry["recipe"] = recipe;
             }
             Ok(json!({ "attempts": entries }))
@@ -1223,6 +1224,87 @@ fn diary_recipe(
         "branch_id": branch_id,
         "title": title.unwrap_or_default(),
         "written_yield": written_yield,
+    }))
+}
+
+/// **One diary entry's changes not yet kept, and where keeping them would
+/// land** (#210), or null where there is nothing to keep: the cooking followed
+/// the recipe, the recipe has left the caller's shelf, or the As Cooked is
+/// already a Version on a Branch of this recipe the caller sees.
+///
+/// Already kept needs no flag here either: the As Cooked's id is in a chain
+/// or it is not (`promote_as_cooked`). Every Branch the caller sees is asked
+/// rather than one, because keeping onto somebody else's recipe lands on a
+/// Copy, and the Copy is where the Version then is.
+///
+/// **It lands on the Branch that was cooked**, the one whose chain holds the
+/// Version this cooking is pinned to, and that is not always the Branch
+/// `shelf_branch_id` names. The diary opens a recipe where the shelf does, in
+/// the reader's Language and at their unnamed Branch, while a cook may have
+/// cooked a variation or the recipe in its other Language. On the recipe page
+/// the cook is standing on the Branch they would change; here nobody is, so
+/// keeping a variation's cooking onto the plain recipe would replace what the
+/// plain recipe says with the variation. Where several Branches hold the
+/// Version, a variation carrying its parent's chain for one, the reader's own
+/// comes first (`own_first`). Where none the caller sees does, the shelf's
+/// Branch is the answer, as it is on the recipe page.
+///
+/// **An answer of "leave it in the diary" changes nothing here**, the choice
+/// of 10 October 2026 on #210. `promotion_declined` stops the recipe page
+/// asking; the diary is where the changes were left, so it is where they can
+/// still be kept.
+///
+/// Whose the recipe is rides along, the same facts `get_recipe` answers, so
+/// the diary can say before the tap that keeping starts a Copy (#132) with
+/// no second read. `moved_on` is whether the recipe has changed since this
+/// cooking: keeping appends onto where the Branch stands now and never merges
+/// (ADR 0004), which the screen says first.
+fn diary_unkept(
+    conn: &Connection,
+    person_id: &str,
+    entry: &Value,
+    shelf_branch_id: &Value,
+) -> Result<Value, OpError> {
+    let (Some(as_cooked_id), Some(shelf_branch_id)) = (
+        entry["as_cooked"]["version_id"].as_str(),
+        shelf_branch_id.as_str(),
+    ) else {
+        return Ok(Value::Null);
+    };
+    let lineage_id = entry["lineage_id"].as_str();
+    let on_a_branch = |version_id: &str| -> Result<Option<String>, OpError> {
+        conn.query_row(
+            &format!(
+                "SELECT branches.id FROM branch_versions                    JOIN branches ON branches.id = branch_versions.branch_id                   WHERE branches.lineage_id = ?2 AND {}                     AND branch_versions.version_id = ?3                   ORDER BY {} LIMIT 1",
+                visible_to("branches", "?1"),
+                own_first("branches", "?1"),
+            ),
+            params![person_id, lineage_id, version_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the recipe's Branches: {e}")))
+    };
+    if on_a_branch(as_cooked_id)?.is_some() {
+        return Ok(Value::Null);
+    }
+    let cooked_version_id = entry["version_id"].as_str().unwrap_or_default();
+    let branch_id = on_a_branch(cooked_version_id)?.unwrap_or_else(|| shelf_branch_id.to_string());
+    let (cookbook_id, arrived, head_version_id): (String, bool, String) = conn
+        .query_row(
+            "SELECT cookbook_id, arrived, head_version_id FROM branches WHERE id = ?1",
+            params![branch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .map_err(|e| OpError::internal(format!("cannot read Branch: {e}")))?;
+    let own_cookbook_id = cookbook_of_person(conn, person_id)?;
+    Ok(json!({
+        "branch_id": branch_id,
+        "moved_on": cooked_version_id != head_version_id,
+        "cookbook": cookbook_label(conn, &cookbook_id)?,
+        "writes": cookbook_writes_branch(conn, &own_cookbook_id, &branch_id)?,
+        "mine": cookbook_id == own_cookbook_id,
+        "arrived": arrived,
     }))
 }
 

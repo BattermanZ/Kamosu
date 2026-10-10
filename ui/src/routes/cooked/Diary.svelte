@@ -20,7 +20,7 @@
 	import { useKamosu } from '$lib/kamosu';
 	import { OperationError } from '$lib/api/client';
 	import { ratingLabel } from '$lib/rating';
-	import type { ListAttemptsOutput } from '$lib/api/catalogue';
+	import type { ListAttemptsOutput, PromoteAsCookedOutput } from '$lib/api/catalogue';
 	import Screen from '$lib/shell/Screen.svelte';
 	import Empty from '$lib/shell/Empty.svelte';
 	import { rereads } from '$lib/offline/device.svelte';
@@ -34,6 +34,7 @@
 	import { cookingDay } from '$lib/cooking-day';
 	import { onlyOnThisPhone } from '$lib/offline/outbox';
 	import PhotoToRecipe from '$lib/PhotoToRecipe.svelte';
+	import KeepCooking from './KeepCooking.svelte';
 
 	const kamosu = useKamosu();
 	const keeping = useKeeping();
@@ -209,6 +210,21 @@
 	 */
 	const promotable = (entry: Entry, photograph: string) =>
 		entry.recipe.branch_id !== null && !onlyOnThisPhone(photograph);
+
+	/**
+	 * The cookings whose changes were kept as a Version from here (#210), each
+	 * with what `promote_as_cooked` answered: it names the Branch the Version
+	 * is on now, which after a Copy is not the one the cooking was of. Held
+	 * here and not in the section, so that reading the diary again does not
+	 * take the words away. The entry is told at once that nothing is unkept,
+	 * so it cannot offer again what was just kept.
+	 */
+	let keptAs = $state<Record<Entry['id'], PromoteAsCookedOutput>>({});
+
+	function kept(entry: Entry, landed: PromoteAsCookedOutput) {
+		keptAs[entry.id] = landed;
+		layOver(entry.id, { unkept: null });
+	}
 
 	async function remove(entry: Entry) {
 		deleting = true;
@@ -450,6 +466,19 @@
 											<p class="mt-2 text-read text-ink-2">{m.cooked_tap_photo()}</p>
 										{/if}
 									</div>
+
+									<!--
+										What this cooking changed, and keeping it as a Version
+										(#210, option A). `?? null` because a diary the phone kept
+										before #210 has no `unkept` on it.
+									-->
+									{#if (entry.unkept ?? null) !== null || keptAs[entry.id]}
+										<KeepCooking
+											{entry}
+											kept={keptAs[entry.id] ?? null}
+											onKept={(landed) => kept(entry, landed)}
+										/>
+									{/if}
 
 									<label class="mt-3 grid gap-1 text-label text-ink-2 uppercase">
 										{m.cooked_note()}

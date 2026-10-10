@@ -128,6 +128,7 @@ export const diaryEntry = (over: Record<string, unknown> = {}) => ({
 	as_cooked: null,
 	photographs: [],
 	recipe: { branch_id: 'b_1', title: 'Miso Soup', written_yield: null },
+	unkept: null,
 	...over,
 });
 

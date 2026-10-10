@@ -5476,7 +5476,7 @@ fn attempt_schema_with(field: &str, declared: Value) -> Value {
 /// still offered is In Progress, not finished and no longer offered is a
 /// cooking somebody walked away from — which happened all the same (ADR 0010).
 fn diary_entry_schema() -> Value {
-    attempt_schema_with(
+    let mut schema = attempt_schema_with(
         "recipe",
         json!({
             "type": "object",
@@ -5498,7 +5498,37 @@ fn diary_entry_schema() -> Value {
             "required": ["branch_id", "title", "written_yield"],
             "additionalProperties": false,
         }),
-    )
+    );
+    // This cooking's changes not yet kept, as where keeping them as a Version
+    // would land (#210), so the diary can offer it on the entry. **Null** where there is nothing to
+    // keep: the cooking followed the recipe, the recipe has left the shelf,
+    // or the As Cooked is already a Version on a Branch of it the caller
+    // sees. Not nulled by `promotion_declined`, which answers the recipe page.
+    schema["properties"]["unkept"] = json!({
+        "type": ["object", "null"],
+        "properties": {
+            // The Branch `promote_as_cooked` is to be called with: the one
+            // that was cooked, which is not always the one `recipe.branch_id`
+            // opens. A cooking of a variation is kept onto the variation.
+            "branch_id": { "type": "string" },
+            // Whether the recipe has changed since this cooking, so keeping
+            // would replace what it says now (ADR 0004).
+            "moved_on": { "type": "boolean" },
+            // Whose the recipe is and whether keeping lands on it or starts
+            // the caller's own Copy: the facts `get_recipe` answers (#132).
+            "cookbook": cookbook_label_schema(),
+            "writes": { "type": "boolean" },
+            "mine": { "type": "boolean" },
+            "arrived": { "type": "boolean" },
+        },
+        "required": ["branch_id", "moved_on", "cookbook", "writes", "mine", "arrived"],
+        "additionalProperties": false,
+    });
+    schema["required"]
+        .as_array_mut()
+        .expect("attempt_schema declares its required fields as an array")
+        .push(json!("unkept"));
+    schema
 }
 
 /// **The whole Shopping List** — the only shape any of its six Operations

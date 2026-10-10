@@ -3956,6 +3956,21 @@ export type ListAttemptsOutput = {
 		};
 		resumable: boolean;
 		ticked_ingredients: number[];
+		unkept: {
+			arrived: boolean;
+			branch_id: string;
+			cookbook: {
+				authors: {
+					name: string;
+					person_id: string;
+				}[];
+				id: string;
+				name: string | null;
+			};
+			mine: boolean;
+			moved_on: boolean;
+			writes: boolean;
+		} | null;
 		version_id: string;
 	}[];
 };
@@ -25269,6 +25284,77 @@ export const CATALOGUE = [
 								},
 								"type": "array"
 							},
+							"unkept": {
+								"additionalProperties": false,
+								"properties": {
+									"arrived": {
+										"type": "boolean"
+									},
+									"branch_id": {
+										"type": "string"
+									},
+									"cookbook": {
+										"additionalProperties": false,
+										"properties": {
+											"authors": {
+												"items": {
+													"additionalProperties": false,
+													"properties": {
+														"name": {
+															"type": "string"
+														},
+														"person_id": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"person_id",
+														"name"
+													],
+													"type": "object"
+												},
+												"type": "array"
+											},
+											"id": {
+												"type": "string"
+											},
+											"name": {
+												"type": [
+													"string",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"id",
+											"name",
+											"authors"
+										],
+										"type": "object"
+									},
+									"mine": {
+										"type": "boolean"
+									},
+									"moved_on": {
+										"type": "boolean"
+									},
+									"writes": {
+										"type": "boolean"
+									}
+								},
+								"required": [
+									"branch_id",
+									"moved_on",
+									"cookbook",
+									"writes",
+									"mine",
+									"arrived"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
 							"version_id": {
 								"type": "string"
 							}
@@ -25289,7 +25375,8 @@ export const CATALOGUE = [
 							"last_action_at",
 							"photographs",
 							"as_cooked",
-							"recipe"
+							"recipe",
+							"unkept"
 						],
 						"type": "object"
 					},

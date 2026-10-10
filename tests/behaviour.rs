@@ -20534,6 +20534,206 @@ async fn promoting_a_cooking_that_deviated_from_nothing_is_refused() {
     );
 }
 
+/// The diary says, on each cooking, whether it holds changes the recipe does
+/// not (#210): where keeping them would land, or nothing where there is
+/// nothing to keep.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_says_which_cookings_hold_changes_not_yet_kept() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+
+    // Cooked as written: nothing to keep.
+    let as_written = cooking_katsu(&app, &key, &branch_id);
+    app.post_op(
+        "finish_attempt",
+        Some(&key),
+        &json!({ "attempt_id": as_written }).to_string(),
+    );
+
+    // Cooked with more rice than the recipe says.
+    let tweaked = cooking_katsu(&app, &key, &branch_id);
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("300 g de riz");
+    let (status, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": tweaked, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{deviated}");
+
+    let entry = |id: &str| {
+        let (status, diary) = app.post_op("list_attempts", Some(&key), "{}");
+        assert_eq!(status, 200, "{diary}");
+        diary["result"]["attempts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == json!(id))
+            .expect("the cooking is in the diary")
+            .clone()
+    };
+
+    assert_eq!(entry(&as_written)["unkept"], json!(null));
+    let unkept = entry(&tweaked)["unkept"].clone();
+    assert_eq!(unkept["branch_id"], json!(branch_id), "{unkept}");
+    assert_eq!(unkept["writes"], json!(true), "{unkept}");
+    assert_eq!(unkept["mine"], json!(true), "{unkept}");
+    assert_eq!(unkept["arrived"], json!(false), "{unkept}");
+    assert_eq!(
+        unkept["cookbook"]["authors"][0]["name"],
+        json!("Stéphane"),
+        "{unkept}"
+    );
+    assert_eq!(
+        unkept["moved_on"],
+        json!(false),
+        "the recipe still says what was cooked: {unkept}"
+    );
+
+    // Left in the diary from the recipe page: the diary is where it can still
+    // be kept, so the answer changes nothing here.
+    app.post_op(
+        "decline_promotion",
+        Some(&key),
+        &json!({ "attempt_id": tweaked, "declined": true }).to_string(),
+    );
+    assert_eq!(
+        entry(&tweaked)["unkept"]["branch_id"],
+        json!(branch_id),
+        "declining on the recipe leaves the diary able to keep it"
+    );
+
+    // The recipe edited since: keeping would replace what it says now.
+    age_branch_head(&app, &branch_id);
+    let (status, retitled) = app.post_op(
+        "edit_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "title": "Katsu Curry maison" }).to_string(),
+    );
+    assert_eq!(status, 200, "{retitled}");
+    assert_eq!(entry(&tweaked)["unkept"]["moved_on"], json!(true));
+
+    // Kept: the changes are a Version of the recipe, and nothing is offered.
+    age_branch_head(&app, &branch_id);
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": tweaked, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(
+        promoted["result"]["version_id"], deviated["result"]["as_cooked"]["version_id"],
+        "keeping where the diary says lands the very Version that was cooked"
+    );
+    assert_eq!(entry(&tweaked)["unkept"], json!(null));
+}
+
+/// A recipe with a variation: a cooking of the variation is kept onto the
+/// variation, though the diary opens the recipe at the Branch the shelf does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_keeps_a_cooking_onto_the_branch_that_was_cooked() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, _kitchen) = recipe_ready_to_cook(&app, "Stéphane");
+    let (status, varied) = app.post_op(
+        "start_variation",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "name": "Sans friture" }).to_string(),
+    );
+    assert_eq!(status, 200, "{varied}");
+    let variation = varied["result"]["branch_id"].as_str().unwrap().to_string();
+    age_branch_head(&app, &variation);
+    let mut baked = katsu_as_written();
+    baked["branch_id"] = json!(variation);
+    baked["steps"][1]["text"] = json!("Cuire au four à 200 °C");
+    let (status, saved) = app.post_op("save_recipe_version", Some(&key), &baked.to_string());
+    assert_eq!(status, 200, "{saved}");
+
+    let attempt_id = cooking_katsu(&app, &key, &variation);
+    let mut cooked = baked.clone();
+    cooked.as_object_mut().unwrap().remove("branch_id");
+    cooked["ingredients"][1]["text"] = json!("300 g de riz");
+    let (status, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{deviated}");
+
+    let (_, diary) = app.post_op("list_attempts", Some(&key), "{}");
+    let entry = &diary["result"]["attempts"][0];
+    assert_eq!(
+        entry["recipe"]["branch_id"],
+        json!(branch_id),
+        "the diary opens the recipe where the shelf does: {entry}"
+    );
+    assert_eq!(
+        entry["unkept"]["branch_id"],
+        json!(variation),
+        "and keeps onto the variation that was cooked: {entry}"
+    );
+    assert_eq!(
+        entry["unkept"]["moved_on"],
+        json!(false),
+        "the variation still says what was cooked: {entry}"
+    );
+}
+
+/// A recipe in a Kitchen-mate's Cookbook: the diary says keeping starts a
+/// Copy, and once it has, the Copy holds the changes and nothing is offered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_diary_says_keeping_a_kitchen_mates_recipe_starts_a_copy() {
+    let app = support::spawn_app();
+    let (key, branch_id, _lineage, kitchen_id) = recipe_ready_to_cook(&app, "Stéphane");
+    let (_, other_key, _) = person_with_kitchen(&app, "Marc");
+    let (_, invited) = app.post_op(
+        "invite_to_kitchen",
+        Some(&key),
+        &json!({ "kitchen_id": kitchen_id }).to_string(),
+    );
+    let invite = invited["result"]["secret"].as_str().unwrap().to_string();
+    app.post_op(
+        "accept_kitchen_invite",
+        Some(&other_key),
+        &json!({ "secret": invite }).to_string(),
+    );
+
+    let attempt_id = cooking_katsu(&app, &other_key, &branch_id);
+    let mut cooked = katsu_as_written();
+    cooked["ingredients"][1]["text"] = json!("300 g de riz");
+    let (status, deviated) = app.post_op(
+        "set_as_cooked",
+        Some(&other_key),
+        &json!({ "attempt_id": attempt_id, "as_cooked": cooked }).to_string(),
+    );
+    assert_eq!(status, 200, "{deviated}");
+
+    let (_, diary) = app.post_op("list_attempts", Some(&other_key), "{}");
+    let unkept = diary["result"]["attempts"][0]["unkept"].clone();
+    assert_eq!(unkept["branch_id"], json!(branch_id), "{unkept}");
+    assert_eq!(unkept["writes"], json!(false), "{unkept}");
+    assert_eq!(unkept["mine"], json!(false), "{unkept}");
+    assert_eq!(
+        unkept["cookbook"]["authors"][0]["name"],
+        json!("Stéphane"),
+        "whose Cookbook the recipe stays in: {unkept}"
+    );
+
+    let (status, promoted) = app.post_op(
+        "promote_as_cooked",
+        Some(&other_key),
+        &json!({ "attempt_id": attempt_id, "branch_id": branch_id }).to_string(),
+    );
+    assert_eq!(status, 200, "{promoted}");
+    assert_eq!(promoted["result"]["copied"], json!(true), "{promoted}");
+
+    let (_, diary) = app.post_op("list_attempts", Some(&other_key), "{}");
+    assert_eq!(
+        diary["result"]["attempts"][0]["unkept"],
+        json!(null),
+        "the Copy holds the changes now: {diary}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_read_only_access_key_can_neither_write_an_as_cooked_nor_promote_one() {
     let app = support::spawn_app();
